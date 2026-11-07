@@ -549,6 +549,20 @@ function lootChoicesHtml(f, pending) {
     return `<div class="igs-combat-loot-row igs-combat-loot-choices" style="--n:${slot.choices.length}">${cards}</div>`;
 }
 
+// 规则 v6 删牌：本场正好满 5 场普通胜利时列出卡组里每种牌（点选其一可改选），或不删；金钱不足时只出状态行。
+function purgeHtml(f, pending) {
+    const p = f.purge;
+    if (!p) return '';
+    const cap = `<div class="igs-combat-loot-cap">删牌（消耗${esc(p.cost)}金钱）</div>`;
+    if (!p.available) return `${cap}<p class="igs-combat-state">${esc(p.reason === 'combat-points-insufficient' ? '金钱不足，本次不能删牌' : combatReasonText(p.reason))}</p>`;
+    const cards = (p.cards || []).map((c) => {
+        const label = `${c.name}${c.count > 1 ? ` ×${c.count}` : ''}`;
+        return btn('pick-purge', p.pick === c.copyId ? `${label}（已选）` : label, { id: c.copyId, primary: p.pick === c.copyId, disabled: pending });
+    }).join('');
+    const skip = btn('pick-purge', p.pick === 'skip' ? '已选不删' : '不删', { id: 'skip', primary: p.pick === 'skip', disabled: pending });
+    return `${cap}<div class="igs-combat-purge">${cards}${skip}</div>`;
+}
+
 // 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（金钱不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
 function lootHtml(v) {
     const f = v.flip;
@@ -568,10 +582,10 @@ function lootHtml(v) {
     const tools = `${skip}${reroll}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
-        + `${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
+        + `${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}${purgeHtml(f, pending)}</section>`;
 }
-// 有 offer 时选定战利品前不能发战报：读取中、未选定或三选一卡牌槽还没取牌 / 跳过时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
-const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true)));
+// 有 offer 时选定战利品前不能发战报：读取中、未选定、三选一卡牌槽还没取牌 / 跳过、删牌机会还没选牌 / 不删时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
+const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true || f.needPurge === true)));
 
 // 圆满后的收获：奖金档位与经验牌，只在结算画面显示。
 function harvestHtml(e) {

@@ -3,8 +3,8 @@
 import { getTavernHelper } from './tavern-helper-adapter.js';
 
 export const COMBAT_REPORT_REGEX_ID = 'igs-combat-report-display';
-// 匹配战报块及其后紧跟的 [igs-combat:exp|...] / [igs-combat:loot|...] 行
-export const COMBAT_REPORT_FIND = '/<igs-combat-report\\b[^>]*>[\\s\\S]*?<\\/igs-combat-report>(?:\\n\\[igs-combat:(?:exp|loot)\\|[^\\]\\n]*\\])*/gi';
+// 匹配战报块及其后紧跟的 [igs-combat:exp|...] / [igs-combat:loot|...] / [igs-combat:purge|...] 行
+export const COMBAT_REPORT_FIND = '/<igs-combat-report\\b[^>]*>[\\s\\S]*?<\\/igs-combat-report>(?:\\n\\[igs-combat:(?:exp|loot|purge)\\|[^\\]\\n]*\\])*/gi';
 export const COMBAT_REPORT_REPLACE = `<details><summary>战斗记录</summary>
 
 {{match}}

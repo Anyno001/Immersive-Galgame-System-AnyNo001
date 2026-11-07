@@ -84,14 +84,6 @@ const REASON_TEXT = Object.freeze({
     'combat-trait-slot-cost-invalid': '特性槽价格已变化，请重试',
     'combat-trait-slot-kind-mismatch': '只有卡组角色可以解锁特性槽',
     'combat-trait-slot-no-floor': '当前聊天没有楼层，无法解锁特性槽',
-    'combat-purge-unavailable': '当前无法删卡',
-    'combat-purge-not-due': '还没有删卡机会',
-    'combat-purge-used': '这次删卡机会已用过',
-    'combat-purge-deck-min': '卡组已到下限，不能再删',
-    'combat-purge-copy-missing': '卡组里没有这张牌',
-    'combat-purge-cost-invalid': '删卡价格已变化，请重试',
-    'combat-purge-kind-mismatch': '只有卡组角色可以删卡',
-    'combat-purge-no-floor': '当前聊天没有楼层，无法删卡',
     'combat-character-missing': '没有这个角色',
     'combat-item-insufficient': '道具数量不足',
     'combat-use-battle-only': '这件道具只能在战斗中使用',
@@ -138,8 +130,7 @@ function artAction(c, readonly) {
 }
 
 // editable：可加入 / 移出（规则 v6 卡组即持有，只有旧档案卡组需要调整时才开放）。
-// purge：删卡待选时卡组里的牌出「删去一张」。
-function cardRow(c, readonly, editable = !readonly, purge = null) {
+function cardRow(c, readonly, editable = !readonly) {
     const err = c.errors.length ? `<span class="igs-deck-err">${esc(c.errors.map((r) => CARD_ERROR[r] || r).join('、'))}</span>` : '';
     const up = c.upgraded ? ` · 已升级 ${c.upgraded}` : '';
     // 卡牌属性性能预览：要求属性与要求值，倍率高于 1 青绿、低于 1 灰色。
@@ -152,8 +143,7 @@ function cardRow(c, readonly, editable = !readonly, purge = null) {
     const variants = (c.variants || []).length ? `<div class="igs-deck-tags">${c.variants.map((x) => `<span class="igs-deck-tag"${x.tip ? ` title="${esc(x.tip)}"` : ''}>${esc(`${x.label} · ${x.inDeck === null ? `×${x.owned}` : `${x.inDeck}/${x.owned}`}`)}</span>`).join('')}</div>` : '';
     // 一张卡一块：费用、卡面、名称与效果在左；来源、属性要求、数量与操作收在右侧一栏（窄屏整栏移到下方），不与下一张卡混在一起。
     const count = `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>`;
-    const acts = artAction(c, readonly) + (readonly || !editable ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`)
-        + (purge && !readonly && c.inDeck > 0 ? btn('purge-pick', purge.pending ? '删除中' : '删去一张', { id: c.cardId, disabled: purge.busy }) : '');
+    const acts = artAction(c, readonly) + (readonly || !editable ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`);
     return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
         + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${variants}${upgraded}${err}</div>`
         + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${scale}${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
@@ -191,18 +181,6 @@ function classActionsHtml(v, d) {
     return acts.length ? `<div class="igs-deck-actions">${acts.join('')}</div>` : '';
 }
 
-// 规则 v6 删卡（只主角）：机会可用时给按钮（金钱不足置灰），未到时写还差几场；打开后在卡组里点选，可取消。
-function purgeHtml(v, d) {
-    const p = d.purge;
-    if (v.readonly || !v.canPurge || !d.canSell || !p) return '';
-    const busy = Boolean(v.pending);
-    if (v.purging) return `<div class="igs-deck-actions">${btn('purge-cancel', '取消删卡', { disabled: busy })}</div>`;
-    if (p.available) return `<div class="igs-deck-actions">${btn('purge-open', `删去一张牌（消耗${p.cost}金钱）`, { disabled: busy || (d.points || 0) < p.cost })}</div>`;
-    const wait = p.reason === 'combat-purge-not-due' ? `再胜 ${p.next - p.battle} 场可删一张牌`
-        : p.reason === 'combat-purge-deck-min' ? '卡组已到下限，不能删卡' : '本次删卡机会已用过';
-    return row('删卡', chip(wait));
-}
-
 function deckHtml(v, d) {
     const c = d.check;
     const sizeBad = c.errors.some((e) => e.reason === 'deck-too-small' || e.reason === 'deck-too-large');
@@ -219,8 +197,7 @@ function deckHtml(v, d) {
     const candidates = d.classCandidates || [];
     const pool = candidates.length ? `<details class="igs-deck-pool"><summary>${esc(d.className)} · 未拥有的职业牌（${candidates.length} 种）</summary><p class="igs-deck-help">以下是候选，并非已持有。可在升级奖励三选一中抽到；转职保留旧牌，不自动换牌。重建基础卡组会按当前职业重新组牌，另收页面标示的费用。</p><ul class="igs-deck-cards">${candidates.map((x) => cardRow(x, true)).join('')}</ul></details>` : '';
     const passive = d.classPassive ? row('职业被动', chip(`${d.classPassive.name}：${d.classPassive.text}`)) : '';
-    const purge = v.purging && d.purge?.available ? { busy: Boolean(v.pending), pending: v.pending === 'purge' } : null;
-    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}${purgeHtml(v, d)}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly, editable, purge)).join('')}</ul>${pool}${actions ? `<div class="igs-deck-actions">${actions}</div>` : ''}${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
+    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly, editable)).join('')}</ul>${pool}${actions ? `<div class="igs-deck-actions">${actions}</div>` : ''}${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
 }
 
 // 装备栏：四个部位各一行内的标签，已装备的可卸下（卸下后进背包页）；道具只列余量。

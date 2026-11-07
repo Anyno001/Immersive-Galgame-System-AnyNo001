@@ -53,14 +53,12 @@ export const ASCEND_TAG_HASH = 'ascend';
 export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
 export const USE_TAG_HASH = 'use';
-// 规则 v6 删卡：面板操作，锚定写入时最新楼层。
-export const PURGE_TAG_HASH = 'purge';
 export const ALLOC_TAG_HASH = 'alloc';
 // 日常挑战圆满后的经验牌：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'battle-growth', 'purge']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'battle-growth']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -77,7 +75,7 @@ const TYPE_ORDER = Object.freeze({
     'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
-const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH, PURGE_TAG_HASH]);
+const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
 const typeRank = (entry) => (PANEL_TAG_HASHES.has(entry.anchor?.tagHash) ? 20 : TYPE_ORDER[entry.type]);
 
 // 同一楼同一 swipe 上，某角色已有多少条面板记录（新面板记录的 occurrence 取这个数）。
@@ -285,6 +283,8 @@ function inactiveReason(entry, scanFloor) {
     if (challengeReward && floor.challenge?.outcome !== '圆满') return 'challenge-reward-invalid';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
     if (entry.type === 'loot' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'loot-report-invalid';
+    // 规则 v6 删卡：只认胜利战报楼里本场战报的删卡标签。
+    if (entry.type === 'purge' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'purge-report-invalid';
     if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';
     if (entry.type === 'battle-growth' && floor.report?.reportId !== entry.payload.reportId) return 'battle-growth-report-invalid';
     return null;
@@ -953,7 +953,28 @@ export function purgeOpportunity(state) {
                 : size <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min'
                     : null;
     const next = battle + (PURGE_EVERY - (battle % PURGE_EVERY || PURGE_EVERY)) || PURGE_EVERY;
-    return { battle, cost, available: reason === null, next: reason === 'combat-purge-not-due' ? next : battle, ...(reason ? { reason } : {}) };
+    return {
+        battle, cost, available: reason === null, next: reason === 'combat-purge-not-due' ? next : battle, ...(reason ? { reason } : {}),
+        wins: [...(state?.battleWins || [])],
+    };
+}
+
+// 规则 v6 删卡：按角色视图算某场普通胜利（战报 ID）结算时的删卡机会。这场还没计入胜场时（战报尚未发出）按下一场算，
+// 已计入时按它当时的场次算；不是最近一场即已过期。结算页与战报楼删卡标签共用这一口径。
+export function purgeChance(view, reportId) {
+    if (view?.kind !== 'deck-character') return { available: false, reason: 'combat-purge-kind-mismatch' };
+    const p = view.purge;
+    const wins = Array.isArray(p?.wins) ? p.wins : [];
+    const at = reportId ? wins.indexOf(reportId) : -1;
+    const battle = at < 0 ? wins.length + 1 : at + 1;
+    const cost = p?.cost ?? purgeCost(0);
+    const size = Array.isArray(view.deck) ? view.deck.length : 0;
+    const reason = battle % PURGE_EVERY !== 0 ? 'combat-purge-not-due'
+        : at >= 0 && battle !== wins.length ? 'combat-purge-expired'
+            : at >= 0 && p?.reason === 'combat-purge-used' ? 'combat-purge-used'
+                : size <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min'
+                    : null;
+    return { battle, cost, available: reason === null, ...(reason ? { reason } : {}) };
 }
 
 // 重放去重键：同一角色同一类型同一标签位置只认一条。
@@ -1385,6 +1406,26 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
 }
 
+// 规则 v6 删卡标签 [igs-combat:purge|角色|战报ID|副本ID] -> 删卡记录：只认胜利战报楼里本场战报、主角卡组角色，
+// 本场正好满 PURGE_EVERY 场普通胜利（purgeChance）且副本在卡组里；场次与费用按扫描时的账本推定，重放时再核一次。
+function buildPurgeEntry(effective, index, directive, anchor, report, text, userName, now) {
+    if (report?.result !== 'win') return { ok: false, reason: 'combat-purge-not-victory' };
+    if (reportIdOf(text) !== directive.reportId) return { ok: false, reason: 'combat-purge-report-mismatch' };
+    const key = characterKeyFor(index, directive.character, userName);
+    const id = canonicalCharacterId(index, key) ?? key;
+    const heroId = effective?.ok ? effective.attributes?.heroId : null;
+    if (heroId && id !== heroId) return { ok: false, reason: 'combat-points-not-protagonist' };
+    const character = effective?.ok ? effective.characters.get(id) : null;
+    const chance = purgeChance(character, directive.reportId);
+    if (!chance.available) return { ok: false, reason: chance.reason };
+    if (!(character.deckEntries || []).some((row) => row.copyId === directive.copyId)) return { ok: false, reason: 'combat-purge-copy-missing' };
+    const normalized = normalizeLedgerEntry({
+        id: ledgerEntryId('purge', key, anchor), type: 'purge', character: key, anchor,
+        payload: { copyId: directive.copyId, cost: chance.cost, battle: chance.battle, reportId: directive.reportId }, createdAt: now,
+    });
+    return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
+}
+
 // 规则 v5 P5b 刻印标签 [igs-combat:inscribe|角色|牌名|刻印名|原因] -> 刻印记录：只在角色卡组里按牌名找第一张未刻、适用该刻印的副本，记录写明 copyId。
 // taken 为本次扫描已分出去的副本（同一轮多个标签不落到同一张）。
 const INSCRIPTION_BY_NAME = new Map(Object.entries(INSCRIPTION_LABELS).flatMap(([key, label]) => [[label, key], [key, key]]));
@@ -1461,6 +1502,14 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
             if (directive.kind === 'loot') {
                 if (alreadyWritten(['loot'], directive.character, anchor)) continue;
                 const built = buildLootEntry(effective, index, directive, anchor, report, text, userName, now);
+                if (built.ok) entries.push(built.entry);
+                else diagnostics.push({ code: built.reason, messageId, character: directive.character, reportId: directive.reportId });
+                continue;
+            }
+            if (directive.kind === 'purge') {
+                if (!report) { diagnostics.push({ code: 'combat-purge-tag-outside-report', messageId, character: directive.character }); continue; }
+                if (alreadyWritten(['purge'], directive.character, anchor)) continue;
+                const built = buildPurgeEntry(effective, index, directive, anchor, report, text, userName, now);
                 if (built.ok) entries.push(built.entry);
                 else diagnostics.push({ code: built.reason, messageId, character: directive.character, reportId: directive.reportId });
                 continue;
@@ -1756,7 +1805,7 @@ export function buildSellEntry(snapshot, chat, effective, target, now = 0) {
 
 // 主角面板操作类型 -> 挂的标签。
 const PANEL_ACTION_TAGS = Object.freeze({
-    rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH, purge: PURGE_TAG_HASH,
+    rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH,
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
@@ -2368,21 +2417,10 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         const cost = TRAIT_SLOT_COSTS[slot];
         return cost ? heroPanelAction(characterId, 'trait-slot', { slot, cost }) : Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
     }
-    // 规则 v6 删卡：按当前机会（胜场档与费用）写一条 purge；机会、费用与副本由试重放再核一次。
-    async function purgeCard(characterId, copyId) {
-        const state = await effectiveState();
-        if (!state.ok) return state;
-        const hero = state.characters.get(characterId);
-        if (!hero || hero.kind !== 'deck-character') return { ok: false, reason: 'combat-purge-kind-mismatch' };
-        const purge = hero.purge;
-        if (!purge?.available) return { ok: false, reason: purge?.reason || 'combat-purge-not-due' };
-        if (!hero.deckEntries.some((row) => row.copyId === copyId)) return { ok: false, reason: 'combat-purge-copy-missing' };
-        return heroPanelAction(characterId, 'purge', { copyId, cost: purge.cost, battle: purge.battle });
-    }
 
     return {
         read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
-        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, purgeCard,
+        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot,
         stats: readStats,
     };
 }

@@ -991,43 +991,54 @@ test('规则 v6 取消自由组卡：卡组合规时 saveDeck 拒写 deck 记录
     assert.deepEqual(replayed.deck, trimmed);
     assert.equal(replayed.deckNeedsAdjust, false);
 });
-test('规则 v6 按场次删卡：只计战报楼本场经验的普通胜利，每满 5 场一次机会、过期作废，费用 75 + 50 × 已删次数，删后不少于 10 张', async () => {
+test('规则 v6 按场次删卡：第 5 场胜利战报里的删牌标签入账，跳过不写，过期与重复扫描不扣费，费用 75 + 50 × 已删次数，删后不少于 10 张', async () => {
     const { reportIdFor } = await import('../src/combat/report.js');
-    const { purgeOpportunity } = await import('../src/combat/ledger.js');
+    const { purgeOpportunity, purgeChance } = await import('../src/combat/ledger.js');
     const tables = memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]);
     const ref = { chat: [ai('正文')] };
     const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '主角', now: () => 7, wallet: () => 1000 });
-    const winFloor = (i) => {
-        const rid = reportIdFor(`cb|purge|${i}`);
-        return user(`<igs-combat-report id="${rid}" result="win">终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${rid}]`);
+    const ridOf = (i) => reportIdFor(`cb|purge|${i}`);
+    const winFloor = (i, copyId = '') => {
+        const rid = ridOf(i);
+        return user(`<igs-combat-report id="${rid}" result="win">终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${rid}]${copyId ? `\n[igs-combat:purge|主角|${rid}|${copyId}]` : ''}`);
     };
-    const addWins = async (from, to) => {
-        for (let i = from; i < to; i += 1) ref.chat.push(winFloor(i), ai(`第${i}场后[igs-combat:exp|主角|3|历练]`));
+    const settle = async () => {
         const scanned = await ledger.scan();
-        assert.equal((await ledger.append(scanned.entries.filter((e) => e.type === 'exp'))).ok, true);
-        return heroOf(await ledger.effectiveState());
+        assert.equal((await ledger.append(scanned.entries)).ok, true);
+        return { scanned, me: heroOf(await ledger.effectiveState()) };
     };
-    let me = await addWins(0, 4);
+    const addWins = async (from, to, copyAt = {}) => {
+        for (let i = from; i < to; i += 1) ref.chat.push(winFloor(i, copyAt[i]), ai(`第${i}场后[igs-combat:exp|主角|3|历练]`));
+        return settle();
+    };
+    let { me } = await addWins(0, 4);
     assert.deepEqual([me.purge.battle, me.purge.available, me.purge.reason, me.purge.next], [4, false, 'combat-purge-not-due', 5]);
-    assert.equal((await ledger.purgeCard('pc-hero', me.deckEntries[0].copyId)).reason, 'combat-purge-not-due');
-    me = await addWins(4, 5);
-    assert.deepEqual([me.purge.battle, me.purge.available, me.purge.cost], [5, true, 75]);
+    // 结算页口径：第 5 场战报尚未发出时按下一场算，正好满 5 场可删；第 4 场已计入、不在档上。
+    assert.deepEqual([purgeChance(me, ridOf(4)).battle, purgeChance(me, ridOf(4)).available, purgeChance(me, ridOf(4)).cost], [5, true, 75]);
+    assert.equal(purgeChance(me, ridOf(3)).reason, 'combat-purge-not-due');
     const size = me.deck.length;
     const target = me.deckEntries.at(-1).copyId;
-    assert.equal((await ledger.purgeCard('pc-hero', 'nope:0')).reason, 'combat-purge-copy-missing');
-    const done = await ledger.purgeCard('pc-hero', target);
-    assert.equal(done.ok, true, JSON.stringify(done));
-    me = heroOf(await ledger.effectiveState());
+    let scanned;
+    ({ me, scanned } = await addWins(4, 5, { 4: target }));
+    assert.deepEqual(scanned.entries.filter((e) => e.type === 'purge').map((e) => [e.payload.copyId, e.payload.cost, e.payload.battle, e.payload.reportId]), [[target, 75, 5, ridOf(4)]]);
     assert.deepEqual([me.deck.length, me.deckEntries.some((e) => e.copyId === target), me.purge.reason, me.purge.cost], [size - 1, false, 'combat-purge-used', 125]);
     assert.equal(me.points, 1000 - 75);
-    assert.equal((await ledger.purgeCard('pc-hero', me.deckEntries[0].copyId)).reason, 'combat-purge-used');
-    me = await addWins(5, 6);
+    // 重复扫描同一楼不再写删牌记录，不重复扣费。
+    ({ me, scanned } = await settle());
+    assert.deepEqual([scanned.entries.filter((e) => e.type === 'purge').length, me.points, me.deck.length], [0, 1000 - 75, size - 1]);
+    // 第 6 场战报里手写的删牌标签：不在档上，不入账。
+    ({ me, scanned } = await addWins(5, 6, { 5: me.deckEntries[0].copyId }));
+    assert.equal(scanned.entries.filter((e) => e.type === 'purge').length, 0);
+    assert.ok(scanned.diagnostics.some((d) => d.code === 'combat-purge-not-due'), JSON.stringify(scanned.diagnostics));
     assert.deepEqual([me.purge.battle, me.purge.available, me.purge.next], [6, false, 10]);
-    me = await addWins(6, 10);
+    // 第 10 场跳过（战报不带删牌标签）：机会过期作废，费用不变。
+    ({ me } = await addWins(6, 10));
     assert.deepEqual([me.purge.battle, me.purge.available, me.purge.cost], [10, true, 125]);
-    me = await addWins(10, 11);
+    ({ me } = await addWins(10, 11));
     assert.equal(me.purge.reason, 'combat-purge-not-due');
-    assert.equal(me.points, 1000 - 75);
+    assert.deepEqual([me.points, me.deck.length], [1000 - 75, size - 1]);
+    // 过期后再补写第 10 场的删牌标签不入账。
+    assert.equal(purgeChance(me, ridOf(9)).reason, 'combat-purge-expired');
     const small = { kind: 'deck-character', battleWins: new Set([1, 2, 3, 4, 5]), purges: 0, purgedAt: new Set(), deck: Array(10).fill('c1') };
     assert.equal(purgeOpportunity(small).reason, 'combat-purge-deck-min');
     assert.equal(purgeOpportunity({ ...small, deck: Array(11).fill('c1') }).available, true);

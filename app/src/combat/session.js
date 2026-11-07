@@ -11,8 +11,8 @@ import {
     templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization, encounterThemeEntity, profileGearEntity,
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
-import { attachLoot, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { BATTLE_GROWTH_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear } from './ledger.js';
+import { attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
+import { BATTLE_GROWTH_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance } from './ledger.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
@@ -35,7 +35,7 @@ import { planChallengeReward } from './challenge-reward.js';
 import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
 import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } from './intimate-setup.js';
 import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from '../scene/intimate-duel.js';
-import { chooseCard, emptyPick, flipCard, flipView, hasCardChoices, laterPick, lootOf, normalizePick, pickCardChoice, rerollPick } from './flip.js';
+import { chooseCard, emptyPick, flipCard, flipView, hasCardChoices, laterPick, lootOf, normalizePick, pickCardChoice, pickPurgeChoice, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
 import { equippedGear } from './gear-slots.js';
@@ -831,7 +831,31 @@ export function createCombatSession(options = {}) {
     const currentResult = () => currentReport()?.result ?? (current.battle?.outcome === 'victory' ? 'win' : null);
     const noLootNow = () => currentReport()?.noLoot === true || current.battle?.noLoot === true;
     const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win' && !noLootNow();
-    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) });
+    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) }, context.purge);
+
+    // 规则 v6 删卡：本场普通胜利正好满 5 场时，结算页给主角一次删牌机会（可跳过）。没到场次时不给字段。
+    // cards 按牌合并：每种牌给一张代表副本（优先不带升级、成长与刻印的，取最后获得的）。
+    function purgeOfHero(hero, combatId, points) {
+        if (hero?.kind !== 'deck-character') return null;
+        const chance = purgeChance(hero, reportIdFor(combatId));
+        if (chance.reason === 'combat-purge-not-due' || chance.reason === 'combat-purge-kind-mismatch') return null;
+        const short = chance.available && points < chance.cost;
+        const base = { battle: chance.battle, cost: chance.cost, available: chance.available && !short, ...(short ? { reason: 'combat-points-insufficient' } : chance.reason ? { reason: chance.reason } : {}) };
+        if (!base.available) return base;
+        const groups = new Map();
+        for (const row of hero.deckEntries || []) {
+            if (!row.copyId) continue;
+            const group = groups.get(row.cardId) || { rows: [] };
+            group.rows.push(row);
+            groups.set(row.cardId, group);
+        }
+        const cards = [...groups].map(([cardId, { rows }]) => {
+            const plain = rows.filter((r) => !r.upgraded && !r.bonus && !r.inscription);
+            const card = hero.catalog?.get?.(cardId) || {};
+            return { copyId: (plain.length ? plain : rows).at(-1).copyId, cardId, name: card.name || cardId, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', effects: card.effects || [], count: rows.length };
+        });
+        return { ...base, cards };
+    }
 
     // 读取奖励候选并合并三处来源（内存记录、本地会话、聊天记录）里的已翻结果；同一战斗并发调用共用同一次读取
     function loadFlip() {
@@ -869,10 +893,15 @@ export function createCombatSession(options = {}) {
         const picks = [current.record?.flip, savedFlip, chatRecord.value?.flip].filter((pick) => pick != null).map((pick) => normalizePick(pick, offer));
         if (picks.some((pick) => !pick)) return finishWith({ status: 'error', reason: 'combat-flip-corrupt' });
         const heroId = ledgerState.attributes?.heroId ?? null;
+        // 删卡只在规则 v6 的战斗结算里出现（与奖励三选一同一门控）。
+        const v6 = (current.record?.setup?.rulesVersion ?? COMBAT_RULES.version) >= 6;
+        const points = (heroId && ledgerState.characters.get(heroId)?.points) || 0;
         const context = {
             combatId: identity.combatId, offer, pick: picks.reduce(laterPick, null) || emptyPick(),
-            points: (heroId && ledgerState.characters.get(heroId)?.points) || 0, payer: !!heroId && offer.character === heroId,
+            points, payer: !!heroId && offer.character === heroId,
             character: ledgerState.characters.get(offer.character)?.name || getUserName(),
+            purge: heroId && v6 ? purgeOfHero(ledgerState.characters.get(heroId), identity.combatId, points) : null,
+            heroName: (heroId && ledgerState.characters.get(heroId)?.name) || getUserName(),
         };
         return finishWith(viewOfFlip(context), context);
     }
@@ -926,6 +955,8 @@ export function createCombatSession(options = {}) {
     // 规则 v6 卡牌槽：在候选里取第几张（0 起）或 'skip' 放弃
     const pickCard = (value) => updateFlip((context) => pickCardChoice(context.offer, context.pick, value));
     const reroll = () => updateFlip((context) => rerollPick(context.offer, context.pick, { points: context.points, payer: context.payer }));
+    // 规则 v6 删卡：选一张卡组副本（copyId）或 'skip' 不删；发送前可改选。
+    const pickPurge = (value) => updateFlip((context) => pickPurgeChoice(context.purge, context.pick, value));
 
     // 发送战报前确认翻牌奖励：胜利且未领奖时，把选中的奖励追加进战报文本
     async function resolveLoot(report) {
@@ -938,8 +969,17 @@ export function createCombatSession(options = {}) {
         if (!loot) return { ok: false, reason: 'combat-flip-required' };
         if (hasCardChoices(loot.slot) && loot.pick === undefined) return { ok: false, reason: 'combat-flip-card-required' };
         if (loot.set === 'reserve' && flipContext.points < REROLL_COST) return { ok: false, reason: 'combat-points-insufficient' };
+        const purge = flipContext.purge;
+        const purgePick = flipContext.pick.purge;
+        if (purge?.available && purgePick === undefined) return { ok: false, reason: 'combat-purge-required' };
+        const purgeCard = purge?.available && purgePick !== 'skip' ? (purge.cards || []).find((c) => c.copyId === purgePick) : null;
+        if (purge?.available && purgePick !== 'skip' && !purgeCard) return { ok: false, reason: 'combat-purge-copy-missing' };
+        const spend = (loot.set === 'reserve' ? REROLL_COST : 0) + (purgeCard ? purge.cost : 0);
+        if (purgeCard && flipContext.points < spend) return { ok: false, reason: 'combat-points-insufficient' };
         await flipWriteChain;
-        return { ok: true, item: { ...report, text: attachLoot(report.text, { character: flipContext.character, reportId: report.reportId, ...loot }) } };
+        const looted = attachLoot(report.text, { character: flipContext.character, reportId: report.reportId, ...loot });
+        const text = purgeCard ? attachPurge(looted, { character: flipContext.heroName, reportId: report.reportId, copyId: purgeCard.copyId, name: purgeCard.name }) : looted;
+        return { ok: true, item: { ...report, text } };
     }
 
     // ---- 备战 ----
@@ -1587,7 +1627,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, pickPurge, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

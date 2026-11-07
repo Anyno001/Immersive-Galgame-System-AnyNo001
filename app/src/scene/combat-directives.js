@@ -8,7 +8,7 @@ import { readerBodyText } from './message-source.js';
 import { stripIllustrationMarkers } from './scene-directives.js';
 
 export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 50, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1e3 });
-export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal', 'inscribe']);
+export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal', 'inscribe', 'purge']);
 
 // 战报编号：r + 最多 13 位小写字母数字。
 const REPORT_ID_PATTERN = /^r[0-9a-z]{1,13}$/;
@@ -161,7 +161,8 @@ function parseStartFields(fields) {
 
 // 各成长标签允许的最大字段数（含角色名）。
 // loot 第 5 字段（规则 v6）：三选一卡牌槽的候选序号（0 起）或 skip，旧标签不带。
-const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 5, heal: 3, inscribe: 4 });
+// purge（规则 v6 删卡，只写在胜利战报后）：角色、战报 ID、卡组副本 ID。
+const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 5, heal: 3, inscribe: 4, purge: 3 });
 const HEAL_FLAT_MAX = 9999;
 
 // 稀有度字段：空为 null（不指定），未知词报错。
@@ -216,6 +217,13 @@ function parseGrowthFields(kind, fields) {
         if (pickWord === 'skip') return { ok: true, value: { ...base, reportId, slot, set, pick: 'skip' } };
         const pick = parseIntInRange(pickWord, 0, 2);
         return pick === null ? fail('pick', 'invalid-pick') : { ok: true, value: { ...base, reportId, slot, set, pick } };
+    }
+    if (kind === 'purge') {
+        const reportId = String(fields[1] ?? '').trim();
+        if (!REPORT_ID_PATTERN.test(reportId)) return fail('reportId', 'invalid-report-id');
+        const copyId = String(fields[2] ?? '').trim();
+        if (!/^[A-Za-z0-9_:.-]{1,200}$/.test(copyId)) return fail('copyId', 'invalid-copy-id');
+        return { ok: true, value: { ...base, reportId, copyId } };
     }
     if (kind === 'heal') {
         // 数量可写成百分比（含全角％）。

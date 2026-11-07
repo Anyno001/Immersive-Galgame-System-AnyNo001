@@ -1,5 +1,6 @@
-// 翻牌奖励：翻哪几张、选哪张、重抽备选组、可见性。选择状态 pick = { set, flipped, choice, card? }。
+// 翻牌奖励：翻哪几张、选哪张、重抽备选组、可见性。选择状态 pick = { set, flipped, choice, card?, purge? }。
 // card（规则 v6）：选定的是带 choices 的卡牌槽时，再从候选里取第几张（0 起）或 'skip' 放弃；旧进度不带。
+// purge（规则 v6 删卡）：本场胜利正好满 5 场普通胜利时，要删的卡组副本 ID 或 'skip' 不删；没有删卡机会时不带。
 import { hash32, randomInt } from './random.js';
 import { REWARD_CARD_CHOICES, REWARD_SLOT_COUNT } from './schema.js';
 import { REROLL_COST } from './points.js';
@@ -37,6 +38,8 @@ const chosenSlot = (reward, set, choice) => (choice === null ? null : slotsOf(re
 // 槽位是否要再三选一（规则 v6 卡牌槽）。
 export const hasCardChoices = (slot) => slot?.kind === 'card' && Array.isArray(slot.choices) && slot.choices.length > 0;
 const validCardPick = (value) => value === 'skip' || (Number.isInteger(value) && value >= 0 && value < REWARD_CARD_CHOICES);
+// 删卡选择：卡组副本 ID（与账本副本 ID 同字符集）或 'skip'。
+const validPurgePick = (value) => typeof value === 'string' && (value === 'skip' || /^[A-Za-z0-9_:.-]{1,200}$/.test(value));
 
 // 校验并规范化存档里的选择状态；非法返回 null。
 export function normalizePick(pick, reward) {
@@ -51,13 +54,15 @@ export function normalizePick(pick, reward) {
     if (choice !== null && !flipped.includes(choice)) return null;
     // 单翻必须已选中翻开的那张；双翻未翻满不能有选择。
     if ((flips === 1 && flipped.length === 1 && choice !== flipped[0]) || (flips === 2 && choice !== null && flipped.length < 2)) return null;
-    if (pick.card === undefined) return { set, flipped: [...flipped], choice };
+    if (pick.purge !== undefined && !validPurgePick(pick.purge)) return null;
+    const purge = pick.purge === undefined ? {} : { purge: pick.purge };
+    if (pick.card === undefined) return { set, flipped: [...flipped], choice, ...purge };
     if (!validCardPick(pick.card) || !hasCardChoices(chosenSlot(reward, set, choice))) return null;
-    return { set, flipped: [...flipped], choice, card: pick.card };
+    return { set, flipped: [...flipped], choice, card: pick.card, ...purge };
 }
 
-// 进度分：用于两份选择状态取较新者。备选组远大于主组，其次看翻开数，再看是否已选，最后看是否已定候选。
-const progressOf = (pick) => (pick.set === 'reserve' ? 100 : 0) + pick.flipped.length * 4 + (pick.choice === null ? 0 : 2) + (pick.card === undefined ? 0 : 1);
+// 进度分：用于两份选择状态取较新者。备选组远大于主组，其次看翻开数，再看是否已选，再看是否已定候选，最后看是否已定删牌。
+const progressOf = (pick) => (pick.set === 'reserve' ? 100 : 0) + pick.flipped.length * 8 + (pick.choice === null ? 0 : 4) + (pick.card === undefined ? 0 : 2) + (pick.purge === undefined ? 0 : 1);
 // 取进度更靠后的选择状态（任一为空取另一个；进度相同取先者）。
 export const laterPick = (a, b) => (a ? (b && progressOf(b) > progressOf(a) ? b : a) : b);
 
@@ -87,6 +92,14 @@ export function pickCardChoice(reward, pick, value) {
     return { ok: true, pick: { ...pick, card: value } };
 }
 
+// 规则 v6 删卡：在本场的删卡机会里选一张卡组副本（copyId）或放弃（'skip'）；可在发送前改选。
+// purge 为会话算出的机会 { available, cards: [{ copyId, ... }] }。
+export function pickPurgeChoice(purge, pick, value) {
+    if (!purge?.available) return { ok: false, reason: purge?.reason || 'combat-purge-not-due' };
+    if (value !== 'skip' && !(purge.cards || []).some((c) => c.copyId === value)) return { ok: false, reason: 'combat-purge-copy-missing' };
+    return { ok: true, pick: { ...pick, purge: value } };
+}
+
 // 重抽状态：费用、当前点数、是否可用及不可用原因。locked 指已锁定（不可再改）。
 export function rerollState(reward, pick, { points = 0, payer = false, locked = false } = {}) {
     const reason = locked ? 'combat-flip-locked'
@@ -99,7 +112,7 @@ export function rerollState(reward, pick, { points = 0, payer = false, locked = 
 // 执行重抽：切到备选组并清空翻牌。
 export function rerollPick(reward, pick, options) {
     const state = rerollState(reward, pick, options);
-    return state.available ? { ok: true, pick: { set: 'reserve', flipped: [], choice: null } } : { ok: false, reason: state.reason };
+    return state.available ? { ok: true, pick: { set: 'reserve', flipped: [], choice: null, ...(pick.purge === undefined ? {} : { purge: pick.purge }) } } : { ok: false, reason: state.reason };
 }
 
 // 已选中的奖励：{ set, index（槽位下标）, slot, pick? }；未选或越界返回 null。带 choices 的卡牌槽附上候选选择（未定时不带）。
@@ -112,7 +125,8 @@ export function lootOf(reward, pick) {
 }
 
 // 翻牌界面视图：每个展示位置是否正面朝上（已选/已翻/透视）。朝上的 slot 深拷贝，避免外部改动共享数据。
-export function flipView(reward, pick, rerollOptions = {}) {
+// purge（规则 v6 删卡机会，可选）：{ available, cost, battle, reason?, cards }；视图带 needPurge（机会可用且还没选或跳过）与当前选择。
+export function flipView(reward, pick, rerollOptions = {}, purge = null) {
     const slots = slotsOf(reward, pick.set);
     const revealed = new Set(revealedOf(reward, pick.set));
     const done = pick.choice !== null;
@@ -125,5 +139,6 @@ export function flipView(reward, pick, rerollOptions = {}) {
     // 规则 v6：选定的卡牌槽带候选时，needCard 表示还没在候选里取牌或放弃；card 为已定的选择。没有候选时视图形状不变。
     const cardChoices = done && hasCardChoices(chosenSlot(reward, pick.set, pick.choice));
     const card = cardChoices ? { needCard: pick.card === undefined, ...(pick.card !== undefined ? { card: pick.card } : {}) } : {};
-    return { status: 'ready', set: pick.set, flips, done, needChoice: !done && flips > 1 && pick.flipped.length >= flips, ...card, cards, reroll: rerollState(reward, pick, rerollOptions) };
+    const purgeView = purge ? { purge: { ...JSON.parse(JSON.stringify(purge)), ...(pick.purge !== undefined ? { pick: pick.purge } : {}) }, needPurge: purge.available === true && pick.purge === undefined } : {};
+    return { status: 'ready', set: pick.set, flips, done, needChoice: !done && flips > 1 && pick.flipped.length >= flips, ...card, cards, reroll: rerollState(reward, pick, rerollOptions), ...purgeView };
 }

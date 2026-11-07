@@ -62,6 +62,20 @@ export function attachLoot(text, loot) {
     return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n${mark}`;
 }
 
+const PURGE_MARK = /\[igs-combat:purge\|/;
+export const hasPurge = (text) => PURGE_MARK.test(String(text || ''));
+
+// 规则 v6 删卡：在战报块末尾追加一行删牌描述，并在块后（战利品标记之后）追加删卡标记 [igs-combat:purge|角色|战报ID|副本ID]。
+// 已有删卡标记、副本 ID 非法或没有战报块时原样返回。
+export function attachPurge(text, purge) {
+    const body = String(text || '');
+    const copyId = String(purge?.copyId || '');
+    if(!/^[A-Za-z0-9_:.-]{1,200}$/.test(copyId) || hasPurge(body) || !body.includes('</igs-combat-report>')) return body;
+    const character = sanitize(purge.character);
+    const line = `删牌：${character}从卡组里删去了「${sanitize(purge.name)}」。`;
+    return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n[igs-combat:purge|${character}|${purge.reportId}|${copyId}]`;
+}
+
 // 伤势描述：按剩余血量比例分档。
 export function injuryLevel(unit) {
     if (unit?.left) return LEFT_TEXT[unit.left] || '退场';

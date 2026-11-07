@@ -50,8 +50,6 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let ascend = false;
     // 抽人物特性待确认（只主角）；换角色、换页、重读与开关面板时清空。已满时抽到的待定特性来自账本，替换或放弃即为确认。
     let trait = false;
-    // 规则 v6 删卡待选（只主角）：打开后卡组里每种牌出「删去一张」；换角色、换页与重读时清空。
-    let purging = false;
     let abort = null;
     // 抽人物特性揭晓（P-f）：{ phase: 'charge' | 'open', rarity, traitId, played }。确认抽取即进入蓄力（稀有度与服务层同一 planTrait 预定），
     // 写入并重读账本后翻开；失败、换角色、换页与开关面板时清空，重读账本保留。翻开动画只在第一次画出时播放（played）。
@@ -140,8 +138,6 @@ export function createCombatDeckPanelController(doc, options = {}) {
             canDrawTrait: typeof options.drawTrait === 'function',
             canPickTrait: typeof options.pickTrait === 'function',
             canUnlockSlot: typeof options.unlockTraitSlot === 'function',
-            canPurge: typeof options.purgeCard === 'function',
-            purging,
         };
     }
 
@@ -605,32 +601,6 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
-    // 规则 v6 删卡（只主角）：机会可用且金钱够时打开；选一种牌删去卡组里的一张副本（优先不带升级、成长与刻印的，取最后获得的）。
-    function purgeOpen() {
-        const g = heroAction('purgeCard', 'purge');
-        if (!g.ok) return g;
-        const p = g.view.purge;
-        if (!p?.available) return fail(p?.reason || 'combat-purge-not-due');
-        if ((g.view.points || 0) < p.cost) return fail('combat-points-insufficient');
-        purging = true; rebuild = false; respec = null; ascend = false; trait = false; notice = '';
-        render();
-        return { ok: true };
-    }
-
-    async function purgePick(cardId) {
-        if (!purging) return { ok: false, reason: 'combat-purge-not-due' };
-        const g = heroAction('purgeCard', 'purge');
-        if (!g.ok) return g;
-        const rows = (g.view.deckEntries || []).filter((r) => r.cardId === cardId && r.copyId);
-        const plain = rows.filter((r) => !r.upgraded && !r.bonus && !r.inscription);
-        const copy = (plain.length ? plain : rows).at(-1);
-        if (!copy) return fail('combat-purge-copy-missing');
-        const r = await run('purge', () => options.purgeCard(copy.copyId));
-        if (r.stale) return r;
-        if (r.ok === true) { purging = false; await load(); } else render();
-        return r;
-    }
-
     async function setTier(tier) {
         const view = selectedView();
         if (!view || view.kind !== 'skill-character') return { ok: false, reason: 'combat-character-missing' };
@@ -718,9 +688,6 @@ export function createCombatDeckPanelController(doc, options = {}) {
                 return { ok: true, theme };
             case 'trait-drop': return traitDrop(id);
             case 'trait-slot': return traitSlot();
-            case 'purge-open': return purgeOpen();
-            case 'purge-pick': return purgePick(id);
-            case 'purge-cancel': purging = false; notice = ''; render(); return { ok: true };
             case 'card-art': return generateArt(id);
             case 'cancel': generationForm.reset(); generate = null; notice = ''; render(); return { ok: true };
             case 'retry-protagonist': return retryProtagonist();

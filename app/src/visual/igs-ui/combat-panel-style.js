@@ -744,6 +744,7 @@ ${C} .igs-combat-loot-card.is-chosen{transform:translateY(-6px);}
 ${C} .igs-combat-loot-card.is-chosen .igs-combat-loot-face{box-shadow:0 0 22px -2px color-mix(in srgb,var(--rar) 70%,transparent),0 14px 28px -14px rgba(0,0,0,.7),inset 0 1.5px 0 var(--rar);}
 ${C} .igs-combat-loot-card.is-dim{opacity:.6;}
 ${C} .igs-combat-loot-tools{display:flex;justify-content:center;}
+${C} .igs-combat-purge{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;width:100%;}
 ${C} .igs-combat-loot-card.is-fresh .igs-combat-loot-back{animation:igs-combat-loot-back-out .26s ease-in var(--loot-delay) both;}
 ${C} .igs-combat-loot-card.is-fresh .igs-combat-loot-face{animation:igs-combat-loot-face-in .34s var(--igs-cb-ease) var(--fx-at) both;}
 ${C} .igs-combat-loot-card :is(.igs-combat-loot-burst,.igs-combat-loot-sparks,.igs-combat-loot-ring,.igs-combat-loot-pillar){position:absolute;pointer-events:none;}

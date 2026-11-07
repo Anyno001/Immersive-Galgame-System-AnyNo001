@@ -60,6 +60,8 @@ import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/vi
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
+import { chooseCard, emptyPick, flipCard, flipView, pickCardChoice, pickPurgeChoice } from '../../src/combat/flip.js';
+import { FIXED_GENERAL_CARDS, fixedClassPool } from '../../src/combat/fixed-cards/index.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -306,12 +308,41 @@ const previewBattle = (b) => {
   }
   return next;
 };
-const combatSession = !resPreview && !marksPreview && !INSCRIBE_PREVIEW.length ? combatPreview.session : { ...combatPreview.session, state() {
+const baseSession = !resPreview && !marksPreview && !INSCRIBE_PREVIEW.length ? combatPreview.session : { ...combatPreview.session, state() {
   const st = combatPreview.session.state();
   return st.battle ? { ...st, battle: previewBattle(st.battle) } : st;
 } };
+// ?loot=v6（配合 ?combat=end）：结算时换成一份规则 v6 示例战利品（卡牌槽三选一：本职业固定、无色固定、本职业随机），翻牌、取候选与跳过只改内存。
+const lootPreview = new URLSearchParams(location.search).get('loot') === 'v6';
+const warriorPool = fixedClassPool('warrior');
+const lootOffer = {
+  combatId: 'preview-loot', reveal: 0,
+  slots: [
+    { index: 0, kind: 'card', rarity: 'uncommon', name: '裂空斩', origin: '桥头一战后的领悟', choices: [
+      JSON.parse(JSON.stringify(warriorPool.find((c) => c.rarity === 'uncommon') || warriorPool[0])),
+      { id: 'rc-preview', name: '裂空斩', type: 'attack', cost: 1, rarity: 'uncommon', effects: [{ op: 'damage', amount: 9 }, { op: 'status', status: 'vulnerable', stacks: 1, target: 'enemy' }] },
+      JSON.parse(JSON.stringify(FIXED_GENERAL_CARDS.find((c) => c.rarity === 'uncommon') || FIXED_GENERAL_CARDS[0])),
+    ] },
+    { index: 1, kind: 'keepsake', rarity: 'rare', name: '旧铜铃', origin: '狼群首领颈上挂着的' },
+    { index: 2, kind: 'item', rarity: 'common', name: '止血草', origin: '', item: { count: 1 } },
+  ],
+};
+let lootPick = emptyPick();
+const lootStep = (next) => { if (next.ok) lootPick = next.pick; return Promise.resolve(next.ok ? { ok: true } : { ok: false, reason: next.reason }); };
+// ?purge=1（配合 ?combat=end&loot=v6）：本场视为第 5 场普通胜利，结算页同时给一次删牌机会（75 金钱）；?purge=poor 为金钱不足。只改内存。
+const purgeParam = new URLSearchParams(location.search).get('purge') || '';
+const purgeOffer = !purgeParam ? null : purgeParam === 'poor' ? { battle: 5, cost: 75, available: false, reason: 'combat-points-insufficient' }
+  : { battle: 5, cost: 75, available: true, cards: warriorPool.slice(0, 6).map((c, i) => ({ copyId: `preview-${c.id}:${i}`, cardId: c.id, name: c.name, type: c.type, cost: c.cost, rarity: c.rarity, effects: c.effects, count: i < 2 ? 3 : 1 })) };
+const combatSession = !lootPreview ? baseSession : { ...baseSession,
+  state() { const st = baseSession.state(); return st.status === 'ended' || st.status === 'send-failed' ? { ...st, flip: flipView(lootOffer, lootPick, { points: 100, payer: false }, purgeOffer) } : st; },
+  loadFlip: async () => ({ ok: true }),
+  flip: (i) => lootStep(flipCard(lootOffer, lootPick, i)), choose: (i) => lootStep(chooseCard(lootOffer, lootPick, i)),
+  pickCard: (v) => lootStep(pickCardChoice(lootOffer, lootPick, v)), pickPurge: (v) => lootStep(pickPurgeChoice(purgeOffer, lootPick, v)),
+  reroll: async () => ({ ok: false, reason: 'combat-reroll-unavailable' }) };
 // ?skin=<皮肤键>（veil comic ink tech mystic soft-a soft-c dark-a dark-b initial）：换战斗面板皮肤，缺省黑幕。
-const combat = createCombatPanelController(document, { getSession: () => combatSession, getLedger: () => combatPreview.ledger, skin: () => new URLSearchParams(location.search).get('skin') || '' });
+// ?combat=end 自动打完一场，按减少动态效果跑，结算前不播长演出。
+const autoEnd = new URLSearchParams(location.search).get('combat') === 'end';
+const combat = createCombatPanelController(document, { getSession: () => combatSession, getLedger: () => combatPreview.ledger, skin: () => new URLSearchParams(location.search).get('skin') || '', ...(autoEnd ? { reducedMotion: () => true } : {}) });
 // 截图脚本以 combatReady 判定本场景已就绪，不以中间态（lobby 后尚未开战）截图。
 const combatState = { ready: false, want: '' };
 async function openCombat() {
@@ -321,10 +352,20 @@ async function openCombat() {
   combatState.want = want;
   for (let i = 0; i < 40 && combat.view()?.status !== 'lobby'; i += 1) await new Promise(r => setTimeout(r, 25));
   if (want !== 'lobby') combat.invoke('start');
-  for (let i = 0; want === 'end' && i < 400 && combat.view()?.status === 'battle'; i += 1) {
-    const card = combat.view().battle.hand.find(c => c.playable);
+  // 结束回合后面板会锁住演出（combat-busy），每步之间让出事件循环，等演出播完再继续出牌。
+  const deadline = Date.now() + 120000;
+  while (want === 'end' && Date.now() < deadline && combat.view()?.status === 'battle') {
+    await new Promise(r => setTimeout(r, 20));
+    // 先出要选目标的攻击牌，避免只打格挡牌拖到输掉（输了不翻牌）。
+    const battle = combat.view().battle;
+    const playable = battle.hand.filter(c => c.playable);
+    const card = playable.find(c => c.targets.length) || playable[0];
     if (!card) { combat.invoke('end-turn'); continue; }
-    if (!combat.invoke('card', card.inst).ok) combat.invoke('target', card.targets[0] ?? card.affects[0]);
+    const r = combat.invoke('card', card.inst);
+    if (r.reason === 'combat-busy') continue;
+    // 鞭尸状态下已倒下的敌人也在可选目标里，优先打还活着的。
+    const alive = new Set(battle.enemies.filter(u => u.alive).map(u => u.id));
+    if (!r.ok) combat.invoke('target', card.targets.find(id => alive.has(id)) ?? card.targets[0] ?? card.affects[0]);
   }
   // ?cutin=skill|awaken：挂一张真实技能 / 觉醒特写并停在中段，用于看字号与位置；&skill= 换招式名（觉醒为类型），&awaken= 情绪（rage guard grief resolve bond limit vengeance unyielding），&line= 台词；
   // &portrait=<文件名> 读本机 tools/local-preview/assets/<文件名>.png 作立绘（该目录不随仓库提交），不传时不画立绘。

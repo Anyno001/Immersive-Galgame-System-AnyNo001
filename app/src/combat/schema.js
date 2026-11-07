@@ -986,10 +986,13 @@ function validateLedgerPayload(type, payload, path, state) {
         case 'trait-slot':
             checkKnownFields(payload, ['slot', 'cost'], path, state);
             return { slot: intField(payload.slot, at('slot'), state, TRAIT_BASE_SLOTS + 1, TRAIT_SLOT_MAX), cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
-        // 规则 v6 删卡：删去卡组里的一张副本；battle 为获得这次机会时的普通战斗胜场数。
+        // 规则 v6 删卡：删去卡组里的一张副本；battle 为获得这次机会时的普通战斗胜场数，reportId 为写下删卡标签的那场战报。
         case 'purge':
-            checkKnownFields(payload, ['copyId', 'cost', 'battle'], path, state);
-            return { copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN), cost: intField(payload.cost, at('cost'), state, 0, 1e5), battle: intField(payload.battle, at('battle'), state, 1, 1e6) };
+            checkKnownFields(payload, ['copyId', 'cost', 'battle', 'reportId'], path, state);
+            return {
+                copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN), cost: intField(payload.cost, at('cost'), state, 0, 1e5), battle: intField(payload.battle, at('battle'), state, 1, 1e6),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+            };
         case 'wound': {
             checkKnownFields(payload, ['hp', 'maxHp', 'down', 'reportId'], path, state);
             const maxHp = intField(payload.maxHp, at('maxHp'), state, 1, 9999);

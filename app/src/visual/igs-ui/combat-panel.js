@@ -1971,6 +1971,12 @@ export function createCombatPanelController(doc, options = {}) {
                 if (typeof s.pickCard !== 'function') return { ok: false, reason: 'combat-flip-card-unavailable' };
                 return runAsync('flip', () => s.pickCard(value));
             }
+            case 'pick-purge': {
+                const value = typeof id === 'string' && /^[A-Za-z0-9_:.-]{1,200}$/.test(id) ? id : '';
+                if (!value) return { ok: false, reason: 'combat-purge-copy-missing' };
+                if (typeof s.pickPurge !== 'function') return { ok: false, reason: 'combat-purge-unavailable' };
+                return runAsync('flip', () => s.pickPurge(value));
+            }
             case 'reroll': return runAsync('flip', () => s.reroll());
             case 'retry-reward': return runAsync('reward', () => s.retryReward());
             case 'skip': return runAsync('skip', () => s.skip());
