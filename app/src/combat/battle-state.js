@@ -4,6 +4,8 @@ import { damageModifiers, opHandler } from './mechanics/registry.js';
 import { inscribedView } from './mechanics/inscription.js';
 // 规则 v5 机制登记入口：导入即登记，保证估算与结算前机制已就位。
 import './mechanics/index.js';
+// 规则 v6 G5c 虚弱 / 易伤百分比（relic-modify 由登记入口最后导入，其钩子排在其他机制之后）。
+import { vulnerablePercent, weakPercent } from './mechanics/relic-modify.js';
 
 export const LOW_HP_RATIO = 0.5;
 
@@ -128,11 +130,11 @@ export function effectsPickAlly(effects) {
 }
 
 // 按登记顺序执行一个伤害修正阶段，每一步取整且不低于 0。
-// origin 只由格挡阶段传入，见 computeBlock。
-function applyDamageStage(stage, attacker, target, value, origin) {
+// origin 只由格挡阶段传入，见 computeBlock；info 为 { rulesVersion, card? }（规则 v6 G5c：回调据此只在 v6 生效，card 为结算中的牌面视图）。
+function applyDamageStage(stage, attacker, target, value, origin, info) {
     let next = value;
     for (const mod of damageModifiers(stage)) {
-        const out = mod.fn(attacker, target, next, origin);
+        const out = mod.fn(attacker, target, next, origin, info);
         if (Number.isFinite(out)) next = Math.max(0, Math.floor(out));
     }
     return next;
@@ -140,16 +142,19 @@ function applyDamageStage(stage, attacker, target, value, origin) {
 
 // 单次伤害：先按伤害倍率取整再加力量，虚弱打七五折，易伤乘 1.5。attacker 或 target 可缺省。
 // rulesVersion >= 5 时追加已登记的修正阶段：outgoing-add、outgoing-mult 在力量之后、虚弱之前，incoming-mult 在易伤之后。
-export function computeDamage(attacker, target, amount, strengthScale = 1, rulesVersion) {
+// 规则 v6 G5c：card 为打出的牌面视图（牌造成的伤害才传），交给修正阶段；虚弱与易伤倍率改按百分比结算，可被遗物修正。
+export function computeDamage(attacker, target, amount, strengthScale = 1, rulesVersion, card) {
     const staged = rulesVersion >= 5;
+    const v6 = rulesVersion >= 6;
+    const info = { rulesVersion, ...(card ? { card } : {}) };
     let value = amount;
     if (attacker) {
         value = Math.round(value * (attacker.damageScale || 1)) + (attacker.statuses.strength || 0) * (strengthScale || 1);
-        if (staged) value = applyDamageStage('outgoing-mult', attacker, target, applyDamageStage('outgoing-add', attacker, target, value));
-        if (attacker.statuses.weak > 0) value = Math.floor(value * 0.75);
+        if (staged) value = applyDamageStage('outgoing-mult', attacker, target, applyDamageStage('outgoing-add', attacker, target, value, undefined, info), undefined, info);
+        if (attacker.statuses.weak > 0) value = v6 ? Math.floor((value * weakPercent(target)) / 100) : Math.floor(value * 0.75);
     }
-    if (target?.statuses.vulnerable > 0) value = Math.floor(value * 1.5);
-    if (staged && target) value = applyDamageStage('incoming-mult', attacker, target, value);
+    if (target?.statuses.vulnerable > 0) value = v6 ? Math.floor((value * vulnerablePercent(attacker, target)) / 100) : Math.floor(value * 1.5);
+    if (staged && target) value = applyDamageStage('incoming-mult', attacker, target, value, undefined, info);
     return Math.max(0, value);
 }
 
@@ -157,7 +162,7 @@ export function computeDamage(attacker, target, amount, strengthScale = 1, rules
 // origin 为格挡来源种类（卡牌结算传 'card'），透传给 block-add 第四个参数。
 export function computeBlock(source, amount, target = source, rulesVersion, origin) {
     let value = amount + (source?.statuses.dexterity || 0);
-    if (rulesVersion >= 5 && source) value = applyDamageStage('block-add', source, target, value, origin);
+    if (rulesVersion >= 5 && source) value = applyDamageStage('block-add', source, target, value, origin, { rulesVersion });
     return Math.max(0, target?.statuses.frail > 0 ? Math.floor(value * 0.75) : value);
 }
 
@@ -240,14 +245,16 @@ function v6ConditionHolds(state, unit, when, targetId) {
 }
 
 // 估算 attacker 对 target 一组效果的总伤害（目标缺省时为 0）。aimId 是被指定的目标 id。
-export function estimateDamage(state, attacker, target, effects, aimId) {
+// card 为打出的牌面视图（规则 v6 G5c 出伤加值用，只在 v6 交给 computeDamage；不传时与旧版一致）。
+export function estimateDamage(state, attacker, target, effects, aimId, card) {
     if (!target) return 0;
+    const shown = state?.rulesVersion >= 6 ? card : undefined;
     let total = 0;
     for (const effect of effects || []) {
         if (effect.op === 'damage') {
             const aim = effect.target || 'enemy';
             if (aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id)) {
-                total += (effect.hits || 1) * computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion);
+                total += (effect.hits || 1) * computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion, shown);
             }
         } else if (effect.op === 'damage-from-block') {
             const aim = effect.target || 'enemy';
@@ -255,7 +262,7 @@ export function estimateDamage(state, attacker, target, effects, aimId) {
                 total += computeDamage(attacker, target, attacker.block, 1, state?.rulesVersion);
             }
         } else if (effect.op === 'conditional' && conditionHolds(state, attacker, effect.when, aimId)) {
-            total += estimateDamage(state, attacker, target, effect.then, aimId);
+            total += estimateDamage(state, attacker, target, effect.then, aimId, card);
         } else {
             // 已登记机制的算子按其自身估算；未登记或未提供估算的为 0。
             const handler = opHandler(effect?.op);

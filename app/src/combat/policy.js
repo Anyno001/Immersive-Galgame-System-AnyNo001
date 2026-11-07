@@ -80,7 +80,7 @@ export function chooseAllyPlay(state, unitId) {
         const cost = spentCost(card, unit.energy);
         for (const foeId of foes) {
             const foe = state.units[foeId];
-            const damage = estimateDamage(state, unit, foe, card.effects, foeId) * runTimes(card, unit.energy, state.rulesVersion);
+            const damage = estimateDamage(state, unit, foe, card.effects, foeId, card) * runTimes(card, unit.energy, state.rulesVersion);
             if (damage > 0 && damage >= foe.hp + foe.block && (!kill || cost < kill.cost)) kill = { card, id: foeId, cost };
         }
     }
@@ -91,7 +91,7 @@ export function chooseAllyPlay(state, unitId) {
 
     const weakest = weakestId(state, opposite(unit.side));
     const weakestUnit = state.units[weakest];
-    const strike = bestBy(playable, (card) => perCost(card, estimateDamage(state, unit, weakestUnit, card.effects, weakest)));
+    const strike = bestBy(playable, (card) => perCost(card, estimateDamage(state, unit, weakestUnit, card.effects, weakest, card)));
     if (strike) return playFor(state, unit, strike, weakest);
 
     if (!(state.rulesVersion >= 4)) return playFor(state, unit, playable[0], weakest);

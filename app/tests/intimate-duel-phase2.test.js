@@ -3248,8 +3248,45 @@ test('v6 起始卡组（G2）：本职业固定池普通 / 罕见先选种类再
     const legacyResult = validateStarterDeck({ classRef: legacyCls.id, personalPool: personal, starterDeck: legacy }, legacyCls);
     assert.equal(legacyResult.ok, true, JSON.stringify(legacyResult.errors));
 });
+test('被动修正（v6 G5c）：出伤加值按牌名与升级过滤、易伤 / 虚弱倍率、每次失血减少、单回合失血上限、首次格挡翻倍；规则 v5 不生效', () => {
+    const relic = (effect) => ({ passives: [passiveOn('battle-start', [{ op: 'relic-mod', ...effect }])] });
+    const slash = def('s', 'attack', [{ op: 'damage', amount: 5, target: 'enemy' }], { name: '重斩', innate: true, cost: 0 });
+    const poke = def('p', 'attack', [{ op: 'damage', amount: 5, target: 'enemy' }], { name: '轻戳', innate: true, cost: 0 });
+    const fight = (effect, rulesVersion) => duel({ heroExtra: relic(effect), catalog: { s: slash, p: poke, k: GUARD }, deck: ['s', 'p', ...Array(8).fill('k')], rulesVersion });
+    const named = fight({ mod: 'damage-add', amount: 3, name: '斩' });
+    const hit = playIn(named, instOf(named, 's'), 'foe').state;
+    assert.equal(hit.units.foe.hp, 22);
+    assert.equal(playIn(hit, instOf(hit, 'p'), 'foe').state.units.foe.hp, 17);
+    assert.equal(cardSlotView(cardView(named, instOf(named, 's')), named.units.hero, 6).value, 8);
+    assert.equal(cardSlotView(cardView(named, instOf(named, 'p')), named.units.hero, 6).value, 5);
+    const old = fight({ mod: 'damage-add', amount: 3, name: '斩' }, 5);
+    assert.equal(playIn(old, instOf(old, 's'), 'foe').state.units.foe.hp, 25);
+    const lifted = fight({ mod: 'damage-add', amount: 3, upgraded: true });
+    assert.equal(playIn(lifted, instOf(lifted, 's'), 'foe').state.units.foe.hp, 25);
 
+    const mods = (entries) => ({ relicMods: Object.fromEntries(entries.map((entry, n) => [`p:${n}`, entry])) });
+    assert.equal(computeDamage({ statuses: {}, res: mods([{ mod: 'vuln-up', amount: 25 }]) }, { statuses: { vulnerable: 1 } }, 10, 1, 6), 17);
+    assert.equal(computeDamage({ statuses: {}, res: mods([{ mod: 'vuln-up', amount: 25 }]) }, { statuses: { vulnerable: 1 } }, 10, 1, 5), 15);
+    assert.equal(computeDamage({ statuses: {} }, { statuses: { vulnerable: 1 }, res: mods([{ mod: 'vuln-down', amount: 25 }]) }, 10, 1, 6), 12);
+    assert.equal(computeDamage({ statuses: { weak: 1 } }, { statuses: {}, res: mods([{ mod: 'weak-up', amount: 15 }]) }, 10, 1, 6), 6);
+    assert.equal(computeDamage({ statuses: { weak: 1 } }, { statuses: {} }, 7, 1, 6), 5);
 
+    const struck = (effect, foeSkill, rulesVersion) => endTurn(duel({ heroExtra: relic(effect), foeSkill, rulesVersion })).state.units.hero.hp;
+    assert.equal(struck({ mod: 'hp-loss-reduce', amount: 1 }, foeAttack(6)), 25);
+    assert.equal(struck({ mod: 'hp-loss-reduce', amount: 1 }, foeAttack(6), 5), 24);
+    const flurry = { intent: 'attack', effects: [{ op: 'damage', amount: 4, hits: 3, target: 'enemy' }] };
+    assert.equal(struck({ mod: 'turn-hp-cap', amount: 5 }, flurry), 25);
+    assert.equal(struck({ mod: 'turn-hp-cap', amount: 5 }, flurry, 5), 18);
 
+    const shield = (rulesVersion) => {
+        const state = duel({ heroExtra: relic({ mod: 'first-block-double' }), catalog: { k: { ...GUARD, cost: 0 } }, rulesVersion });
+        const once = playIn(state, state.piles.hero.hand[0]).state;
+        return [once.units.hero.block, playIn(once, once.piles.hero.hand[0]).state.units.hero.block];
+    };
+    assert.deepEqual(shield(), [2, 3]);
+    assert.deepEqual(shield(5), [1, 2]);
 
-
+    assert.ok(shapeErrors([{ op: 'relic-mod', mod: 'damage-add', amount: 2 }]).includes('passive-only'));
+    assert.match(describeEffects([{ op: 'relic-mod', mod: 'damage-add', amount: 3, name: '斩' }]), /牌名含「斩」的牌造成的伤害 \+3/);
+    assert.match(describeEffects([{ op: 'relic-mod', mod: 'turn-hp-cap', amount: 5 }]), /每回合最多失去 5 点生命/);
+});

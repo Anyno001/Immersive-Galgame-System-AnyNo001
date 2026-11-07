@@ -123,7 +123,8 @@ export function cardSlotView(card, hero, rulesVersion) {
         if (value !== plainBlock) parts.push(`其他修正 ${signed(value - plainBlock)}`);
         return finish(value, baseValue, '格挡', 1, parts);
     }
-    const value = computeDamage(hero, null, baseValue, main.strengthScale, rulesVersion);
+    // 规则 v6 G5c：牌面预览与结算一样把本牌交给出伤加值（牌名、升级、X 费、刻印过滤）。
+    const value = computeDamage(hero, null, baseValue, main.strengthScale, rulesVersion, rulesVersion >= 6 ? card : undefined);
     const parts = [`基础 ${baseValue}`];
     const power = (st.strength || 0) * (main.strengthScale || 1);
     if (hero?.damageScale && hero.damageScale !== 1) parts.push(`伤害倍率 ×${hero.damageScale}`);

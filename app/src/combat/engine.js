@@ -925,6 +925,9 @@ function strike(ctx, unit, effect, aimId, source) {
     const spec = targetSpec(effect);
     const hitUnits = [];
     const whipping = isWhipping(ctx.state, unit);
+    // 规则 v6 G5c：牌造成的伤害把当前牌面视图交给修正阶段（出伤加值按牌名、升级、X 费、刻印过滤）。
+    const card = ctx.state.rulesVersion >= 6 && source?.kind === 'card' && ctx.inst ? cardView(ctx.state, ctx.inst) : null;
+    const hitFor = (target) => computeDamage(unit, target, effect.amount, effect.strengthScale, ctx.state.rulesVersion, card);
     for (let hit = 0; hit < (effect.hits || 1); hit += 1) {
         const targets = coverTargets(ctx, unit, spec, resolveTargets(ctx, unit, spec, aimId, whipping));
         if (!targets.length) break;
@@ -934,10 +937,10 @@ function strike(ctx, unit, effect, aimId, source) {
             if (ctx.state.outcome || !unit.alive) return;
             if (!target.alive) {
                 // 趁胜追击：打已倒下的敌人，只出事件不扣血。
-                if (whipping) emit(ctx, { type: 'damage', kind: 'attack', source, target: target.id, amount: computeDamage(unit, target, effect.amount, effect.strengthScale, ctx.state.rulesVersion), blocked: 0, hpLoss: 0, overkill: true, strike: strikeNo });
+                if (whipping) emit(ctx, { type: 'damage', kind: 'attack', source, target: target.id, amount: hitFor(target), blocked: 0, hpLoss: 0, overkill: true, strike: strikeNo });
                 continue;
             }
-            dealDamage(ctx, target, computeDamage(unit, target, effect.amount, effect.strengthScale, ctx.state.rulesVersion), source, 'attack', true, strikeNo);
+            dealDamage(ctx, target, hitFor(target), source, 'attack', true, strikeNo);
             if (!hitUnits.includes(target)) hitUnits.push(target);
             const thorns = target.statuses.thorns || 0;
             if (thorns > 0 && target.id !== unit.id) dealDamage(ctx, unit, thorns, { unitId: target.id, kind: 'status', id: 'thorns' }, 'thorns', true);
