@@ -4,7 +4,7 @@ import { combatReasonText } from './combat-panel-render.js';
 import { recordPageHeadHtml } from './record-page-shell.js';
 import { renderSettingsThemeSwitch } from './settings-theme.js';
 import { DECK_PAGES, DECK_PAGE_LABELS } from './combat-deck-panel-model.js';
-import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../combat/points.js';
+import { ASCEND_TIERS, CARD_DRAW_COST, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../combat/points.js';
 import { TRAIT_LINK_LABELS } from '../../combat/traits.js';
 
 // 人物状态面板的 HTML：动作走 data-deck-act / data-deck-id；只输出字段、状态、错误与操作确认。
@@ -84,6 +84,16 @@ const REASON_TEXT = Object.freeze({
     'combat-trait-slot-cost-invalid': '特性槽价格已变化，请重试',
     'combat-trait-slot-kind-mismatch': '只有卡组角色可以解锁特性槽',
     'combat-trait-slot-no-floor': '当前聊天没有楼层，无法解锁特性槽',
+    'combat-card-draw-unavailable': '当前无法抽卡',
+    'combat-card-draw-pending': '先从抽到的牌里选一张或放弃',
+    'combat-card-draw-pool-empty': '本职业没有可抽的牌',
+    'combat-card-draw-generation-failed': '抽卡生成失败，未扣金钱',
+    'combat-card-draw-no-floor': '当前聊天没有楼层，无法抽卡',
+    'combat-card-draw-kind-mismatch': '只有卡组角色可以抽卡',
+    'combat-card-draw-choices-invalid': '候选牌不合规，请重试',
+    'combat-card-pick-unavailable': '当前无法选牌',
+    'combat-card-pick-invalid': '候选已变化，请重试',
+    'combat-card-pick-copy-limit': '这张牌已达同名上限',
     'combat-character-missing': '没有这个角色',
     'combat-item-insufficient': '道具数量不足',
     'combat-use-battle-only': '这件道具只能在战斗中使用',
@@ -160,6 +170,28 @@ function rebuildHtml(v, d) {
     return `<p class="igs-deck-help">重新生成只更换个人牌并重组起始卡组，保留当前职业牌；个人卡池不一定全部加入起始卡组。</p>${v.rebuild ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : ''}<div class="igs-deck-actions">${inner}</div>`;
 }
 
+// 规则 v6 积分抽卡（只主角）：没有待选时给「抽卡」，点后在原处确认或取消，金钱不足置灰；
+// 抽到后列出 3 张候选，每张给「选这张」，另给「放弃」（不退还）。
+const drawChoiceRow = (c, acts) => `<li class="igs-deck-card" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>`
+    + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span>${c.rarity ? `<span class="igs-deck-tag">${esc(TRAIT_RARITY_LABELS[c.rarity] || c.rarity)}</span>` : ''}</div>`
+    + `<p class="igs-deck-effect">${esc(c.text || '暂无效果资料')}</p></div>${acts ? `<div class="igs-deck-card-side"><div class="igs-deck-card-acts">${acts}</div></div>` : ''}</li>`;
+function drawHtml(v, d) {
+    if (!d.canSell || d.kind !== 'deck-character') return '';
+    const busy = v.readonly || Boolean(v.pending);
+    const fresh = d.pendingDraw;
+    if (fresh) {
+        const canPick = !v.readonly && v.canPickCard;
+        const rows = fresh.choices.map((c, i) => drawChoiceRow(c, canPick ? btn('card-pick', '选这张', { id: String(i), primary: true, disabled: busy }) : ''));
+        const skip = canPick ? `<div class="igs-deck-actions">${btn('card-pick', '放弃（不退还）', { id: 'skip', disabled: busy })}</div>` : '';
+        return section('抽到的牌', `<ul class="igs-deck-cards">${rows.join('')}</ul>${skip}`);
+    }
+    if (v.readonly || !v.canDrawCard) return '';
+    const inner = v.draw
+        ? btn('draw-confirm', v.pending === 'card-draw' ? '生成中' : `确认抽卡 · ${CARD_DRAW_COST} 金钱`, { primary: true, disabled: busy }) + btn('draw-cancel', '取消', { disabled: busy })
+        : btn('draw-open', `抽卡（消耗${CARD_DRAW_COST}金钱）`, { disabled: busy || (d.points || 0) < CARD_DRAW_COST });
+    return `<div class="igs-deck-actions">${inner}</div>`;
+}
+
 // 转职与职业升阶（只主角、不在战斗中且注入了对应能力时显示）：转职展开后列出其他已登记职业与「新职业」，选定后确认或取消；
 // 升阶按钮写下一阶的等级门槛与花费，已到三阶不显示，等级或金钱不足置灰，点后在原处确认或取消。
 function classActionsHtml(v, d) {
@@ -197,7 +229,7 @@ function deckHtml(v, d) {
     const candidates = d.classCandidates || [];
     const pool = candidates.length ? `<details class="igs-deck-pool"><summary>${esc(d.className)} · 未拥有的职业牌（${candidates.length} 种）</summary><p class="igs-deck-help">以下是候选，并非已持有。可在升级奖励三选一中抽到；转职保留旧牌，不自动换牌。重建基础卡组会按当前职业重新组牌，另收页面标示的费用。</p><ul class="igs-deck-cards">${candidates.map((x) => cardRow(x, true)).join('')}</ul></details>` : '';
     const passive = d.classPassive ? row('职业被动', chip(`${d.classPassive.name}：${d.classPassive.text}`)) : '';
-    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly, editable)).join('')}</ul>${pool}${actions ? `<div class="igs-deck-actions">${actions}</div>` : ''}${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
+    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}${drawHtml(v, d)}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly, editable)).join('')}</ul>${pool}${actions ? `<div class="igs-deck-actions">${actions}</div>` : ''}${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
 }
 
 // 装备栏：四个部位各一行内的标签，已装备的可卸下（卸下后进背包页）；道具只列余量。

@@ -23,7 +23,7 @@ import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extract
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf } from './report.js';
 import { parseChallengeReport } from './challenge-report.js';
-import { ASCEND_TIERS, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, purgeCost, sellPrice } from './points.js';
+import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
 import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } from './vitals.js';
@@ -33,7 +33,7 @@ import { heroInventoryView } from './inventory-view.js';
 import { equippedGear, placeGear, removeGear, slotGearList } from './gear-slots.js';
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
-import { fixedCard, isFixedCardId } from './fixed-cards/index.js';
+import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -58,7 +58,7 @@ export const ALLOC_TAG_HASH = 'alloc';
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'battle-growth']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'card-draw', 'card-pick', 'wound', 'battle-growth']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -72,7 +72,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
+    'card-draw': 18.1, 'card-pick': 18.2, 'battle-growth': 18.5, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -401,6 +401,7 @@ function createCharacterState(index, profile, diagnostics) {
         id: profile.id, kind: profile.kind, name: profile.name, profile, exp: 0,
         gear: { owned: new Map(), slots: {} }, items: new Map(), keepsakes: new Map(),
         points: 0, traits: [], pendingTrait: null, traitDraws: 0, innateDropped: [], slotUnlocks: 0, wound: null,
+        cardDraws: 0, pendingDraw: null,
         battleGrowth: { cards: new Map(), hpMax: 0 },
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
@@ -924,6 +925,41 @@ const handlers = Object.freeze({
         state.purgedAt.add(payload.battle);
         return null;
     },
+    // 规则 v6 积分抽卡：只主角卡组角色；付 CARD_DRAW_COST 抽出 3 张本职业候选成为待选（有待选时不能再抽）。
+    // 候选须为本职业固定池 2 张 + 非固定随机卡 1 张（不含无色固定卡）。
+    'card-draw'(state, payload, { heroId }) {
+        if (state.kind !== 'deck-character') return 'combat-card-draw-kind-mismatch';
+        if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
+        if (payload.cost !== CARD_DRAW_COST) return 'combat-card-draw-cost-invalid';
+        if (state.pendingDraw) return 'combat-card-draw-pending';
+        const own = new Set(fixedClassPool(state.classProfile?.archetype).map((card) => card.id));
+        const fixed = payload.choices.filter((card) => isFixedCardId(card.id));
+        if (fixed.length !== payload.choices.length - 1 || fixed.some((card) => !own.has(card.id))) return 'combat-card-draw-choices-invalid';
+        state.cardDraws += 1;
+        state.points -= payload.cost;
+        state.pendingDraw = { drawId: payload.drawId, choices: payload.choices.map((card) => (isFixedCardId(card.id) ? fixedCard(card.id) : card)) };
+        return null;
+    },
+    // 选其一进卡组（固定卡按 ID 进目录加副本，随机卡走 learn 并卡），skip 放弃；都不退款。先校验后改状态，失败时待选保留。
+    'card-pick'(state, payload, context = {}) {
+        if (context.heroId && state.id !== context.heroId) return 'combat-points-not-protagonist';
+        const pending = state.pendingDraw;
+        if (!pending || pending.drawId !== payload.drawId) return 'combat-card-pick-invalid';
+        if (payload.pick !== 'skip') {
+            const card = pending.choices[payload.pick];
+            if (!card) return 'combat-card-pick-invalid';
+            if (isFixedCardId(card.id)) {
+                if ((state.owned.get(card.id) || 0) >= cardCopyLimit(card.rarity)) return 'combat-card-pick-copy-limit';
+                if (!state.catalog.has(card.id)) state.catalog.set(card.id, fixedCard(card.id));
+                addCard(state, card.id, context.entry?.id || 'card-pick');
+            } else {
+                const failure = handlers.learn(state, { card, merge: true }, context);
+                if (failure) return failure;
+            }
+        }
+        state.pendingDraw = null;
+        return null;
+    },
 });
 
 function traitSlotHandler(state, payload, heroId) {
@@ -1036,6 +1072,8 @@ function presentCharacter(state, options = {}) {
         level: progress.level, into: progress.into, next: progress.next, gear, items, attributes, collection,
         points: state.points, traits, pendingTrait: state.pendingTrait ? { ...state.pendingTrait } : null,
         traitDraws: state.traitDraws, innateDropped: [...state.innateDropped], slotUnlocks: state.slotUnlocks,
+        cardDraws: state.cardDraws,
+        pendingDraw: state.pendingDraw ? { drawId: state.pendingDraw.drawId, choices: state.pendingDraw.choices.map((card) => ({ ...card })) } : null,
         wound: state.wound ? { ...state.wound } : null,
     };
     if (stock) {
@@ -1806,6 +1844,7 @@ export function buildSellEntry(snapshot, chat, effective, target, now = 0) {
 // 主角面板操作类型 -> 挂的标签。
 const PANEL_ACTION_TAGS = Object.freeze({
     rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH,
+    'card-draw': PANEL_TAG_HASH, 'card-pick': PANEL_TAG_HASH,
 });
 
 // 主角面板操作（改建卡组、转职、晋升、抽特质、选特质、解锁特质槽）。只有主角的卡组角色能做，点数要够。
@@ -2417,10 +2456,12 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         const cost = TRAIT_SLOT_COSTS[slot];
         return cost ? heroPanelAction(characterId, 'trait-slot', { slot, cost }) : Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
     }
+    const drawCard = (characterId, { drawId, choices } = {}) => heroPanelAction(characterId, 'card-draw', { drawId, choices, cost: CARD_DRAW_COST });
+    const pickCard = (characterId, drawId, pick) => heroPanelAction(characterId, 'card-pick', { drawId, pick });
 
     return {
         read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
-        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot,
+        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, drawCard, pickCard,
         stats: readStats,
     };
 }

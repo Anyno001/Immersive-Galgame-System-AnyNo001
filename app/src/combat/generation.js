@@ -16,7 +16,7 @@ import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtTheme } from './enemy-art.js';
 import {
     CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleInitialGear, assembleItem, assembleReward, assembleSignature,
-    assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor,
+    assembleDrawCard, assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor,
 } from './generation-assembly.js';
 import { assembleChallengeFoe, pickFoe } from './challenge-foes.js';
 import { parseCombatInit } from './abilities.js';
@@ -24,7 +24,7 @@ import { planRewardSlots } from './rewards.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 
 // 支持的实体种类（顺序即处理顺序的参考）
-export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill', 'encounter-theme', 'profile-gear', 'signature-card']);
+export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill', 'encounter-theme', 'profile-gear', 'signature-card', 'draw-card']);
 // 被拒收后最多再修正的轮数
 export const MAX_FIX_ROUNDS = 2;
 
@@ -112,6 +112,7 @@ export const GENERATION_SYSTEM = [
     '- class-tier：{"tierName":"职业 input.className 第 input.tier 阶的阶名，≤12 字，按本故事的世界观起名，与 input.className 及 input.previousTierName（存在时）衔接、不重复","cards":[恰好 3 张卡牌]}——升阶后追加进该职业池的卡，第 i 张的费用是 input.costSlots[i]，体现职业原型 input.archetype 的进阶招式，名称不与 existingClasses 里该职业已有的卡重名；稀有度（input.rarity）、数值与 ID 由程序给定。',
     `input.combatInit 为 true 时，在 value 中另附 init：{"className":"自由职业显示名，最多12字，可空","role":"${ARCHETYPE_KEYS}","major":"主擅长六维键","minor":"次擅长六维键","weak":"短板六维键"}；六维键为 str/dex/con/int/wis/cha，三项互异，依据角色设定与剧情，不输出属性数值。profile-init 只返回 {"init":{...}}，不重写档案；这组字段可整组省略。`,
     `- trait：{"name":"人物特性名，≤20 字","template":"被动模板键","origin":"来历，≤${REWARD_ORIGIN_MAX} 字"}——角色 input.name 的人物特性：名称与来历依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo），写这个人为何有这种特质；品相贴合 input.rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）；不与 input.existing（存在时）里已有的特性重名。input.effect 存在时效果已由程序定好（input.kind 为 active 时是战斗中每回合可主动用一次的技能，passive 为被动），只回 name 与 origin，名称与来历贴合这个效果，不写 template。稀有度、数值与 ID 由程序给定。`,
+    '- draw-card：{"card":["卡名，≤20 字","卡牌模板键"]}——角色 input.name 抽到的一张本职业卡牌：模板只能从 input.allowedTemplates 中选，费用是 input.cost（为 0 时只能用「0 费槽可用」的模板）；名称依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo）设计，品相贴合 input.rarity。稀有度、数值与 ID 由程序给定。',
     '- skill-fill：{"skills":[恰好 input.count 个技能]}——给已有的角色或敌人 input.name 补技能，技能写成 ["技能名","技能模板键"]；名称不与 input.existing 里已有的技能重复，依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo）设计，与已有技能风格一致、效果互补；input.tier 存在时这是该档位的敌人；input.templates 存在时技能模板键只能从其中选。数值与 ID 由程序给定。',
     '- signature-card：{"cards":[张数恰好等于 input.slots 的长度，每张 ["卡名","卡牌模板键"]]}——角色 input.name 到了解锁等级的专属卡：这个角色最具代表性的绝技或成名招式，名称与模板依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo）设计，贴合其至今的经历与成长；第 i 张对应槽位 input.slots[i]，费用是 input.costSlots[i]，按该费用挑选模板，费用为 0 时只能用「0 费槽可用」的模板；名称不与 input.existing（存在时）里已有的专属卡重复。稀有度、数值与 ID 由程序给定。',
     `- encounter-theme：{"theme":"${Object.keys(ENEMY_ART_THEMES).join('|')}"}——本场敌人立绘用哪套题材：${Object.entries(ENEMY_ART_THEMES).map(([key, label]) => `${key} ${label}`).join('、')}。按剧情与世界书（context.story、context.worldInfo）以及 input.encounter、input.enemies 判断这些敌人的时代与装束：古代、江湖、仙侠选 wuxia，西方中世纪或魔法世界选 western，近现代与未来选 urban。`,
@@ -227,6 +228,18 @@ export function withCombatInitialization(entities, names) {
     return result;
 }
 
+// 规则 v6 积分抽卡的随机候选请求：plan 来自 rewards.js 的 planCardDraw（稀有度、费用、ID、职业由程序定），模型只给卡名与本职业模板键。
+export function drawCardEntity({ character, plan }) {
+    return {
+        key: `draw-card:${character.id}`,
+        kind: 'draw-card',
+        role: 'draw',
+        owner: character.id,
+        input: { name: character.name, rarity: plan.rarity, cost: plan.cost, ...(allowedTemplateKeys(plan.archetype) ? { allowedTemplates: allowedTemplateKeys(plan.archetype) } : {}) },
+        fixed: { cardId: plan.cardId, rarity: plan.rarity, cost: plan.cost, archetype: plan.archetype },
+    };
+}
+
 // 敌人图集题材（每场遭遇一条）：副 LLM 按剧情、世界书与敌人名称选题材；可省略，失败不阻断开战。
 export function encounterThemeEntity({ encounter = '', enemies = [] } = {}) {
     return {
@@ -242,7 +255,7 @@ export function profileGearEntity(name, { required = false } = {}) {
 }
 
 // 需要角色设定参考（lore）的请求种类
-const LORE_KINDS = new Set(['profile-deck', 'profile-skill', 'profile-init', 'trait', 'skill-fill', 'profile-gear', 'signature-card']);
+const LORE_KINDS = new Set(['profile-deck', 'profile-skill', 'profile-init', 'trait', 'skill-fill', 'profile-gear', 'signature-card', 'draw-card']);
 
 // 为请求补充角色设定：lookup(names) 返回 [{ name, text }]，失败或为空则原样返回
 export async function withCharacterLore(entities, lookup) {
@@ -582,6 +595,13 @@ function settleEntity(entity, value, state) {
         return { ok: true, result: { entry: entry.value }, diagnostics: assembled.diagnostics };
     }
     if (entity.kind === 'battle-reward') return settleReward(entity, value, state);
+    if (entity.kind === 'draw-card') {
+        const assembled = assembleDrawCard(value, context);
+        if (assembled.errors) return { ok: false, errors: assembled.errors };
+        const normalized = normalizeCard(assembled.value);
+        if (!normalized.ok) return { ok: false, errors: normalized.errors.map((error) => ({ ...error, path: error.path ? `card.${error.path}` : 'card' })) };
+        return { ok: true, result: { card: normalized.value }, diagnostics: assembled.diagnostics };
+    }
     if (entity.kind === 'class-tier') {
         const assembled = assembleClassTier(value, context);
         if (assembled.errors) return { ok: false, errors: assembled.errors };
@@ -646,7 +666,7 @@ function settleGrowth(entity, value, state) {
 }
 
 // 各种类的处理顺序：职业先于牌组，成长/奖励等靠后
-const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13, 'signature-card': 14, 'challenge-foe': 15 });
+const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13, 'signature-card': 14, 'challenge-foe': 15, 'draw-card': 16 });
 
 // 请求过期（被中止）的统一返回
 const staleResult = (accepted) => ({ ok: false, reason: 'request-stale', accepted: [], rejected: [], diagnostics: [], discarded: accepted.size });

@@ -119,6 +119,10 @@ export function validateDraft(view, draft) {
 const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null,
     ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
     text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : '' });
+// 规则 v6 积分抽卡的待选候选：名称、类型、费用、稀有度与效果说明（按当前属性预览）。
+const drawView = (pending, attr) => (pending ? { drawId: pending.drawId, choices: (pending.choices || []).map((card) => ({
+    cardId: card.id, name: card.name || card.id, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', fixed: fixedCardGroup(card.id) !== null,
+    ...cardPreview(card, attr) })) } : null);
 
 // v4 特性槽（助手 10-28，只主角）：slots 为当前槽数、max 为上限；innate 为保留着的固有特性（人物技能 / 个人被动，可被替换）；
 // locked 为未解锁的槽与价格（第一个即下一个可解锁的）；有待定特性时 replaceable 列出替换后不挤掉其他固有特性、主动不超上限的特性 ID。
@@ -150,6 +154,7 @@ export function deckDetailView(view, draft) {
         combat, traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
         // 杂物键：账本背包为 lootId；主角背包投影（P7b）为 itemId（同名叠数量）。
         collection: (view.collection || []).map((k) => ({ ...k, key: k.lootId || k.itemId, price: sellPrice(k.rarity, k.lootId || k.itemId) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
+        pendingDraw: drawView(view.pendingDraw, view.attributes),
         relLabel: REL_TIERS[view.attributes?.tier]?.label || '',
         abilities: allocView(view.attributes)?.rows || [] };
     if (view.kind === 'skill-character') {

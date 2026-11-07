@@ -44,7 +44,7 @@ export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-ch
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
-    'purge',
+    'purge', 'card-draw', 'card-pick',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -987,6 +987,18 @@ function validateLedgerPayload(type, payload, path, state) {
             checkKnownFields(payload, ['slot', 'cost'], path, state);
             return { slot: intField(payload.slot, at('slot'), state, TRAIT_BASE_SLOTS + 1, TRAIT_SLOT_MAX), cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
         // 规则 v6 删卡：删去卡组里的一张副本；battle 为获得这次机会时的普通战斗胜场数，reportId 为写下删卡标签的那场战报。
+        // 规则 v6 积分抽卡：card-draw 付费抽出 REWARD_CARD_CHOICES 张本职业候选（成为待选），card-pick 选其一进卡组或 skip 放弃（不退款）。
+        case 'card-draw': {
+            checkKnownFields(payload, ['drawId', 'choices', 'cost'], path, state);
+            const choices = arrayField(payload.choices, at('choices'), state, REWARD_CARD_CHOICES, REWARD_CARD_CHOICES, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
+            if (Array.isArray(choices)) checkDuplicateIds(choices, at('choices'), state);
+            return { drawId: idField(payload.drawId, at('drawId'), state), choices, cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
+        }
+        case 'card-pick': {
+            checkKnownFields(payload, ['drawId', 'pick'], path, state);
+            const pick = payload.pick === 'skip' ? 'skip' : intField(payload.pick, at('pick'), state, 0, REWARD_CARD_CHOICES - 1);
+            return { drawId: idField(payload.drawId, at('drawId'), state), pick };
+        }
         case 'purge':
             checkKnownFields(payload, ['copyId', 'cost', 'battle', 'reportId'], path, state);
             return {

@@ -694,3 +694,16 @@ export function assembleReward(raw, { key, input }) {
         ? { errors: collector.errors }
         : { value: { slots, ...(reserve ? { reserve } : {}) }, diagnostics: collector.diagnostics };
 }
+
+// 规则 v6 积分抽卡的随机候选：{ card: [名称, 模板键] }。稀有度、费用、ID 与本职业模板范围由程序定（rewards.js 的 planCardDraw）。
+export function assembleDrawCard(raw, { key, fixed = {} } = {}) {
+    const invalid = expectObject(raw);
+    if (invalid) return invalid;
+    const collector = createCollector(key);
+    const fields = fieldsOf(raw.card, 'card', collector, ['name', 'template']);
+    if (!fields) return { errors: collector.errors };
+    const card = buildCard(fields[0], fields[1], undefined, [indexPath('card', 0), indexPath('card', 1), 'card.cost'], collector, {
+        id: fixed.cardId, rarity: fixed.rarity, slot: fixed.cost, table: archetypeTable(fixed.archetype),
+    });
+    return card && !collector.errors.length ? { value: card, diagnostics: collector.diagnostics } : { errors: collector.errors };
+}

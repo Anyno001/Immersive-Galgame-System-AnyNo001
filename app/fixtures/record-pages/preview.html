@@ -57,6 +57,8 @@ import { relationshipsFixture } from './fixtures/relationships.fixture.js';
 import { createCombatPreview } from './fixtures/combat.fixture.js';
 import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
 import { createCombatDeckPanelController } from '../../src/visual/igs-ui/combat-deck-panel.js';
+import { planCardDraw } from '../../src/combat/rewards.js';
+import { fixedCard } from '../../src/combat/fixed-cards/index.js';
 import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/visual/igs-ui/combat-cutin.js';
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
@@ -423,15 +425,28 @@ const inscribeCopies = (c) => {
   const mark = (row) => (marked.has(row.copyId) ? { ...row, inscription: marked.get(row.copyId) } : row);
   return { ...c, copies: c.copies.map(mark), deckEntries: (c.deckEntries || []).map(mark) };
 };
-const deckLedger = !INSCRIBE_PREVIEW.length ? combatPreview.ledger : { ...combatPreview.ledger, async effectiveState() {
+// ?carddraw=open：主角金钱 500，可点「抽卡」；?carddraw=pending：另挂一组按种子规划的待选候选（本职业固定 2 + 示例随机 1）。只改面板读到的归并视图。
+const cardDrawParam = new URLSearchParams(location.search).get('carddraw') || '';
+const cardDrawView = (c) => {
+  if (c.kind !== 'deck-character' || c.attributes?.protagonist !== true) return c;
+  const out = { ...c, points: Math.max(c.points || 0, 500) };
+  if (cardDrawParam !== 'pending') return out;
+  const plan = planCardDraw({ ...c, classProfile: c.classProfile || { archetype: 'warrior' } });
+  if (!plan) return out;
+  const choices = plan.fixedIds.map((id) => JSON.parse(JSON.stringify(fixedCard(id))));
+  choices.splice(plan.randomAt, 0, { id: plan.cardId, name: '裂岩斩', type: 'attack', cost: 1, rarity: plan.rarity, effects: [{ op: 'damage', amount: 3 }, { op: 'block', amount: 3 }] });
+  return { ...out, pendingDraw: { drawId: plan.drawId, choices } };
+};
+const deckLedger = !INSCRIBE_PREVIEW.length && !cardDrawParam ? combatPreview.ledger : { ...combatPreview.ledger, async effectiveState() {
   const st = await combatPreview.ledger.effectiveState();
   if (!st?.ok || !st.characters) return st;
-  return { ...st, characters: new Map([...st.characters].map(([id, c]) => [id, inscribeCopies(c)])) };
+  const view = (c) => (cardDrawParam ? cardDrawView(INSCRIBE_PREVIEW.length ? inscribeCopies(c) : c) : inscribeCopies(c));
+  return { ...st, characters: new Map([...st.characters].map(([id, c]) => [id, view(c)])) };
 } };
 const deckNoop = async () => ({ ok: false, reason: 'combat-generate-unavailable' });
 const deckFull = createCombatDeckPanelController(document, {
   getLedger: () => deckLedger, getSession: () => combatPreview.session,
-  regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop,
+  regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop, drawCard: deckNoop, pickCard: deckNoop,
   getTheme: () => new URLSearchParams(location.search).get('theme') || '', setTheme: () => {},
 });
 async function openDeckFull() {

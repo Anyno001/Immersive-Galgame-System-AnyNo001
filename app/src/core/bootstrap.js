@@ -580,6 +580,8 @@ export function bootstrapIGS(options = {}) {
         drawCombatTrait: (name) => combatServices.drawTrait(name),
         pickCombatTrait: (name) => combatServices.pickTrait(name),
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
+        drawCombatCard: (opts) => combatServices.drawCard(opts),
+        pickCombatCard: (opts) => combatServices.pickCard(opts),
         setCombatGear: typeof combatServices.setGear === 'function' ? (name, gearId, equip, slotIndex) => combatServices.setGear(name, gearId, equip, null, slotIndex) : undefined,
         useCombatInventoryItem: typeof combatServices.useInventoryItem === 'function' ? (item) => combatServices.useInventoryItem(item) : undefined,
         getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,

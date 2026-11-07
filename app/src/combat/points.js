@@ -12,6 +12,8 @@ export const ASCEND_TIERS = Object.freeze({
     3: Object.freeze({ cost: 600, level: 10, rarity: 'epic' }),
 });
 export const TRAIT_DRAW_COST = 100;
+// 规则 v6 积分抽卡（D-09）：3 张本职业候选（固定 2 + 随机 1），选一张进卡组或放弃，放弃不退款；单价不递增。
+export const CARD_DRAW_COST = 150;
 // 规则 v6 删卡（D-05 / D-06 / D-07）：每满 PURGE_EVERY 场普通战斗胜利给一次机会，过期作废；费用 75 + 50 × 已删次数。
 export const PURGE_EVERY = 5;
 export const PURGE_BASE_COST = 75;

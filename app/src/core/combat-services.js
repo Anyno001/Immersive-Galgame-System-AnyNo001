@@ -16,14 +16,16 @@ import {
     checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe,
 } from '../scene/check-rolls.js';
 import {
-    classTierEntity, deckProfileEntities, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
+    classTierEntity, deckProfileEntities, drawCardEntity, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
     withCharacterLore, withStoryContext,
 } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
 import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
 import { equippedGear } from '../combat/gear-slots.js';
-import { ASCEND_TIERS, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
+import { ASCEND_TIERS, CARD_DRAW_COST, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
+import { planCardDraw } from '../combat/rewards.js';
+import { fixedCard } from '../combat/fixed-cards/index.js';
 import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, planTraitLink, traitFits, traitSeed } from '../combat/traits.js';
 import { planTraitShape } from '../combat/trait-pool.js';
 import { ABILITY_KEYS, parseCombatInit, wantsAutoInit } from '../combat/abilities.js';
@@ -1148,6 +1150,48 @@ export function createCombatServices(options = {}) {
         return unlocked?.ok !== true ? { ok: false, reason: unlocked?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, slot: next.slot, cost: next.cost };
     }
 
+    // 规则 v6 积分抽卡：程序按种子定候选（本职业固定 2 + 随机 1），副 LLM 只给随机卡起名选模板；生成成功后才写 card-draw 扣费，失败或取消不扣费。
+    async function drawCard({ signal } = {}) {
+        const context = await heroActionContext('drawCard', 'card-draw');
+        if (!context.ok) return context;
+        const { ledgerImpl, state, hero } = context;
+        if (hero.pendingDraw) return { ok: false, reason: 'combat-card-draw-pending' };
+        if ((hero.points || 0) < CARD_DRAW_COST) return { ok: false, reason: 'combat-points-insufficient' };
+        const plan = planCardDraw(hero);
+        if (!plan) return { ok: false, reason: 'combat-card-draw-pool-empty' };
+        const llm = resolveCombatLlm(getLlm());
+        if (!llm.ok) return llmFailure(llm);
+        const entities = await withCharacterLore([drawCardEntity({ character: hero, plan })], readLore);
+        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
+        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
+        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (generated.reason) return generationFailure(generated);
+        const card = (generated.accepted || []).find((item) => item.card)?.card;
+        if (!card) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-card-draw-generation-failed' };
+        const choices = plan.fixedIds.map((id) => JSON.parse(JSON.stringify(fixedCard(id))));
+        choices.splice(plan.randomAt, 0, card);
+        const written = await ledgerImpl.drawCard(hero.id, { drawId: plan.drawId, choices });
+        if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
+        return { ok: true, id: hero.id, drawId: plan.drawId, choices, cost: CARD_DRAW_COST };
+    }
+
+    // pick：候选序号 0–2 或 'skip'（放弃不退款）。
+    async function pickCard({ pick } = {}) {
+        const context = await heroActionContext('pickCard', 'card-pick', { needLlm: false });
+        if (!context.ok) return context;
+        const { ledgerImpl, hero } = context;
+        const pending = hero.pendingDraw;
+        if (!pending) return { ok: false, reason: 'combat-card-pick-invalid' };
+        const choice = pick === 'skip' ? 'skip' : Number(pick);
+        if (choice !== 'skip' && !(Number.isInteger(choice) && choice >= 0 && choice < pending.choices.length)) return { ok: false, reason: 'combat-card-pick-invalid' };
+        const picked = await ledgerImpl.pickCard(hero.id, pending.drawId, choice);
+        return picked?.ok !== true
+            ? { ok: false, reason: picked?.reason || 'combat-ledger-insert-failed' }
+            : { ok: true, id: hero.id, drawId: pending.drawId, pick: choice, card: choice === 'skip' ? null : pending.choices[choice] };
+    }
+
     // ---- 主角档案（进入聊天后自动准备，状态可订阅） ----
     let protagonistState = { key: '', status: 'idle', reason: '', attempt: 0, requested: false };
     let protagonistTask = null; // { key, controller, promise }
@@ -1421,7 +1465,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
-        drawTrait, pickTrait, unlockTraitSlot, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
+        drawTrait, pickTrait, unlockTraitSlot, drawCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,

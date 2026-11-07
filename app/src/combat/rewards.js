@@ -1,7 +1,7 @@
 // 战斗奖励规划：按敌人档位、难度、特性关联，用固定种子生成翻牌奖励槽位（主组 + 备选组）。纯函数。
 import { cardCopyLimit, combatExpReward, difficultyRule } from './rules.js';
 import { GEAR_SLOTS, REWARD_CARD_CHOICES, REWARD_SLOT_COUNT } from './schema.js';
-import { hash32, nextRandom } from './random.js';
+import { hash32, hashString, nextRandom } from './random.js';
 import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from './fixed-cards/index.js';
 
@@ -177,6 +177,26 @@ function withCardCandidates(slots, seed, pool, owned, archetype, general = []) {
         const randomAt = pickIndex(randomFrom(`${seed}|cand-at|${slot.index}`), REWARD_CARD_CHOICES);
         return { ...slot, archetype, fixedIds, randomAt };
     });
+}
+
+// 规则 v6 积分抽卡（D-09 / D-15）：稀有度与费用的权重表；候选只取本职业，不混无色。
+export const CARD_DRAW_RARITY = Object.freeze([['common', 60], ['uncommon', 32], ['rare', 8]]);
+// 积分抽卡规划：以主角 ID 加已抽次数为种子，定稀有度、随机卡费用、本职业固定候选 2 张与随机卡位置。
+// 本职业固定池凑不齐 2 张（未知职业或同名都已满）时返回 null，不能抽。
+export function planCardDraw(character) {
+    if (character?.kind !== 'deck-character' || !character.id) return null;
+    const draws = Number.isInteger(character.cardDraws) ? character.cardDraws : 0;
+    const seed = `card-draw|${character.id}|${draws}`;
+    const pool = fixedClassPool(character.classProfile?.archetype);
+    const owned = character.owned instanceof Map ? character.owned : new Map();
+    const random = randomFrom(seed);
+    const rarity = pickWeighted(random, CARD_DRAW_RARITY);
+    const cost = pickWeighted(random, CARD_COST_WEIGHTS);
+    const fixedIds = fixedCandidates(`${seed}|cand`, rarity, pool, owned, REWARD_CARD_CHOICES - 1);
+    if (fixedIds.length < REWARD_CARD_CHOICES - 1) return null;
+    const randomAt = pickIndex(randomFrom(`${seed}|cand-at`), REWARD_CARD_CHOICES);
+    const mark = hashString(seed);
+    return { seed, drawId: `cd-${mark}`, cardId: `dc-${mark}`, archetype: character.classProfile.archetype, rarity, cost, fixedIds, randomAt };
 }
 
 // 规划一场战斗的奖励。返回 { seed, tier, exp, links, slots, reserve }。
