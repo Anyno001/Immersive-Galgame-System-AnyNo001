@@ -45,7 +45,8 @@ import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } fro
 import { loadStoryOutfitCandidates } from '../../scene/outfit-review-store.js';
 import { applyMoodAssignments, applyMoodReclassification, buildMoodClassificationRequest, buildMoodReclassifyRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS, beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
-import { STATUS_HUD_POSITION_DEVICES, normalizeStatusHudSettings, normalizeStatusAvatars } from '../../data/shujuku/status-hud-model.js';
+import { STATUS_HUD_POSITION_DEVICES, normalizeStatusHudSettings, normalizeStatusAvatars, resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
+import { createShujukuClient } from '../../data/shujuku/client.js';
 
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { CHAT_SHOW_PROMPT_RULE, isValidChatContactName, normalizeChatPromptRule, normalizeChatShowSettings } from './chat-show-runtime.js';
@@ -2304,7 +2305,11 @@ export async function handleSettingsAction(action, ctx) {
         const name = decodeSeg(rest.slice(colon + 1));
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         const current = normalizeStatusHudSettings(readerDraft.statusHud);
-        const key = uid || `name:${name}`;
+        if (current.tablesMode === 'auto') {
+            const api = globalThis.AutoCardUpdaterAPI;
+            current.tables = api ? resolveStatusHudPicks(current, createShujukuClient(api).readTables()) : [];
+            current.tablesMode = 'manual';
+        }
         const exists = current.tables.some((item) => (uid && item.uid === uid) || (!uid && item.name === name));
         current.tables = exists
             ? current.tables.filter((item) => !((uid && item.uid === uid) || (!uid && item.name === name)))

@@ -38,6 +38,33 @@ export function coolDown(character, day, days = 1) {
     return to === favor ? character : { ...character, dims: { ...character.dims, 好感: to } };
 }
 
+// 以下为 strengthRev ≥ 2 的新楼专用的日结算项，按天数一次算完，不逐日循环。
+export const GRUDGE_FADE_FLOOR = 25;
+export const RECENT_HURT_DAYS = 7;
+export const INSIGHT_COOLDOWN_DAYS = 30;
+
+// 芥蒂缓慢消退：芥蒂 >25 每天 −1，最低降到 25（不掉回吃醋低路）；返回 { character, change }，没有变化时 change 为 null。
+export function fadeGrudge(character, days = 1) {
+    const from = Number(character.dims.芥蒂) || 0;
+    if (from <= GRUDGE_FADE_FLOOR || !(days > 0)) return { character, change: null };
+    const to = Math.max(GRUDGE_FADE_FLOOR, from - Math.floor(days));
+    return to === from ? { character, change: null } : { character: { ...character, dims: { ...character.dims, 芥蒂: to } }, change: { key: '芥蒂', from, to, note: '淡忘' } };
+}
+
+// 欲望缓慢消退：非恋爱对象每天 −1，最低到 0；没有欲望维度的角色不新增字段。
+export function fadeDesire(character, days = 1) {
+    const from = Number(character.dims.欲望) || 0;
+    if (from <= 0 || !(days > 0)) return { character, change: null };
+    const to = Math.max(0, from - Math.floor(days));
+    return to === from ? { character, change: null } : { character: { ...character, dims: { ...character.dims, 欲望: to } }, change: { key: '欲望', from, to, note: '淡忘' } };
+}
+
+// 近 7 天信任下降、芥蒂上升的账：[{ day, dim, amount }]，超过 7 天的作废。
+export function liveHurts(character, day) {
+    const list = Array.isArray(character.recentHurts) ? character.recentHurts : [];
+    return list.filter((e) => e && Number(e.amount) > 0 && day - (Number(e.day) || 0) <= RECENT_HURT_DAYS);
+}
+
 // days：本次推进的天数（日结算 1，时间跳跃为跳过的天数，软跨天 0）；信任受伤标记 trustWound 每天减 1，没有该字段的角色不新增字段。
 export function resetDaily(character, day, days = 1) {
     const next = { ...character, daily: { day, gained: {} } };

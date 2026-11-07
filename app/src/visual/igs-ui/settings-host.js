@@ -25,6 +25,7 @@ import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsC
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
 import { migrateTables, MIGRATE_BACKUP_KEY } from '../../data/shujuku/table-migrate.js';
 import { downloadStatsTemplate, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from './stats-template-link.js';
+import { FAME_KINDS, FAME_KIND_NAMES, FAME_PAIR_KIND } from '../../scene/stats/stat-fame.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData } from './reader-value-utils.js';
@@ -59,6 +60,11 @@ import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBa
 import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
 import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
 import { originChatStatus, runAttachedOriginOp } from './origin-attach.js';
+import { resolveSecondaryLlm } from '../../scene/mood-classify.js';
+import { secondaryLlmText } from '../../host/secondary-llm-result.js';
+
+// 「我对TA」备注最多字数（与存档 sanitizeCatalog 一致）。
+const HERO_NOTE_MAX = 40;
 
 // 设置页改角色的某一项时，按这些字段里有没有这个角色名判断它在本卡还是全局。
 const ASSET_CHARACTER_FIELDS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
@@ -686,6 +692,27 @@ export function createSettingsHost(deps) {
         return result;
     }
 
+    // 「按剧情拟写」：取最近正文拼好的请求，调副模型一次，结果只填进输入框草稿，保存才写进存档。
+    async function draftHeroNote(op, name) {
+        if (typeof options.requestSecondaryText !== 'function') return { ok: false, reason: 'stats-no-model' };
+        const req = await op('relation', 'note-prompt', name, {});
+        if (!req || !req.ok) return req || { ok: false };
+        const panel = state.activeSettings;
+        const busy = typeof settingsDialogs.busy === 'function' ? settingsDialogs.busy('正在拟写。') : null;
+        let text = '';
+        try {
+            const raw = await options.requestSecondaryText({ system: req.system, user: req.user }, resolveSecondaryLlm(panel && panel.draft && panel.draft.bridge && panel.draft.bridge.autoIllustration));
+            text = secondaryLlmText(raw).replace(/\s+/g, ' ').trim().replace(/^[「“"']+|[」”"']+$/g, '').slice(0, HERO_NOTE_MAX);
+        } catch (error) {
+            return { ok: false, reason: 'stats-note-failed' };
+        } finally { if (busy) busy.close(); }
+        if (!text) return { ok: false, reason: 'stats-note-failed' };
+        if (state.activeSettings !== panel) return { ok: false, reason: 'settings-closed' };
+        const drafts = panel.asyncState.statsNoteDrafts || (panel.asyncState.statsNoteDrafts = Object.create(null));
+        drafts[name] = text;
+        return { ok: true };
+    }
+
     async function runStatsOp(spec) {
         const op = typeof options.statsOp === 'function' ? options.statsOp : null;
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
@@ -693,7 +720,7 @@ export function createSettingsHost(deps) {
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
         // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
-        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
+        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'trait' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -707,6 +734,30 @@ export function createSettingsHost(deps) {
             }
             else if (kind === 'sheet-new') result = await op('generate', name);
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
+            else if (kind === 'trait') result = await op('relation', 'trait', name, { key: valuePart, on: oldPart === '1' });
+            else if (kind === 'fame-add') {
+                // 开一条声望：先选性质，再起条名（留空用性质名）。
+                const kindName = await settingsDialogs.choose('选择这条声望的性质：', FAME_KIND_NAMES.map((value) => ({ value, label: `${value}（${FAME_KINDS[value].zero}到${FAME_KINDS[value].full}）` })), FAME_KIND_NAMES[0], { dropdown: true });
+                if (!FAME_KIND_NAMES.includes(kindName)) result = { ok: true, cancelled: true };
+                else {
+                    const raw = await settingsDialogs.prompt(kindName === FAME_PAIR_KIND ? '条名（如「CP粉」），留空则用性质名：' : '条名（如「唯粉」「路人缘」），留空则用性质名：', '');
+                    result = raw == null ? { ok: true, cancelled: true } : await op('relation', 'fame-add', '', { name: String(raw).trim() || kindName, kind: kindName });
+                }
+            }
+            else if (kind === 'fame-remove') {
+                result = await settingsDialogs.confirm(`关闭声望「${name}」？关闭后不再写入提示词，也不再结算；再次开启同名声望时沿用原有数值。`) ? await op('relation', 'fame-remove', name) : { ok: true, cancelled: true };
+            }
+            else if (kind === 'aptitude') {
+                // 参数为「编码后的角色名:档」，主角为「主角」。
+                const [who, level = ''] = raw.split(':');
+                result = await op('relation', 'aptitude', decodeURIComponent(who), { level: decodeURIComponent(level) });
+            }
+            else if (kind === 'note-save') {
+                const drafts = state.activeSettings && state.activeSettings.asyncState.statsNoteDrafts;
+                result = drafts && typeof drafts[name] === 'string' ? await op('relation', 'note', name, { text: drafts[name] }) : { ok: true, cancelled: true };
+                if (result && result.ok && drafts) delete drafts[name];
+            }
+            else if (kind === 'note-draft') result = await draftHeroNote(op, name);
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'skill-tier') result = valuePart ? await op('hero', 'edit', name, { tier: valuePart }) : { ok: true, cancelled: true };
             else if (kind === 'hero-slot') {
@@ -833,7 +884,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开三条。', 'stats-fame-kind': '请选择声望的性质。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -1340,6 +1391,13 @@ export function createSettingsHost(deps) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            // 「我对TA」输入：只记在界面草稿里，点「保存」才写进聊天存档。
+            const statsNote = target.getAttribute('data-stats-note');
+            if (statsNote !== null) {
+                const drafts = state.activeSettings.asyncState.statsNoteDrafts || (state.activeSettings.asyncState.statsNoteDrafts = Object.create(null));
+                drafts[statsNote] = String(target.value || '').slice(0, HERO_NOTE_MAX);
+                return;
+            }
             const voiceSearch = target.getAttribute('data-tts-voice-search');
             if (voiceSearch !== null) {
                 const queries = state.activeSettings.asyncState.ttsVoiceSearch || (state.activeSettings.asyncState.ttsVoiceSearch = Object.create(null));

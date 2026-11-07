@@ -6,6 +6,8 @@ export { HURT_PCT };
 
 export const STAMINA_DELTA = Object.freeze({ 轻: -5, 中: -15, 重: -30, 熬夜: -20, 进食: 10, 小憩: 20 });
 export const STRESS_DELTA = Object.freeze({ 上升: 10, 下降: -10 });
+// 压力强度（新楼标签带强度时用，省略按「中」即 STRESS_DELTA）：小 ±5、中 ±10、大 ±20；上升另有「极大」+50（创伤性事件，rev ≥ 2，下降没有极大）。
+export const STRESS_STRENGTH_DELTA = Object.freeze({ 上升: Object.freeze({ 小: 5, 中: 10, 大: 20, 极大: 50 }), 下降: Object.freeze({ 小: -5, 中: -10, 大: -20 }) });
 export const DEFAULT_MONEY_TABLE = Object.freeze({ 少量: 20, 普通: 100, 昂贵: 500, 巨额: 3000 });
 export const STAMINA_LOW = 30;
 export const HEALTH_SEVERE_PCT = 20;
@@ -31,7 +33,10 @@ export function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TA
             ? { bars, change: null, hurt: '轻伤' }
             : shift(bars, 'stamina', STAMINA_DELTA[directive.value] || 0);
     case 'hurt': return Object.hasOwn(HURT_PCT, directive.value) ? { bars, change: null, hurt: directive.value } : { bars, change: null };
-    case 'stress': return shift(bars, 'stress', STRESS_DELTA[directive.value] || 0);
+    case 'stress': {
+        const table = STRESS_STRENGTH_DELTA[directive.value];
+        return shift(bars, 'stress', (table && table[directive.strength]) || STRESS_DELTA[directive.value] || 0);
+    }
     case 'money': {
         const amount = Number(moneyTable[directive.value]) || 0;
         if (directive.flow === '花费' && amount > walletBalance(bars, walletExtra)) return { bars, change: null, shortfall: true };

@@ -1,16 +1,19 @@
-// 旧聊天迁移到数值表解耦后的新表结构（docs/STATS_TABLE_DECOUPLE_PLAN.md 第三节）。
+// 旧聊天迁移到数值表解耦、精修后的新表结构（docs/STATS_TABLE_DECOUPLE_PLAN.md 第三节、docs/STATS_TABLE_REFINE_PLAN.md 第五节）。
 // 做法：先备份旧表 JSON；用新模板替换本聊天模板（数据库插件按 seed 保留已有数据）；再按迁移前的快照把秘密、属性格搬到新位置。
+// 已是解耦结构但仍用旧版适配模板的聊天（角色数值表、才艺技能表还不是 IGS 维护写法）只做精修：换两张 IGS 表的配置与 AI 填的表的说明。
 // 纯函数部分（buildMigratedTemplate / planTableMigration）不碰数据库插件；migrateTables 负责串起流程。
 import { parseTables } from './table-parser.js';
 import { SHUJUKU_ROW_OFFSET } from './stats-push.js';
 import { SKILL_TABLE_NAME, canonicalAttribute, findSkillTable, isSixAttribute } from './skill-table.js';
 import { readAttributeCell } from '../../scene/stats/stat-cell-format.js';
+import { igsManagedTablesReady } from './igs-managed.js';
 
 export const MIGRATE_BACKUP_KEY = 'igs_table_migrate_backup_v1';
 export const VALUES_TABLE = '角色数值表';
 export const HERO_TABLE = '主角信息表';
 export const NPC_TABLE = '重要角色表';
-// 迁移时用新模板替换规则字段的表（含检定建议表：它的取值说明改指才艺技能表）。
+// 迁移时用新模板替换规则字段的表（重要角色表的表头也按新模板，旧列「交互选项」随之丢弃，其余旧行按列名搬）。
+// 角色数值表、才艺技能表另外连更新配置、导出配置一起换成 IGS 记录表的写法。
 const REPLACED_RULE_SHEETS = Object.freeze([VALUES_TABLE, HERO_TABLE, NPC_TABLE, '物品表', '检定建议表']);
 
 const trim = (v) => String(v ?? '').trim();
@@ -18,9 +21,17 @@ const colOf = (table, name) => table.columns.map(trim).indexOf(name);
 const byName = (tables, name) => tables.find((t) => t.name === name) || null;
 const sheetEntries = (template) => Object.entries(template || {}).filter(([, s]) => s && typeof s === 'object' && typeof s.uid === 'string');
 
+// 管辖的 IGS 记录表：迁移时换掉 updateConfig、exportConfig、sourceData，行与表头保持聊天里现有的。
+const MANAGED_RECORD_SHEETS = Object.freeze([VALUES_TABLE, SKILL_TABLE_NAME]);
+
 // 旧结构特征：没有才艺技能表。已迁移的聊天不再处理。
 export function needsMigration(tables) {
     return !findSkillTable(tables) && Boolean(byName(tables, VALUES_TABLE));
+}
+
+// 已是解耦结构、但两张 IGS 表还不是 IGS 维护写法（旧版适配模板）：只需精修。raw 为数据库插件导出的整份表格 JSON。
+export function needsRefine(tables, raw) {
+    return Boolean(findSkillTable(tables)) && Boolean(byName(tables, VALUES_TABLE)) && !igsManagedTablesReady(raw);
 }
 
 // 在本聊天当前模板上套新模板：同名表换规则字段与表头（旧行按列名搬到新表头），缺的才艺技能表新建。
@@ -44,6 +55,15 @@ export function buildMigratedTemplate(current, fetched) {
         replaced.push(name);
     }
     if (!replaced.includes(VALUES_TABLE)) return { ok: false, reason: 'migrate-no-values-table' };
+    // IGS 记录表：配置外壳换成新模板的（更新频率 0、不注入世界书、note 一句话），已有行不动。
+    for (const name of MANAGED_RECORD_SHEETS) {
+        const target = entries.find(([, s]) => s.name === name);
+        const source = fresh.find(([, s]) => s.name === name);
+        if (!target || !source) continue;
+        for (const key of ['updateConfig', 'exportConfig']) if (source[1][key]) target[1][key] = JSON.parse(JSON.stringify(source[1][key]));
+        target[1].sourceData = JSON.parse(JSON.stringify(source[1].sourceData));
+        if (!replaced.includes(name)) replaced.push(name);
+    }
     const added = [];
     if (!entries.some(([, s]) => s.name === SKILL_TABLE_NAME)) {
         const source = fresh.find(([, s]) => s.name === SKILL_TABLE_NAME);
@@ -164,7 +184,8 @@ export async function migrateTables(client, fetched, { backup } = {}) {
     const read = client.readTables();
     if (!read.ok) return { ok: false, reason: 'migrate-read-failed', detail: read.reason };
     const oldTables = parseTables(read.data);
-    if (!needsMigration(oldTables)) return { ok: true, skipped: true, reason: findSkillTable(oldTables) ? 'migrate-already-new' : 'migrate-no-values-table' };
+    const refineOnly = !needsMigration(oldTables) && needsRefine(oldTables, read.data);
+    if (!needsMigration(oldTables) && !refineOnly) return { ok: true, skipped: true, reason: findSkillTable(oldTables) ? 'migrate-already-new' : 'migrate-no-values-table' };
     const templateRead = client.getTableTemplate();
     if (!templateRead.ok) return { ok: false, reason: 'migrate-template-unavailable', detail: templateRead.reason };
     const built = buildMigratedTemplate(templateRead.data, fetched);
@@ -180,7 +201,8 @@ export async function migrateTables(client, fetched, { backup } = {}) {
     if (!after.ok) return { ok: false, reason: 'migrate-reread-failed', detail: after.reason, backedUp: true };
     const newTables = parseTables(after.data);
     if (!findSkillTable(newTables)) return { ok: false, reason: 'migrate-skill-table-not-created', backedUp: true };
-    const plan = planTableMigration(oldTables, newTables);
+    // 只精修时没有秘密与属性格要搬，不做补写。
+    const plan = refineOnly ? { writes: [], inserts: [], warnings: [], diagnostics: [] } : planTableMigration(oldTables, newTables);
     const failures = [];
     let wrote = 0;
     let inserted = 0;

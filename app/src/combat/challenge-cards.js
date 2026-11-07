@@ -26,15 +26,15 @@ const names = (push, hold, combo, tempo, ace, ladders = {}) => Object.freeze({ p
 
 export const DOMAIN_CARDS = Object.freeze({
     烹饪: names('拿手菜', '火候', '摆盘', '备料', '招牌秘方', { push: ['strike', 'bash', 'bash'], combo: ['bash', 'bash', 'cripple'] }),
-    话术: names('据理力争', '以退为进', '层层递进', '梳理要点', '抓住破绽', { hold: ['brace', 'brace', 'mend'], ace: ['rend', 'rend', 'shatter'] }),
+    话术: names('据理力争', '以退为进', '层层递进', '理清脉络', '一语中的', { hold: ['brace', 'brace', 'mend'], ace: ['rend', 'rend', 'shatter'] }),
     学习: names('融会贯通', '稳扎稳打', '一气呵成', '灵感闪现', '举一反三', { combo: ['twin', 'twin', 'flurry'], tempo: ['prepare', 'quick', 'quick'] }),
     应变: names('随机应变', '见招拆招', '连环对策', '急中生智', '绝处逢生'),
     魅力: names('真诚相待', '温柔以对', '软硬兼施', '恰到好处', '打动人心'),
     照顾: names('悉心安排', '耐心守候', '体贴入微', '细致周到', '无微不至', { hold: ['guard', 'mend', 'mend'] }),
     艺术: names('灵感挥洒', '沉心打磨', '笔走龙蛇', '即兴发挥', '神来之笔'),
-    运动: names('全力以赴', '稳住节奏', '一鼓作气', '调整呼吸', '突破极限'),
+    运动: names('全力以赴', '保持节奏', '一鼓作气', '调匀气息', '突破极限'),
     家务: names('手脚麻利', '有条不紊', '干净利落', '随手收拾', '焕然一新'),
-    [CHALLENGE_GENERAL_DOMAIN]: names('全力应对', '沉着应对', '连续出击', '抓紧时机', '孤注一掷'),
+    [CHALLENGE_GENERAL_DOMAIN]: names('全力应对', '沉着应对', '连番应对', '抓紧时机', '孤注一掷'),
 });
 
 export const DOMAIN_CARD_KEYS = Object.freeze(Object.fromEntries(Object.entries(DOMAIN_CARDS).map(([domain, def]) => [
@@ -45,8 +45,8 @@ export const DOMAIN_CARD_KEYS = Object.freeze(Object.fromEntries(Object.entries(
 // 与领域无关的生活牌，所有人都有。
 export const LIFE_CARDS = Object.freeze([
     Object.freeze({ id: 'ch-life-1', name: '深呼吸', key: 'brace', cost: 1 }),
-    Object.freeze({ id: 'ch-life-2', name: '喝口水', key: 'mend', cost: 1 }),
-    Object.freeze({ id: 'ch-life-3', name: '回忆练习', key: 'prepare', cost: 1 }),
+    Object.freeze({ id: 'ch-life-2', name: '暂作休息', key: 'mend', cost: 1 }),
+    Object.freeze({ id: 'ch-life-3', name: '温习要点', key: 'prepare', cost: 1 }),
     Object.freeze({ id: 'ch-life-4', name: '整理思路', key: 'quick', cost: 1 }),
 ]);
 

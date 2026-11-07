@@ -37,7 +37,7 @@ test('骰面：奖励骰十位取小、惩罚骰取大，00+0 记 100', () => {
     assert.deepEqual(cocFaces({ unit: 7, tens: [3, 1, 5] }), { base: 37, bonus: [17, 17], penalty: [37, 57] });
     assert.deepEqual(cocFaces({ unit: 2, tens: [6, 4, 1] }), { base: 62, bonus: [42, 12], penalty: [62, 62] });
     assert.deepEqual(cocFaces({ unit: 0, tens: [0, 5, 0] }), { base: 100, bonus: [50, 50], penalty: [100, 100] });
-    assert.equal(formatCocRoll({ unit: 7, tens: [3, 1, 5] }), '37（奖17/17，罚37/57）');
+    assert.equal(formatCocRoll({ unit: 7, tens: [3, 1, 5] }), '37（奖励17/17，惩罚37/57）');
 });
 
 test('标签扫描：难度（常规=普通）、奖惩词、属性与技能、无效项给诊断', () => {
@@ -138,10 +138,10 @@ test('提示词段：形状同 check-rolls 段，骰序、在场属性、持续�
     assert.match(seg.content, /d100/);
     assert.match(seg.content, /≤ 5 为大成功，≥ 96 为大失败/);
     assert.match(seg.content, new RegExp(formatCocRoll(rolls[0]).replace(/[()/]/g, '\\$&')));
-    assert.match(seg.content, /阿明：力量60 敏捷45 理智55；高技能 格斗70 潜行62/);
+    assert.match(seg.content, /阿明：力量60 敏捷45 理智55；擅长技能 格斗70 潜行62/);
     assert.doesNotMatch(seg.content, /烹饪30/);
     assert.match(seg.content, /阿明惩罚、目标值-10（状态不佳）/);
-    assert.match(seg.content, /更正：上一层阿明的力量检定/);
+    assert.match(seg.content, /更正：上一轮阿明的力量检定/);
     assert.equal(resolveCocCheckRollsSegment({ rolls: [] }), null);
     assert.equal(resolveCocCheckRollsSegment({ rolls: rollSet(1, [1, 1, 1]) }).content.includes('{{'), false);
     assert.equal(cocRollsVars({ rolls: rollSet(1, [1, 1, 1]) }).更正, '');
@@ -150,5 +150,5 @@ test('提示词段：形状同 check-rolls 段，骰序、在场属性、持续�
 test('提示词段的渲染样例（便于人工核对格式）', () => {
     const rolls = rollSet(7, [3, 1, 5]).map((roll, i) => ({ unit: (roll.unit + i) % 10, tens: roll.tens }));
     const seg = resolveCocCheckRollsSegment({ rolls, actors: [{ name: '阿明', attrs: { 力量: 60, 理智: 55 }, skills: [] }] });
-    assert.match(seg.content, /37（奖17\/17，罚37\/57）、38（奖18\/18，罚38\/58）/);
+    assert.match(seg.content, /37（奖励17\/17，惩罚37\/57）、38（奖励18\/18，惩罚38\/58）/);
 });

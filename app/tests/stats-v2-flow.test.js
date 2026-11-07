@@ -129,7 +129,7 @@ test('选项骰子走 IGS 引擎：结果按当前体系、元叙事格式不变
     rt.enableForChat();
     const r = rt.resolveDice('检定 <user> 侦查 难度=困难', { userName: '阿明' });
     assert.equal(r.ok, true);
-    assert.match(r.line, /^元叙事：阿明发起了【侦查】检定（困难），d20\(\d+\)[+-]\d+=\d+，DC20/);
+    assert.match(r.line, /^检定结果：阿明发起了【侦查】检定（困难），d20\(\d+\)[+-]\d+=\d+，DC20/);
     assert.equal(r.detail.die, 20);
     h.ctx.chat.push({ is_user: true, mes: `我搜查房间。 <meta:检定结果>\n${r.line}\n</meta:检定结果>` });
     const { id, injected } = generate(h, '你翻遍了抽屉。');

@@ -220,7 +220,7 @@ test('先掷后写：命中技能时生成前掷骰并注入检定段，结算�
     rt.enableForChat({ initial: createStatsState() });
     host.ctx.chat.push({ is_user: true, mes: '我给她做一顿寿司' });
     const { id, injected } = generate(host, '她尝了一口。');
-    assert.match(injected, /【本轮检定】烹饪：1d100=\d+，需≤\d+，结果【[^】]+】/);
+    assert.match(injected, /【本轮检定】烹饪：1d100=\d+，需≤\d+，结果为【[^】]+】/);
     const checkOf = () => rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0)).meta.check;
     const check = checkOf();
     assert.equal(check.skill, '烹饪');

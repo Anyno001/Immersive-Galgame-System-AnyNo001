@@ -93,6 +93,14 @@ test('文中有多个当前年龄时任一小于 18 即拦截', () => {
     assert.equal(underageByProfile(['她15岁时出走', '妹妹十七岁']), true);
 });
 
+test('外表年龄不算年龄，写了实际年龄时以实际年龄为准', () => {
+    for (const text of ['外表14岁，实际年龄一千岁', '看起来只有十二岁的千年狐妖，年龄：九百', '外貌年龄：15', '外表看起来十五岁', '容貌停留在十六岁，已活了三百岁']) assert.equal(underageByProfile([text]), false, text);
+    assert.equal(underageByProfile(['外表14岁']), false);
+    assert.equal(underageByProfile(['外表二十岁，实际年龄16岁']), true);
+    assert.equal(underageByProfile(['年龄：17岁，看起来更年轻']), true);
+    assert.equal(underageByProfile(['她17岁，外表成熟']), true);
+});
+
 test('只写及笄或娇小、没有数字的档案照常放行', () => {
     assert.equal(underageByProfile(['已及笄，身材娇小']), false);
     assert.equal(underageByProfile(['娇小可爱，年龄：成年']), false);
@@ -154,7 +162,7 @@ test('对方压力回合里我方未受损而对方受损时累计默契', () =>
     assert.equal(trace.rapport, 1);
 });
 
-test('打断意图未被「别管它」化解时命中', () => {
+test('打断意图未被「置之不理」化解时命中', () => {
     let trace = foldIntimateTrace(initIntimateTrace(), stateAt(1, 100, 100), [{ type: 'intent', skillId: 'im-interrupt' }]);
     trace = foldIntimateTrace(trace, stateAt(1, 100, 100), [{ type: 'skill', skillId: 'im-interrupt' }]);
     assert.equal(trace.interruptHit, true);

@@ -161,3 +161,20 @@ test('noBattle：战斗扩展接管时 battle 标签被丢弃', () => {
     assert.equal(r.meta.flags.battle, undefined);
     assert.ok(r.meta.diagnostics.some((d) => d.code === 'stats-battle-skipped-combat'));
 });
+
+test('起始关系可带修饰：恋人+猜忌扣信任、加芥蒂，同项多个修饰取最重不叠加', () => {
+    const d = settle('[igs-stat:start|小雪|恋人+怀疑出轨]').state.characters.小雪.dims;
+    assert.deepEqual([d.好感, d.信任, d.了解, d.芥蒂], [80, 35, 70, 10]);
+    const two = settle('[igs-stat:start|小雪|恋人＋猜忌、背叛过]').state.characters.小雪.dims;
+    assert.deepEqual([two.信任, two.芥蒂], [15, 25]);
+    assert.equal(settle('[igs-stat:start|小雪|恋人+好得很]').state.characters.小雪.dims.芥蒂, 0);
+});
+
+test('开局修正标签：信任扣、芥蒂加，同一角色每项只生效一次', () => {
+    const first = settle('[igs-stat:start|小雪|朋友][igs-stat:startfix|小雪|信任|中][igs-stat:startfix|小雪|芥蒂|重]').state;
+    assert.deepEqual([first.characters.小雪.dims.信任, first.characters.小雪.dims.芥蒂], [0, 45]);
+    const again = settle('[igs-stat:startfix|小雪|信任|重]', {}, first).state;
+    assert.equal(again.characters.小雪.dims.信任, 0);
+    assert.equal(settle('[igs-stat:start|小雪|恋人+猜忌][igs-stat:startfix|小雪|芥蒂|中]').state.characters.小雪.dims.芥蒂, 10);
+    assert.equal(settle('[igs-stat:startfix|小雪|信任|3]').state.characters.小雪, undefined);
+});

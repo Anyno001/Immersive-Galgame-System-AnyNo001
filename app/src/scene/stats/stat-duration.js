@@ -1,5 +1,7 @@
-// 时间跳跃天数：识别「7天」「三日」「一周后」「半个月」等写法，上限 30 天（易错点 D4）。
-export const SKIP_DAYS_MAX = 30;
+// 时间跳跃天数：识别「7天」「三日」「一周后」「半个月」等写法（易错点 D4）。
+// 旧楼（strengthRev < 2）上限 30 天，重算结果不变；新楼上限 3650 天（十年），结算按天数一次算完，不逐日循环。
+export const SKIP_DAYS_MAX_LEGACY = 30;
+export const SKIP_DAYS_MAX = 3650;
 
 const CN_DIGIT = Object.freeze({ 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 });
 const UNIT_DAYS = Object.freeze({ 天: 1, 日: 1, 周: 7, 星期: 7, 礼拜: 7, 月: 30, 年: 365 });
@@ -19,12 +21,12 @@ function cnNumber(text) {
 }
 
 // 返回 { days, capped }；识别不了或不足一天返回 null。
-export function parseSkipDays(raw) {
+export function parseSkipDays(raw, max = SKIP_DAYS_MAX_LEGACY) {
     const text = toAscii(String(raw ?? '').replace(/\s+/g, ''));
     const match = text.match(SKIP_RE);
     if (!match) return null;
     const count = match[1] === undefined ? 1 : /^\d+$/.test(match[1]) ? Number(match[1]) : cnNumber(match[1]);
     const days = Math.floor(count * UNIT_DAYS[match[2]]);
     if (!Number.isFinite(days) || days < 1) return null;
-    return { days: Math.min(SKIP_DAYS_MAX, days), capped: days > SKIP_DAYS_MAX };
+    return { days: Math.min(max, days), capped: days > max };
 }

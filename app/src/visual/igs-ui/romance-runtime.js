@@ -106,27 +106,37 @@ function characterKey(sceneAssets, name) {
     return resolveCharacterKey(assets.characters, assets.characterAliases, raw) || '';
 }
 
-// 修罗场：只认 romance 标签第 3 栏写明的对象（与同屏 resolveRomanceRivalTarget 一致）。
-// 对象栏缺省时不猜——按「区间里第一个出场的人」猜会猜错，心动 / 动情段里换人说话就频繁弹心碎。
-// 主角本人不算对象也不算情敌；情敌只认当过 romance 对象的角色（好感不一定是爱情，系统 / 家人 / 朋友插话不算）。
+// 修罗场：主对象只认 romance 标签第 3 栏写明的对象（与同屏 resolveRomanceRivalTarget 一致）。
+// 对象栏缺省时不猜——按「区间里第一个出场的人」猜会猜错，心动 / 动情段里换人说话就频繁弹心碎。主角本人不算对象也不算情敌。
+// 情敌来源：数值系统启用时由 provider 给出「当下仍有情敌立场」的角色集合（近期吃醋、芥蒂未解、仍是恋爱对象），此时只认该集合；
+// provider 缺省或返回 null（数值系统未启用）时退回旧规则：阅读器里当过 romance 对象的角色（romanceTargets）。
 const romanceTargets = new Set();
-// 数值系统吃醋（扣过好感的吃醋标签，§5.3）也算「当过恋爱对象」：只扩大情敌来源，主对象仍只认第 3 栏，不猜对象。
-// 存原名，判定时再按别名归一（数值系统登记的名字可能是别名）。
-const statsRivals = new Set();
+let statsRivalProvider = null;
 
-export function registerStatsRivals(names) {
-    for (const raw of Array.isArray(names) ? names : []) {
-        const name = String(raw || '').trim();
-        if (name) remember(statsRivals, name);
+export function setStatsRivalProvider(fn) {
+    statsRivalProvider = typeof fn === 'function' ? fn : null;
+}
+
+// 兼容旧调用：情敌集合改由 provider 实时给出，登记与清空不再起作用。
+export function registerStatsRivals() {}
+
+export function clearStatsRivals() {}
+
+function currentStatsRivals() {
+    if (!statsRivalProvider) return null;
+    try {
+        const set = statsRivalProvider();
+        return set instanceof Set ? set : null;
+    } catch (error) {
+        return null;
     }
 }
 
-export function clearStatsRivals() {
-    statsRivals.clear();
-}
-
-function isStatsRival(sceneAssets, current) {
-    for (const name of statsRivals) if ((characterKey(sceneAssets, name) || name) === current) return true;
+// 集合里存原名，判定时再按别名归一（数值系统里的名字可能是别名）。
+function isRival(sceneAssets, current) {
+    const stats = currentStatsRivals();
+    if (!stats) return romanceTargets.has(current);
+    for (const name of stats) if ((characterKey(sceneAssets, name) || name) === current) return true;
     return false;
 }
 
@@ -138,19 +148,35 @@ function romanceOwner(content, sceneAssets, userName) {
     return characterKey(sceneAssets, target) || target;
 }
 
+// 演出层恋爱对象记录（数值系统的 romanceSeen）：由宿主登记写入函数，入参为候选名字（场景素材键在前、原文在后）。
+let romanceSeenSink = null;
+
+export function setRomanceSeenSink(fn) {
+    romanceSeenSink = typeof fn === 'function' ? fn : null;
+}
+
 // 每页都记（不论档位、有没有立绘），往后翻到其他段落时才认得出谁是情敌。
 function rememberRomanceTarget(content, sceneAssets, userName) {
     const owner = romanceOwner(content, sceneAssets, userName);
-    if (owner) remember(romanceTargets, owner);
+    if (!owner) return;
+    remember(romanceTargets, owner);
+    if (!romanceSeenSink) return;
+    const raw = String((content.fx && content.fx.romanceTarget) || '').trim();
+    try { romanceSeenSink(raw && raw !== owner ? [owner, raw] : [owner]); } catch (error) { /* 数值系统未就绪时不影响演出 */ }
 }
 
-// 返回当前立绘角色是否为「另一位当过恋爱对象的角色」（非本区间对象）。
+// 供测试使用：与渲染时记录恋爱对象的路径一致。
+export function rememberRomanceTargetForTest(content, sceneAssets, userName) {
+    rememberRomanceTarget(content || {}, sceneAssets, userName);
+}
+
+// 返回当前立绘角色是否为「另一位仍有情敌立场的角色」（非本区间对象）。
 function resolveRival(content, sceneAssets, userName) {
     const owner = romanceOwner(content, sceneAssets, userName);
     const name = String(content.spriteCharacter || content.speaker || '').trim();
     if (!owner || isPlayerName(name, userName)) return false;
     const current = characterKey(sceneAssets, name);
-    return Boolean(current && current !== owner && (romanceTargets.has(current) || isStatsRival(sceneAssets, current)));
+    return Boolean(current && current !== owner && isRival(sceneAssets, current));
 }
 
 // 供测试与外部判定使用，行为与渲染时的修罗场判定一致。

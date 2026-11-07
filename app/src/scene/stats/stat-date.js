@@ -1,6 +1,6 @@
 // 状态栏日期、时间捕捉（纯函数）：正则直接对楼层原文执行，日期按字符串变化判定过天，时间折算为整点。
 // 不内置预设：正则留空即不捕捉；非法正则当作未填写，由调用方记诊断。
-import { SKIP_DAYS_MAX } from './stat-duration.js';
+import { SKIP_DAYS_MAX_LEGACY } from './stat-duration.js';
 
 export const DATE_REGEX_INVALID = 'stat-date-regex-invalid';
 export const TIME_REGEX_INVALID = 'stat-time-regex-invalid';
@@ -113,14 +113,14 @@ export function dayDifference(prev, next) {
 
 // 日期判定：返回 { advance, days, capped }。
 // 没有上一个日期只记录；字符串相同不过天；能解析按差值（封顶），差值为零或为负的真实回退不过天；解析不出但字符串变了过一天。
-export function judgeDateAdvance(lastDate, dateKey) {
+export function judgeDateAdvance(lastDate, dateKey, max = SKIP_DAYS_MAX_LEGACY) {
     const last = String(lastDate ?? '');
     const key = String(dateKey ?? '');
     if (!key || !last || last === key) return { advance: false, days: 0, capped: false };
     const diff = dayDifference(parseDate(last), parseDate(key));
     if (diff === null) return { advance: true, days: 1, capped: false };
     if (diff <= 0) return { advance: false, days: 0, capped: false };
-    return { advance: true, days: Math.min(SKIP_DAYS_MAX, diff), capped: diff > SKIP_DAYS_MAX };
+    return { advance: true, days: Math.min(max, diff), capped: diff > max };
 }
 
 const BRANCH_HOUR = Object.freeze({ 子: 23, 丑: 1, 寅: 3, 卯: 5, 辰: 7, 巳: 9, 午: 11, 未: 13, 申: 15, 酉: 17, 戌: 19, 亥: 21 });

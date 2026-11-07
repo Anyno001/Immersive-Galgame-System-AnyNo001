@@ -44,6 +44,8 @@ const PAST_AFTER = /^\s*(?:时|那年|起|开始|以前|之前|的时候)/;
 const PAST_BEFORE = /(?:(?<!目)前|当年|那年)[^。！？!?\n]{0,3}$/;
 const BRIDE_AGE = /二八年华/;
 const COMPARE_BEFORE = /(?:相差|差了?|(?<!最)[小大长幼少多])\s*$/;
+// 外表年龄不算年龄（外表年幼、实际年长的长生种等）：同时写了实际年龄时以实际年龄为准，只写外表时不拦。
+const LOOKS_BEFORE = /(?:外表|外貌|外观|看起来|看上去|样貌|容貌|模样|长相|看似|貌似|像是)(?:年龄|年纪)?[^。！？!?\n，,；;]{0,4}$/;
 
 function numberOf(token) {
     if (/^\d+$/.test(token)) return Number(token);
@@ -60,11 +62,12 @@ function numberOf(token) {
 export function agesOf(text) {
     const source = String(text || '');
     const ages = [];
-    for (const match of source.matchAll(AGE_LABELED)) ages.push(numberOf(match[1]));
+    const looks = (index) => LOOKS_BEFORE.test(source.slice(Math.max(0, index - 8), index));
+    for (const match of source.matchAll(AGE_LABELED)) if (!looks(match.index)) ages.push(numberOf(match[1]));
     for (const match of source.matchAll(AGE_SUFFIX)) {
         const before = source.slice(Math.max(0, match.index - 8), match.index);
         const after = source.slice(match.index + match[0].length, match.index + match[0].length + 4);
-        if (PAST_AFTER.test(after) || PAST_BEFORE.test(before) || COMPARE_BEFORE.test(before)) continue;
+        if (PAST_AFTER.test(after) || PAST_BEFORE.test(before) || COMPARE_BEFORE.test(before) || LOOKS_BEFORE.test(before)) continue;
         ages.push(numberOf(match[1]));
     }
     if (BRIDE_AGE.test(source)) ages.push(16);
@@ -149,11 +152,11 @@ export const INTIMATE_ENDING_TEXT = Object.freeze({
     草草收场: '节奏没有对上，气氛有些尴尬',
     心意相通: '不必言说的默契，两人心意相通',
     我方主导: '此后由主角掌控节奏',
-    险胜: '主角夺回了主动，但对方随时可能反扑',
+    险胜: '主角夺回了主动，但对方随时可能夺回',
     对方主导: '此后由对方掌控节奏',
-    反复易手: '谁也不肯认输，主动权几经易手，两人相互撕扯',
+    反复易手: '谁也不肯认输，主动权几经易手，两人相互拉扯',
     甘拜下风: '主角主动交出了主导，此后由对方掌控节奏',
-    同归于尽: '两败俱伤，难分彼此',
+    同归于尽: '两人都已耗尽，难分彼此',
     [INTIMATE_STOP]: '主角叫停了这一幕，不算输赢，也没有代价',
 });
 
@@ -205,7 +208,7 @@ export function advanceIntimateDuel(ratio) {
     return true;
 }
 
-export const INTIMATE_WHISPER_CARDS = Object.freeze(['小声说喜欢', '情话', '低声命令', '确认心意', '撒娇夺权']);
+export const INTIMATE_WHISPER_CARDS = Object.freeze(['轻声表白', '情话', '低声命令', '确认心意', '撒娇夺权']);
 export const isWhisperCard = (name) => INTIMATE_WHISPER_CARDS.includes(String(name || ''));
 
 export const INTIMATE_HEART_REST = 66;

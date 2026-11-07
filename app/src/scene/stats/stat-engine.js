@@ -369,6 +369,20 @@ export function markGrowth(state, check) {
     return withSkills(state, { ...skills, [check.skill]: { value, marked: true } });
 }
 
+// 关键事件检定按类型选技能（strengthRev ≥ 2 的新楼）：告白、约会用魅力；共患难取主角格斗、剑术、射击、体质中最高者；交心取察言观色与魅力中较高者。旧楼固定用魅力。
+export const KEY_EVENT_SKILLS = Object.freeze({ 告白: ['魅力'], 约会: ['魅力'], 共患难: ['格斗', '剑术', '射击', '体质'], 交心: ['察言观色', '魅力'] });
+export function keyEventSkill(engine, state, event, rev = 0) {
+    const names = Number(rev) >= 2 && KEY_EVENT_SKILLS[event] ? KEY_EVENT_SKILLS[event] : ['魅力'];
+    if (names.length === 1) return names[0];
+    let best = null;
+    for (const name of names) {
+        const p = profileOf(engine, state, PROTAGONIST, name);
+        const score = engine.ruleset.ID === 'dnd5e' ? engine.ruleset.bonusOf(p) : p.value;
+        if (!best || score > best.score) best = { name, score };
+    }
+    return best.name;
+}
+
 // NPC 参与检定（对抗的对手、正文检定的一方）时，用到的技能打成长勾；只收已登记角色的非属性技能。
 export function markNpcGrowth(state, actor, skill) {
     const name = String(actor || '').trim();
@@ -436,7 +450,7 @@ export function displayActor(actor, userName = '') {
 export function checkLine(check, userName = '') {
     const who = displayActor(check.actor, userName);
     const diff = check.difficulty && check.difficulty !== '普通' ? `（${check.difficulty}）` : '';
-    return `元叙事：${who}发起了【${check.skill}】检定${diff}，${check.detail}，【${check.outcome}】。`;
+    return `检定结果：${who}发起了【${check.skill}】检定${diff}，${check.detail}，【${check.outcome}】。`;
 }
 
 export function contestLine(result, userName = '') {
@@ -445,7 +459,7 @@ export function contestLine(result, userName = '') {
     const ln = displayActor(l.actor, userName);
     const rn = displayActor(r.actor, userName);
     const verdict = result.winner === 'left' ? `${ln}胜出` : result.winner === 'right' ? `${rn}胜出` : '双方僵持';
-    return `元叙事：${ln}以【${l.skill}】对抗${rn}的【${r.skill}】，${l.detail} / ${r.detail}，结果：${verdict}（${l.outcome} vs ${r.outcome}）。`;
+    return `对抗结果：${ln}以【${l.skill}】对抗${rn}的【${r.skill}】，${l.detail} / ${r.detail}，结果：${verdict}（${l.outcome} 对 ${r.outcome}）。`;
 }
 
 // 掷骰卡明细（fx-result-model 的 check / contest 结构）。

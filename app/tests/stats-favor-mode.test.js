@@ -95,25 +95,25 @@ test('改档后旧楼重算沿用当时的档位，新楼按新档位', () => {
     const { rt, ctx, holder, say, eventSource } = runtimeSetup();
     holder.cur = { ...holder.cur, favorMode: 'hard' };
     const first = say('她笑了。[igs-stat:favor|小雪|感动]');
-    assert.equal(rt.getState().characters.小雪.dims.好感, 3);
+    assert.equal(rt.getState().characters.小雪.dims.好感, 2);
     holder.cur = { ...holder.cur, favorMode: 'vivid' };
     ctx.chat[first].mes += ' 再补一句。';
     eventSource.emit('upd', first);
-    assert.equal(rt.getState().characters.小雪.dims.好感, 3);
+    assert.equal(rt.getState().characters.小雪.dims.好感, 2);
     assert.equal(rt.getLedger().entries.get(`chat-h|${first}|0`).meta.favorTier, 'hard');
     say('她又笑了。[igs-stat:favor|小雪|感动]');
-    assert.equal(rt.getState().characters.小雪.dims.好感, 8);
+    assert.equal(rt.getState().characters.小雪.dims.好感, 7);
 });
 
 test('楼层记录里的好感档重新读取后保留，重算仍按当时的档', () => {
     const { rt, ctx, holder, say, eventSource, make, rows } = runtimeSetup();
     holder.cur = { ...holder.cur, favorMode: 'normal' };
     const first = say('她笑了。[igs-stat:favor|小雪|感动]');
-    assert.equal(rt.getState().characters.小雪.dims.好感, 5);
+    assert.equal(rt.getState().characters.小雪.dims.好感, 4);
     holder.cur = { ...holder.cur, favorMode: 'hard' };
     ctx.chat[first].mes += ' 再补一句。';
     eventSource.emit('upd', first);
-    assert.equal(rt.getState().characters.小雪.dims.好感, 5);
+    assert.equal(rt.getState().characters.小雪.dims.好感, 4);
     const stored = rows.filter((r) => r.type === 'floor').pop();
     assert.equal(stored.payload.meta.favorTier, 'normal');
     const reread = make();
@@ -263,4 +263,37 @@ test('鲜明档心意槽满溢被关口封顶压成 0 时不扣槽，也不记�
 test('满溢伴随检定失败时飘字仍带 burst 标记', () => {
     const toasts = favorToasts([{ source: 'tag', target: '小雪', key: '好感', from: 10, to: 15, note: '心意满溢（检定失败）' }]);
     assert.equal(toasts[0].burst, true);
+});
+
+// ---------- 强度扩展：普通、困难读各自的正向表（strengthRev 1） ----------
+const rev = (tier, extra = {}) => ({ favorTier: tier, strengthRev: 1, ...extra });
+const gainOf = (text, opts) => favorOf(floor(createStatsState(), text, opts).state);
+const atFavor = (value) => ({ ...createStatsState(), characters: { 小雪: { ...createCharacter(1), dims: { ...createCharacter(1).dims, 好感: value } } } });
+
+test('普通档（新楼）：小/中/大各不相同，重大无 event 降为大，不被单楼上限吃平', () => {
+    const got = ['小', '中', '大', '重大'].map((lv) => gainOf(`[igs-stat:favor|小雪|感动|${lv}]`, rev('normal')));
+    assert.deepEqual(got, [2, 4, 6, 6]);
+    assert.equal(gainOf('[igs-stat:favor|小雪|感动|重大]', rev('normal', { storyChecks: [] })), 6);
+    assert.equal(floor(createStatsState(), '[igs-stat:favor|小雪|感动|大]', rev('normal')).meta.strengthRev, 1);
+});
+
+test('普通档（新楼）：单楼上限 8、每日上限 12，检定失败减半至少 1', () => {
+    assert.deepEqual(days('[igs-stat:favor|小雪|感动|大]', 3, rev('normal')), [6, 12, 12]);
+    assert.equal(favorOf(floor(atFavor(30), '[igs-stat:favor|小雪|感动|大]', { ...rev('normal'), random: () => 0.1 }).state), 33);
+});
+
+test('困难档（新楼）：大＞中＞小，检定失败恒 +1，单楼 6、每日 8', () => {
+    const got = ['小', '中', '大', '重大'].map((lv) => gainOf(`[igs-stat:favor|小雪|感动|${lv}]`, rev('hard')));
+    assert.deepEqual(got, [1, 2, 4, 4]);
+    for (const lv of ['小', '中', '大']) assert.equal(favorOf(floor(atFavor(30), `[igs-stat:favor|小雪|感动|${lv}]`, { ...rev('hard'), random: () => 0.1 }).state), 31);
+    assert.deepEqual(days('[igs-stat:favor|小雪|感动|大]', 3, rev('hard')), [4, 8, 8]);
+});
+
+test('无 strengthRev 的旧楼重算：普通单楼 5、困难读方向表（单楼 3、每日 8），不写 strengthRev', () => {
+    const n = floor(createStatsState(), '[igs-stat:favor|小雪|感动|大]', { favorTier: 'normal' });
+    assert.equal(favorOf(n.state), 5);
+    assert.equal(n.meta.strengthRev, undefined);
+    assert.equal(gainOf('[igs-stat:favor|小雪|感动|小]', { favorTier: 'hard' }), 3);
+    assert.deepEqual(days('[igs-stat:favor|小雪|感动]', 4, { favorTier: 'hard' }), [3, 6, 8, 8]);
+    assert.equal(gainOf('[igs-stat:favor|小雪|感动]', { strengthRev: 1 }), 3);
 });

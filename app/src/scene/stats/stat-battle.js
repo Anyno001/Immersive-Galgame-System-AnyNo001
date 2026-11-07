@@ -6,7 +6,7 @@ import { matchSkill } from './stat-skill-match.js';
 import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withSkills } from './stat-state.js';
 import { COMBAT_SKILLS, DODGE_SKILLS } from './stat-registry.js';
 import { settleChallenge } from './stat-challenge.js';
-import { PROTAGONIST, bestCombatSkill, createEngine, profileOf, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, bestCombatSkill, createEngine, keyEventSkill, profileOf, resolveCheck } from './stat-engine.js';
 
 export { COMBAT_SKILLS, DODGE_SKILLS };
 export const ENEMY_TABLE = Object.freeze({
@@ -122,7 +122,7 @@ export function applyBattle(state, directive, ctx) {
     let next = withBars(state, bars);
     if (result.outcome !== '败') next = markSkill(next, result.attack);
     if (result.ally && result.outcome !== '败' && next.characters[result.ally]) {
-        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: '魅力', toward: result.ally }, ctx.random);
+        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: keyEventSkill(engine, next, '共患难', ctx.rev), toward: result.ally }, ctx.random);
         const { character, result: ev } = applyKeyEvent(next.characters[result.ally], '共患难', { roll, random: ctx.random });
         if (ev.success) ctx.changes.push({ source: 'battle', target: result.ally, key: '好感', from: ev.gate, to: ev.gate + 1, note: '共患难突破' });
         ctx.events.push({ target: result.ally, ...ev });

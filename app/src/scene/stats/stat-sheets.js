@@ -5,7 +5,7 @@ import { LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat
 import { PROTAGONIST, RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
 import { seededRandom } from './stat-ledger.js';
 import { DEFAULT_STAT_PROMPTS } from './stat-prompt.js';
-import { START_RELATIONS, normalizeTier } from './stat-vocab.js';
+import { parseStartRelation } from './stat-vocab.js';
 
 // 档位词 → 区间。六维存战斗分数（3–30，ABILITY_SCORE_TIERS）；理智值（SAN）仍是百分制（ATTRIBUTE_TIERS）。
 export const ATTRIBUTE_TIERS = Object.freeze({ 很弱: [20, 30], 偏弱: [35, 45], 普通: [45, 55], 出众: [60, 70], 顶尖: [75, 90], 超凡: [91, 99] });
@@ -31,7 +31,7 @@ export const NPC_GOOD_COUNT = 5;
 export const NPC_STRONG_VALUE = 60;
 export const NPC_GOOD_VALUE = 30;
 export const BACKFILL_SKILL_MAX = 6;
-export const SUMMARY_MAX = 600;
+export const SUMMARY_MAX = 3000;
 export const BACKFILL_SUMMARY_MAX = 300;
 const NUMERIC = /[0-9０-９]/;
 const ATTR_SYNONYM = Object.freeze({ 弱: '偏弱', 差: '偏弱', 一般: '普通', 中等: '普通', 强: '出众', 优秀: '出众', 很强: '顶尖', 极强: '顶尖', 非人: '超凡' });
@@ -262,7 +262,8 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 
 // 主角技能一次性分配（CoC）：每个档位的名额上限，超额按回复顺序降一档；未学不限。
 export const HERO_TIER_LIMITS = Object.freeze({ 大师: 1, 精通: 2, 熟练: 6, 入门: 8 });
-export const HERO_SUMMARY_MAX = 800;
+export const HERO_SUMMARY_MAX = 2000;
+export const PLOT_SETTING_MAX = 3000;
 
 // skills：可分配的技能名。回复格式 { "技能名": "档位" }。
 export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
@@ -300,26 +301,32 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
 
 // 起始关系一次性补填：people 为 [{ name, summary }]，回复格式 { "角色名": "关系档" }。
 // hero 为主角资料（用户人设）：玩家常把「谁喜欢主角」写在这里，角色资料里反而没有。
-export function buildStartRelationRequest(people, { prompt, hero = '' } = {}) {
+// plot 为剧情注入器的设定条目，人物关系常写在这里。
+export function buildStartRelationRequest(people, { prompt, hero = '', plot = '' } = {}) {
     const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, SUMMARY_MAX) || '（没有资料）'}`);
     const heroText = clip(hero, HERO_SUMMARY_MAX);
+    const plotText = clip(plot, PLOT_SETTING_MAX);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
-        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}角色资料：\n${list.join('\n')}`,
+        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}角色资料：\n${list.join('\n')}`,
     };
 }
 
-// 返回 { ok, relations: { 角色: 关系档 } }：只收名单内角色与白名单档位（含近义词），含数字的项丢弃。
+// 返回 { ok, relations: { 角色: 关系档 }, mods: { 角色: [修饰] } }：只收名单内角色与白名单档位（含近义词），含数字的项丢弃。
+// 关系档可带修饰（「恋人+猜忌」），修饰词不认识的单个丢弃，不影响关系档。
 export function parseStartRelationReply(reply, { names = [] } = {}) {
     const obj = extractJson(reply);
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-start-invalid', relations: {} };
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-start-invalid', relations: {}, mods: {} };
     const allowed = new Set(names);
     const relations = {};
+    const mods = {};
     for (const [name, raw] of Object.entries(obj)) {
-        const tier = allowed.has(name) ? normalizeTier('start', START_RELATIONS, raw) : null;
-        if (tier) relations[name] = tier;
+        const parsed = allowed.has(name) && typeof raw === 'string' ? parseStartRelation(raw) : null;
+        if (!parsed) continue;
+        relations[name] = parsed.tier;
+        if (parsed.mods.length) mods[name] = parsed.mods;
     }
-    return Object.keys(relations).length ? { ok: true, relations } : { ok: false, reason: 'stats-start-empty', relations };
+    return Object.keys(relations).length ? { ok: true, relations, mods } : { ok: false, reason: 'stats-start-empty', relations, mods };
 }
 
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。

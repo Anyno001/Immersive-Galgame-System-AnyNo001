@@ -7,12 +7,14 @@ import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 import { BASE_ATTRIBUTES, grudgeTier } from '../../scene/stats/stat-state.js';
+import { FAME_BAR_MAX } from '../../scene/stats/stat-fame.js';
 import { compileCaptureRegex } from '../../scene/stats/stat-date.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 export const STAT_PROMPT_LABELS = Object.freeze({
     source: '数值来源声明',
     protagonist: '主角状态',
+    fame: '主角声望',
     skills: '主角技能',
     perception: '主角感知',
     present: '在场角色',
@@ -285,8 +287,24 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
     const d20 = model.ruleset === 'dnd5e' && skillCells ? '技能数值为检定加值，掷二十面骰后加上此值。' : '';
     // 技能直接平铺显示；编辑全部收在下方「编辑技能」折叠里。
     const attrEdit = model.heroAttrs ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button></div>' : '';
-    return pick + head + attrs + attrEdit
+    return pick + head + attrs + attrEdit + traitSwitches(PROTAGONIST_KEY, model.traits, TRAIT_ITEMS.filter(([key]) => key === 'fragile')) + aptitudeField(PROTAGONIST_KEY, model.aptitude) + renderFameSection(model.fame)
         + `<div class="igs-source-filter-note" data-stats-skills>技能（✓ 表示今天有成长机会）${d20 ? `。${d20}` : ''}</div>${skills}`;
+}
+
+// 「我的角色」的声望：群体对主角的态度，最多三条；每条显示性质与档位，组合热度列出各个搭档。按钮直接写聊天存档。
+function renderFameSection(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const items = list.map((r) => {
+        const id = esc(encodeURIComponent(r.name));
+        const pairs = r.pairs ? (r.pairs.length ? r.pairs.map((p) => `与${esc(p.partner)}的组合：${esc(p.tier)}`).join(' · ') : '暂无搭档') : '';
+        return `<div class="igs-settings-section" data-stats-fame-row="${esc(r.name)}"><div class="igs-stats-person-head"><b>${esc(r.name)}</b><span>${esc(r.kind)}${r.tier ? ` · ${esc(r.tier)}` : ''}</span></div>`
+            + (pairs ? `<div class="igs-source-filter-note">${pairs}</div>` : '')
+            + `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:fame-remove:${id}" type="button">关闭此条</button></div></div>`;
+    }).join('');
+    const add = list.length < FAME_BAR_MAX ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:fame-add" type="button">开一条声望</button></div>' : '';
+    return `<div class="igs-settings-section" data-stats-fame><div class="igs-source-filter-title">声望</div>`
+        + `<div class="igs-source-filter-note">记录群体对主角的看法，如粉丝、信众、路人。开条后才会写进提示词并参与结算，最多三条。</div>`
+        + items + add + '</div>';
 }
 
 // 「我的角色」技能下方的「高级」折叠：擅长技能八格（选完后）、编辑技能、检定记录。
@@ -353,13 +371,45 @@ function renderSheetPart(s, advancedOpen) {
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="${esc(key)}"${advancedOpen(key)}><summary>角色卡　${esc(s.rank)}${s.source === 'user' ? '　已手改' : ''}</summary>`
         + `<div class="igs-stats-hero-grid is-attrs">${s.attributes.map((a) => statCell(a.name, a.display)).join('')}</div>`
         + (own ? `<div class="igs-source-filter-note">${own}</div>` : '')
-        + `<div class="igs-stats-hero-actions is-three"><button class="igs-settings-action" data-action="stats-op:sheet-edit:${id}" type="button">编辑</button>`
-        + `<button class="igs-settings-action" data-action="stats-op:sheet-regen:${id}" type="button">重新生成</button>`
-        + `<button class="igs-settings-action" data-action="stats-op:sheet-remove:${id}" type="button">删除角色卡</button></div></details>`;
+        + `<div class="igs-segmented igs-stats-skill-ops">${[['edit', '编辑'], ['regen', '重新生成'], ['remove', '删除角色卡']]
+            .map(([op, label]) => `<button class="igs-segmented-btn" data-action="stats-op:sheet-${op}:${id}" type="button"><span class="igs-segmented-btn-label">${label}</span></button>`).join('')}</div></details>`;
+}
+
+// 悟性三档：平庸不存；主角键为「主角」。按钮直接写聊天存档（data-action="stats-op:aptitude:<编码名>:<档>"）。
+const PROTAGONIST_KEY = '主角';
+const APTITUDE_ITEMS = Object.freeze([['平庸', '平庸'], ['出众', '出众'], ['天纵', '天纵']]);
+function aptitudeField(name, aptitude) {
+    const level = (aptitude && aptitude[name]) || '平庸';
+    return field('', '悟性', segmentedInput('', level, APTITUDE_ITEMS, '悟性', { action: `stats-op:aptitude:${encodeURIComponent(name)}` }));
+}
+
+// 角色标记勾选：样式同开关，但直接写聊天存档，不进设置草稿。
+const TRAIT_ITEMS = Object.freeze([['companion', '随身'], ['bodiless', '无实体'], ['kin', '亲人'], ['fragile', '脆弱']]);
+function traitSwitches(name, traits, items = TRAIT_ITEMS) {
+    const own = (traits && traits[name]) || {};
+    const id = encodeURIComponent(name);
+    return `<div class="igs-settings-section">${items.map(([key, label]) => {
+        const on = own[key] === true;
+        return `<button type="button" class="igs-switch${on ? ' is-on' : ''}" data-action="${esc(`stats-op:trait:${id}|${key}|${on ? 0 : 1}`)}" aria-pressed="${on ? 'true' : 'false'}"><i></i><span>${label}</span></button>`;
+    }).join('')}</div>`;
+}
+
+// 「我对TA」：输入框内容先存界面草稿（drafts），点「保存」才写进聊天存档；「按剧情拟写」只填草稿。
+function heroNoteField(name, notes, drafts) {
+    const id = esc(encodeURIComponent(name));
+    const value = drafts && typeof drafts[name] === 'string' ? drafts[name] : (notes && notes[name]) || '';
+    return `<label class="igs-settings-field"><span>我对TA</span><input type="text" data-stats-note="${esc(name)}" maxlength="${HERO_NOTE_MAX}" value="${esc(value)}" aria-label="我对TA"></label>`
+        + `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:note-draft:${id}" type="button">按剧情拟写</button>`
+        + `<button class="igs-settings-action" data-action="stats-op:note-save:${id}" type="button">保存</button></div>`;
+}
+const HERO_NOTE_MAX = 40;
+
+function personExtras(name, model, drafts) {
+    return traitSwitches(name, model.traits) + aptitudeField(name, model.aptitude) + heroNoteField(name, model.heroNotes, drafts);
 }
 
 // 「其他角色」：每人一张卡，人际数值在上，角色卡折叠在下。
-export function renderStatsPeople(model, advancedOpen = () => '') {
+export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts = null } = {}) {
     if (!model) return NO_ARCHIVE;
     const n = roundText;
     const sheetOf = new Map((model.sheets || []).map((s) => [s.name, s]));
@@ -369,15 +419,20 @@ export function renderStatsPeople(model, advancedOpen = () => '') {
         const id = esc(encodeURIComponent(c.name));
         const sheet = sheetOf.get(c.name);
         sheetOf.delete(c.name);
-        return `<div class="igs-stats-person"><div class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${c.intimacyForced ? '<em>亲密门槛已豁免</em>' : ''}</div>`
+        const key = `stats-person-${c.name}`;
+        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${c.intimacyForced ? '<em>亲密门槛已豁免</em>' : ''}</summary>`
             + `<div class="igs-stats-hero-grid">${cells}</div><div class="igs-stats-hero-actions${sheet ? '' : ' is-three'}">`
             + `<button class="igs-settings-action" data-action="stats-op:relation-set:${id}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改数值</button>`
             + `<button class="igs-settings-action" data-action="stats-op:relation-forced:${id}|${c.intimacyForced ? 0 : 1}" type="button" title="剧情需要时跳过亲密门槛">${c.intimacyForced ? '取消豁免' : '豁免亲密门槛'}</button>`
             // 有人际档却没有角色卡（被删或生成失败丢失）：单独补生成，人际数值不受影响。
             + (sheet ? '' : `<button class="igs-settings-action" data-action="stats-op:sheet-new:${id}" type="button">生成角色卡</button>`) + '</div>'
-            + (sheet ? renderSheetPart(sheet, advancedOpen) : '') + '</div>';
+            + personExtras(c.name, model, noteDrafts)
+            + (sheet ? renderSheetPart(sheet, advancedOpen) : '') + '</details>';
     });
-    const sheetOnly = [...sheetOf.values()].map((s) => `<div class="igs-stats-person"><div class="igs-stats-person-head"><b>${esc(s.name)}</b></div>${renderSheetPart(s, advancedOpen)}</div>`);
+    const sheetOnly = [...sheetOf.values()].map((s) => {
+        const key = `stats-person-${s.name}`;
+        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(s.name)}</b></summary>${personExtras(s.name, model, noteDrafts)}${renderSheetPart(s, advancedOpen)}</details>`;
+    });
     const list = [...people, ...sheetOnly].join('') || '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成角色卡：${model.pendingPeople.map(esc).join('、')}</div>` : '';
     const fill = '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:relation-import" type="button">从数据库表格导入角色</button>'
@@ -426,7 +481,7 @@ function captureRegexField(path, label, value, placeholder, note) {
 
 // 数值页的模板变量（settings-tabs.js 的 STATS_TEMPLATE）。版面自上而下：我的角色、玩法、其他角色、高级。
 // chat：statsChat() 的结果（可为 null）；archive：statsArchiveModel 的结果；mappings：推送映射的描述（可为 null）。
-export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, mappings = null, advancedOpen = () => '', worldview = 'modern' } = {}) {
+export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, mappings = null, advancedOpen = () => '', worldview = 'modern', noteDrafts = null } = {}) {
     const statsOn = Boolean(stats.enabled || combatOn);
     const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
     const started = Boolean(chatReady && chat.enabled);
@@ -450,12 +505,17 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsHeroCard: renderStatsHeroCard(archive, advancedOpen, stats.build),
         statsHeroActions: renderStatsHeroActions(archive),
         statsHeroMore: renderStatsHeroMore(archive, advancedOpen, stats.build),
-        statsPeopleFields: renderStatsPeople(archive, advancedOpen),
+        statsPeopleFields: renderStatsPeople(archive, advancedOpen, { noteDrafts }),
         diceFeelField: renderStatsRulesetField(stats.ruleset),
         storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', segmentedInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '手动掷骰'], ['off', '关闭']], '剧情中的检定')),
         optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项旁显示成功率'),
         checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '显示掷骰卡'),
         intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '好感不够时角色会拒绝'),
+        heroNotePromptField: checkbox('bridge.stats.heroNotePrompt', stats.heroNotePrompt, '「我对TA」注入提示词'),
+        npcBarsField: checkbox('bridge.stats.npcBars', stats.npcBars, '显示角色的体力与压力'),
+        // 两级开关：先开「状态栏显示声望」（汇总一行），才出现「显示细项」（每条、每一对各自成条）。
+        hudFameField: checkbox('bridge.stats.hudFame', stats.hudFame, '状态栏显示声望')
+            + (stats.hudFame ? checkbox('bridge.stats.hudFameDetail', stats.hudFameDetail, '显示细项') : ''),
         intimateCostField: field('bridge.stats.intimateCost', '亲密消耗体力', segmentedInput('bridge.stats.intimateCost', stats.intimateCost, [['off', '不消耗'], ['light', '轻'], ['standard', '标准'], ['heavy', '重']], '亲密消耗体力'), '亲密行为同时消耗主角与角色的体力，档位越高消耗越大；仅在开启成人内容时生效。'),
         favorModeField: field('bridge.stats.favorMode', '好感成长', segmentedInput('bridge.stats.favorMode', stats.favorMode, [['vivid', '鲜明'], ['normal', '普通'], ['hard', '困难']], '好感成长'), '鲜明：变化明显，小事攒成心意；普通：稳步增长；困难：慢热难攻略。'),
         barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')

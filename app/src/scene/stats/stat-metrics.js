@@ -5,6 +5,7 @@ import { stageOf } from './stat-favor.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
 import { barsOf, grudgeTier } from './stat-state.js';
+import { strainBarLook } from './stat-strain.js';
 
 const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|信赖|了解|认知|熟悉|欲望|芥蒂|仇怨|怨恨|关系/;
 
@@ -41,10 +42,10 @@ export function displayOfFavor(value, hudLabel = 'number') {
 }
 
 const DIM_STAGES = Object.freeze({
-    信任: ['戒备', '普通', '放心', '依赖'],
-    了解: ['陌生', '初识', '熟知', '灵犀'],
-    欲望: ['平淡', '悸动', '渴求', '沉溺'],
-    芥蒂: ['不满', '记恨', '怨恨', '仇恨'],
+    信任: ['警惕', '普通', '放心', '依赖'],
+    了解: ['陌生', '初识', '熟知', '心有灵犀'],
+    欲望: ['平静', '悸动', '渴求', '难以自持'],
+    芥蒂: ['不满', '记恨', '怨恨', '积怨'],
 });
 
 export function stageOfDim(dim, value) {
@@ -63,7 +64,14 @@ export function displayOfDim(dim, value, hudLabel = 'number') {
     return stage;
 }
 
-// stamina：亲密消耗开启时才传真，角色体力只在这时会变；体力条排在最上面。
+// 压力条：转换后换成状态名与对应颜色。
+function stressMetric(bars) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(bars && bars.stress) || 0)));
+    const look = strainBarLook(bars);
+    return { label: look ? look.label : BAR_LABEL.stress, percent: v, display: String(v), colorKey: look ? look.colorKey : BAR_COLOR.stress, sourceUid: 'igs-stats' };
+}
+
+// stamina：设置「显示角色的体力与压力」开启时传真；体力、压力两条排在最上面。
 export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false, stamina = false } = {}) {
     if (!character || !character.dims) return [];
     const out = [];
@@ -87,7 +95,7 @@ export function characterStatMetrics(character, { hudLabel = 'number', nsfw = fa
     }
     if (stamina) {
         const v = Math.max(0, Math.min(100, Math.round(Number(barsOf(character).stamina) || 0)));
-        out.unshift({ label: BAR_LABEL.stamina, percent: v, display: String(v), colorKey: BAR_COLOR.stamina, sourceUid: 'igs-stats' });
+        out.unshift({ label: BAR_LABEL.stamina, percent: v, display: String(v), colorKey: BAR_COLOR.stamina, sourceUid: 'igs-stats' }, stressMetric(barsOf(character)));
     }
     return out;
 }
@@ -103,6 +111,7 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
     }
     for (const key of ['stamina', 'stress']) {
         if (enabledBars[key] === false) continue;
+        if (key === 'stress') { out.push(stressMetric(bars)); continue; }
         const v = Math.round(Number(bars && bars[key]) || 0);
         out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: BAR_COLOR[key], sourceUid: 'igs-stats' });
     }

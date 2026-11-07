@@ -4,6 +4,7 @@
 import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat-ledger.js';
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import * as registry from './stat-registry.js';
+import { sanitizeFameBars } from './stat-fame.js';
 
 const { validSkillName, canonicalSkillName, mergeLegacyValue } = registry;
 // 旧技能名（妙手、急救等）读入时落到新名；几个旧名同时有值时数值取大，字符串以新名自己的为准。
@@ -84,8 +85,13 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [] };
 }
+
+// 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
+export const APTITUDE_LEVELS = Object.freeze(['出众', '天纵']);
+export const TRAIT_KEYS = Object.freeze(['companion', 'bodiless', 'kin', 'fragile']);
+const NOTE_MAX = 40;
 
 export function sanitizeCatalog(raw) {
     const out = emptyCatalog();
@@ -124,6 +130,22 @@ export function sanitizeCatalog(raw) {
     }
     // 亲密门槛豁免：聊天级角色名单，不随楼层快照，swipe、删楼不丢。
     out.intimacyForced = [...new Set((Array.isArray(raw.intimacyForced) ? raw.intimacyForced : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
+    // 悟性：{ 名: '出众' | '天纵' }，主角键为「主角」；平庸是默认，不存。
+    for (const [k, v] of Object.entries(plainObject(raw.aptitude) ? raw.aptitude : {}).slice(0, SHEET_MAX)) if (k && k.length <= 20 && APTITUDE_LEVELS.includes(v)) out.aptitude[k] = v;
+    // 角色标记勾选：{ 名: { companion?: true, bodiless?: true, kin?: true } }，没有任何勾选的名字不存。
+    for (const [k, v] of Object.entries(plainObject(raw.traits) ? raw.traits : {}).slice(0, SHEET_MAX)) {
+        if (!k || k.length > 20 || !plainObject(v)) continue;
+        const marks = Object.fromEntries(TRAIT_KEYS.filter((key) => v[key] === true).map((key) => [key, true]));
+        if (Object.keys(marks).length) out.traits[k] = marks;
+    }
+    // 「我对TA」备注：{ 名: 最多 40 字 }，只给用户看，空串不存。
+    for (const [k, v] of Object.entries(plainObject(raw.heroNotes) ? raw.heroNotes : {}).slice(0, SHEET_MAX)) {
+        const text = typeof v === 'string' ? v.trim().slice(0, NOTE_MAX) : '';
+        if (k && k.length <= 20 && text) out.heroNotes[k] = text;
+    }
+    // 主角的声望条：[{ name, kind }]，最多 3 条，聊天级设置，不随楼层快照。
+    out.fameBars = sanitizeFameBars(raw.fameBars);
+    out.romanceSeen = [...new Set((Array.isArray(raw.romanceSeen) ? raw.romanceSeen : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
     const q = plainObject(raw.queue) ? raw.queue : {};
     out.queue.skills = [...new Set((Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).map(canonicalSkillName))].slice(0, QUEUE_MAX);
     out.queue.people = (Array.isArray(q.people) ? q.people : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, QUEUE_MAX);

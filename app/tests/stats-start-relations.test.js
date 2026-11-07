@@ -40,3 +40,10 @@ test('忙碌提示：没有面板时不阻塞，close 可重复调用', async ()
     busy.close();
     assert.equal(dialogs.isOpen(), false);
 });
+
+test('起始关系补填：回复可带修饰，修饰不认识的丢弃但关系档保留', () => {
+    const r = parseStartRelationReply('{"林夏":"恋人+猜忌","苏晴":"朋友+乱写","周默":"疏远+积怨+心结+戒备"}', { names: ['林夏', '苏晴', '周默'] });
+    assert.deepEqual(r.relations, { 林夏: '恋人', 苏晴: '朋友', 周默: '疏远' });
+    assert.deepEqual(r.mods, { 林夏: ['猜忌'], 周默: ['积怨', '心结'] });
+    assert.ok(DEFAULT_STAT_PROMPTS.startRelations.includes('猜忌'));
+});

@@ -7,7 +7,8 @@ import { parseTables } from '../src/data/shujuku/table-parser.js';
 import { createShujukuClient } from '../src/data/shujuku/client.js';
 import { detectStatMappings, describeStatMappings, planStatsPush, pushStats } from '../src/data/shujuku/stats-push.js';
 import { findSkillTable, lookupSkillValue, planSkillAdoption, planSkillPush } from '../src/data/shujuku/skill-table.js';
-import { buildMigratedTemplate, migrateTables, needsMigration, planTableMigration } from '../src/data/shujuku/table-migrate.js';
+import { buildMigratedTemplate, migrateTables, needsMigration, needsRefine, planTableMigration } from '../src/data/shujuku/table-migrate.js';
+import { igsManagedTablesReady } from '../src/data/shujuku/igs-managed.js';
 import { resolveDiceCommand } from '../src/choices/dice-check.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 
@@ -34,9 +35,11 @@ test('模板：新表结构、列与 ddl 同步，旧列名全部清除，JSON �
     assert.equal(new Set(orders).size, orders.length);
     assert.ok(byName['才艺技能表'] && tables.indexOf(byName['才艺技能表']) === tables.indexOf(byName['角色数值表']) + 1);
     const check = TEMPLATE.sheet_jian_ding_jian_yi_biao.sourceData;
-    assert.match(check.note, /才艺技能表/);
+    assert.doesNotMatch(check.note, /才艺技能表/);
+    assert.ok(!byName['重要角色表'].columns.includes('交互选项'));
+    for (const uid of ['sheet_jue_se_shu_zhi_biao', 'sheet_cai_yi_ji_neng_biao']) assert.equal(TEMPLATE[uid].updateConfig.updateFrequency, 0, uid);
     assert.doesNotMatch(check.note + check.initNode + check.updateNode, /base_attributes|special_attributes|基础属性|特殊属性/);
-    assert.match(TEMPLATE.sheet_wu_pin_biao.sourceData.note, /钱不记在这里/);
+    assert.doesNotMatch(TEMPLATE.sheet_wu_pin_biao.sourceData.note, /角色数值表|金钱/);
     assert.match(TEMPLATE.sheet_jue_se_shu_zhi_biao.sourceData.ddl, /stamina TEXT, -- 体力/);
     assert.doesNotMatch(JSON.stringify(TEMPLATE.sheet_zhu_jue_xin_xi_biao.sourceData), /base_attributes|belongings/);
 });
@@ -108,7 +111,7 @@ test('检定取值走才艺技能表：普通与对抗检定，AcuDice 读不到
 function oldChat() {
     return {
         h: sheet('sheet_h', '主角信息表', ['主角信息', '姓名', '基础属性', '特有属性', '随身财物'], [['主角信息', '阿明', '健康:60；力量:45；', '园艺:30；', '三百元']], { orderNo: 0 }),
-        n: sheet('sheet_n', '重要角色表', ['姓名', '角色类型', '基础属性', '特有属性'], [['小雪', '恋爱对象', '健康:50；魅力:70；', '烹饪:65；']], { orderNo: 1 }),
+        n: sheet('sheet_n', '重要角色表', ['姓名', '角色类型', '基础属性', '特有属性', '交互选项'], [['小雪', '恋爱对象', '健康:50；魅力:70；', '烹饪:65；', '送花']], { orderNo: 1 }),
         v: sheet('sheet_v', '角色数值表', ['角色姓名', '好感度', '信任度', '了解程度', '芥蒂程度', '已知秘密', '未知秘密'], [['小雪', '12%', '8%', '5%', '0%', '是画家', '为何转学']], { orderNo: 2 }),
     };
 }
@@ -121,7 +124,10 @@ test('迁移：识别旧结构；换模板时旧行按列名搬到新表头，�
     assert.deepEqual(built.added, ['才艺技能表']);
     assert.deepEqual(built.template.v.content[0], TEMPLATE.sheet_jue_se_shu_zhi_biao.content[0]);
     assert.deepEqual(built.template.v.content[1].slice(0, 5), ['1', '小雪', '12%', '8%', '5%']);
-    assert.match(built.template.v.sourceData.note, /体力/);
+    assert.equal(built.template.v.sourceData.note, '角色数值表，由 IGS 程序维护。AI 不得填写、修改或删除此表。');
+    assert.equal(built.template.v.updateConfig.updateFrequency, 0);
+    assert.equal(built.template.v.exportConfig.injectIntoWorldbook, false);
+    assert.equal(built.template.n.content[0].includes('交互选项'), false);
     assert.equal(data.v.content[0].length, 8, '不改入参的表');
     assert.equal(needsMigration(parseTables(built.template)), false);
 });
@@ -179,6 +185,58 @@ test('迁移流程：先备份再导入；备份失败不动表；已是新结�
     const npc = after.find((t) => t.name === '重要角色表');
     assert.equal(npc.rows[0][npc.columns.indexOf('已知秘密')], '是画家');
     assert.ok(findSkillTable(after).table.rows.some((r) => r.includes('烹饪') && r.includes('65')));
+    const again = await migrateTables(client, TEMPLATE, { backup: () => ({ ok: true }) });
+    assert.equal(again.skipped, true);
+});
+
+// 解耦后、精修前的聊天：已有才艺技能表，但两张 IGS 表还是旧版适配模板的写法，迁移只做精修。
+function decoupledOldChat() {
+    return {
+        n: sheet('sheet_n', '重要角色表', ['姓名', '角色类型', '已知秘密', '未知秘密', '交互选项'], [['小雪', '恋爱对象', '是画家', '为何转学', '送花']], { orderNo: 1 }),
+        v: sheet('sheet_v', '角色数值表', ['角色姓名', '好感度', '信任度', '了解程度', '芥蒂程度', '体力', '金钱', '压力'], [['小雪', '12%', '8%', '5%', '0%', '90', '30', '10']], { orderNo: 2, sourceData: { note: '旧的长说明【IGS 数值系统】' } }),
+        s: sheet('sheet_s', '才艺技能表', ['角色姓名', '技能', '数值'], [['小雪', '烹饪', '65']], { orderNo: 3, sourceData: { note: '旧的长说明' } }),
+    };
+}
+
+test('精修迁移：旧版适配模板换成 IGS 记录表写法，旧行不丢，重要角色表丢弃交互选项，已精修的聊天跳过', async () => {
+    const data = decoupledOldChat();
+    for (const key of ['v', 's']) data[key].updateConfig = { updateFrequency: 1, skipFloors: 0 };
+    assert.equal(needsRefine(parseTables(data), data), true);
+    assert.equal(needsMigration(parseTables(data)), false);
+    const built = buildMigratedTemplate(data, TEMPLATE);
+    assert.equal(built.ok, true);
+    assert.deepEqual(built.added, []);
+    for (const key of ['v', 's']) {
+        const s = built.template[key];
+        assert.equal(s.updateConfig.updateFrequency, 0, key);
+        assert.equal(s.exportConfig.enabled, false, key);
+        assert.equal(s.exportConfig.injectIntoWorldbook, false, key);
+        assert.match(s.sourceData.note, /^(角色数值表|才艺技能表)，由 IGS 程序维护。AI 不得填写、修改或删除此表。$/, key);
+    }
+    assert.deepEqual(built.template.v.content[1].slice(0, 9), ['1', '小雪', '12%', '8%', '5%', '0%', '90', '30', '10']);
+    assert.deepEqual(built.template.s.content[1], ['1', '小雪', '烹饪', '65']);
+    assert.equal(built.template.n.content[0].includes('交互选项'), false);
+    assert.equal(built.template.n.content[1][built.template.n.content[0].indexOf('已知秘密')], '是画家');
+    assert.equal(built.template.n.content[1][built.template.n.content[0].indexOf('未知秘密')], '为何转学');
+    assert.equal(needsRefine(parseTables(built.template), built.template), false);
+    assert.equal(data.v.sourceData.note, '旧的长说明【IGS 数值系统】', '不改入参');
+
+    // 流程：只精修时不补写、不新增行；精修后再迁移直接跳过。
+    let current = decoupledOldChat();
+    const api = {
+        exportTableAsJson: () => current,
+        getTableTemplate: () => JSON.parse(JSON.stringify(current)),
+        importTemplateFromData: async (template) => { current = { ...template }; return { success: true, runtimeReady: true }; },
+        updateCell() { throw new Error('精修不应补写'); },
+        insertRow() { throw new Error('精修不应新增行'); },
+        refreshDataAndWorldbook() {},
+    };
+    const client = createShujukuClient(api);
+    const done = await migrateTables(client, TEMPLATE, { backup: () => ({ ok: true }) });
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.equal(done.wrote, 0);
+    assert.equal(done.inserted, 0);
+    assert.equal(igsManagedTablesReady(current), true);
     const again = await migrateTables(client, TEMPLATE, { backup: () => ({ ok: true }) });
     assert.equal(again.skipped, true);
 });

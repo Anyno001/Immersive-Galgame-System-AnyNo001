@@ -218,7 +218,7 @@ export function statsFavorOverview(ledger, { isHero = null } = {}) {
     }
     return Object.entries(state.characters || {})
         .filter(([name]) => name !== PROTAGONIST && !(typeof isHero === 'function' && isHero(name)))
-        .map(([name, c]) => ({ name, dims: { ...(c.dims || {}) }, log: (logs.get(name) || []).reverse() }))
+        .map(([name, c]) => ({ name, dims: { ...(c.dims || {}) }, romance: Boolean(c.romance), kin: Boolean(c.kin), log: (logs.get(name) || []).reverse() }))
         .sort((a, b) => (Number(b.dims.好感) || 0) - (Number(a.dims.好感) || 0));
 }
 

@@ -9,6 +9,7 @@ import { normalizeStageCastSettings } from './stage-direction-settings.js';
 import { isSystemRole } from './system-role.js';
 import { lastBefore } from './reader-floor-plan.js';
 import { resolveReaderSpriteAsset } from './reader-sprite-asset.js';
+import { resolveStatusHudPicks, statusHudUsesTables } from '../../data/shujuku/status-hud-model.js';
 
 // 页计划里的只有引用和命中结果。图像字节及 blob 生命周期仍属于中央媒体缓存。
 function createAssetLookup(initialContext) {
@@ -228,7 +229,7 @@ function prepareStageIndex(floor, settings) {
 
 export function prepareReaderFloorAssets(floor, { payload, readerSettings, assetMatchCtx, tableData }) {
     const stageSettings = JSON.stringify(readerSettings.stageCast);
-    const hudSettings = JSON.stringify([readerSettings.statusHud?.enabled, readerSettings.statusHud?.tables]);
+    const hudSettings = JSON.stringify([readerSettings.statusHud?.enabled, readerSettings.statusHud?.tables, readerSettings.statusHud?.tablesMode]);
     const strict = assetMatchCtx.strict === true;
     const live2dKey = JSON.stringify([readerSettings._live2d?.enabled, Object.keys(readerSettings._live2d?.bindings || {}), readerSettings._sceneAssets?.characterAliases]);
     if (floor.assets && floor.tablesRevision === tableData.revision && floor.stageSettings === stageSettings
@@ -240,10 +241,10 @@ export function prepareReaderFloorAssets(floor, { payload, readerSettings, asset
     floor.stageSettings = stageSettings;
     floor.hudSettings = hudSettings;
     const sceneAssets = readerSettings._sceneAssets || {};
-    if (readerSettings.statusHud?.enabled && readerSettings.statusHud.tables?.length) {
+    if (readerSettings.statusHud?.enabled && statusHudUsesTables(readerSettings.statusHud)) {
         const names = new Set(floor.sceneDirectives.filter(d => d.character).map(d => floor.keyOf(d.character)));
         if (floor.sceneSpeaker) names.add(floor.keyOf(floor.sceneSpeaker));
-        tableData.prepareCharacters(names, readerSettings.statusHud.tables, sceneAssets.characterAliases);
+        tableData.prepareCharacters(names, resolveStatusHudPicks(readerSettings.statusHud, tableData.read(), tableData.parsed()), sceneAssets.characterAliases);
     }
     // 关闭/移除绑定后允许静态图恢复；开启时不能留下旧静态命中的预加载 URL。
     const lookup = floor.live2dKey === live2dKey && floor.assets || createAssetLookup(assetMatchCtx);

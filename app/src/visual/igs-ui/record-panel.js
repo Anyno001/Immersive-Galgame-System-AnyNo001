@@ -2,8 +2,10 @@ import { createShujukuClient } from '../../data/shujuku/client.js';
 import { buildRecordModel, buildRelationshipModel, parseLooseDate } from '../../data/shujuku/record-model.js';
 import { buildFavorOverviewModel } from '../../data/shujuku/favor-overview-model.js';
 import { createCharacterMetricsLookup } from '../../data/shujuku/character-metrics.js';
+import { resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
 import { dropUserFavor, isUserName, preferStatsLookup } from '../../scene/stats/stat-metrics.js';
-import { relationLabel } from '../../scene/stats/stat-relation-label.js';
+import { relationLabel, stageLabel } from '../../scene/stats/stat-relation-label.js';
+import { characterDnaGender } from './voice-bark.js';
 import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { applyTransparentGlassMaterial } from '../../styles/glass-material.js';
 import { INVENTORY_GROUP_ORDER, RECORD_ICONS, inventoryGroupLabel, inventoryIconKey } from './record-icons.js';
@@ -347,7 +349,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const read = () => {
             const readResult = client.readTables();
             const next = category === 'relationships' ? buildRelationshipModel(readResult)
-                : category === 'favor' ? buildFavorOverviewModel(readResult, settings?.statusHud?.tables, { skipName: (name) => isUserName(name, getSillyTavernContext()?.name1) })
+                : category === 'favor' ? buildFavorOverviewModel(readResult, resolveStatusHudPicks(settings?.statusHud, readResult), { skipName: (name) => isUserName(name, getSillyTavernContext()?.name1) })
                     : buildRecordModel(readResult, category);
             if (next.status === 'read-error') throw new Error(next.reason);
             return { model: next, readResult };
@@ -370,11 +372,11 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         if (!table()) activeUid = model.tables[0]?.uid || '';
         if (category === 'relationships') {
             const live = readFavorLive();
-            relationLive = new Map(live ? live.people.map(person => [person.name, { dims: person.dims, nsfw: live.nsfw }]) : []);
+            relationLive = new Map(live ? live.people.map(person => [person.name, { dims: person.dims, nsfw: live.nsfw, romance: Boolean(person.romance), kin: Boolean(person.kin) }]) : []);
             let tableLookup = null;
             try {
                 tableLookup = createCharacterMetricsLookup(readResult, {
-                    selectedTables: settings?.statusHud?.tables,
+                    selectedTables: resolveStatusHudPicks(settings?.statusHud, readResult),
                     characterAliases: (settings?._sceneAssets || settings?.sceneAssets)?.characterAliases,
                 });
             } catch (_) { tableLookup = null; }
@@ -777,19 +779,20 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const graphHtml = chosen ? `<div class="igs-record-relationship-graph" aria-label="${escapeHtml(chosen.name)}的局部关系图"><svg class="igs-record-relationship-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lineHtml}</svg>${labelHtml}${graphNodes.map(node =>
             `<button type="button" class="igs-record-relationship-node${node.person.id === chosen.id ? ' is-current' : ''}" style="left:${node.x}%;top:${node.y}%" data-record-act="person" data-record-id="${escapeHtml(node.person.id)}" aria-label="查看${escapeHtml(node.person.name)}" ${node.person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-node-avatar" aria-hidden="true">${personInitial(node.person.name)}</span><span class="igs-record-node-name">${escapeHtml(node.person.name)}</span></button>`).join('')}</div>` : '<p class="igs-record-relationship-empty">当前来源没有可识别的人物记录。</p>';
         const { metrics, stages, sheet } = chosen ? metricsOf(chosen.name) : { metrics: [], stages: [] };
+        const stageLive = chosen ? relationLive.get(chosen.name) : null;
         // 数值系统的角色卡（v2 §9.3）：资历与擅长项；没有卡时给「生成数值」。
         const sheetHtml = !sheet ? '' : sheet.missing
             ? `<p class="igs-record-stage"><span>角色数值</span><strong>未生成</strong></p><button type="button" class="igs-rp-btn" data-record-act="stats-sheet" data-record-id="${escapeHtml(sheet.name)}">生成数值</button>`
             : `<p class="igs-record-stage"><span>资历</span><strong>${escapeHtml(sheet.rank)}${sheet.provisional ? '（部分待定）' : ''}</strong></p>${sheet.strong.length ? `<p class="igs-record-stage"><span>擅长</span><strong>${escapeHtml(sheet.strong.join('、'))}</strong></p>` : ''}`;
         const metricsHtml = metrics.length || stages.length ? `<section class="igs-record-metrics" aria-label="${escapeHtml(chosen.name)}的数值">${stages.map(stage =>
-            `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.value)}</strong></p>`).join('')}${sheetHtml}${metrics.map(metric =>
+            `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.label === '关系阶段' && stageLive ? stageLabel(stageLive.dims?.好感, stageLive.romance) : stage.value)}</strong></p>`).join('')}${sheetHtml}${metrics.map(metric =>
             `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</section>` : '';
         const age = chosen?.profile?.find(field => field.key === 'age')?.value || '';
         const tags = [chosen?.role, age && (/^\d+$/.test(age) ? `${age}岁` : age)].filter(Boolean);
         const thought = chosen?.profile?.find(field => field.key === 'thought')?.value || '';
         const live = chosen ? relationLive.get(chosen.name) : null;
-        const relation = live ? relationLabel(live.dims, { nsfw: live.nsfw }) : null;
-        const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}${relation ? `<span class="igs-record-tag igs-record-relation-tag" title="${escapeHtml(relation.desc)}">${escapeHtml(relation.name)}</span>` : ''}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
+        const relation = live ? relationLabel(live.dims, { nsfw: live.nsfw, romance: live.romance, kin: live.kin }) : null;
+        const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}${relation ? `<span class="igs-record-tag igs-record-relation-tag" title="${escapeHtml(`${towardYou(chosen.name)}：${relation.desc}`)}">${escapeHtml(relation.name)}</span>` : ''}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
         // 档案表只展示外貌/打扮/过往经历（年龄进标题标签、当下想法做名下引语）；旧表没有这些列时才回退为描述 + 原始字段。
         const profile = (chosen?.profile || []).filter(field => field.key !== 'age' && field.key !== 'thought');
         const profileHtml = !chosen ? '' : chosen.hasProfile
@@ -812,10 +815,18 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     const FAVOR_LOG_RECENT = 5;
 
+    // 关系名是单向的：按角色性别写「他对你 / 她对你」，取不到性别写「TA对你」。性别取自该角色 DNA（与语气音、立绘高度同源）。
+    function towardYou(name) {
+        let gender = '';
+        try { gender = characterDnaGender(settings?._sceneAssets || settings?.sceneAssets, name); } catch (_) { gender = ''; }
+        return `${gender === 'male' ? '他' : gender === 'female' ? '她' : 'TA'}对你`;
+    }
+
     function renderFavorLive() {
         const { people, nsfw } = favorLive;
         return `<div class="igs-record-favor" role="list" aria-label="全部角色好感度">${people.map(person => {
-            const label = relationLabel(person.dims, { nsfw });
+            const label = relationLabel(person.dims, { nsfw, romance: person.romance, kin: person.kin });
+            const toward = towardYou(person.name);
             const open = favorOpen.has(person.name);
             const all = favorAll.has(person.name);
             const shown = all ? person.log : person.log.slice(0, FAVOR_LOG_RECENT);
@@ -823,10 +834,10 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
                 ? `<ol class="igs-record-favor-log-list">${shown.map(favorLogLine).join('')}</ol>${!all && person.log.length > FAVOR_LOG_RECENT ? `<button type="button" class="igs-record-favor-log-more" data-record-act="favor-log-all" data-record-id="${escapeHtml(person.name)}">查看全部</button>` : ''}`
                 : '<p class="igs-record-favor-log-empty">暂无变动。</p>';
             return `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personInitial(person.name)}</span>` +
-                `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong><button type="button" class="igs-record-relation" data-record-act="favor-desc" data-record-id="${escapeHtml(person.name)}" aria-expanded="${favorDesc.has(person.name) ? 'true' : 'false'}" title="${escapeHtml(label.desc)}">${escapeHtml(label.name)}</button></span>` +
+                `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong><button type="button" class="igs-record-relation" data-record-act="favor-desc" data-record-id="${escapeHtml(person.name)}" aria-expanded="${favorDesc.has(person.name) ? 'true' : 'false'}" title="${escapeHtml(`${toward}：${label.desc}`)}">${escapeHtml(label.name)}</button></span>` +
                 `<div class="igs-record-favor-bars">${person.metrics.map(metric =>
                     `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b data-tone="${escapeHtml(metric.colorKey || '')}" style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div>` +
-                (favorDesc.has(person.name) ? `<p class="igs-record-favor-desc">${escapeHtml(label.desc)}</p>` : '') +
+                (favorDesc.has(person.name) ? `<p class="igs-record-favor-desc">${escapeHtml(`${toward}：${label.desc}`)}</p>` : '') +
                 `<div class="igs-record-favor-log"><button type="button" class="igs-record-favor-log-toggle" data-record-act="favor-log" data-record-id="${escapeHtml(person.name)}" aria-expanded="${open ? 'true' : 'false'}">最近变动</button>${logBody}</div></div>`;
         }).join('')}</div>`;
     }

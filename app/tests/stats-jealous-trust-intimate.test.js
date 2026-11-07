@@ -256,7 +256,7 @@ const promptOf = (state, opts) => buildStatsPrompt(state, { present: ['小雪'],
 test('亲密门槛豁免：开时不出拒绝约束，出现 intimacyForced；关时恢复', () => {
     const state = stateOf(100);
     const refuse = '亲吻、抚摸、性行为等一律拒绝或回避';
-    const forcedText = '与主角的亲密是剧情所迫，并非出于好感；态度、言语与神情仍按当前关系阶段和芥蒂表现，不因亲密而变得温顺或亲近。';
+    const forcedText = '与主角的亲密行为是剧情所迫，并非出于好感；态度、言语与神情仍按当前关系阶段和芥蒂程度表现，不因亲密行为而变得温顺或亲近。';
     const off = promptOf(state, {});
     assert.ok(off.includes(refuse));
     assert.ok(!off.includes('剧情所迫'));
@@ -271,9 +271,9 @@ test('亲密门槛豁免：开时不出拒绝约束，出现 intimacyForced；�
 
 test('亲密非好感事件的说明与 trust 强度说明出现在 tags 段', () => {
     const text = promptOf(stateOf(100), {});
-    assert.ok(text.includes('亲密行为本身不算好感事件，好感只按主角在过程中的态度判断（体贴照顾可为感动，敷衍利用可为失望）。'));
+    assert.ok(text.includes('亲密行为本身不算好感事件，按主角在过程中的态度判断'));
     assert.ok(text.includes('[igs-stat:trust|角色名|上升/下降|小/中/大/重大]'));
-    assert.ok(text.includes('小＝守约、小事可靠或敷衍、小谎；中＝帮忙兜底、保守秘密或爽约、被发现隐瞒；大＝危难时挺身而出或当众出卖、重大欺骗；重大＝托付生死或背叛'));
+    assert.ok(text.includes('上升如守约、出面善后、危难时挺身而出；下降如说谎、爽约、出卖'));
 });
 
 test('intimate 行：NSFW 且非不消耗时出现', () => {
@@ -283,11 +283,11 @@ test('intimate 行：NSFW 且非不消耗时出现', () => {
     assert.ok(!promptOf(stateOf(100), { intimateCost: 'standard', nsfw: false }).includes('igs-stat:intimate'));
 });
 
-test('NPC 体力提示：低于 30 很疲惫，归零体力耗尽；主角沿用现有疲惫提示', () => {
-    assert.ok(promptOf(stateOf(20), { intimateCost: 'standard' }).includes('小雪很疲惫，想停下来。'));
-    assert.ok(promptOf(stateOf(0), { intimateCost: 'standard' }).includes('小雪体力耗尽，亲密必须在本轮结束。'));
-    assert.ok(!promptOf(stateOf(80), { intimateCost: 'standard' }).includes('想停下来'));
-    assert.ok(!promptOf(stateOf(20), { intimateCost: 'off' }).includes('想停下来'));
+test('NPC 体力提示：低于 30 很疲惫，归零体力耗尽，不再限于亲密消耗开启；主角沿用现有疲惫提示', () => {
+    assert.ok(promptOf(stateOf(20), { intimateCost: 'standard' }).includes('小雪很疲惫，动作变慢，容易走神。'));
+    assert.ok(promptOf(stateOf(0), { intimateCost: 'standard' }).includes('小雪体力耗尽，撑不住了，需要立刻休息。'));
+    assert.ok(!promptOf(stateOf(80), { intimateCost: 'standard' }).includes('很疲惫'));
+    assert.ok(promptOf(stateOf(20), { intimateCost: 'off' }).includes('小雪很疲惫'));
     const hero = withDims({});
     const tired = { ...hero, protagonist: { ...hero.protagonist, bars: { stamina: 10, money: 0, stress: 0 } } };
     assert.ok(promptOf(tired, { intimateCost: 'standard' }).includes('主角很疲惫，动作迟缓'));
@@ -370,4 +370,27 @@ test('NSFW 关闭的楼不记亲密档位，日后开启 NSFW 重算该楼也不
     const entry = rt.getLedger().entries.get(`chat-j|${id}|0`);
     assert.equal(Object.hasOwn(entry.meta, 'intimateCost'), false);
     assert.equal(rt.getState().protagonist.bars.stamina, 100);
+});
+
+test('「我对TA」注入：传入 heroNotes 时 present 段附「主角对其」，空或未传不附', () => {
+    const state = stateOf(100);
+    assert.ok(promptOf(state, { heroNotes: { 小雪: '心里放不下她，已答应陪她去看海。' } }).includes('主角对其：心里放不下她，已答应陪她去看海。'));
+    assert.ok(!promptOf(state, { heroNotes: { 小雪: '  ' } }).includes('主角对其'));
+    assert.ok(!promptOf(state, { heroNotes: { 阿澄: '讨厌他' } }).includes('主角对其'));
+    assert.ok(!promptOf(state, {}).includes('主角对其'));
+});
+
+test('romance 演出第 3 栏对象写进 romanceSeen：去重、取已登记写法、主角不记，存档可还原', async () => {
+    const { setRomanceSeenSink, rememberRomanceTargetForTest } = await import('../src/visual/igs-ui/romance-runtime.js');
+    const { rt, say } = runtimeSetup();
+    say('她笑了。[igs-stat:favor|小雪|开心]');
+    setRomanceSeenSink((names) => rt.noteRomanceSeen(names));
+    const assets = { characters: { 小雪: {} }, characterAliases: { 小雪: ['雪'] } };
+    const page = (target) => ({ fx: { romance: 'ambiguous', romanceAt: 0, romanceTarget: target } });
+    rememberRomanceTargetForTest(page('雪'), assets, '阿明');
+    rememberRomanceTargetForTest(page('小雪'), assets, '阿明');
+    rememberRomanceTargetForTest(page('阿明'), assets, '阿明');
+    setRomanceSeenSink(null);
+    assert.deepEqual(rt.getCatalog().romanceSeen, ['小雪']);
+    assert.deepEqual(restoreChat(chatEntries({ catalog: rt.getCatalog() })).catalog.romanceSeen, ['小雪']);
 });

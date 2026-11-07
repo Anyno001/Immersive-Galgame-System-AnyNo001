@@ -41,7 +41,8 @@ test('自动登记：表格里的人物正文没提到也建档，关系从 0 �
 test('自动登记：表格人物的好感标签直接生效，不当成路人丢掉', () => {
     const { rt, say } = setup({ people: ['小林'] });
     say('她笑了。[igs-stat:favor|小林|开心]');
-    assert.ok(rt.getState().characters.小林.dims.好感 >= 1);
+    const lin = rt.getState().characters.小林;
+    assert.ok(lin.dims.好感 >= 1 || lin.heart >= 1);
 });
 
 test('仅手动档不从表格登记', () => {

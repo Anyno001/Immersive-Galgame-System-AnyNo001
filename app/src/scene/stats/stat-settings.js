@@ -1,5 +1,5 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAGE_TEXT_PLATONIC, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
@@ -27,6 +27,10 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     storyCheck: 'preroll',
     checkFx: true,
     optionChance: true,
+    heroNotePrompt: false,
+    npcBars: false,
+    hudFame: false,
+    hudFameDetail: false,
     sheetGen: 'prompt',
     backfill: 'auto',
     bars: Object.freeze({ stamina: true, money: true, stress: true }),
@@ -166,6 +170,12 @@ export function normalizeStatsSettings(raw) {
         storyCheck: pick(STORY_CHECK, src.storyCheck, d.storyCheck),
         checkFx: bool(src.checkFx, d.checkFx),
         optionChance: bool(src.optionChance, d.optionChance),
+        // 「我对TA」备注是否注入 present 段；角色（非主角）的体力条是否显示在状态栏与好感总览。
+        heroNotePrompt: bool(src.heroNotePrompt, d.heroNotePrompt),
+        npcBars: bool(src.npcBars, d.npcBars),
+        // 状态栏显示声望（汇总一行）；开了它之后「显示细项」才生效（每条、每一对各自成条）。
+        hudFame: bool(src.hudFame, d.hudFame),
+        hudFameDetail: bool(src.hudFameDetail, d.hudFameDetail),
         sheetGen: pick(SHEET_GEN, src.sheetGen, d.sheetGen),
         backfill: pick(BACKFILL, src.backfill, d.backfill),
         bars: {
@@ -180,6 +190,8 @@ export function normalizeStatsSettings(raw) {
         staleNoticeSeen: bool(src.staleNoticeSeen, false),
         segments: segmentMap(src.segments),
         stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
+        // 非恋爱对象的阶段文案覆盖：只含四档正向阶段，与恋爱向文案分开存。
+        stageTextPlatonic: textMap(src.stageTextPlatonic, Object.keys(DEFAULT_STAGE_TEXT_PLATONIC), DEFAULT_STAGE_TEXT_PLATONIC),
         // 建卡（倾向 / 手动六维 / 职业 / 特有技能）；「按分配启用」时用它生成本聊天初始数值。
         build: normalizeBuild(src.build),
     };

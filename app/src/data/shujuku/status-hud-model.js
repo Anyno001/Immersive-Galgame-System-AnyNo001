@@ -14,6 +14,7 @@ export const STATUS_HUD_AVATAR_RADIUS_IDS = Object.freeze(['square', 'soft', 'sm
 export const STATUS_HUD_AVATAR_RADIUS_PX = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
+export const STATUS_HUD_TABLES_MODE_IDS = Object.freeze(['auto', 'manual']);
 // NSFW 黑幕强度：只调边缘暗角渐变的中心/边缘透明度，
 // 背景图本身不加模糊、压暗或去饱和滤镜。
 export const NSFW_VEIL_LEVEL_IDS = Object.freeze(['light', 'medium', 'strong']);
@@ -68,6 +69,7 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     background: 'none',
     barColor: 'color',
     tables: [],
+    tablesMode: 'auto',
     position: Object.freeze({ pc: STATUS_HUD_POSITION_DEFAULT, mobile: STATUS_HUD_POSITION_DEFAULT }),
 });
 
@@ -108,8 +110,50 @@ export function normalizeStatusHudSettings(raw) {
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
         tables: normalizeStatusHudTables(src.tables),
+        tablesMode: resolveStatusHudTablesMode(src),
         position: normalizeStatusHudPosition(src.position),
     };
+}
+
+// 旧配置没有 tablesMode：勾过表的按手动保留原选择，没勾过的改为自动识别。
+function resolveStatusHudTablesMode(src) {
+    if (STATUS_HUD_TABLES_MODE_IDS.includes(src.tablesMode)) return src.tablesMode;
+    return normalizeStatusHudTables(src.tables).length ? 'manual' : 'auto';
+}
+
+const AUTO_NAME_COLUMNS = Object.freeze(['角色姓名', '角色名', '角色名称', '人物名称', '姓名', '名字', '人物', '角色']);
+// 有人名列的物品、任务等表也不自动读：HUD 会把其中的进度类数值误挂到相关人物头上。
+const AUTO_SKIP_TABLE_RE = /物品|道具|装备|背包|任务|地点|场景|技能|事件|日志|记录|总结|大纲|剧情/;
+
+export function isStatusHudAutoTable(table) {
+    if (!table || !Array.isArray(table.columns) || !Array.isArray(table.rows)) return false;
+    if (AUTO_SKIP_TABLE_RE.test(String(table.name || ''))) return false;
+    const columns = table.columns.map((column) => String(column || '').trim());
+    const nameIndex = columns.findIndex((column) => AUTO_NAME_COLUMNS.includes(column));
+    if (nameIndex < 0) return false;
+    if (columns.some((column, index) => index !== nameIndex && RELATION_COLUMN_RE.test(column))) return true;
+    return table.rows.some((values) => Array.isArray(values) && values.some((cell, index) => index !== nameIndex
+        && !isRowIdColumn(columns[index]) && Boolean(parseMetricCell(cell, columns[index]))));
+}
+
+export function autoStatusHudTables(parsedTables) {
+    return (Array.isArray(parsedTables) ? parsedTables : [])
+        .filter(isStatusHudAutoTable)
+        .map((table) => ({ uid: String(table.uid || ''), name: String(table.name || '') }));
+}
+
+export function statusHudUsesTables(statusHud) {
+    const settings = normalizeStatusHudSettings(statusHud);
+    return settings.tablesMode === 'auto' || settings.tables.length > 0;
+}
+
+// 实际读取的表：手动取用户所选；自动按当前表格识别角色数值表与关系表。
+export function resolveStatusHudPicks(statusHud, readResult, parsedTables) {
+    const settings = normalizeStatusHudSettings(statusHud);
+    if (settings.tablesMode === 'manual') return settings.tables;
+    if (parsedTables) return autoStatusHudTables(parsedTables);
+    if (!readResult || readResult.ok === false) return [];
+    return autoStatusHudTables(parseTables(readResult.data));
 }
 
 export function normalizeStatusHudTables(raw) {
@@ -238,14 +282,15 @@ export function buildStatusHudModel(input = {}) {
         loadReason: '',
     };
     if (!settings.enabled || !character) return model;
-    if (!settings.tables.length) return model;
+    if (!statusHudUsesTables(settings)) return model;
     const readResult = input.readResult;
     if (!readResult || readResult.ok === false) {
+        if (settings.tablesMode === 'auto') return model;
         model.loadState = 'error';
         model.loadReason = String((readResult && readResult.reason) || 'missing-api');
         return model;
     }
-    const resolved = resolveSelectedStatusHudTables(settings.tables, readResult, input.parsedTables);
+    const resolved = resolveSelectedStatusHudTables(resolveStatusHudPicks(settings, readResult, input.parsedTables), readResult, input.parsedTables);
     const metrics = [];
     let missingTables = 0;
     for (const entry of resolved) {

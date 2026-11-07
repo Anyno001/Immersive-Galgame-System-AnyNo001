@@ -57,7 +57,7 @@ export function withCharacterBars(state, name, bars) {
     return cur ? withCharacter(state, name, { ...cur, bars }) : state;
 }
 
-export const GRUDGE_TIERS = Object.freeze([{ name: '不满', min: 1 }, { name: '记恨', min: 26 }, { name: '怨恨', min: 51 }, { name: '仇恨', min: 76 }]);
+export const GRUDGE_TIERS = Object.freeze([{ name: '不满', min: 1 }, { name: '记恨', min: 26 }, { name: '怨恨', min: 51 }, { name: '积怨', min: 76 }]);
 
 export function grudgeTier(value) {
     const v = Math.round(Number(value) || 0);
@@ -86,4 +86,17 @@ export function withClock(state, patch) {
 
 export function withCharacter(state, name, character) {
     return state.characters[name] === character ? state : { ...state, characters: { ...state.characters, [name]: character } };
+}
+
+// 角色标记（随身 companion、无实体 bodiless、亲人 kin）：角色档案里的标记或聊天级 catalog.traits 勾选，任一为真即生效。
+export function hasMark(character, traits, name, key) {
+    if (character && character[key] === true) return true;
+    const own = traits && typeof traits === 'object' ? traits[name] : null;
+    return Boolean(own && own[key] === true);
+}
+
+// 当过恋爱对象：character.romance 为真；从未判定过（undefined）时，演出层记录的 romanceSeen 名单也算。结束恋爱后为 false，不再被名单覆盖。
+export function isRomance(character, name, seen) {
+    if (character && character.romance === true) return true;
+    return Boolean(character && character.romance === undefined && Array.isArray(seen) && seen.includes(name));
 }

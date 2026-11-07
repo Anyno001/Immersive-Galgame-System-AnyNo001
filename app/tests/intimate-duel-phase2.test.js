@@ -120,10 +120,10 @@ test('亲密牌库用新原语替换第一阶段的替代牌型', () => {
         const { catalog } = buildIntimateDeck({ mechanic, position: 'receive', favor: 40, grudge: 0 });
         return Object.values(catalog).find((card) => card.name === name).effects.map((e) => e.op);
     };
-    assert.deepEqual(ops('主导', '示弱诱敌'), ['delayed-counter']);
-    assert.deepEqual(ops('主导', '撕扯'), ['mutual-damage']);
+    assert.deepEqual(ops('主导', '故作示弱'), ['delayed-counter']);
+    assert.deepEqual(ops('主导', '拉扯'), ['mutual-damage']);
     assert.deepEqual(ops('合拍', '害羞躲闪'), ['random-branch']);
-    const lure = Object.values(buildIntimateDeck({ mechanic: '主导', position: 'receive' }).catalog).find((card) => card.name === '示弱诱敌');
+    const lure = Object.values(buildIntimateDeck({ mechanic: '主导', position: 'receive' }).catalog).find((card) => card.name === '故作示弱');
     assert.equal(lure.effects[0].fizzle, 'im-watch');
 });
 

@@ -500,7 +500,7 @@ const STATS_SET_TEMPLATE = `
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">玩法</div>
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
-      <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}{{heroNotePromptField}}</div>
       <div class="igs-source-filter-grid">{{favorModeField}}{{intimateCostField}}</div>
     </div>
     <div class="igs-source-filter">
@@ -508,6 +508,7 @@ const STATS_SET_TEMPLATE = `
       <div class="igs-source-filter-note">主角区显示</div>
       <div class="igs-settings-section">{{barsFields}}</div>
       <div class="igs-source-filter-grid">{{hudLabelField}}</div>
+      <div class="igs-settings-section">{{npcBarsField}}{{hudFameField}}</div>
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">登记与补全</div>
