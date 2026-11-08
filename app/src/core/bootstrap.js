@@ -580,6 +580,7 @@ export function bootstrapIGS(options = {}) {
         drawCombatTrait: (name) => combatServices.drawTrait(name),
         pickCombatTrait: (name) => combatServices.pickTrait(name),
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
+        inscribeCombatRelic: (opts) => combatServices.inscribeRelic(opts),
         drawCombatCard: (opts) => combatServices.drawCard(opts),
         flipCombatCard: (opts) => combatServices.flipCard(opts),
         pickCombatCard: (opts) => combatServices.pickCard(opts),

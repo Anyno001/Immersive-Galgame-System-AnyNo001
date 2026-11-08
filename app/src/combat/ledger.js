@@ -10,7 +10,7 @@
 // 记忆化返回的对象在所有调用方之间共享，一律视为只读：调用方不得原地修改 read()/effectiveState() 的返回值。
 // 写入（append/useItem/setGear 等）会使表版本号变化，缓存自动作废。
 import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardAt, signatureUnlockLevel, validateDeck } from './rules.js';
-import { hash32, hashString } from './random.js';
+import { hash32, hashString, randomInt } from './random.js';
 import {
     ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities,
     isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset,
@@ -35,7 +35,7 @@ import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { isRelicPassive } from './relics/draw.js';
-import { refsHeld } from './relics/off-combat.js';
+import { offCombatModel, refsHeld } from './relics/off-combat.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -62,7 +62,7 @@ export const ALLOC_TAG_HASH = 'alloc';
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'relic-inscribe', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -75,7 +75,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 // 同一楼内各类记录的重放顺序（数字小的先）。
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
-    offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
+    offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, 'relic-inscribe': 18.05,
     'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, 'card-upgrade': 18.65, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
@@ -426,6 +426,8 @@ function createCharacterState(index, profile, diagnostics) {
         cardDraws: 0, pendingDraw: null,
         battleGrowth: { cards: new Map(), hpMax: 0 },
         relicHpMax: 0,
+        // 规则 v6 G5f-4d：按遗物 ID 记已结算的获得时效果，以及御印待刻项。
+        pickedUp: new Set(), relicInscribe: [],
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
     const classProfile = resolveClass(index, profile.classRef);
@@ -445,6 +447,82 @@ function addCard(state, cardId, source) {
     syncOwned(state);
     state.deck.push(cardId);
     state.deckCopies.push(copyId);
+}
+
+// 规则 v6 G5f-4d 获得时遗物效果：特性真正装上（直接装上、待选换入、解锁槽位放出待选）时由重放结算，随机结果以装上记录的 ID 作种子；
+// 同一件遗物每个角色只结算一次（换下后再获得不重复），装上记录随楼层回退作废时效果一并撤销。待选中的特性不结算（D-19）。
+const typeFits = (card, cardType) => !cardType || (Array.isArray(cardType) ? cardType.includes(card?.type) : card?.type === cardType);
+// 按种子从 list 里不重复地取 count 个（不足时全取），顺序由种子决定。
+function seededPick(list, count, seed) {
+    const pool = [...list];
+    const out = [];
+    let rng = hash32(seed);
+    while (pool.length && out.length < count) {
+        const roll = randomInt(rng, pool.length);
+        rng = roll.state;
+        out.push(pool.splice(roll.value, 1)[0]);
+    }
+    return out;
+}
+// 卡组里能被遗物刻印选中的副本（按卡组顺序）：未刻印、牌型相符、适用该刻印（专属卡、不能打出的牌由 inscribable 排除）。
+function relicInscribeTargets(state, key, cardType) {
+    return state.deckCopies.filter((copyId) => {
+        const copy = state.copies.get(copyId);
+        const card = copy && state.catalog.get(copy.cardId);
+        return !!card && !copy.inscription && typeFits(card, cardType) && inscribable(card, key);
+    });
+}
+function settlePickup(state, trait, source) {
+    const model = offCombatModel(trait?.relic);
+    if (trait?.pickup !== true || model?.kind !== 'pickup' || state.kind !== 'deck-character') return;
+    const relicId = trait.relic.relicId;
+    if (state.pickedUp.has(relicId)) return;
+    state.pickedUp.add(relicId);
+    const seed = (part) => `${source || 'trait'}|${relicId}|${part}`;
+    // 最大生命记在遗物来源（不占战斗成长上限）；伤势按掉血量结转，上限提高时当前生命同步提高。回满清掉伤势（含倒下）。
+    if (model.hpMax > 0) state.relicHpMax = (state.relicHpMax || 0) + model.hpMax;
+    if (model.healFull) state.wound = null;
+    // 随机升级：卡组里有升级版、非专属、尚未升级（含旧记录按张数分到的升级）且牌型相符的副本，不足时有几张升几张。
+    if (model.upgrade) {
+        const rows = copyRows(state);
+        const open = state.deckCopies.filter((copyId) => {
+            const row = rows.get(copyId);
+            const card = row && state.catalog.get(row.cardId);
+            return !!card && !row.upgraded && upgradableCard(card) && typeFits(card, model.upgrade.cardType);
+        });
+        for (const copyId of seededPick(open, model.upgrade.count, seed('upgrade'))) liftCopy(state, copyId, state.copies.get(copyId).cardId);
+        syncOwned(state);
+    }
+    // 刻印：选定类（御印）在卡组里有可刻的牌时挂起一次待选，由 relic-inscribe 记录选定；没有可刻的牌这次作废。其余随机刻，不足时有几张刻几张。
+    const inscribe = model.inscribe;
+    if (inscribe?.choose) {
+        if (relicInscribeTargets(state, inscribe.key, inscribe.cardType).length) {
+            state.relicInscribe = [...state.relicInscribe, {
+                relic: { relicId, model: trait.relic.model }, inscription: inscribe.key, ...(inscribe.cardType ? { cardType: inscribe.cardType } : {}),
+            }];
+        }
+    } else if (inscribe) {
+        for (const copyId of seededPick(relicInscribeTargets(state, inscribe.key, inscribe.cardType), inscribe.count, seed('inscribe'))) state.copies.get(copyId).inscription = inscribe.key;
+    }
+    // 复制：随机复制卡组里 1 张非专属、未达同名上限的牌；新副本带原副本的升级与刻印，不带战斗成长，直接进卡组。
+    if (model.copy > 0) {
+        const rows = copyRows(state);
+        const open = state.deckCopies.filter((copyId) => {
+            const card = state.catalog.get(state.copies.get(copyId)?.cardId);
+            return !!card && card.rarity !== 'signature' && (state.owned.get(card.id) || 0) < cardCopyLimit(card.rarity);
+        });
+        for (const copyId of seededPick(open, model.copy, seed('copy'))) {
+            const row = rows.get(copyId);
+            const twinId = mintCopy(state, row.cardId, `${source || 'trait'}.mirror`);
+            const twin = state.copies.get(twinId);
+            twin.upgraded = row.upgraded === true;
+            twin.inscription = row.inscription || null;
+            twin.localGrowth = true;
+            state.deck.push(row.cardId);
+            state.deckCopies.push(twinId);
+        }
+        syncOwned(state);
+    }
 }
 
 // 专属卡按等级解锁（v0.39.2）：EXP 记录让卡组角色跨过某槽位的解锁等级时，档案里登记的那张计入拥有（剧情 learn 已提前解锁的不重复计）；
@@ -917,7 +995,7 @@ const handlers = Object.freeze({
         state.points -= payload.cost;
         return null;
     },
-    trait(state, payload, { heroId }) {
+    trait(state, payload, { heroId, entry }) {
         if (state.kind !== 'deck-character') return 'combat-trait-kind-mismatch';
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         if (payload.cost !== TRAIT_DRAW_COST) return 'combat-trait-cost-invalid';
@@ -928,11 +1006,13 @@ const handlers = Object.freeze({
         state.traitDraws += 1;
         state.points -= cost;
         // 有空槽直接装上，没有则进入待选
-        if (payload.kind ? traitFits(state, payload.kind) : state.traits.length < TRAIT_BASE_SLOTS) state.traits = [...state.traits, trait];
-        else state.pendingTrait = trait;
+        if (payload.kind ? traitFits(state, payload.kind) : state.traits.length < TRAIT_BASE_SLOTS) {
+            state.traits = [...state.traits, trait];
+            settlePickup(state, trait, entry?.id);
+        } else state.pendingTrait = trait;
         return null;
     },
-    'trait-pick'(state, payload, { heroId }) {
+    'trait-pick'(state, payload, { heroId, entry }) {
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         const pending = state.pendingTrait;
         if (!pending || pending.traitId !== payload.traitId) return 'combat-trait-pick-invalid';
@@ -942,12 +1022,28 @@ const handlers = Object.freeze({
             if (swapped.blocked) return 'combat-trait-pick-blocked';
             state.traits = swapped.traits;
             state.innateDropped = swapped.innateDropped;
+            settlePickup(state, pending, entry?.id);
         }
         state.pendingTrait = null;
         return null;
     },
-    'trait-slot'(state, payload, { heroId }) {
-        return traitSlotHandler(state, payload, heroId);
+    'trait-slot'(state, payload, { heroId, entry }) {
+        return traitSlotHandler(state, payload, heroId, entry?.id);
+    },
+    // 规则 v6 G5f-4d 御印：选定一张卡组副本完成挂起的遗物刻印（只主角卡组角色）；副本须在卡组、未刻印、牌型相符且适用该刻印。
+    'relic-inscribe'(state, payload, { heroId }) {
+        if (state.kind !== 'deck-character') return 'combat-relic-inscribe-kind-mismatch';
+        if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
+        const at = state.relicInscribe.findIndex((item) => item.relic.relicId === payload.relicId && item.relic.model === payload.model);
+        if (at < 0) return 'combat-relic-inscribe-unavailable';
+        const due = state.relicInscribe[at];
+        if (payload.inscription !== due.inscription) return 'combat-relic-inscribe-invalid';
+        const copy = state.deckCopies.includes(payload.copyId) ? state.copies.get(payload.copyId) : null;
+        if (!copy || copy.cardId !== payload.cardId) return 'combat-relic-inscribe-copy-missing';
+        if (!relicInscribeTargets(state, due.inscription, due.cardType).includes(payload.copyId)) return 'combat-relic-inscribe-invalid';
+        copy.inscription = due.inscription;
+        state.relicInscribe = state.relicInscribe.filter((_, i) => i !== at);
+        return null;
     },
     // 规则 v6 删卡：只主角卡组角色；当前胜场须正好是 PURGE_EVERY 的倍数且这次机会未用过（过期作废），费用按已删次数，删后不少于 deckMin 张。
     purge(state, payload, { heroId }) {
@@ -1030,7 +1126,7 @@ const handlers = Object.freeze({
     },
 });
 
-function traitSlotHandler(state, payload, heroId) {
+function traitSlotHandler(state, payload, heroId, source) {
     if (state.kind !== 'deck-character') return 'combat-trait-slot-kind-mismatch';
     if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
     const next = nextTraitSlot(state);
@@ -1039,8 +1135,10 @@ function traitSlotHandler(state, payload, heroId) {
     state.points -= payload.cost;
     state.slotUnlocks += 1;
     if (state.pendingTrait && traitFits(state, state.pendingTrait.kind)) {
-        state.traits = [...state.traits, state.pendingTrait];
+        const trait = state.pendingTrait;
+        state.traits = [...state.traits, trait];
         state.pendingTrait = null;
+        settlePickup(state, trait, source);
     }
     return null;
 }
@@ -1145,10 +1243,11 @@ function copyRows(state) {
             upgraded = true;
             left.set(copy.cardId, left.get(copy.cardId) - 1);
         }
-        const shared = state.battleGrowth.cards.get(copy.cardId) || { damage: 0, block: 0 };
+        const shared = (!copy.localGrowth && state.battleGrowth.cards.get(copy.cardId)) || { damage: 0, block: 0 };
         const damage = Math.max(0, Math.min(copy.growth.damage, BATTLE_GROWTH_MAX - shared.damage));
         const block = Math.max(0, Math.min(copy.growth.block, BATTLE_GROWTH_MAX - shared.block));
-        rows.set(copyId, { cardId: copy.cardId, copyId, upgraded, ...(damage || block ? { bonus: { damage, block } } : {}), ...(copy.inscription ? { inscription: copy.inscription } : {}) });
+        rows.set(copyId, { cardId: copy.cardId, copyId, upgraded, ...(damage || block ? { bonus: { damage, block } } : {}), ...(copy.inscription ? { inscription: copy.inscription } : {}),
+            ...(copy.localGrowth ? { localGrowth: true } : {}) });
     }
     return rows;
 }
@@ -1222,6 +1321,13 @@ function presentCharacter(state, options = {}) {
         ...(hasGrowth ? { battleGrowth: { cards: Object.fromEntries([...growth.cards].map(([cardId, value]) => [cardId, { ...value }])), hpMax: growth.hpMax } } : {}),
         // 规则 v6 G5f-4c：遗物来源的最大生命（不占战斗成长上限）；没有时不写字段，旧视图形状不变。
         ...(state.relicHpMax > 0 ? { relicHpMax: state.relicHpMax } : {}),
+        // 规则 v6 G5f-4d：待选定的遗物刻印（御印），每项列出可选的卡组副本；没有时不写字段，旧视图形状不变。
+        ...(state.relicInscribe?.length ? {
+            relicInscribe: state.relicInscribe.map((item) => ({
+                relic: { ...item.relic }, inscription: item.inscription, ...(item.cardType ? { cardType: item.cardType } : {}),
+                copies: relicInscribeTargets(state, item.inscription, item.cardType),
+            })),
+        } : {}),
         // 已到解锁等级、档案还没有对应专属卡的槽位（待生成）；没有时不写字段，旧视图形状不变。
         ...(state.signatureDue?.size ? { signatureDue: [...state.signatureDue].map(([slot, anchor]) => ({ slot, level: signatureUnlockLevel(slot), anchor: { ...anchor } })) } : {}),
     };
@@ -2003,6 +2109,7 @@ export function buildSellEntry(snapshot, chat, effective, target, now = 0) {
 // 主角面板操作类型 -> 挂的标签。
 const PANEL_ACTION_TAGS = Object.freeze({
     rebuild: REBUILD_TAG_HASH, respec: RESPEC_TAG_HASH, ascend: ASCEND_TAG_HASH, trait: TRAIT_TAG_HASH, 'trait-pick': TRAIT_TAG_HASH, 'trait-slot': TRAIT_TAG_HASH,
+    'relic-inscribe': TRAIT_TAG_HASH,
     'card-draw': PANEL_TAG_HASH, 'card-flip': PANEL_TAG_HASH, 'card-pick': PANEL_TAG_HASH,
 });
 
@@ -2660,12 +2767,16 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             : Promise.resolve({ ok: false, reason: 'combat-ascend-tier-invalid' });
     }
     function drawTrait(characterId, trait = {}) {
-        const { traitId, name, origin = '', rarity, kind, passive, skill, link } = trait;
+        const { traitId, name, origin = '', rarity, kind, passive, skill, link, relic } = trait;
         return heroPanelAction(characterId, 'trait', {
-            traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}), cost: TRAIT_DRAW_COST,
+            traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}),
+            ...(COMBAT_RULES.version >= 6 && offCombatModel(relic)?.kind === 'pickup' ? { pickup: true } : {}),
+            ...(relic ? { relic: { relicId: relic.relicId, model: relic.model } } : {}), cost: TRAIT_DRAW_COST,
         });
     }
     const pickTrait = (characterId, traitId, drop) => heroPanelAction(characterId, 'trait-pick', { traitId, drop });
+    // 规则 v6 G5f-4d 御印：为挂起的遗物刻印选定一张卡组副本。
+    const inscribeRelic = (characterId, { relicId, model, copyId, cardId, inscription } = {}) => heroPanelAction(characterId, 'relic-inscribe', { relicId, model, copyId, cardId, inscription });
     function unlockTraitSlot(characterId, slot) {
         const cost = TRAIT_SLOT_COSTS[slot];
         return cost ? heroPanelAction(characterId, 'trait-slot', { slot, cost }) : Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
@@ -2676,7 +2787,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
 
     return {
         read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
-        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, drawCard, flipCard, pickCard,
+        sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard,
         stats: readStats,
     };
 }

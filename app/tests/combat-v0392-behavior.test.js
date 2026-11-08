@@ -1588,6 +1588,299 @@ test('胜利积分加成（v6 G5f-4c）：按持有的加金币遗物特性快�
     assert.equal(hpHero.battleGrowth, undefined);
 });
 
+test('获得时遗物（v6 G5f-4d）：特性真正装上才结算，按装上记录 ID 定随机升级 / 刻印 / 复制，最大生命记遗物来源、回满清伤势，同件只结算一次，御印挂起后选定，楼层回退撤销', async () => {
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const { vitalsOf } = await import('../src/combat/vitals.js');
+    const at = (type, messageId, occurrence, payload, tagHash = 'trait') => {
+        const anchor = { messageId, swipeId: 0, tagHash, occurrence };
+        return { id: ledgerEntryId(type, 'pc-hero', anchor), type, character: 'pc-hero', anchor, createdAt: 7, payload };
+    };
+    const traitAt = (messageId, relicId, occurrence = 0) => at('trait', messageId, occurrence, { traitId: `tr-${messageId}-${occurrence}`, name: '遗物特性', rarity: 'rare', kind: 'passive', relic: { relicId, model: 'original' }, pickup: true, cost: 100 });
+    const pickAt = (messageId, traitId, drop = 'pp-pc-hero', occurrence = 1) => at('trait-pick', messageId, occurrence, { traitId, drop });
+    // 基础 2 槽被天生特性占满：新特性先进待选，换掉天生被动后才算装上。
+    const gain = (messageId, relicId) => [traitAt(messageId, relicId), pickAt(messageId, `tr-${messageId}-0`)];
+    const setup = (chat, profiles = [row(classDef('cls-blade'), 1), row(heroDef(), 2)]) => {
+        const tables = memoryTables(profiles);
+        const ref = { chat };
+        const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '主角', now: () => 7, wallet: () => 1000 });
+        return { tables, ref, ledger, hero: async () => heroOf(await ledger.effectiveState()) };
+    };
+    const plain = () => setup([ai('正文'), ai('得到遗物'), ai('之后')]);
+
+    // 历史记录没有显式标记时不追溯触发；新的公开写口保存引用与标记。
+    const legacy = plain();
+    const oldTrait = traitAt(1, 'rl-r-14');
+    delete oldTrait.payload.pickup;
+    await legacy.tables.append('ledger', [oldTrait, pickAt(1, 'tr-1-0')]);
+    const oldHero = await legacy.hero();
+    assert.equal(oldHero.relicHpMax, undefined);
+    assert.equal(oldHero.traits[0].pickup, undefined);
+    const direct = plain();
+    assert.equal((await direct.ledger.unlockTraitSlot('pc-hero', 3)).ok, true);
+    const incoming = { traitId: 'tr-direct', name: '山莓', rarity: 'common', kind: 'passive', relic: { relicId: 'rl-c-17', model: 'original' } };
+    assert.equal((await direct.ledger.drawTrait('pc-hero', incoming)).ok, true);
+    const recorded = direct.tables.ledger.find((entry) => entry.type === 'trait');
+    assert.deepEqual(recorded.payload.relic, incoming.relic);
+    assert.equal(recorded.payload.pickup, true);
+    assert.deepEqual([(await direct.hero()).relicHpMax, (await direct.hero()).pendingTrait], [7, null]);
+    assert.equal(normalizeLedgerEntry({ ...recorded, payload: { ...recorded.payload, pickup: false } }).ok, false);
+    assert.equal(normalizeLedgerEntry({ ...recorded, payload: { ...recorded.payload, relic: { relicId: 'rl-c-17', model: 'split' } } }).ok, false);
+
+
+    // 最大生命：待选中不结算；换入后记遗物来源；同一件换下再装上不重复；楼层回退撤销。
+    const hp = plain();
+    const base = await hp.hero();
+    await hp.tables.append('ledger', [traitAt(1, 'rl-r-14')]);
+    let me = await hp.hero();
+    assert.ok(me.pendingTrait);
+    assert.deepEqual([me.hpMax, me.relicHpMax], [base.hpMax, undefined], '待选中的特性不结算（D-19）');
+    await hp.tables.append('ledger', [pickAt(1, 'tr-1-0')]);
+    me = await hp.hero();
+    assert.deepEqual([me.hpMax - base.hpMax, me.relicHpMax, me.battleGrowth], [14, 14, undefined]);
+    await hp.tables.append('ledger', [traitAt(1, 'rl-r-14', 2), pickAt(1, 'tr-1-2', 'tr-1-0', 3)]);
+    me = await hp.hero();
+    assert.deepEqual([me.traits.map((t) => t.traitId), me.relicHpMax], [['tr-1-2'], 14], '同一件只结算一次');
+    hp.ref.chat = [ai('正文')];
+    me = await hp.hero();
+    assert.deepEqual([me.hpMax, me.relicHpMax, me.traits.length], [base.hpMax, undefined, 0], '装上记录随楼层回退作废');
+
+    // 解锁槽位放出待选也算装上。
+    const slot = plain();
+    await slot.tables.append('ledger', [traitAt(1, 'rl-c-17'), at('trait-slot', 1, 1, { slot: 3, cost: 500 })]);
+    me = await slot.hero();
+    assert.deepEqual([me.pendingTrait, me.relicHpMax], [null, 7]);
+
+    // 伤势按掉血量结转（上限提高时当前生命同步提高）；蜜格饼回满。
+    const hurt = setup([ai('正文'), user('<igs-combat-report id="r1" result="win">战报</igs-combat-report>'), ai('得到'), ai('再得到')]);
+    const full = (await hurt.hero()).hpMax;
+    await hurt.tables.append('ledger', [at('wound', 1, 0, { hp: full - 30, maxHp: full, down: false, reportId: 'r1' }, 'wound'), ...gain(2, 'rl-c-17')]);
+    me = await hurt.hero();
+    assert.deepEqual([me.hpMax, vitalsOf(me.hpMax, me.wound).hp], [full + 7, full + 7 - 30]);
+    await hurt.tables.append('ledger', [traitAt(3, 'rl-s-13'), pickAt(3, 'tr-3-0', 'tr-2-0')]);
+    me = await hurt.hero();
+    assert.deepEqual([me.hpMax, me.wound], [full + 14, null]);
+
+    // 随机升级：只升牌型相符、有升级版的副本，按装上记录 ID 定，重放恒定。
+    const upgradedOf = (hero) => hero.deckEntries.filter((e) => e.upgraded);
+    const whet = plain();
+    const before = await whet.hero();
+    assert.equal(upgradedOf(before).length, 0);
+    await whet.tables.append('ledger', gain(1, 'rl-c-21'));
+    me = await whet.hero();
+    const lifted = upgradedOf(me);
+    assert.equal(lifted.length, 2);
+    assert.ok(lifted.every((e) => me.catalog.get(e.cardId).type === 'attack' && me.catalog.get(e.cardId).upgraded));
+    const again = plain();
+    await again.tables.append('ledger', gain(1, 'rl-c-21'));
+    assert.deepEqual(upgradedOf(await again.hero()).map((e) => e.copyId), lifted.map((e) => e.copyId), '同一记录 ID 结果恒定');
+    const paint = plain();
+    await paint.tables.append('ledger', gain(1, 'rl-c-20'));
+    me = await paint.hero();
+    assert.deepEqual(upgradedOf(me).map((e) => me.catalog.get(e.cardId).type), ['skill', 'skill']);
+
+    // 随机刻印：木札任意 3 张灵巧；拳刺 1 张攻击牌动量。
+    const inscribedOf = (hero, key) => hero.deckEntries.filter((e) => e.inscription === key);
+    const tag = plain();
+    await tag.tables.append('ledger', gain(1, 'rl-s-11'));
+    assert.equal(inscribedOf(await tag.hero(), 'deft').length, 3);
+    const punch = plain();
+    await punch.tables.append('ledger', gain(1, 'rl-s-16'));
+    me = await punch.hero();
+    assert.deepEqual(inscribedOf(me, 'momentum').map((e) => me.catalog.get(e.cardId).type), ['attack']);
+
+    // 人偶镜：卡组多 1 张同名副本，带原副本的升级与刻印，不带成长。
+    const mirror = plain();
+    const deckBefore = (await mirror.hero()).deck.length;
+    await mirror.tables.append('ledger', [...gain(1, 'rl-s-11'), traitAt(2, 'rl-s-07'), pickAt(2, 'tr-2-0', 'tr-1-0')]);
+    me = await mirror.hero();
+    const twin = me.deckEntries.find((e) => e.copyId.includes('.mirror'));
+    assert.equal(me.deck.length, deckBefore + 1);
+    assert.ok(twin && !twin.bonus);
+    assert.ok(me.deckEntries.some((e) => e.copyId !== twin.copyId && e.cardId === twin.cardId && e.upgraded === twin.upgraded && (e.inscription || null) === (twin.inscription || null)));
+
+    // 御印：装上后挂起一次选定，列出可刻的攻击 / 技能副本；选定后刻御准，不能重复，副本须在可选列表；回退撤销。
+    const seal = plain();
+    await seal.tables.append('ledger', gain(1, 'rl-s-18'));
+    me = await seal.hero();
+    assert.equal(me.relicInscribe.length, 1);
+    const due = me.relicInscribe[0];
+    assert.deepEqual([due.relic, due.inscription], [{ relicId: 'rl-s-18', model: 'original' }, 'sovereign']);
+    assert.ok(due.copies.length > 0 && due.copies.every((id) => ['attack', 'skill'].includes(me.catalog.get(me.deckEntries.find((e) => e.copyId === id).cardId).type)));
+    assert.equal(me.deckEntries.some((e) => e.inscription), false, '御印不随机刻');
+    const target = me.deckEntries.find((e) => e.copyId === due.copies[0]);
+    const ask = (copyId, cardId) => seal.ledger.inscribeRelic('pc-hero', { relicId: 'rl-s-18', model: 'original', copyId, cardId, inscription: 'sovereign' });
+    assert.equal((await ask('nope:0', target.cardId)).ok, false);
+    assert.equal((await ask(target.copyId, target.cardId)).ok, true);
+    me = await seal.hero();
+    assert.deepEqual([me.relicInscribe, me.deckEntries.find((e) => e.copyId === target.copyId).inscription], [undefined, 'sovereign']);
+    const twice = await ask(due.copies[1], me.deckEntries.find((e) => e.copyId === due.copies[1]).cardId);
+    assert.deepEqual([twice.ok, twice.reason], [false, 'combat-relic-inscribe-unavailable']);
+    seal.ref.chat = [ai('正文')];
+    me = await seal.hero();
+    assert.deepEqual([me.relicInscribe, me.deckEntries.some((e) => e.inscription)], [undefined, false]);
+
+    const sealEntry = (relicId) => at('relic-inscribe', 1, 4, { relicId, model: 'original', copyId: 'start:0', cardId: 'c1', inscription: 'sovereign' });
+    assert.equal(normalizeLedgerEntry(sealEntry('rl-s-18')).ok, true);
+    assert.equal(normalizeLedgerEntry(sealEntry('rl-x-99')).ok, false, '未知遗物');
+
+    // 把升级、刻印和两种成长都放在复制前，验证新副本只保留前两者。
+    const markedClass = classDef('cls-blade');
+    const markedProfile = heroDef();
+    const withUpgrade = (card) => ({ ...card, upgraded: { effects: card.effects.map((effect) => ({ ...effect, amount: effect.amount + 2 })) } });
+    markedClass.classPool = markedClass.classPool.map(withUpgrade);
+    markedProfile.personalPool = markedProfile.personalPool.map(withUpgrade);
+    const marked = setup([user('<igs-combat-report id="grow" result="win">战报</igs-combat-report>'), ai('刻印'), ai('复制')], [row(markedClass, 1), row(markedProfile, 2)]);
+    const markedBefore = await marked.hero();
+    const sharedCards = [...new Set(markedBefore.deck)].map((cardId) => ({ cardId, damage: 4, block: 3 }));
+    const copyCards = markedBefore.deckEntries.map(({ cardId, copyId }) => ({ cardId, copyId, damage: 2, block: 1 }));
+    await marked.tables.append('ledger', [at('battle-growth', 0, 0, { cards: [...sharedCards, ...copyCards], hpMax: 0, reportId: 'grow' }, 'battle-growth')]);
+    const fit = markedBefore.deckEntries.filter((e) => (markedBefore.owned.get(e.cardId) || 0) < 3);
+    for (const [i, entry] of fit.entries()) {
+        const upgrade = at('reward', 0, i, { level: i + 2, choice: { kind: 'upgrade', targetId: entry.cardId } }, 'reward');
+        const card = markedBefore.catalog.get(entry.cardId);
+        if (card.upgraded) {
+            marked.ref.chat[0].mes += `\n[igs-combat:exp|主角|${expFor(i + 2)}|历练]`;
+            const scanned = await marked.ledger.scan();
+            await marked.ledger.append(scanned.entries);
+            await marked.tables.append('ledger', [upgrade]);
+        }
+        marked.ref.chat[1].mes += `\n[igs-combat:inscribe|主角|${card.name}|灵巧|印记]`;
+    }
+    const marks = await marked.ledger.scan();
+    assert.deepEqual(marks.diagnostics, [], '复制前的刻印必须通过正文扫描');
+    await marked.ledger.append(marks.entries);
+    const sourceHero = await marked.hero();
+    assert.ok(fit.every(({ copyId }) => sourceHero.deckEntries.some((entry) => entry.copyId === copyId && entry.upgraded && entry.inscription === 'deft')), '复制前源副本已升级并刻印');
+    await marked.tables.append('ledger', gain(2, 'rl-s-07'));
+    const markedHero = await marked.hero();
+    const markedTwin = markedHero.deckEntries.find((e) => e.copyId.includes('.mirror'));
+    assert.ok(markedTwin?.upgraded && markedTwin.inscription === 'deft', JSON.stringify({
+        twin: markedTwin, candidates: markedHero.deckEntries.filter((e) => fit.some((f) => f.cardId === e.cardId)),
+        diagnostics: (await marked.ledger.effectiveState()).diagnostics,
+    }));
+    assert.equal(markedTwin.bonus, undefined);
+    const lobby = { heroId: markedHero.id, controllable: [markedHero.id], allies: [markedHero], enemies: [] };
+    const built = buildSetup(lobby, { enemies: [], tier: 'normal' });
+    assert.equal(built.ok, true);
+    const unit = built.setup.units[0];
+    const twinEntry = unit.deck.find((e) => e.copyId === markedTwin.copyId);
+    assert.equal(twinEntry.bonus, undefined, '镜像开战时不带共享成长');
+    assert.equal(Object.hasOwn(twinEntry, 'localGrowth'), false, '内部标记不进入战斗存档');
+    const original = unit.deck.find((e) => e.cardId === markedTwin.cardId && e.copyId !== markedTwin.copyId);
+    assert.deepEqual(original.bonus, { damage: 6, block: 4 }, '原副本共享与独立成长只叠一次');
+    const { scaleCard } = await import('../src/combat/card-scaling.js');
+    assert.deepEqual(unit.catalog[markedTwin.cardId].effects, scaleCard(markedHero.catalog.get(markedTwin.cardId), markedHero.attributes).effects);
+
+    // 御印通过真实服务写口落到模拟宿主表，重建服务后仍可回读，不需要模型参与。
+    const { createCombatServices } = await import('../src/core/combat-services.js');
+    const host = createLedgerMockHost({ supportCallbacks: true });
+    host.sheets.sheet_userbag = userInventorySheet();
+    const persisted = createCombatTables({ api: host.api });
+    const ensured = await persisted.ensure();
+    assert.equal(ensured.ok, true, JSON.stringify(ensured));
+    assert.equal((await persisted.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2)])).ok, true);
+    const chatRef = { chat: [ai('正文'), ai('装上御印')] };
+    let enabled = true;
+    const serviceOptions = {
+        global: { AutoCardUpdaterAPI: host.api, SillyTavern: { getContext: () => ({ chat: chatRef.chat }) } },
+        getChatId: () => 'pickup-seal', getUserName: () => '主角', getWallet: () => 1000,
+        getReaderSettings: () => ({ combatExpansion: { enabled } }),
+    };
+    const services = createCombatServices(serviceOptions);
+    const serviceLedger = services.getLedger();
+    const sealTrait = { traitId: 'tr-service', name: '御印', rarity: 'rare', kind: 'passive', relic: { relicId: 'rl-s-18', model: 'original' } };
+    assert.equal((await serviceLedger.drawTrait('pc-hero', sealTrait)).ok, true);
+    assert.equal((await services.pickTrait({ drop: 'pp-pc-hero' })).ok, true);
+    const heldSeal = heroOf(await serviceLedger.effectiveState());
+    const sealCopy = heldSeal.relicInscribe[0].copies[0];
+    chatRef.chat.push(ai('选定刻印'));
+    const chooseSeal = { relicId: 'rl-s-18', model: 'original', copyId: sealCopy };
+    assert.equal((await services.inscribeRelic({ ...chooseSeal, copyId: 'missing:0' })).reason, 'combat-relic-inscribe-invalid');
+    const writtenSeal = await services.inscribeRelic(chooseSeal);
+    assert.equal(writtenSeal.ok, true, JSON.stringify(writtenSeal));
+    const restoredServices = createCombatServices(serviceOptions);
+    const restoredLedger = restoredServices.getLedger();
+    const restoredSeal = heroOf(await restoredLedger.effectiveState());
+    assert.equal(restoredSeal.relicInscribe, undefined);
+    assert.equal(restoredSeal.deckEntries.find((entry) => entry.copyId === sealCopy).inscription, 'sovereign');
+    const storedSeal = (await restoredLedger.read()).entries.find((entry) => entry.type === 'relic-inscribe');
+    assert.equal(storedSeal.anchor.messageId, 2);
+    assert.deepEqual(storedSeal.payload, { ...chooseSeal, cardId: writtenSeal.cardId, inscription: 'sovereign' });
+    assert.equal((await restoredServices.inscribeRelic(chooseSeal)).reason, 'combat-relic-inscribe-unavailable');
+    chatRef.chat[2].swipe_id = 1;
+    let rewound = heroOf(await restoredLedger.effectiveState());
+    assert.equal(rewound.deckEntries.find((entry) => entry.copyId === sealCopy).inscription, undefined);
+    assert.ok(rewound.relicInscribe[0].copies.includes(sealCopy), '切换选定楼 swipe 恢复待刻');
+    chatRef.chat[2].swipe_id = 0;
+    assert.equal(heroOf(await restoredLedger.effectiveState()).relicInscribe, undefined);
+    chatRef.chat = chatRef.chat.slice(0, 2);
+    rewound = heroOf(await restoredLedger.effectiveState());
+    assert.ok(rewound.relicInscribe[0].copies.includes(sealCopy), '删除选定楼恢复待刻');
+    assert.equal(rewound.deckEntries.find((entry) => entry.copyId === sealCopy).inscription, undefined);
+    chatRef.chat[1].swipe_id = 1;
+    rewound = heroOf(await restoredLedger.effectiveState());
+    assert.equal(rewound.relicInscribe, undefined, '装上楼失效后待刻一起撤销');
+    enabled = false;
+    assert.equal((await restoredServices.inscribeRelic(chooseSeal)).reason, 'combat-disabled');
+
+    // 旧式卡组记录仍可回放，用它固定合法的十张候选，验证不足与耗尽。
+    const narrow = ['basic-strike', ...STARTER.filter((id) => ['basic-defend', 'c3', 'c4', 'm2'].includes(id))];
+    const deckAt = (cards) => at('deck', 0, 0, { cards, revision: 1 }, 'deck');
+    const scarceUpgrade = plain();
+    await scarceUpgrade.tables.append('ledger', [deckAt(narrow), ...gain(1, 'rl-c-21')]);
+    assert.deepEqual(upgradedOf(await scarceUpgrade.hero()).map((entry) => entry.cardId), ['basic-strike'], '只有一张能升级时只升一张');
+    const noUpgrade = plain();
+    await noUpgrade.tables.append('ledger', [deckAt(narrow.map((id) => id === 'basic-strike' ? 'c1' : id)), ...gain(1, 'rl-c-21')]);
+    assert.equal(upgradedOf(await noUpgrade.hero()).length, 0, '没有升级形态时不凭空升级');
+    const scarceInscribe = plain();
+    await scarceInscribe.tables.append('ledger', [deckAt(narrow), ...gain(1, 'rl-s-10')]);
+    assert.deepEqual(inscribedOf(await scarceInscribe.hero(), 'sharp').map((entry) => entry.cardId), ['basic-strike'], '只有一张攻击牌可刻时不重复刻同副本');
+    const noSeal = plain();
+    await noSeal.tables.append('ledger', [deckAt(narrow)]);
+    const noSealBefore = await noSeal.hero();
+    noSeal.ref.chat[0].mes += narrow.map((id) => `\n[igs-combat:inscribe|主角|${noSealBefore.catalog.get(id).name}|灵巧|印记]`).join('');
+    const occupied = await noSeal.ledger.scan();
+    assert.deepEqual(occupied.diagnostics, []);
+    assert.equal((await noSeal.ledger.append(occupied.entries)).ok, true);
+    assert.equal((await noSeal.hero()).deckEntries.filter((entry) => entry.inscription).length, narrow.length);
+    await noSeal.tables.append('ledger', gain(1, 'rl-s-18'));
+    assert.equal((await noSeal.hero()).relicInscribe, undefined, '御印获得时无可刻对象即作废，不挂空待选');
+    const noMirror = plain();
+    await noMirror.tables.append('ledger', [deckAt(STARTER.slice(0, 12)), ...gain(1, 'rl-s-07')]);
+    assert.equal((await noMirror.hero()).deck.length, 12, '所有同名牌已达获得上限时不复制');
+    for (const current of [scarceUpgrade, noUpgrade, scarceInscribe, noSeal, noMirror]) {
+        assert.deepEqual((await current.ledger.effectiveState()).diagnostics, []);
+    }
+    // 删除装上楼，升级、刻印、镜像均由重放自然撤销，不另写补偿流水。
+    for (const current of [whet, paint, tag, punch, mirror]) {
+        current.ref.chat = [ai('正文')];
+        const rolled = await current.hero();
+        assert.equal(rolled.deckEntries.some((entry) => entry.upgraded || entry.inscription || entry.localGrowth), false);
+        assert.equal(rolled.deck.length, STARTER.length);
+    }
+    // 旧升级张数先分配到原副本，遗物升级与镜像不能挪用这份分配。
+    const mixed = setup([ai(`[igs-combat:exp|主角|${expFor(2)}|历练]`), ai('升级'), ai('复制')]);
+    const mixedScan = await mixed.ledger.scan();
+    assert.equal((await mixed.ledger.append(mixedScan.entries)).ok, true);
+    await mixed.tables.append('ledger', [at('reward', 0, 0, { level: 2, choice: { kind: 'upgrade', targetId: 'basic-strike' } }, 'reward')]);
+    const mixedBefore = await mixed.hero();
+    const legacyCopy = mixedBefore.deckEntries.find((entry) => entry.cardId === 'basic-strike' && entry.upgraded).copyId;
+    await mixed.tables.append('ledger', gain(1, 'rl-c-21'));
+    const mixedAfter = await mixed.hero();
+    assert.equal(mixedAfter.deckEntries.find((entry) => entry.copyId === legacyCopy).upgraded, true);
+    assert.equal(upgradedOf(mixedAfter).filter((entry) => entry.cardId === 'basic-strike').length, 3);
+    const beforeMirror = mixedAfter.deckEntries.map(({ copyId, upgraded }) => [copyId, upgraded]);
+    await mixed.tables.append('ledger', [traitAt(2, 'rl-s-07'), pickAt(2, 'tr-2-0', 'tr-1-0')]);
+    const mixedMirror = await mixed.hero();
+    assert.deepEqual(mixedMirror.deckEntries.filter((entry) => !entry.localGrowth).map(({ copyId, upgraded }) => [copyId, upgraded]), beforeMirror);
+    assert.deepEqual((await mixed.ledger.effectiveState()).diagnostics, []);
+
+
+
+
+});
+
+
 
 test('弱敌战（v6 G3d）：敌人全为「远逊」不计场次、不给删卡；槽位数不变、多出普通劣等杂物；经验与胜利积分 1/4、不带遗物加成；劣等杂物卖价 1/4', async () => {
     const { weakFoesOf } = await import('../src/combat/session.js');

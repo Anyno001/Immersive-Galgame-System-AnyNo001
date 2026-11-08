@@ -52,7 +52,7 @@ export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-ch
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
-    'purge', 'card-upgrade', 'card-draw', 'card-flip', 'card-pick', 'battle-points',
+    'purge', 'card-upgrade', 'card-draw', 'card-flip', 'card-pick', 'battle-points', 'relic-inscribe',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -1017,7 +1017,7 @@ function validateLedgerPayload(type, payload, path, state) {
             return { lootId: idField(payload.lootId, at('lootId'), state, LEDGER_ID_PATTERN), ...rarity, ...count };
         }
         case 'trait': {
-            checkKnownFields(payload, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'relic', 'cost'], path, state);
+            checkKnownFields(payload, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'relic', 'pickup', 'cost'], path, state);
             const traitKind = payload.kind === undefined ? 'passive' : enumField(payload.kind, at('kind'), state, TRAIT_KINDS);
             const result = {
                 traitId: idField(payload.traitId, at('traitId'), state),
@@ -1035,8 +1035,12 @@ function validateLedgerPayload(type, payload, path, state) {
                     Object.assign(result, payload.kind === undefined ? {} : { kind: traitKind });
                 } else Object.assign(result, payload.kind === undefined ? {} : { kind: traitKind }, { passive: validatePassive(payload.passive, at('passive'), state) });
             }
+            if (payload.pickup !== undefined && (payload.pickup !== true || traitKind !== 'passive' || relicById(payload.relic?.relicId)?.[payload.relic?.model]?.kind !== 'pickup')) {
+                addIssue(state, at('pickup'), 'invalid-value');
+            }
             return {
                 ...result, ...(payload.link === undefined ? {} : { link: enumField(payload.link, at('link'), state, TRAIT_LINKS) }),
+                ...(payload.pickup === undefined ? {} : { pickup: payload.pickup }),
                 ...(payload.relic === undefined ? {} : { relic: validateRelicRef(payload.relic, at('relic'), state) }), cost: intField(payload.cost, at('cost'), state, 0, 1e5),
             };
         }
@@ -1140,6 +1144,19 @@ function validateLedgerPayload(type, payload, path, state) {
                 ...(payload.copyId === undefined ? {} : { copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN) }),
                 inscription: enumField(payload.inscription, at('inscription'), state, INSCRIPTION_KEYS),
                 reason: textField(payload.reason, at('reason'), state, 80, ''),
+            };
+        }
+        // 规则 v6 G5f-4d 御印：选定一张卡组副本完成遗物挂起的刻印；relicId / model 指向挂起它的遗物特性，重放核对挂起项、副本与刻印。
+        case 'relic-inscribe': {
+            checkKnownFields(payload, ['relicId', 'model', 'copyId', 'cardId', 'inscription'], path, state);
+            const relicId = idField(payload.relicId, at('relicId'), state);
+            if (typeof relicId === 'string' && !relicById(relicId)) addIssue(state, at('relicId'), 'relic-unknown');
+            return {
+                relicId,
+                model: enumField(payload.model, at('model'), state, RELIC_MODELS),
+                copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN),
+                cardId: idField(payload.cardId, at('cardId'), state),
+                inscription: enumField(payload.inscription, at('inscription'), state, INSCRIPTION_KEYS),
             };
         }
         case 'heal': {

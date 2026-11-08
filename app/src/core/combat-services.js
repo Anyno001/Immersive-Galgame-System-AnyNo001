@@ -1142,6 +1142,20 @@ export function createCombatServices(options = {}) {
             : { ok: true, id: hero.id, traitId: pending.traitId, drop, discarded: drop === pending.traitId };
     }
 
+    // 规则 v6 G5f-4d 御印：为挂起的遗物刻印选定一张卡组副本（copyId）；挂起项与可选副本由账本视图 relicInscribe 给出，重放复核。
+    async function inscribeRelic({ relicId, model, copyId } = {}) {
+        const context = await heroActionContext('inscribeRelic', 'relic-inscribe', { needLlm: false });
+        if (!context.ok) return context;
+        const { ledgerImpl, hero } = context;
+        const due = (hero.relicInscribe || []).find((item) => item.relic.relicId === relicId && item.relic.model === model);
+        if (!due) return { ok: false, reason: 'combat-relic-inscribe-unavailable' };
+        if (!due.copies.includes(copyId)) return { ok: false, reason: 'combat-relic-inscribe-invalid' };
+        const cardId = (hero.deckEntries || []).find((row) => row.copyId === copyId)?.cardId;
+        if (!cardId) return { ok: false, reason: 'combat-relic-inscribe-copy-missing' };
+        const written = await ledgerImpl.inscribeRelic(hero.id, { relicId, model, copyId, cardId, inscription: due.inscription });
+        return written?.ok !== true ? { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, relicId, copyId, cardId, inscription: due.inscription };
+    }
+
     async function unlockTraitSlot() {
         const context = await heroActionContext('unlockTraitSlot', 'trait-slot', { needLlm: false });
         if (!context.ok) return context;
@@ -1485,7 +1499,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
-        drawTrait, pickTrait, unlockTraitSlot, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
+        drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,

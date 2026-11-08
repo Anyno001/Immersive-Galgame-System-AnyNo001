@@ -162,13 +162,13 @@ const growEffects = (effects, bonus) => (Array.isArray(effects) ? effects.map((e
     if (effect?.op === 'block' && bonus.block) return { ...effect, amount: Math.min(99, effect.amount + bonus.block) };
     return effect;
 }) : effects);
-function withBattleGrowth(catalog, growth) {
+function withBattleGrowth(catalog, growth, separate = new Set()) {
     const cards = growth?.cards;
     if (!cards) return catalog;
     const out = { ...catalog };
     for (const [cardId, bonus] of Object.entries(cards)) {
         const card = out[cardId];
-        if (!card) continue;
+        if (!card || separate.has(cardId)) continue;
         out[cardId] = { ...card, effects: growEffects(card.effects, bonus), ...(card.upgraded?.effects ? { upgraded: { ...card.upgraded, effects: growEffects(card.upgraded.effects, bonus) } } : {}) };
     }
     return out;
@@ -182,11 +182,19 @@ function deckUnit(character) {
     const stats = characterCombatStats(character);
     const catalogCards = character.catalog instanceof Map ? [...character.catalog.values()] : Object.values(character.catalog || {});
     const pools = catalogCards.some(cardUsesPool) ? fixedPoolsFor(character.classProfile?.archetype) : null;
+    // 人偶镜副本不继承共享成长；同名的其他副本改从条目带入共享量，目录不再重复叠加。
+    const separate = new Set(character.deckEntries.filter((entry) => entry.localGrowth).map((entry) => entry.cardId));
+    const deck = character.deckEntries.map(({ localGrowth, ...entry }) => {
+        const shared = !localGrowth && separate.has(entry.cardId) ? character.battleGrowth?.cards?.[entry.cardId] : null;
+        if (!shared) return entry;
+        const bonus = { damage: Math.min(20, (shared.damage || 0) + (entry.bonus?.damage || 0)), block: Math.min(20, (shared.block || 0) + (entry.bonus?.block || 0)) };
+        return bonus.damage || bonus.block ? { ...entry, bonus } : entry;
+    });
     return {
         id: character.id, name: character.name, side: 'ally', kind: 'deck', maxHp: stats.hp,
         energy: character.profile.base.energy, draw: character.profile.base.draw, speed: stats.speed,
-        deck: character.deckEntries.map((entry) => ({ ...entry })),
-        catalog: withBattleGrowth(character.attributes?.scores ? scaleCatalog(character.catalog, character.attributes) : Object.fromEntries(character.catalog), character.battleGrowth),
+        deck,
+        catalog: withBattleGrowth(character.attributes?.scores ? scaleCatalog(character.catalog, character.attributes) : Object.fromEntries(character.catalog), character.battleGrowth, separate),
         passives: [
             tagSource('class')(character.classProfile?.classPassive),
             tagSource('personal')(kept.includes('passive') ? character.profile.personalPassive : null),
