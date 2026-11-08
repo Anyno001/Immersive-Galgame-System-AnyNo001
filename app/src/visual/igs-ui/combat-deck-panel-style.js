@@ -100,6 +100,10 @@ ${P} .igs-deck-name{display:inline-flex;align-items:center;flex:0 1 9em;min-widt
 ${P} .igs-deck-name.is-empty,${P} .igs-deck-name.is-locked{color:var(--igs-rp-text-faint);font-weight:400;}
 ${P} .igs-deck-count{flex:1 1 12em;min-width:0;color:var(--igs-rp-text-soft);font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
 ${P} .igs-deck-bag-acts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;}
+/* 御印选定：可刻副本按钮紧排在待刻项下方，选中后列出刻印前后，确认与取消随后。 */
+${P} .igs-deck-seal{display:flex;flex-direction:column;gap:8px;padding:8px 12px 10px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+${P} .igs-deck-seal-picks{display:flex;flex-wrap:wrap;gap:6px;}
+${P} .igs-deck-seal-detail{display:flex;flex-direction:column;gap:2px;}
 /* 卡牌行：费用、卡面、名称与效果在左，来源 / 数量 / 操作收在右栏；窄屏右栏整体移到下方。 */
 ${P} .igs-deck-cards{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;}
 ${P} .igs-deck-card{--igs-card-tint:var(--igs-cb-skill);position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px 10px 14px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}

@@ -20,8 +20,13 @@ const mime = {
 
 const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
-    let rel = decodeURIComponent(url.pathname);
-    if (rel === '/') rel = '/fixtures/record-pages/preview.html';
+    const rel = decodeURIComponent(url.pathname);
+    // 预览页用相对路径导入 fixtures 与资源，根路径直接返回页面会按「/」解析导致模块 404、页面全黑；改为重定向到页面自身路径并保留查询参数。
+    if (rel === '/') {
+        res.writeHead(302, { location: `/fixtures/record-pages/preview.html${url.search}`, 'cache-control': 'no-store' });
+        res.end();
+        return;
+    }
     if (rel === '/favicon.ico') {
         res.writeHead(204);
         res.end();

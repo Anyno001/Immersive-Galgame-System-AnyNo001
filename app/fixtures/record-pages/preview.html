@@ -60,6 +60,7 @@ import { createCombatDeckPanelController } from '../../src/visual/igs-ui/combat-
 import { planCardDraw } from '../../src/combat/rewards.js';
 import { sellPrice } from '../../src/combat/points.js';
 import { fixedCard } from '../../src/combat/fixed-cards/index.js';
+import { inscribable } from '../../src/combat/mechanics/inscription.js';
 import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/visual/igs-ui/combat-cutin.js';
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
@@ -476,10 +477,25 @@ const cardDrawView = (c) => {
   const flipped = cardDrawPreview.flipped === null ? {} : { flipped: cardDrawPreview.flipped };
   return { ...out, pendingDraw: { drawId: plan.drawId, choices, ...flipped } };
 };
-const deckLedger = !INSCRIBE_PREVIEW.length && !cardDrawParam ? combatPreview.ledger : { ...combatPreview.ledger, async effectiveState() {
+// ?relicinscribe=1：主角挂一项待刻的御印，可选卡组里未刻印、可刻的攻击 / 技能副本；?relicinscribe=pick 打开后直接展开并选中第一张。
+// 「确认刻印」按预览给该副本刻上御准并清掉待刻项（不写账本）。只改面板读到的归并视图。
+const sealParam = new URLSearchParams(location.search).get('relicinscribe') || '';
+const sealPreview = { copyId: null };
+const SEAL_KEY = 'rl-s-18|original';
+const sealView = (c) => {
+  if (!sealParam || c.kind !== 'deck-character' || c.attributes?.protagonist !== true) return c;
+  if (sealPreview.copyId) {
+    const mark = (row) => (row.copyId === sealPreview.copyId ? { ...row, inscription: 'sovereign' } : row);
+    return { ...c, copies: (c.copies || []).map(mark), deckEntries: (c.deckEntries || []).map(mark) };
+  }
+  const fit = (e) => { const card = c.catalog?.get(e.cardId); return !e.inscription && ['attack', 'skill'].includes(card?.type) && inscribable(card, 'sovereign'); };
+  const copies = (c.deckEntries || []).filter(fit).map((e) => e.copyId);
+  return { ...c, relicInscribe: [{ relic: { relicId: 'rl-s-18', model: 'original' }, inscription: 'sovereign', cardType: ['attack', 'skill'], copies }] };
+};
+const deckLedger = !INSCRIBE_PREVIEW.length && !cardDrawParam && !sealParam ? combatPreview.ledger : { ...combatPreview.ledger, async effectiveState() {
   const st = await combatPreview.ledger.effectiveState();
   if (!st?.ok || !st.characters) return st;
-  const view = (c) => (cardDrawParam ? cardDrawView(INSCRIBE_PREVIEW.length ? inscribeCopies(c) : c) : inscribeCopies(c));
+  const view = (c) => sealView(cardDrawParam ? cardDrawView(INSCRIBE_PREVIEW.length ? inscribeCopies(c) : c) : inscribeCopies(c));
   return { ...st, characters: new Map([...st.characters].map(([id, c]) => [id, view(c)])) };
 } };
 const deckNoop = async () => ({ ok: false, reason: 'combat-generate-unavailable' });
@@ -488,6 +504,7 @@ const deckFull = createCombatDeckPanelController(document, {
   regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop, drawCard: deckNoop,
   flipCard: cardDrawParam ? async ({ position }) => { await new Promise((r) => setTimeout(r, 450)); cardDrawPreview.flipped = position; return { ok: true, position }; } : deckNoop,
   pickCard: cardDrawParam ? async ({ pick }) => { await new Promise((r) => setTimeout(r, 200)); cardDrawPreview.done = true; return { ok: true, pick }; } : deckNoop,
+  inscribeRelic: sealParam ? async ({ copyId }) => { await new Promise((r) => setTimeout(r, 200)); sealPreview.copyId = copyId; return { ok: true, copyId }; } : deckNoop,
   getTheme: () => new URLSearchParams(location.search).get('theme') || '', setTheme: () => {},
 });
 async function openDeckFull() {
@@ -495,6 +512,12 @@ async function openDeckFull() {
   for (let i = 0; i < 80 && deckFull.view()?.status !== 'ready'; i += 1) await new Promise(r => setTimeout(r, 25));
   const want = new URLSearchParams(location.search).get('deckpage');
   if (want) deckFull.invoke('page', want);
+  if (sealParam === 'pick') {
+    deckFull.invoke('inscribe-open', SEAL_KEY);
+    const first = deckFull.view()?.detail?.relicInscribe?.[0]?.copies?.[0];
+    if (first) deckFull.invoke('inscribe-pick', first.copyId);
+    document.querySelector('#igs-combat-deck-panel .igs-deck-seal')?.scrollIntoView({ block: 'end' });
+  }
 }
 function openPage(page) {
   current?.close?.();

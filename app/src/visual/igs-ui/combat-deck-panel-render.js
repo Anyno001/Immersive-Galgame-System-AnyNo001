@@ -101,6 +101,9 @@ const REASON_TEXT = Object.freeze({
     'combat-card-pick-unavailable': '当前无法选牌',
     'combat-card-pick-invalid': '候选已变化，请重试',
     'combat-card-pick-copy-limit': '这张牌已达同名上限',
+    'combat-relic-inscribe-unavailable': '没有待刻印的遗物',
+    'combat-relic-inscribe-invalid': '这张牌不能刻印，请重选',
+    'combat-relic-inscribe-copy-missing': '卡组里已没有这张牌',
     'combat-character-missing': '没有这个角色',
     'combat-item-insufficient': '道具数量不足',
     'combat-use-battle-only': '这件道具只能在战斗中使用',
@@ -343,7 +346,31 @@ function traitsHtml(v, d) {
             : btn('trait-open', `抽人物特性（消耗${TRAIT_DRAW_COST}金钱）`, { disabled: busy || (d.points || 0) < TRAIT_DRAW_COST });
         parts.push(`<div class="igs-deck-actions">${inner}</div>`);
     }
+    if (hero && d.relicInscribe?.length) parts.push(sealHtml(v, d));
     return parts.join('');
+}
+
+// 规则 v6 御印（只主角）：待刻的遗物刻印。「选定刻印」后在原处列出可刻副本（同名副本带序号），点一张显示刻印前后的费用与说明，再确认或取消；战斗进行中只列待刻项。
+const costText = (cost, text) => [cost === '' ? '' : `${cost}费`, text].filter(Boolean).join(' · ');
+function sealHtml(v, d) {
+    const busy = v.readonly || Boolean(v.pending);
+    const items = d.relicInscribe.map((item) => {
+        const open = v.seal?.key === item.key;
+        const head = `<span class="igs-deck-name">${esc(item.name)}</span><span class="igs-deck-count">${esc(item.tip || `刻印·${item.label}`)}</span>`;
+        const act = !open && !v.readonly && v.canInscribe ? btn('inscribe-open', '选定刻印', { id: item.key, disabled: busy || !item.copies.length }) : '';
+        const line = bagRow('', head, act);
+        if (!open) return line;
+        const picks = item.copies.map((c) => btn('inscribe-pick', c.nth ? `${c.name} #${c.nth}` : c.name, { id: c.copyId, pressed: v.seal.copyId === c.copyId, disabled: busy }));
+        const pick = item.copies.find((c) => c.copyId === v.seal.copyId);
+        const detail = pick
+            ? `<div class="igs-deck-seal-detail">${row('', chip([pick.name, pick.label].filter(Boolean).join(' · ')))}`
+                + `${row('刻印前', `<span class="igs-deck-count">${esc(costText(pick.cost, pick.text))}</span>`)}${row('刻印后', `<span class="igs-deck-count">${esc(costText(pick.after.cost, pick.after.text))}</span>`)}</div>`
+            : '';
+        const acts = btn('inscribe-confirm', v.pending === 'inscribe' ? '刻印中' : '确认刻印', { primary: true, disabled: busy || !pick })
+            + btn('inscribe-cancel', '取消', { disabled: Boolean(v.pending) });
+        return `${line}<li class="igs-deck-seal"><div class="igs-deck-seal-picks">${picks.join('')}</div>${detail}<div class="igs-deck-actions">${acts}</div></li>`;
+    });
+    return section('待刻印', `<ul class="igs-deck-collection">${items.join('')}</ul>`);
 }
 
 // 抽人物特性揭晓（P-f）：主区换成揭晓舞台，标题栏与关闭保留。蓄力：背面卡居中，光圈旋转、粒子向中心聚拢，颜色按预定稀有度；

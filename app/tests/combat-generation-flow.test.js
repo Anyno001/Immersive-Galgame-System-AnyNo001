@@ -79,7 +79,7 @@ test('模型故障、取消与切聊天都不会替换旧卡组或扣费', async
     }
 });
 
-async function uiFixture(t) {
+async function uiFixture(t, extra = {}) {
     const f = await createGenerationFixture();
     const dom = new JSDOM('<div id="overlay"></div>', { url: 'http://localhost/' });
     const controller = createCombatDeckPanelController(dom.window.document, {
@@ -88,6 +88,7 @@ async function uiFixture(t) {
         regenerateDeck: f.services.regenerateDeck,
         respecClass: f.services.respecClass,
         ascendClass: f.services.ascendClass,
+        ...(typeof extra === 'function' ? extra(f) : extra),
     });
     t.after(() => { controller.close(); dom.window.close(); f.dispose(); });
     controller.open(dom.window.document.querySelector('#overlay'));
@@ -268,4 +269,65 @@ test('转职已有职业不展示 AI 表单；新职业与升阶展示输入和�
     await pending;
     assert.equal(f.controller.view(), null);
     assert.equal(f.requests.length, 0);
+});
+
+
+test('御印在人物状态页选定副本：先看刻印前后再确认，取消与只读不写账本，确认经服务写入后重读', async (t) => {
+    const calls = [];
+    let busy = null;
+    const f = await uiFixture(t, (fx) => ({
+        getSession: () => ({ state: () => busy }),
+        inscribeRelic: async (opts) => { calls.push(opts); return fx.services.inscribeRelic(opts); },
+    }));
+    const ledger = f.services.getLedger();
+    let hero = await f.hero();
+    const seal = { traitId: 'tr-ui-seal', name: '御印', rarity: 'rare', kind: 'passive', relic: { relicId: 'rl-s-18', model: 'original' } };
+    assert.equal((await ledger.drawTrait(hero.id, seal)).ok, true);
+    hero = await f.hero();
+    if (hero.pendingTrait) assert.equal((await f.services.pickTrait({ drop: hero.profile.personalPassive.id })).ok, true);
+    hero = await f.hero();
+    const due = hero.relicInscribe?.[0];
+    assert.ok(due && due.copies.length > 1, JSON.stringify(hero.relicInscribe));
+    await f.controller.invoke('reload');
+    f.controller.invoke('page', 'status');
+    const key = 'rl-s-18|original';
+    assert.match(f.doc.body.textContent, /待刻印/);
+    assert.ok(f.doc.querySelector(`[data-deck-act="inscribe-open"][data-deck-id="${key}"]`));
+    assert.equal(f.doc.querySelector('[data-deck-act="inscribe-pick"]'), null);
+
+    assert.equal(f.controller.invoke('inscribe-open', key).ok, true);
+    const picks = [...f.doc.querySelectorAll('[data-deck-act="inscribe-pick"]')];
+    assert.deepEqual(picks.map((n) => n.getAttribute('data-deck-id')), due.copies);
+    assert.equal(f.doc.querySelector('[data-deck-act="inscribe-confirm"]').getAttribute('aria-disabled'), 'true');
+    assert.equal((await f.controller.invoke('inscribe-confirm')).reason, 'combat-relic-inscribe-invalid');
+    assert.equal(f.controller.invoke('inscribe-pick', 'missing:0').reason, 'combat-relic-inscribe-invalid');
+    const copyId = due.copies[1];
+    assert.equal(f.controller.invoke('inscribe-pick', copyId).ok, true);
+    const detail = f.doc.querySelector('.igs-deck-seal-detail');
+    assert.match(detail.textContent, /刻印前/);
+    assert.match(detail.textContent, /刻印后.*固有.*保留/);
+    assert.equal(f.doc.querySelector(`[data-deck-act="inscribe-pick"][data-deck-id="${copyId}"]`).getAttribute('aria-pressed'), 'true');
+    hero = await f.hero();
+    assert.ok(hero.relicInscribe?.length === 1 && !hero.deckEntries.some((e) => e.inscription), '选中只在面板里，不写账本');
+
+    assert.equal(f.controller.invoke('inscribe-cancel').ok, true);
+    assert.equal(f.controller.view().seal, null);
+    assert.equal(f.doc.querySelector('.igs-deck-seal'), null);
+    busy = { status: 'battle' };
+    f.controller.invoke('page', 'status');
+    assert.equal(f.doc.querySelector('[data-deck-act="inscribe-open"]'), null, '战斗进行中只列待刻项');
+    assert.equal(f.controller.invoke('inscribe-open', key).reason, 'combat-deck-readonly');
+    busy = null;
+    assert.equal(calls.length, 0);
+
+    f.controller.invoke('inscribe-open', key);
+    f.controller.invoke('inscribe-pick', copyId);
+    const written = await f.controller.invoke('inscribe-confirm');
+    assert.equal(written.ok, true, JSON.stringify(written));
+    assert.deepEqual(calls, [{ relicId: 'rl-s-18', model: 'original', copyId }]);
+    hero = await f.hero();
+    assert.equal(hero.relicInscribe, undefined);
+    assert.equal(hero.deckEntries.find((e) => e.copyId === copyId).inscription, 'sovereign');
+    assert.equal(f.controller.view().seal, null);
+    assert.doesNotMatch(f.doc.body.textContent, /待刻印/);
 });

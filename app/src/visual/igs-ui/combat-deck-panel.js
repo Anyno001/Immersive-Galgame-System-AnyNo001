@@ -57,6 +57,9 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let drawShown = null;
     let drawFlipping = null;
     let abort = null;
+    // 规则 v6 御印选定（只主角）：{ key, copyId }，key 为待刻遗物「relicId|model」，copyId 为选中的副本（未选为 null）；只是面板内的选择，
+    // 确认才经注入的 inscribeRelic 写账本。换角色、换页、重读与开关面板时清空。
+    let seal = null;
     // 抽人物特性揭晓（P-f）：{ phase: 'charge' | 'open', rarity, traitId, played }。确认抽取即进入蓄力（稀有度与服务层同一 planTrait 预定），
     // 写入并重读账本后翻开；失败、换角色、换页与开关面板时清空，重读账本保留。翻开动画只在第一次画出时播放（played）。
     let reveal = null;
@@ -125,7 +128,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const readonly = isCombatBusy(ss);
         const still = reduced();
         return {
-            status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, draw, generationForm: generationForm.view(),
+            status, reason, notice, pending, selectedId, generate, page, rebuild, respec, ascend, trait, draw, seal: seal ? { ...seal } : null, generationForm: generationForm.view(),
             drawShown: drawShown ? { drawId: drawShown.drawId, fresh: !drawShown.played && !still } : null, drawFlipping,
             selectedBuild, builds: builds.map((c) => ({ name: c.name, protagonist: c.protagonist })),
             reveal: reveal ? { phase: reveal.phase, rarity: reveal.rarity, traitId: reveal.traitId, fresh: reveal.phase === 'open' && !reveal.played && !still } : null,
@@ -147,6 +150,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             canUnlockSlot: typeof options.unlockTraitSlot === 'function',
             canDrawCard: typeof options.drawCard === 'function',
             canPickCard: typeof options.pickCard === 'function' && typeof options.flipCard === 'function',
+            canInscribe: typeof options.inscribeRelic === 'function',
         };
     }
 
@@ -208,7 +212,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         let b = null;
         if (wantBuilds) { try { b = await options.getBuildCandidates(); } catch (error) { b = { ok: false, reason: 'combat-ledger-read-failed' }; } }
         if (my !== token) return { ok: false, reason: 'request-stale' };
-        draft = null; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false;
+        draft = null; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; seal = null;
         const bad = l ? (st?.ok === true ? '' : st?.reason || 'combat-ledger-read-failed') : (b?.ok === true ? '' : b?.reason || 'combat-ledger-read-failed');
         if (bad) {
             state = null; builds = []; selectedBuild = null; status = 'error'; reason = bad;
@@ -232,14 +236,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
 
     function select(id) {
         if (!state?.ok || !state.characters.has(id)) return { ok: false, reason: 'combat-character-missing' };
-        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; notice = ''; }
+        if (id !== selectedId || selectedBuild) { selectedBuild = null; selectedId = id; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; seal = null; drawShown = null; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
 
     function selectBuild(name) {
         if (!builds.some((c) => c.name === name)) return { ok: false, reason: 'combat-character-missing' };
-        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; notice = ''; }
+        if (name !== selectedBuild) { selectedBuild = name; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; seal = null; drawShown = null; reveal = null; notice = ''; }
         render();
         return { ok: true };
     }
@@ -611,6 +615,42 @@ export function createCombatDeckPanelController(doc, options = {}) {
         return r;
     }
 
+    // 规则 v6 御印（只主角）：「选定刻印」展开可刻的副本，点一张只在面板里选中并显示刻印前后的费用与说明，「确认刻印」才经注入的 inscribeRelic 写一条 relic-inscribe，成功后重读。
+    // 取消只清面板里的选择；可选副本与待刻项以账本视图为准，选项失效时拒绝，不在本地改副本。
+    const sealOf = (view, key) => {
+        const detail = deckDetailView(view, null);
+        return (detail?.relicInscribe || []).find((item) => item.key === key) || null;
+    };
+    function inscribeOpen(key) {
+        const g = heroAction('inscribeRelic', 'relic-inscribe');
+        if (!g.ok) return g;
+        if (!sealOf(g.view, key)) return fail('combat-relic-inscribe-unavailable');
+        seal = { key, copyId: null }; notice = '';
+        render();
+        return { ok: true };
+    }
+    function inscribePick(copyId) {
+        const g = heroAction('inscribeRelic', 'relic-inscribe');
+        if (!g.ok) return g;
+        const item = seal ? sealOf(g.view, seal.key) : null;
+        if (!item) return fail('combat-relic-inscribe-unavailable');
+        if (!item.copies.some((c) => c.copyId === copyId)) return fail('combat-relic-inscribe-invalid');
+        seal = { ...seal, copyId }; notice = '';
+        render();
+        return { ok: true };
+    }
+    async function inscribeConfirm() {
+        const g = heroAction('inscribeRelic', 'relic-inscribe');
+        if (!g.ok) return g;
+        const item = seal ? sealOf(g.view, seal.key) : null;
+        if (!item) return fail('combat-relic-inscribe-unavailable');
+        if (!item.copies.some((c) => c.copyId === seal.copyId)) return fail('combat-relic-inscribe-invalid');
+        const r = await run('inscribe', () => options.inscribeRelic({ relicId: item.relicId, model: item.model, copyId: seal.copyId }));
+        if (r.stale) return r;
+        if (r.ok === true) await load(); else render();
+        return r;
+    }
+
     // 规则 v6 积分抽卡（只主角）：「抽卡」后在原处确认或取消；确认经注入的 drawCard 请副 LLM 给随机候选起名并写一条 card-draw（扣 CARD_DRAW_COST），成功后重读。
     // 有待选或金钱不足时不可点；失败不扣钱，原因显示在提示条；关闭面板时中止生成。
     function drawOpen() {
@@ -720,7 +760,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'save': return save();
             case 'page':
                 if (!DECK_PAGES.includes(id)) return fail('combat-page-invalid');
-                page = id; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; notice = ''; render();
+                page = id; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; seal = null; drawShown = null; reveal = null; notice = ''; render();
                 return { ok: true, page };
             case 'alloc-add': return allocEdit(id, 1);
             case 'alloc-remove': return allocEdit(id, -1);
@@ -759,6 +799,10 @@ export function createCombatDeckPanelController(doc, options = {}) {
             case 'card-flip': return cardFlip(id);
             case 'draw-keep': return cardDecide(true);
             case 'draw-skip': return cardDecide(false);
+            case 'inscribe-open': return inscribeOpen(id);
+            case 'inscribe-pick': return inscribePick(id);
+            case 'inscribe-confirm': return inscribeConfirm();
+            case 'inscribe-cancel': seal = null; notice = ''; render(); return { ok: true };
             case 'theme':
                 theme = normalizeSettingsTheme(id);
                 root.setAttribute('data-rp-theme', theme);
@@ -805,7 +849,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         if (!ledger() && !(buildEntryOn() && manualOn())) return { ok: false, reason: 'combat-disabled' };
         token += 1;
-        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null;
+        pending = ''; notice = ''; state = null; status = 'loading'; reason = ''; draft = null; generate = null; page = 'status'; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; seal = null; drawShown = null; reveal = null;
         builds = []; selectedBuild = null; wantBuild = build ? String(build) : null;
         pageOverlay = overlay;
         previousFocus = doc.activeElement || null;
@@ -857,7 +901,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
         pageOverlay?.classList?.remove('igs-record-screen-open');
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         pageOverlay = null;
-        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; drawShown = null; reveal = null; selectedBuild = null; wantBuild = null;
+        pending = ''; draft = null; allocDraft = null; manualDraft = null; generate = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; seal = null; drawShown = null; reveal = null; selectedBuild = null; wantBuild = null;
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();

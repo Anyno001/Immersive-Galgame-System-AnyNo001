@@ -4,20 +4,20 @@ import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, ab
 import { characterCombatStats, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
 import { INSCRIPTION_TIPS, describeEffects, describeKeywords } from './combat-card-art.js';
-import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
+import { INSCRIPTION_LABELS, inscribedView } from '../../combat/mechanics/inscription.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
 import { TREASURE_SLOT_MAX, slotGearList } from '../../combat/gear-slots.js';
 import { fixedCardGroup } from '../../combat/fixed-cards/index.js';
-import { relicText } from '../../combat/relics/draw.js';
+import { relicText, resolveRelic } from '../../combat/relics/draw.js';
 
+const faceText = (c) => [describeKeywords(c), describeEffects(c?.effects)].filter(Boolean).join('。');
 // 复用战斗换算与说明，预览普通版和升级版；固定卡不带倍率。
 function cardPreview(card, attr) {
     const preview = scaleCard(card, attr);
     const s = preview?.scaling;
-    const text = (c) => [describeKeywords(c), describeEffects(c?.effects)].filter(Boolean).join('。');
-    return { text: text(preview), upgradedText: preview?.upgraded ? text({ ...preview, ...preview.upgraded }) : '',
+    return { text: faceText(preview), upgradedText: preview?.upgraded ? faceText({ ...preview, ...preview.upgraded }) : '',
         upgradedCost: preview?.upgraded?.cost ?? preview?.cost,
         ...(s ? { scaling: { ability: s.ability, label: ABILITY_LABELS[s.ability] || s.ability, required: s.required, multiplier: s.multiplier } } : {}) };
 }
@@ -148,6 +148,32 @@ function traitSlotView(view) {
     return { slots, max: TRAIT_SLOT_MAX, innate, locked, replaceable };
 }
 
+// 规则 v6 御印：账本挂起的遗物刻印与可选副本（账本已按未刻印、牌型、可刻筛过）；每张副本给刻印前后的费用与说明，同名副本按序号区分。
+function relicInscribeView(view) {
+    const rows = new Map([...(view.deckEntries || []), ...(view.copies || [])].map((row) => [row.copyId, row]));
+    return (view.relicInscribe || []).map((item) => {
+        const relic = resolveRelic(item.relic?.relicId, item.relic?.model);
+        const seen = new Map();
+        const copies = (item.copies || []).map((copyId) => {
+            const row = rows.get(copyId);
+            const card = row ? view.catalog?.get(row.cardId) : null;
+            if (!card) return null;
+            const scaled = scaleCard(card, view.attributes) || card;
+            const face = row.upgraded && scaled.upgraded ? { ...scaled, ...scaled.upgraded } : scaled;
+            const after = inscribedView(face, { inscription: item.inscription });
+            const nth = (seen.get(row.cardId) || 0) + 1;
+            seen.set(row.cardId, nth);
+            const label = [row.upgraded ? '已升级' : '', row.bonus?.damage ? `伤害 +${row.bonus.damage}` : '', row.bonus?.block ? `格挡 +${row.bonus.block}` : ''].filter(Boolean).join(' · ');
+            return { copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', rarity: card.rarity || '', nth, label,
+                cost: face.cost ?? '', text: faceText(face), after: { cost: after.cost ?? '', text: faceText(after) } };
+        }).filter(Boolean);
+        const twins = new Set(copies.filter((c) => c.nth > 1).map((c) => c.cardId));
+        return { key: `${item.relic.relicId}|${item.relic.model}`, relicId: item.relic.relicId, model: item.relic.model, name: relic?.name || item.relic.relicId,
+            inscription: item.inscription, label: INSCRIPTION_LABELS[item.inscription] || item.inscription, tip: INSCRIPTION_TIPS[item.inscription] || '',
+            copies: copies.map((c) => ({ ...c, nth: twins.has(c.cardId) ? c.nth : 0 })) };
+    });
+}
+
 export function deckDetailView(view, draft) {
     if (!view) return null;
     // 开战换算加持续伤势：当前生命 / 上限与伤势词（倒下、无伤、轻伤、重创、濒死）；没有伤势记录时为满血。
@@ -218,6 +244,7 @@ export function deckDetailView(view, draft) {
     return {
         ...base, gear: gearView(view), className: view.attributes?.className || view.className || '', hpMax: view.hpMax,
         traitSlots: base.canSell ? traitSlotView(view) : null,
+        relicInscribe: base.canSell ? relicInscribeView(view) : [],
         // 职业阶（P-c）：classTier 一阶起，tierName 为阶名；expLevel 为按 EXP 推导的等级，升阶门槛按它判断（与账本归并一致）。
         classRef: view.classRef ?? null, classTier: view.classTier || 1, tierName: view.tierName || '', expLevel: view.level ?? 1,
         classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,
