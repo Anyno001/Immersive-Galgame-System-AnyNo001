@@ -52,7 +52,7 @@ export const PROFILE_KINDS = Object.freeze(['class', 'deck-character', 'skill-ch
 export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
-    'purge', 'card-draw', 'card-flip', 'card-pick', 'battle-points',
+    'purge', 'card-upgrade', 'card-draw', 'card-flip', 'card-pick', 'battle-points',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -1064,6 +1064,14 @@ function validateLedgerPayload(type, payload, path, state) {
             const pick = payload.pick === 'skip' ? 'skip' : intField(payload.pick, at('pick'), state, 0, REWARD_CARD_CHOICES - 1);
             return { drawId: idField(payload.drawId, at('drawId'), state), pick };
         }
+        case 'card-upgrade':
+            checkKnownFields(payload, ['copyId', 'cardId', 'battle', 'reportId'], path, state);
+            return {
+                copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN),
+                cardId: idField(payload.cardId, at('cardId'), state),
+                battle: intField(payload.battle, at('battle'), state, 1, 1e6),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+            };
         case 'purge':
             checkKnownFields(payload, ['copyId', 'cost', 'battle', 'reportId'], path, state);
             return {

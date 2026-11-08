@@ -11,8 +11,8 @@ import {
     templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization, encounterThemeEntity, profileGearEntity,
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
-import { attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
-import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance } from './ledger.js';
+import { attachCardUpgrade, attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
+import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance, upgradableRows, upgradeChance } from './ledger.js';
 import { battlePoints, battleTierOf, weakBattlePoints } from './points.js';
 import { heldOffCombat, winPointsBonus } from './relics/off-combat.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
@@ -37,7 +37,7 @@ import { planChallengeReward } from './challenge-reward.js';
 import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
 import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } from './intimate-setup.js';
 import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from '../scene/intimate-duel.js';
-import { chooseCard, emptyPick, flipCard, flipView, hasCardChoices, laterPick, lootOf, normalizePick, pickCardChoice, pickPurgeChoice, rerollPick } from './flip.js';
+import { chooseCard, emptyPick, flipCard, flipView, hasCardChoices, laterPick, lootOf, normalizePick, pickCardChoice, pickPurgeChoice, pickUpgradeChoice, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
 import { equippedGear } from './gear-slots.js';
@@ -849,7 +849,7 @@ export function createCombatSession(options = {}) {
     const currentResult = () => currentReport()?.result ?? (current.battle?.outcome === 'victory' ? 'win' : null);
     const noLootNow = () => currentReport()?.noLoot === true || current.battle?.noLoot === true;
     const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win' && !noLootNow();
-    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) }, context.purge);
+    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) }, context.purge, context.upgrade);
 
     // 规则 v6 删卡：本场普通胜利正好满 5 场时，结算页给主角一次删牌机会（可跳过）。没到场次时不给字段。
     // cards 按卡组副本逐张列出（同名牌不合并）：已升级的副本给升级后的费用与效果并带 upgraded，成长与刻印原样带出。
@@ -869,6 +869,24 @@ export function createCombatSession(options = {}) {
             return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', cost: up?.cost ?? card.cost ?? '', rarity: card.rarity || '',
                 effects: up?.effects || card.effects || [], ...(row.upgraded ? { upgraded: true } : {}), ...(row.bonus ? { bonus: row.bonus } : {}),
                 ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
+        });
+        return { ...base, cards };
+    }
+
+    // 规则 v6 G3c 升级机会：与删卡同一场次口径，本场普通胜利正好满 5 场时免费升级一张卡组副本（可跳过）。没到场次时不给字段。
+    // cards 只列可升级的副本（非专属、有升级版、未升级），带升级前后的费用与效果供详情并列对照。
+    function upgradeOfHero(hero, combatId) {
+        if (hero?.kind !== 'deck-character') return null;
+        const chance = upgradeChance(hero, reportIdFor(combatId));
+        if (chance.reason === 'combat-card-upgrade-not-due' || chance.reason === 'combat-card-upgrade-kind-mismatch') return null;
+        const base = { battle: chance.battle, available: chance.available, ...(chance.reason ? { reason: chance.reason } : {}) };
+        if (!base.available) return base;
+        const cards = upgradableRows(hero).map((row) => {
+            const card = hero.catalog?.get?.(row.cardId) || {};
+            const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
+            return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', rarity: card.rarity || '',
+                cost: card.cost ?? '', effects: card.effects || [], upCost: card.upgraded?.cost ?? card.cost ?? '', upEffects: card.upgraded?.effects || card.effects || [],
+                ...(row.bonus ? { bonus: row.bonus } : {}), ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
         });
         return { ...base, cards };
     }
@@ -918,6 +936,8 @@ export function createCombatSession(options = {}) {
             character: ledgerState.characters.get(offer.character)?.name || getUserName(),
             // 规则 v6 G3d：弱敌战不计场次，不给删卡机会。
             purge: heroId && v6 && current.record?.setup?.weakFoes !== true ? purgeOfHero(ledgerState.characters.get(heroId), identity.combatId, points) : null,
+            // 规则 v6 G3c：升级机会同删卡门控（弱敌战不给），与删卡互不占用。
+            upgrade: heroId && v6 && current.record?.setup?.weakFoes !== true ? upgradeOfHero(ledgerState.characters.get(heroId), identity.combatId) : null,
             heroName: (heroId && ledgerState.characters.get(heroId)?.name) || getUserName(),
         };
         return finishWith(viewOfFlip(context), context);
@@ -974,6 +994,8 @@ export function createCombatSession(options = {}) {
     const reroll = () => updateFlip((context) => rerollPick(context.offer, context.pick, { points: context.points, payer: context.payer }));
     // 规则 v6 删卡：选一张卡组副本（copyId）或 'skip' 不删；发送前可改选。
     const pickPurge = (value) => updateFlip((context) => pickPurgeChoice(context.purge, context.pick, value));
+    // 规则 v6 G3c 升级：选一张可升级的卡组副本（copyId）或 'skip' 不升；发送前可改选，不能与删卡选同一张。
+    const pickUpgrade = (value) => updateFlip((context) => pickUpgradeChoice(context.upgrade, context.pick, value));
 
     // 发送战报前确认翻牌奖励：胜利且未领奖时，把选中的奖励追加进战报文本
     async function resolveLoot(report) {
@@ -993,9 +1015,16 @@ export function createCombatSession(options = {}) {
         if (purge?.available && purgePick !== 'skip' && !purgeCard) return { ok: false, reason: 'combat-purge-copy-missing' };
         const spend = (loot.set === 'reserve' ? REROLL_COST : 0) + (purgeCard ? purge.cost : 0);
         if (purgeCard && flipContext.points < spend) return { ok: false, reason: 'combat-points-insufficient' };
+        const upgrade = flipContext.upgrade;
+        const upgradePick = flipContext.pick.upgrade;
+        if (upgrade?.available && upgradePick === undefined) return { ok: false, reason: 'combat-card-upgrade-required' };
+        const upgradeCard = upgrade?.available && upgradePick !== 'skip' ? (upgrade.cards || []).find((c) => c.copyId === upgradePick) : null;
+        if (upgrade?.available && upgradePick !== 'skip' && !upgradeCard) return { ok: false, reason: 'combat-card-upgrade-copy-missing' };
+        if (upgradeCard && purgeCard && upgradeCard.copyId === purgeCard.copyId) return { ok: false, reason: 'combat-card-upgrade-purge-conflict' };
         await flipWriteChain;
         const looted = attachLoot(report.text, { character: flipContext.character, reportId: report.reportId, ...loot });
-        const text = purgeCard ? attachPurge(looted, { character: flipContext.heroName, reportId: report.reportId, copyId: purgeCard.copyId, name: purgeCard.name }) : looted;
+        const purged = purgeCard ? attachPurge(looted, { character: flipContext.heroName, reportId: report.reportId, copyId: purgeCard.copyId, name: purgeCard.name }) : looted;
+        const text = upgradeCard ? attachCardUpgrade(purged, { character: flipContext.heroName, reportId: report.reportId, copyId: upgradeCard.copyId, name: upgradeCard.name }) : purged;
         return { ok: true, item: { ...report, text } };
     }
 
@@ -1677,7 +1706,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, pickPurge, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, pickPurge, pickUpgrade, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

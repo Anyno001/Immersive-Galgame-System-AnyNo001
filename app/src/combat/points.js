@@ -16,6 +16,8 @@ export const TRAIT_DRAW_COST = 100;
 export const CARD_DRAW_COST = 150;
 // 规则 v6 删卡（D-05 / D-06 / D-07）：每满 PURGE_EVERY 场普通战斗胜利给一次机会，过期作废；费用 75 + 50 × 已删次数。
 export const PURGE_EVERY = 5;
+// 规则 v6 G3c 升级机会：与删卡共用普通胜场计数，每满 UPGRADE_EVERY 场给一次免费升级，过期作废，与删卡互不占用。
+export const UPGRADE_EVERY = 5;
 export const PURGE_BASE_COST = 75;
 export const PURGE_STEP_COST = 50;
 export const purgeCost = (used) => PURGE_BASE_COST + PURGE_STEP_COST * Math.max(0, Number(used) || 0);

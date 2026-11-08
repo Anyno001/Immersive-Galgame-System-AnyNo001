@@ -23,6 +23,8 @@ const exerciseRecord = args.includes('--exercise-record');
 const castStep = arg('step', '');
 const freezeAt = arg('freeze', null);
 const readerActions = arg('actions', '');
+// --settle <秒>：等待面板就绪的上限，缺省 10 秒（自动打完一场的战斗结算可能更久）。
+const settleTries = Math.max(1, Math.round((Number(arg('settle', '10')) || 10) * 4));
 const previewPath = page === 'stage-cast' ? 'fixtures/stage-cast/preview.html'
     : page === 'stage-cast-reader' ? 'fixtures/stage-cast/reader.html'
     : 'fixtures/record-pages/preview.html';
@@ -74,7 +76,7 @@ try {
     const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true })).result?.result?.value;
     // 等待面板挂载且地图底图状态机收敛（loading → ready/failed/none），替代固定时长猜测。
     let settled = false;
-    for (let i = 0; i < 40 && !settled; i++) {
+    for (let i = 0; i < settleTries && !settled; i++) {
         await sleep(250);
         settled = await evaluate(`(() => {
             if (window.__stageCast) return window.__stageCast.ready === true;

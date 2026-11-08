@@ -64,7 +64,7 @@ import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/vi
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
 import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
-import { chooseCard, emptyPick, flipCard, flipView, pickCardChoice, pickPurgeChoice } from '../../src/combat/flip.js';
+import { chooseCard, emptyPick, flipCard, flipView, pickCardChoice, pickPurgeChoice, pickUpgradeChoice } from '../../src/combat/flip.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from '../../src/combat/fixed-cards/index.js';
 
 const style = document.createElement('style');
@@ -358,11 +358,19 @@ const purgeOffer = !purgeParam ? null : purgeParam === 'poor' ? { battle: 5, cos
       return { copyId: `preview-${c.id}:${k}`, cardId: c.id, name: c.name, type: c.type, cost: up?.cost ?? c.cost, rarity: c.rarity, effects: up?.effects || c.effects, ...(up ? { upgraded: true } : {}), ...(i === 1 && k === 0 ? { bonus: { damage: 2, block: 0 } } : {}),
         ...(c.innate || c.retain || c.ethereal ? { keywords: { innate: c.innate, retain: c.retain, ethereal: c.ethereal } } : {}) };
     })) };
+// ?upgrade=1（配合 ?combat=end&loot=v6，可与 ?purge=1 同开）：本场视为第 5 场普通胜利，结算页给一次免费升级机会；?upgrade=none 为卡组里没有可升级的牌。只改内存。
+const upgradeParam = new URLSearchParams(location.search).get('upgrade') || '';
+const upgradeOffer = !upgradeParam ? null : upgradeParam === 'none' ? { battle: 5, available: false, reason: 'combat-card-upgrade-none' }
+  : { battle: 5, available: true, cards: warriorPool.filter((c) => c.upgraded && c.rarity !== 'signature').slice(0, 6).flatMap((c, i) => Array.from({ length: i < 2 ? 2 : 1 }, (_, k) => ({
+      copyId: `preview-${c.id}:${k}`, cardId: c.id, name: c.name, type: c.type, rarity: c.rarity, cost: c.cost, effects: c.effects,
+      upCost: c.upgraded.cost ?? c.cost, upEffects: c.upgraded.effects || c.effects, ...(i === 1 && k === 0 ? { bonus: { damage: 2, block: 0 } } : {}),
+      ...(c.innate || c.retain || c.ethereal ? { keywords: { innate: c.innate, retain: c.retain, ethereal: c.ethereal } } : {}) }))) };
 const combatSession = !lootPreview ? baseSession : { ...baseSession,
-  state() { const st = baseSession.state(); return st.status === 'ended' || st.status === 'send-failed' ? { ...st, flip: flipView(lootOffer, lootPick, { points: 100, payer: false }, purgeOffer) } : st; },
+  state() { const st = baseSession.state(); return st.status === 'ended' || st.status === 'send-failed' ? { ...st, flip: flipView(lootOffer, lootPick, { points: 100, payer: false }, purgeOffer, upgradeOffer) } : st; },
   loadFlip: async () => ({ ok: true }),
   flip: (i) => lootStep(flipCard(lootOffer, lootPick, i)), choose: (i) => lootStep(chooseCard(lootOffer, lootPick, i)),
   pickCard: (v) => lootStep(pickCardChoice(lootOffer, lootPick, v)), pickPurge: (v) => lootStep(pickPurgeChoice(purgeOffer, lootPick, v)),
+  pickUpgrade: (v) => lootStep(pickUpgradeChoice(upgradeOffer, lootPick, v)),
   reroll: async () => ({ ok: false, reason: 'combat-reroll-unavailable' }) };
 // ?skin=<皮肤键>（veil comic ink tech mystic soft-a soft-c dark-a dark-b initial）：换战斗面板皮肤，缺省黑幕。
 // ?combat=end 自动打完一场，按减少动态效果跑，结算前不播长演出。
@@ -420,6 +428,16 @@ async function openCombat() {
       let shown = mount();
       if (loop) setInterval(() => { shown.remove(); shown = mount(); }, (awaken ? COMBAT_CUTIN_MS.awaken : COMBAT_CUTIN_MS.skill) + 700);
     }
+  }
+  // ?sheet=upgrade|purge（配合 ?combat=end&loot=v6）：结算后先翻开第一张战利品，再打开升级 / 删牌浮层并查看第一张牌的详情。只改内存。
+  const sheet = cq.get('sheet');
+  const sheetOffer = sheet === 'upgrade' ? upgradeOffer : sheet === 'purge' ? purgeOffer : null;
+  if (lootPreview && sheetOffer?.available && combat.view()?.status === 'ended') {
+    // 结果横幅（.igs-fx-battle-result）是约 3 秒的瞬时演出，等它退场再开浮层，避免截到中间帧。
+    for (let i = 0; i < 160 && document.querySelector('.igs-fx-battle-result'); i += 1) await new Promise(r => setTimeout(r, 50));
+    await combat.invoke('flip', '0');
+    combat.invoke(`${sheet}-open`);
+    combat.invoke(`${sheet}-focus`, sheetOffer.cards[0].copyId);
   }
   combatState.ready = true;
 }

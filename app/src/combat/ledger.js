@@ -23,7 +23,7 @@ import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extract
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportIdFor, reportIdOf, reportWeakOf } from './report.js';
 import { parseChallengeReport } from './challenge-report.js';
-import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, purgeCost, sellPrice } from './points.js';
+import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
 import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } from './vitals.js';
@@ -76,7 +76,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18,
-    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
+    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, 'card-upgrade': 18.65, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -291,6 +291,9 @@ function inactiveReason(entry, scanFloor) {
     // 规则 v6 删卡：只认胜利战报楼里本场战报的删卡标签。
     if (entry.type === 'purge' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'purge-report-invalid';
     if (entry.type === 'purge' && floor.report.weak === true) return 'purge-weak-report';
+    // 规则 v6 G3c 升级机会：同删卡，只认胜利战报楼里本场普通战斗战报的升级标签。
+    if (entry.type === 'card-upgrade' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'card-upgrade-report-invalid';
+    if (entry.type === 'card-upgrade' && floor.report.weak === true) return 'card-upgrade-weak-report';
     if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';
     if (entry.type === 'battle-growth' && floor.report?.reportId !== entry.payload.reportId) return 'battle-growth-report-invalid';
     // 规则 v6 G5g：胜利积分只认胜利战报楼里本场战报。
@@ -363,6 +366,15 @@ function syncOwned(state) {
     state.owned = owned;
     state.upgraded = upgraded;
 }
+// 显式升级一张副本（等级奖励与 G3c 升级机会共用）：副本须存在、属于 cardId 且尚未显式升级；成功返回 true，调用方负责 syncOwned。
+function liftCopy(state, copyId, cardId) {
+    const copy = state.copies.get(copyId);
+    if (!copy || copy.cardId !== cardId || copy.upgraded) return false;
+    copy.upgraded = true;
+    return true;
+}
+// 规则 v6 G3c：能被升级机会选中的牌——有升级版、不是专属卡。
+export const upgradableCard = (card) => !!card?.upgraded && card.rarity !== 'signature';
 // 给某张牌挑一张未占用的副本：先挑 preferInDeck 里的（现卡组），再挑带升级 / 成长的，同档按获得顺序。
 function pickCopy(state, cardId, taken, preferInDeck) {
     let best = null;
@@ -421,7 +433,8 @@ function createCharacterState(index, profile, diagnostics) {
     return {
         ...base, classRef: classProfile?.id ?? profile.classRef, classProfile, classTier: 1, tierName: '', tierCards: [],
         // 规则 v6 删卡：battleWins 为已计入的普通战斗胜利（战报 ID），purges 为已删次数，purgedAt 为已用掉机会时的胜场数。
-        battleWins: new Set(), purges: 0, purgedAt: new Set(),
+        // 规则 v6 G3c：upgradedAt 为已用掉升级机会时的胜场数，与 purgedAt 各记各的，两种机会互不占用。
+        battleWins: new Set(), purges: 0, purgedAt: new Set(), upgradedAt: new Set(),
         ...initialDeckState(profile, classProfile),
     };
 }
@@ -726,9 +739,7 @@ const handlers = Object.freeze({
             if (!ownedCount || upgradedCount >= ownedCount || !state.catalog.get(choice.targetId)?.upgraded) return 'combat-reward-upgrade-invalid';
             // 规则 v5 P5a：指定副本时升级那一张；旧记录不带 copyId，按 cardId 记升级张数。
             if (choice.copyId) {
-                const copy = state.copies.get(choice.copyId);
-                if (!copy || copy.cardId !== choice.targetId || copy.upgraded) return 'combat-reward-upgrade-invalid';
-                copy.upgraded = true;
+                if (!liftCopy(state, choice.copyId, choice.targetId)) return 'combat-reward-upgrade-invalid';
             } else {
                 state.legacyUpgraded.set(choice.targetId, (state.legacyUpgraded.get(choice.targetId) || 0) + 1);
             }
@@ -956,6 +967,21 @@ const handlers = Object.freeze({
         state.purgedAt.add(payload.battle);
         return null;
     },
+    // 规则 v6 G3c 升级机会：只主角卡组角色；当前胜场须正好是 UPGRADE_EVERY 的倍数且这次升级机会未用过（与删卡各记各的，过期作废）。
+    // 只升卡组里这一张副本：须为非专属、有升级版、尚未升级（含旧记录按张数分到的升级）的牌；免费。
+    'card-upgrade'(state, payload, { heroId }) {
+        if (state.kind !== 'deck-character') return 'combat-card-upgrade-kind-mismatch';
+        if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
+        const opportunity = upgradeOpportunity(state);
+        if (!opportunity.available || payload.battle !== opportunity.battle) return 'combat-card-upgrade-unavailable';
+        const row = state.deckCopies.includes(payload.copyId) ? copyRows(state).get(payload.copyId) : null;
+        if (!row || row.cardId !== payload.cardId) return 'combat-card-upgrade-copy-missing';
+        if (!upgradableCard(state.catalog.get(row.cardId)) || row.upgraded) return 'combat-card-upgrade-invalid';
+        if (!liftCopy(state, payload.copyId, payload.cardId)) return 'combat-card-upgrade-invalid';
+        syncOwned(state);
+        state.upgradedAt.add(payload.battle);
+        return null;
+    },
     // 规则 v6 积分抽卡：只主角卡组角色；付 CARD_DRAW_COST 抽出 3 张本职业候选成为待选（有待选时不能再抽）。
     // 候选须为本职业固定池 2 张 + 非固定随机卡 1 张（不含无色固定卡）。
     'card-draw'(state, payload, { heroId }) {
@@ -1055,6 +1081,45 @@ export function purgeChance(view, reportId) {
     return { battle, cost, available: reason === null, ...(reason ? { reason } : {}) };
 }
 
+// 规则 v6 G3c 升级机会：与删卡共用普通胜场 battle，正好是 UPGRADE_EVERY 的倍数、这一档升级机会还没用过、卡组里还有可升级的副本时可升；
+// 再赢一场即过期作废，免费；与删卡机会（purgedAt）互不占用。
+export function upgradeOpportunity(state) {
+    const battle = state?.battleWins?.size || 0;
+    const rows = state?.kind === 'deck-character' && state.copies ? copyRows(state) : new Map();
+    const open = (state?.deckCopies || []).some((copyId) => {
+        const row = rows.get(copyId);
+        return row && !row.upgraded && upgradableCard(state.catalog.get(row.cardId));
+    });
+    const reason = state?.kind !== 'deck-character' ? 'combat-card-upgrade-kind-mismatch'
+        : battle === 0 || battle % UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
+            : state.upgradedAt?.has(battle) ? 'combat-card-upgrade-used'
+                : !open ? 'combat-card-upgrade-none'
+                    : null;
+    const next = battle + (UPGRADE_EVERY - (battle % UPGRADE_EVERY || UPGRADE_EVERY)) || UPGRADE_EVERY;
+    return {
+        battle, available: reason === null, next: reason === 'combat-card-upgrade-not-due' ? next : battle, ...(reason ? { reason } : {}),
+        wins: [...(state?.battleWins || [])],
+    };
+}
+
+// 规则 v6 G3c：可被升级机会选中的卡组副本（视图行），按卡组顺序。
+export const upgradableRows = (view) => (view?.deckEntries || []).filter((row) => row.copyId && !row.upgraded && upgradableCard(view.catalog?.get?.(row.cardId)));
+
+// 规则 v6 G3c：按角色视图算某场普通胜利（战报 ID）结算时的升级机会，口径同 purgeChance（未计入按下一场、已计入按当时场次、不是最近一场即过期）。
+export function upgradeChance(view, reportId) {
+    if (view?.kind !== 'deck-character') return { available: false, reason: 'combat-card-upgrade-kind-mismatch' };
+    const u = view.upgrade;
+    const wins = Array.isArray(u?.wins) ? u.wins : [];
+    const at = reportId ? wins.indexOf(reportId) : -1;
+    const battle = at < 0 ? wins.length + 1 : at + 1;
+    const reason = battle % UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
+        : at >= 0 && battle !== wins.length ? 'combat-card-upgrade-expired'
+            : at >= 0 && u?.reason === 'combat-card-upgrade-used' ? 'combat-card-upgrade-used'
+                : !upgradableRows(view).length ? 'combat-card-upgrade-none'
+                    : null;
+    return { battle, available: reason === null, ...(reason ? { reason } : {}) };
+}
+
 // 重放去重键：同一角色同一类型同一标签位置只认一条。
 const entryDedupKey = (characterId, entry) => [characterId, entry.type, entry.anchor.messageId, entry.anchor.swipeId, entry.anchor.tagHash, entry.anchor.occurrence].join('|');
 
@@ -1152,6 +1217,8 @@ function presentCharacter(state, options = {}) {
         claimedLevels: [...state.claimed].sort((a, b) => a - b), pendingRewards,
         // 规则 v6 删卡：有普通战斗胜场或删过牌时给出删卡机会视图；没有时不写字段，旧视图形状不变。
         ...(state.battleWins?.size || state.purges ? { purge: purgeOpportunity(state) } : {}),
+        // 规则 v6 G3c：有普通战斗胜场或用过升级机会时给出升级机会视图；没有时不写字段，旧视图形状不变。
+        ...(state.battleWins?.size || state.upgradedAt?.size ? { upgrade: upgradeOpportunity(state) } : {}),
         ...(hasGrowth ? { battleGrowth: { cards: Object.fromEntries([...growth.cards].map(([cardId, value]) => [cardId, { ...value }])), hpMax: growth.hpMax } } : {}),
         // 规则 v6 G5f-4c：遗物来源的最大生命（不占战斗成长上限）；没有时不写字段，旧视图形状不变。
         ...(state.relicHpMax > 0 ? { relicHpMax: state.relicHpMax } : {}),
@@ -1512,6 +1579,28 @@ function buildPurgeEntry(effective, index, directive, anchor, report, text, user
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
 }
 
+// 规则 v6 G3c 升级标签 [igs-combat:card-upgrade|角色|战报ID|副本ID] -> 升级记录：只认胜利战报楼里本场普通战报、主角卡组角色，
+// 本场正好满 UPGRADE_EVERY 场普通胜利（upgradeChance）且副本在卡组里、可升级；场次按扫描时的账本推定，重放时再核一次。
+function buildCardUpgradeEntry(effective, index, directive, anchor, report, text, userName, now) {
+    if (report?.result !== 'win') return { ok: false, reason: 'combat-card-upgrade-not-victory' };
+    if (reportIdOf(text) !== directive.reportId) return { ok: false, reason: 'combat-card-upgrade-report-mismatch' };
+    if (reportWeakOf(text)) return { ok: false, reason: 'combat-card-upgrade-weak-report' };
+    const key = characterKeyFor(index, directive.character, userName);
+    const id = canonicalCharacterId(index, key) ?? key;
+    const heroId = effective?.ok ? effective.attributes?.heroId : null;
+    if (heroId && id !== heroId) return { ok: false, reason: 'combat-points-not-protagonist' };
+    const character = effective?.ok ? effective.characters.get(id) : null;
+    const chance = upgradeChance(character, directive.reportId);
+    if (!chance.available) return { ok: false, reason: chance.reason };
+    const row = upgradableRows(character).find((r) => r.copyId === directive.copyId);
+    if (!row) return { ok: false, reason: 'combat-card-upgrade-copy-missing' };
+    const normalized = normalizeLedgerEntry({
+        id: ledgerEntryId('card-upgrade', key, anchor), type: 'card-upgrade', character: key, anchor,
+        payload: { copyId: row.copyId, cardId: row.cardId, battle: chance.battle, reportId: directive.reportId }, createdAt: now,
+    });
+    return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
+}
+
 // 规则 v5 P5b 刻印标签 [igs-combat:inscribe|角色|牌名|刻印名|原因] -> 刻印记录：只在角色卡组里按牌名找第一张未刻、适用该刻印的副本，记录写明 copyId。
 // taken 为本次扫描已分出去的副本（同一轮多个标签不落到同一张）。
 const INSCRIPTION_BY_NAME = new Map(Object.entries(INSCRIPTION_LABELS).flatMap(([key, label]) => [[label, key], [key, key]]));
@@ -1596,6 +1685,19 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                 if (!report) { diagnostics.push({ code: 'combat-purge-tag-outside-report', messageId, character: directive.character }); continue; }
                 if (alreadyWritten(['purge'], directive.character, anchor)) continue;
                 const built = buildPurgeEntry(effective, index, directive, anchor, report, text, userName, now);
+                if (built.ok) entries.push(built.entry);
+                else diagnostics.push({ code: built.reason, messageId, character: directive.character, reportId: directive.reportId });
+                continue;
+            }
+            if (directive.kind === 'card-upgrade') {
+                if (!report) { diagnostics.push({ code: 'combat-card-upgrade-tag-outside-report', messageId, character: directive.character }); continue; }
+                // 同一战报里同一张副本既删又升：升级记录先重放会被随后的删卡吞掉，直接拒收升级。
+                if (parsed.directives.some((d) => d.kind === 'purge' && d.copyId === directive.copyId)) {
+                    diagnostics.push({ code: 'combat-card-upgrade-purge-conflict', messageId, character: directive.character, reportId: directive.reportId });
+                    continue;
+                }
+                if (alreadyWritten(['card-upgrade'], directive.character, anchor)) continue;
+                const built = buildCardUpgradeEntry(effective, index, directive, anchor, report, text, userName, now);
                 if (built.ok) entries.push(built.entry);
                 else diagnostics.push({ code: built.reason, messageId, character: directive.character, reportId: directive.reportId });
                 continue;

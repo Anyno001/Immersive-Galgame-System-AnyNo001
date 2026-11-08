@@ -8,7 +8,7 @@ import { readerBodyText } from './message-source.js';
 import { stripIllustrationMarkers } from './scene-directives.js';
 
 export const COMBAT_TAG_LIMITS = Object.freeze({ maxEnemies: 50, maxAllies: 3, storyExpCapPerFloor: 50, expMax: 1e3 });
-export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal', 'inscribe', 'purge']);
+export const COMBAT_GROWTH_KINDS = Object.freeze(['exp', 'learn', 'upgrade', 'class', 'equip', 'unequip', 'item', 'rel', 'stat', 'loot', 'heal', 'inscribe', 'purge', 'card-upgrade']);
 
 // 战报编号：r + 最多 13 位小写字母数字。
 const REPORT_ID_PATTERN = /^r[0-9a-z]{1,13}$/;
@@ -162,7 +162,8 @@ function parseStartFields(fields) {
 // 各成长标签允许的最大字段数（含角色名）。
 // loot 第 5 字段（规则 v6）：三选一卡牌槽的候选序号（0 起）或 skip，旧标签不带。
 // purge（规则 v6 删卡，只写在胜利战报后）：角色、战报 ID、卡组副本 ID。
-const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 5, heal: 3, inscribe: 4, purge: 3 });
+// card-upgrade（规则 v6 G3c 升级机会，只写在胜利战报后）：字段同 purge。
+const GROWTH_FIELD_MAX = Object.freeze({ exp: 3, learn: 4, upgrade: 3, class: 2, equip: 5, unequip: 2, item: 5, rel: 2, stat: 4, loot: 5, heal: 3, inscribe: 4, purge: 3, 'card-upgrade': 3 });
 const HEAL_FLAT_MAX = 9999;
 
 // 稀有度字段：空为 null（不指定），未知词报错。
@@ -218,7 +219,7 @@ function parseGrowthFields(kind, fields) {
         const pick = parseIntInRange(pickWord, 0, 2);
         return pick === null ? fail('pick', 'invalid-pick') : { ok: true, value: { ...base, reportId, slot, set, pick } };
     }
-    if (kind === 'purge') {
+    if (kind === 'purge' || kind === 'card-upgrade') {
         const reportId = String(fields[1] ?? '').trim();
         if (!REPORT_ID_PATTERN.test(reportId)) return fail('reportId', 'invalid-report-id');
         const copyId = String(fields[2] ?? '').trim();

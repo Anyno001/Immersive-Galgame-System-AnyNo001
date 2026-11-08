@@ -1286,6 +1286,117 @@ test('规则 v6 按场次删卡：第 5 场胜利战报里的删牌标签入账�
     assert.equal(purgeOpportunity(small).reason, 'combat-purge-deck-min');
     assert.equal(purgeOpportunity({ ...small, deck: Array(11).fill('c1') }).available, true);
 });
+test('规则 v6 G3c 每 5 场免费升级：与删卡共用胜场、互不占用，跳过过期、弱敌不推进、同副本删升冲突拒收、重复扫描不重复、楼层回退撤销', async () => {
+    const { reportIdFor, attachCardUpgrade } = await import('../src/combat/report.js');
+    const { upgradeChance, upgradableCard } = await import('../src/combat/ledger.js');
+    const { extractGrowthDirectives } = await import('../src/scene/combat-directives.js');
+    const { COMBAT_REPORT_FIND } = await import('../src/host/combat-report-regex.js');
+    const tables = memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]);
+    const ref = { chat: [ai('正文')] };
+    const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '主角', now: () => 7, wallet: () => 1000 });
+    const ridOf = (i) => reportIdFor(`cb|upgrade|${i}`);
+    const winFloor = (i, tags = {}, weak = false) => {
+        const rid = ridOf(i);
+        const extra = [tags.purge ? `[igs-combat:purge|主角|${rid}|${tags.purge}]` : '', tags.upgrade ? `[igs-combat:card-upgrade|主角|${rid}|${tags.upgrade}]` : ''].filter(Boolean);
+        return user(`<igs-combat-report id="${rid}" result="win"${weak ? ' weak="1"' : ''}>终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${rid}]${extra.map((t) => `\n${t}`).join('')}`);
+    };
+    const settle = async () => {
+        const scanned = await ledger.scan();
+        assert.equal((await ledger.append(scanned.entries)).ok, true);
+        return { scanned, me: heroOf(await ledger.effectiveState()) };
+    };
+    const addWins = async (from, to, tagsAt = {}) => {
+        for (let i = from; i < to; i += 1) ref.chat.push(winFloor(i, tagsAt[i]), ai(`第${i}场后`));
+        return settle();
+    };
+    const ups = (scanned) => scanned.entries.filter((e) => e.type === 'card-upgrade');
+    const strikes = (me) => me.deckEntries.filter((e) => e.cardId === 'basic-strike');
+    let { me } = await addWins(0, 4);
+    assert.deepEqual([me.upgrade.battle, me.upgrade.available, me.upgrade.reason, me.upgrade.next], [4, false, 'combat-card-upgrade-not-due', 5]);
+    assert.deepEqual([upgradeChance(me, ridOf(4)).battle, upgradeChance(me, ridOf(4)).available], [5, true]);
+    // 专属卡与无升级版的牌不可选。
+    assert.equal(upgradableCard({ rarity: 'signature', upgraded: { cost: 0 } }), false);
+    assert.equal(upgradableCard({ rarity: 'common' }), false);
+    const [s0, s1] = strikes(me).map((e) => e.copyId);
+    const purgeTarget = me.deckEntries.find((e) => e.cardId === 'c1').copyId;
+    // 无升级版的副本写进升级标签：拒收。
+    const before = ref.chat.length;
+    let scanned;
+    // 第 5 场：同场删卡与升级各用各的机会；升级免费。
+    ({ me, scanned } = await addWins(4, 5, { 4: { purge: purgeTarget, upgrade: s0 } }));
+    assert.deepEqual(ups(scanned).map((e) => e.payload), [{ copyId: s0, cardId: 'basic-strike', battle: 5, reportId: ridOf(4) }]);
+    assert.equal(scanned.entries.filter((e) => e.type === 'purge').length, 1);
+    assert.deepEqual([strikes(me).find((e) => e.copyId === s0).upgraded, me.upgrade.reason, me.purge.reason, me.points], [true, 'combat-card-upgrade-used', 'combat-purge-used', 1000 - 75]);
+    // 重复扫描不重复写入。
+    ({ me, scanned } = await settle());
+    assert.equal(ups(scanned).length, 0);
+    // 第 6 场手写升级标签：不在档上。
+    ({ me, scanned } = await addWins(5, 6, { 5: { upgrade: s1 } }));
+    assert.equal(ups(scanned).length, 0);
+    assert.ok(scanned.diagnostics.some((d) => d.code === 'combat-card-upgrade-not-due'), JSON.stringify(scanned.diagnostics));
+    // 弱敌胜利不推进胜场，升级标签拒收，第 10 场机会照常。
+    ref.chat.push(winFloor(90, { upgrade: s1 }, true), ai('弱敌后'));
+    ({ me, scanned } = await settle());
+    assert.equal(ups(scanned).length, 0);
+    assert.equal(me.upgrade.battle, 6);
+    ({ me } = await addWins(6, 10));
+    assert.deepEqual([me.upgrade.battle, me.upgrade.available], [10, true]);
+    // 第 10 场的机会跨过一场弱敌不过期（只看普通胜场）；再赢一场普通战斗即过期。
+    ref.chat.push(winFloor(91, {}, true), ai('弱敌后'));
+    ({ me } = await settle());
+    assert.deepEqual([me.upgrade.battle, me.upgrade.available], [10, true]);
+    ({ me } = await addWins(10, 11));
+    assert.equal(me.upgrade.reason, 'combat-card-upgrade-not-due');
+    assert.equal(upgradeChance(me, ridOf(9)).reason, 'combat-card-upgrade-expired');
+    assert.equal(strikes(me).find((e) => e.copyId === s1).upgraded, false);
+    // 第 15 场同一张副本既删又升：升级拒收，删卡照常。
+    await addWins(11, 14);
+    ({ me, scanned } = await addWins(14, 15, { 14: { purge: s1, upgrade: s1 } }));
+    assert.equal(ups(scanned).length, 0);
+    assert.ok(scanned.diagnostics.some((d) => d.code === 'combat-card-upgrade-purge-conflict'), JSON.stringify(scanned.diagnostics));
+    assert.equal(me.deckEntries.some((e) => e.copyId === s1), false);
+    assert.equal(me.upgrade.available, true);
+    // 楼层回退到第 5 场之前：升级撤销，场次回到 4。
+    ref.chat.length = before;
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.upgrade.battle, strikes(me).find((e) => e.copyId === s0).upgraded], [4, false]);
+    // 战报标记、解析与折叠正则。
+    const text = attachCardUpgrade('<igs-combat-report id="rab" result="win">终局</igs-combat-report>', { character: '主角', reportId: 'rab', copyId: s0, name: '攻击' });
+    assert.match(text, /升级：主角把卡组里的「攻击」升级了。\n<\/igs-combat-report>\n\[igs-combat:card-upgrade\|主角\|rab\|/);
+    assert.equal(attachCardUpgrade(text, { character: '主角', reportId: 'rab', copyId: s1, name: '攻击' }), text);
+    assert.deepEqual(extractGrowthDirectives(text, { raw: true }).directives.filter((d) => d.kind === 'card-upgrade').map((d) => [d.reportId, d.copyId]), [['rab', s0]]);
+    const find = new RegExp(COMBAT_REPORT_FIND.slice(1, COMBAT_REPORT_FIND.lastIndexOf('/')), 'gi');
+    assert.equal(text.match(find)?.[0], text);
+});
+test('规则 v6 G3c 翻牌选择：升级选择持久化、旧进度兼容、删升不能同副本、重抽保留、视图 needUpgrade', async () => {
+    const { emptyPick, flipView, laterPick, normalizePick, pickPurgeChoice, pickUpgradeChoice, rerollPick } = await import('../src/combat/flip.js');
+    const offer = { combatId: 'g3c', reveal: 0, slots: [{ index: 0, kind: 'keepsake', rarity: 'common', name: '甲' }, { index: 1, kind: 'keepsake', rarity: 'common', name: '乙' }, { index: 2, kind: 'keepsake', rarity: 'common', name: '丙' }],
+        reserve: [{ index: 0, kind: 'keepsake', rarity: 'common', name: '丁' }, { index: 1, kind: 'keepsake', rarity: 'common', name: '戊' }, { index: 2, kind: 'keepsake', rarity: 'common', name: '己' }] };
+    const cards = [{ copyId: 'a:0' }, { copyId: 'b:0' }];
+    const upgrade = { battle: 5, available: true, cards };
+    const purge = { battle: 5, cost: 75, available: true, cards };
+    const old = { set: 'main', flipped: [0], choice: 0 };
+    assert.deepEqual(normalizePick(old, offer), old);
+    assert.equal(flipView(offer, old, {}, null, upgrade).needUpgrade, true);
+    assert.equal(flipView(offer, old).needUpgrade, undefined);
+    const up = pickUpgradeChoice(upgrade, old, 'a:0');
+    assert.deepEqual(up.pick, { ...old, upgrade: 'a:0' });
+    assert.equal(pickUpgradeChoice(upgrade, old, 'x:9').reason, 'combat-card-upgrade-copy-missing');
+    assert.equal(pickUpgradeChoice({ available: false, reason: 'combat-card-upgrade-none' }, old, 'a:0').reason, 'combat-card-upgrade-none');
+    assert.equal(pickPurgeChoice(purge, up.pick, 'a:0').reason, 'combat-purge-upgrade-conflict');
+    const both = pickPurgeChoice(purge, up.pick, 'b:0').pick;
+    assert.equal(pickUpgradeChoice(upgrade, both, 'b:0').reason, 'combat-card-upgrade-purge-conflict');
+    assert.equal(pickUpgradeChoice(upgrade, { ...old, purge: 'skip' }, 'skip').ok, true);
+    assert.equal(normalizePick({ ...old, purge: 'a:0', upgrade: 'a:0' }, offer), null);
+    assert.equal(normalizePick({ ...old, upgrade: 7 }, offer), null);
+    assert.deepEqual(normalizePick(both, offer), both);
+    assert.equal(laterPick(old, up.pick), up.pick);
+    const view = flipView(offer, both, {}, purge, upgrade);
+    assert.deepEqual([view.needUpgrade, view.upgrade.pick, view.needPurge, view.purge.pick], [false, 'a:0', false, 'b:0']);
+    const rerolled = rerollPick(offer, { ...emptyPick(), upgrade: 'a:0' }, { points: 999, payer: true });
+    assert.deepEqual(rerolled.pick, { set: 'reserve', flipped: [], choice: null, upgrade: 'a:0' });
+});
+
 test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 1，种子定、不含无色），翻开一张后加入卡组或放弃，每抽只翻一次，放弃不退款，候选不合规或金钱不足拒写', async () => {
     const { planCardDraw } = await import('../src/combat/rewards.js');
     const { FIXED_GENERAL_CARDS, fixedCard, fixedClassPool, isFixedCardId } = await import('../src/combat/fixed-cards/index.js');

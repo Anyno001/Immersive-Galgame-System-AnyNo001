@@ -77,6 +77,20 @@ export function attachPurge(text, purge) {
     return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n[igs-combat:purge|${character}|${purge.reportId}|${copyId}]`;
 }
 
+const CARD_UPGRADE_MARK = /\[igs-combat:card-upgrade\|/;
+export const hasCardUpgrade = (text) => CARD_UPGRADE_MARK.test(String(text || ''));
+
+// 规则 v6 G3c 升级机会：在战报块末尾追加一行升级描述，并在块后追加升级标记 [igs-combat:card-upgrade|角色|战报ID|副本ID]。
+// 已有升级标记、副本 ID 非法或没有战报块时原样返回。
+export function attachCardUpgrade(text, upgrade) {
+    const body = String(text || '');
+    const copyId = String(upgrade?.copyId || '');
+    if (!/^[A-Za-z0-9_:.-]{1,200}$/.test(copyId) || hasCardUpgrade(body) || !body.includes('</igs-combat-report>')) return body;
+    const character = sanitize(upgrade.character);
+    const line = `升级：${character}把卡组里的「${sanitize(upgrade.name)}」升级了。`;
+    return `${body.replace('</igs-combat-report>', `${line}\n</igs-combat-report>`)}\n[igs-combat:card-upgrade|${character}|${upgrade.reportId}|${copyId}]`;
+}
+
 // 伤势描述：按剩余血量比例分档。
 export function injuryLevel(unit) {
     if (unit?.left) return LEFT_TEXT[unit.left] || '退场';

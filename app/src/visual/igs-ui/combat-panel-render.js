@@ -109,6 +109,13 @@ const REASON_TEXT = Object.freeze({
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
     'combat-points-insufficient': '金钱不足',
+    'combat-card-upgrade-none': '卡组里没有可升级的牌',
+    'combat-card-upgrade-used': '本场已升级',
+    'combat-card-upgrade-expired': '升级机会已过期',
+    'combat-card-upgrade-required': '先选一张牌升级或不升',
+    'combat-card-upgrade-copy-missing': '这张牌不能升级',
+    'combat-card-upgrade-purge-conflict': '同一张牌不能既删又升',
+    'combat-purge-upgrade-conflict': '同一张牌不能既删又升',
     'combat-choice-pending': '先选完牌',
     'combat-choice-invalid': '这张牌不能选',
     'combat-choice-full': '已选够张数，先取消一张',
@@ -566,7 +573,7 @@ function purgeButton(f, pending) {
 // 点一张牌先看详情（牌名、类型·稀有度·费用、关键字、效果、强化 / 成长 / 刻印），再点「删除这张」才记入选择；「不删」直接记入。
 const purgeMarks = (c) => [c.upgraded ? '已强化' : '', c.bonus?.damage ? `伤害 +${c.bonus.damage}` : '', c.bonus?.block ? `格挡 +${c.bonus.block}` : '',
     c.inscription ? `刻印·${INSCRIPTION_LABELS[c.inscription] || c.inscription}` : ''].filter(Boolean);
-function purgeDetailHtml(c, cost, pending) {
+function purgeDetailHtml(c, cost, pending, upgradePick) {
     const meta = [CARD_TYPE_LABELS[c.type], LOOT_RARITY_LABELS[c.rarity], c.cost === '' || c.cost === undefined ? '' : `${c.cost} 费`].filter(Boolean).join(' · ');
     const keywords = describeKeywords(c.keywords || {});
     const text = describeEffects(c.effects);
@@ -576,7 +583,7 @@ function purgeDetailHtml(c, cost, pending) {
         + (keywords ? `<span class="igs-combat-trait-tip-meta">${esc(keywords)}</span>` : '')
         + `<span class="igs-combat-trait-tip-text">${esc(text || '无效果')}</span>`
         + (marks ? `<span class="igs-combat-trait-tip-origin">${esc(marks)}</span>` : '')
-        + `<div class="igs-combat-actions">${btn('pick-purge', `删除这张（消耗${cost}金钱）`, { id: c.copyId, primary: true, disabled: pending })}</div></div>`;
+        + `<div class="igs-combat-actions">${btn('pick-purge', upgradePick === c.copyId ? '已选为升级' : `删除这张（消耗${cost}金钱）`, { id: c.copyId, primary: true, disabled: pending || upgradePick === c.copyId })}</div></div>`;
 }
 function purgeSheetHtml(v) {
     const f = v.flip;
@@ -586,15 +593,64 @@ function purgeSheetHtml(v) {
     const list = p.cards || [];
     const focusId = v.purgeFocus || (p.pick !== 'skip' ? p.pick : '');
     const focus = list.find((c) => c.copyId === focusId) || null;
+    const upgradePick = f.upgrade?.pick;
     const cards = list.map((c) => {
         const label = [c.name, ...purgeMarks(c)].join(' · ');
-        return btn('purge-focus', p.pick === c.copyId ? `${label}（已选）` : label, { id: c.copyId, pressed: focus?.copyId === c.copyId, disabled: pending });
+        const tail = p.pick === c.copyId ? '（已选）' : upgradePick === c.copyId ? '（已选升级）' : '';
+        return btn('purge-focus', `${label}${tail}`, { id: c.copyId, pressed: focus?.copyId === c.copyId, disabled: pending });
     }).join('');
     const skip = btn('pick-purge', p.pick === 'skip' ? '已选不删' : '不删', { id: 'skip', primary: p.pick === 'skip', disabled: pending });
     return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="删牌"><i class="igs-combat-purge-veil" data-combat-act="purge-close"></i>`
         + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">删一张牌（消耗${esc(p.cost)}金钱）</div><div class="igs-combat-purge">${cards}</div>`
-        + (focus ? purgeDetailHtml(focus, p.cost, pending) : '')
+        + (focus ? purgeDetailHtml(focus, p.cost, pending, upgradePick) : '')
         + `<div class="igs-combat-actions">${skip}${btn('purge-close', '关闭', { disabled: pending })}</div></div></div>`;
+}
+
+// 规则 v6 G3c 升级：与删牌同场时并列在工具行里（未选时为主按钮），点开浮层选牌或不升；选定后按钮写所选。机会不可用时置灰并写原因。
+function upgradeButton(f, pending) {
+    const u = f.upgrade;
+    if (!u) return '';
+    if (!u.available) return btn('upgrade-open', `升级 · ${combatReasonText(u.reason)}`, { disabled: true });
+    const name = (u.cards || []).find((c) => c.copyId === u.pick)?.name;
+    const label = u.pick === 'skip' ? '升级：不升' : name ? `升级：${name}` : '免费升级一张牌';
+    return btn('upgrade-open', label, { primary: f.needUpgrade === true, disabled: pending });
+}
+
+// 升级浮层：与删牌浮层同一外观，只列可升级的副本。点一张牌先看详情（升级前后的费用与效果并列），再点「升级这张」才记入选择；「不升」直接记入。
+function upgradeDetailHtml(c, pending, purgePick) {
+    const meta = [CARD_TYPE_LABELS[c.type], LOOT_RARITY_LABELS[c.rarity]].filter(Boolean).join(' · ');
+    const keywords = describeKeywords(c.keywords || {});
+    const costText = (value) => (value === '' || value === undefined ? '' : `${value} 费`);
+    const side = (label, cost, effects) => `<div class="igs-combat-upgrade-side"><span class="igs-combat-trait-tip-meta">${esc([label, costText(cost)].filter(Boolean).join(' · '))}</span>`
+        + `<span class="igs-combat-trait-tip-text">${esc(describeEffects(effects) || '无效果')}</span></div>`;
+    const marks = purgeMarks(c).join(' · ');
+    const conflict = purgePick === c.copyId;
+    return `<div class="igs-combat-purge-detail" aria-live="polite"><b class="igs-combat-trait-tip-name">${esc(c.name)}</b>`
+        + (meta ? `<span class="igs-combat-trait-tip-meta">${esc(meta)}</span>` : '')
+        + (keywords ? `<span class="igs-combat-trait-tip-meta">${esc(keywords)}</span>` : '')
+        + `<div class="igs-combat-upgrade-compare">${side('升级前', c.cost, c.effects)}${side('升级后', c.upCost, c.upEffects)}</div>`
+        + (marks ? `<span class="igs-combat-trait-tip-origin">${esc(marks)}</span>` : '')
+        + `<div class="igs-combat-actions">${btn('pick-upgrade', conflict ? '已选为删除' : '升级这张', { id: c.copyId, primary: true, disabled: pending || conflict })}</div></div>`;
+}
+function upgradeSheetHtml(v) {
+    const f = v.flip;
+    const u = f?.upgrade;
+    if (!v.upgradeOpen || f?.status !== 'ready' || !u?.available) return '';
+    const pending = Boolean(v.pending);
+    const list = u.cards || [];
+    const focusId = v.upgradeFocus || (u.pick !== 'skip' ? u.pick : '');
+    const focus = list.find((c) => c.copyId === focusId) || null;
+    const purgePick = f.purge?.pick;
+    const cards = list.map((c) => {
+        const label = [c.name, ...purgeMarks(c)].join(' · ');
+        const tail = u.pick === c.copyId ? '（已选）' : purgePick === c.copyId ? '（已选删除）' : '';
+        return btn('upgrade-focus', `${label}${tail}`, { id: c.copyId, pressed: focus?.copyId === c.copyId, disabled: pending });
+    }).join('');
+    const skip = btn('pick-upgrade', u.pick === 'skip' ? '已选不升' : '不升', { id: 'skip', primary: u.pick === 'skip', disabled: pending });
+    return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="升级"><i class="igs-combat-purge-veil" data-combat-act="upgrade-close"></i>`
+        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">免费升级一张牌</div><div class="igs-combat-purge">${cards}</div>`
+        + (focus ? upgradeDetailHtml(focus, pending, purgePick) : '')
+        + `<div class="igs-combat-actions">${skip}${btn('upgrade-close', '关闭', { disabled: pending })}</div></div></div>`;
 }
 
 // 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（金钱不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
@@ -613,13 +669,13 @@ function lootHtml(v) {
         ? btn('reroll', `重新抽取（消耗${r.cost}金钱）`, { disabled: pending || !r.available }) : '';
     const choices = lootChoicesHtml(f, pending);
     const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
-    const tools = `${skip}${reroll}${purgeButton(f, pending)}`;
+    const tools = `${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
         + `${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
 }
 // 有 offer 时选定战利品前不能发战报：读取中、未选定、三选一卡牌槽还没取牌 / 跳过、删牌机会还没选牌 / 不删时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
-const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true || f.needPurge === true)));
+const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true || f.needPurge === true || f.needUpgrade === true)));
 
 // 圆满后的收获：奖金档位与经验牌，只在结算画面显示。
 function harvestHtml(e) {
@@ -734,7 +790,7 @@ const intimateResultHtml = (v) => {
 
 // 面板 HTML：主体按状态与皮肤出，删牌浮层统一叠在最上层（结算画布外，各皮肤与竖屏都不被裁切）。
 export function renderCombatPanelHtml(v) {
-    return `${renderCombatPanelBody(v)}${purgeSheetHtml(v)}`;
+    return `${renderCombatPanelBody(v)}${purgeSheetHtml(v)}${upgradeSheetHtml(v)}`;
 }
 
 function renderCombatPanelBody(v) {

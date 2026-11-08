@@ -100,6 +100,9 @@ export function createCombatPanelController(doc, options = {}) {
     let purgeOpen = false;
     // 删牌浮层里正在查看详情的副本 ID（只在浮层内有效，不写进选择）。
     let purgeFocus = '';
+    // 规则 v6 G3c 升级浮层是否展开与正在查看详情的副本 ID（同删牌浮层，只在浮层内有效）。
+    let upgradeOpen = false;
+    let upgradeFocus = '';
     let notice = '';
     let selected = null;
     // v4 待选阶段：已选的候选牌实例（只在引擎 pending 属于操控角色时有内容）。
@@ -371,6 +374,7 @@ export function createCombatPanelController(doc, options = {}) {
         const challenge = cur.kind === 'challenge';
         if (historyOpen) { view.historyOpen = true; view.challenge = true; view.history = typeof options.challengeHistory === 'function' ? options.challengeHistory() : null; }
         if (purgeOpen) { view.purgeOpen = true; if (purgeFocus) view.purgeFocus = purgeFocus; }
+        if (upgradeOpen) { view.upgradeOpen = true; if (upgradeFocus) view.upgradeFocus = upgradeFocus; }
         if (challenge) view.challenge = true;
         const mechanic = challenge ? cur.challenge?.intimate?.mechanic || cur.challengeSetup?.challenge?.intimate?.mechanic || '' : '';
         if (mechanic) view.intimate = mechanic;
@@ -1991,8 +1995,25 @@ export function createCombatPanelController(doc, options = {}) {
             }
             case 'purge-open':
                 if (typeof s.pickPurge !== 'function') return { ok: false, reason: 'combat-purge-unavailable' };
-                purgeOpen = true; purgeFocus = ''; render(); return { ok: true };
+                purgeOpen = true; purgeFocus = ''; upgradeOpen = false; upgradeFocus = ''; render(); return { ok: true };
             case 'purge-close': purgeOpen = false; purgeFocus = ''; render(); return { ok: true };
+            case 'pick-upgrade': {
+                const value = typeof id === 'string' && /^[A-Za-z0-9_:.-]{1,200}$/.test(id) ? id : '';
+                if (!value) return { ok: false, reason: 'combat-card-upgrade-copy-missing' };
+                if (typeof s.pickUpgrade !== 'function') return { ok: false, reason: 'combat-card-upgrade-unavailable' };
+                return runAsync('flip', () => s.pickUpgrade(value)).then((picked) => {
+                    if (picked?.ok === true && upgradeOpen) { upgradeOpen = false; upgradeFocus = ''; render(); }
+                    return picked;
+                });
+            }
+            case 'upgrade-focus': {
+                if (!upgradeOpen || typeof id !== 'string' || !/^[A-Za-z0-9_:.-]{1,200}$/.test(id)) return { ok: false, reason: 'combat-card-upgrade-copy-missing' };
+                upgradeFocus = id; render(); return { ok: true };
+            }
+            case 'upgrade-open':
+                if (typeof s.pickUpgrade !== 'function') return { ok: false, reason: 'combat-card-upgrade-unavailable' };
+                upgradeOpen = true; upgradeFocus = ''; purgeOpen = false; purgeFocus = ''; render(); return { ok: true };
+            case 'upgrade-close': upgradeOpen = false; upgradeFocus = ''; render(); return { ok: true };
             case 'reroll': return runAsync('flip', () => s.reroll());
             case 'retry-reward': return runAsync('reward', () => s.retryReward());
             case 'skip': return runAsync('skip', () => s.skip());
@@ -2341,7 +2362,7 @@ export function createCombatPanelController(doc, options = {}) {
         followUp = ['auto', 'abandon'].includes(openOptions.then) ? openOptions.then : '';
         preview = openOptions.preview && typeof openOptions.preview === 'object' ? openOptions.preview : null;
         historyOpen = openOptions.history === true;
-        purgeOpen = false; purgeFocus = '';
+        purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = '';
         notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         frontFoe = '';
         token += 1;
@@ -2459,7 +2480,7 @@ export function createCombatPanelController(doc, options = {}) {
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         battleMusic(pageOverlay, false);
         pageOverlay = null;
-        pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null; purgeOpen = false; purgeFocus = '';
+        pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null; purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = '';
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
