@@ -6,7 +6,7 @@ import {
     cardCopyLimit, evaluateCardBudget,
 } from './rules.js';
 import { hashString } from './random.js';
-import { BATTLE_POINTS_RANGE, BATTLE_POINT_TIERS, battlePoints } from './points.js';
+import { BATTLE_POINTS_RANGE, BATTLE_POINT_TIERS, battlePoints, weakBattlePoints } from './points.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
@@ -15,6 +15,8 @@ import { INSCRIPTION_KEYS } from './mechanics/inscription.js';
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TREASURE_SLOT_MAX } from './gear-slots.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
+import { RELIC_MODELS, isCombatModel, relicById } from './relics/index.js';
+import { winPointsBonus } from './relics/off-combat.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
 
@@ -642,6 +644,8 @@ function validateProfile(profile, path, state) {
 export const normalizeProfile = (input) => runValidator(validateProfile, input);
 export const normalizeCard = (input) => runValidator((card, path, state) => validateCardEntry(card, path, state), input);
 export const normalizeSkill = (input) => runValidator(validateSkill, input);
+// 被动单独规范化（补默认字段）：遗物被动比对时让程序还原值与账本值走同一套归一。
+export const normalizePassive = (input) => runValidator(validatePassive, input);
 
 // 卡牌目录：基础牌 + 职业牌池 + 个人牌池（后者覆盖同 id 的前者）。
 // 规则 v6：起始卡组里的固定卡 ID 从固定卡表补进目录（只补尚未出现的 ID）；v3–v5 起始卡组不含固定卡 ID，目录不变。
@@ -744,13 +748,28 @@ function validateGearBonus(bonus, path, state) {
     return { ability: enumField(bonus.ability, joinPath(path, 'ability'), state, ABILITY_KEYS), amount: intField(bonus.amount, joinPath(path, 'amount'), state, 1, 5) };
 }
 
+// 规则 v6 遗物引用（G5f）：宝物与人物特性来自遗物表时记条目 ID 与模型，效果由 relics/draw.js 的 resolveRelic 按此还原。
+function validateRelicRef(relic, path, state) {
+    if (!objectField(relic, path, state)) return;
+    checkKnownFields(relic, ['relicId', 'model'], path, state);
+    const relicId = idField(relic.relicId, joinPath(path, 'relicId'), state);
+    if (typeof relicId === 'string' && !relicById(relicId)) addIssue(state, joinPath(path, 'relicId'), 'relic-unknown');
+    return { relicId, model: enumField(relic.model, joinPath(path, 'model'), state, RELIC_MODELS) };
+}
+// 遗物引用指向战斗外模型（规则 v6 G5f-4）：这类遗物特性只记引用，不带战斗被动。
+function offCombatRelic(ref) {
+    if (!ref || !RELIC_MODELS.includes(ref.model)) return false;
+    const model = relicById(ref.relicId)?.[ref.model];
+    return Boolean(model) && !isCombatModel(model);
+}
+
 // 装备。有稀有度而无被动时，被动视为缺省（不报错）。
 function validateGear(gear, path, state) {
     if (!objectField(gear, path, state)) return;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(gear, ['gearId', 'name', 'slot', 'passive', 'description', 'rarity', 'bonus', 'link'], path, state);
+    checkKnownFields(gear, ['gearId', 'name', 'slot', 'passive', 'description', 'rarity', 'bonus', 'link', 'relic'], path, state);
     const rarity = gear.rarity === undefined ? undefined : enumField(gear.rarity, at('rarity'), state, LOOT_RARITIES);
-    const passive = gear.passive === undefined && gear.rarity !== undefined ? undefined : validatePassive(gear.passive, at('passive'), state);
+    const passive = gear.passive === undefined && (gear.rarity !== undefined || gear.relic !== undefined) ? undefined : validatePassive(gear.passive, at('passive'), state);
     return {
         gearId: idField(gear.gearId, at('gearId'), state),
         name: textField(gear.name, at('name'), state, 20),
@@ -760,6 +779,7 @@ function validateGear(gear, path, state) {
         ...(rarity === undefined ? {} : { rarity }),
         ...(gear.bonus === undefined ? {} : { bonus: validateGearBonus(gear.bonus, at('bonus'), state) }),
         ...(gear.link === undefined ? {} : { link: enumField(gear.link, at('link'), state, TRAIT_LINKS) }),
+        ...(gear.relic === undefined ? {} : { relic: validateRelicRef(gear.relic, at('relic'), state) }),
     };
 }
 
@@ -779,7 +799,8 @@ function validateItem(item, path, state) {
 
 // 战利品槽位里除公共字段外允许的载荷字段。
 // 卡牌槽的 choices（规则 v6）：REWARD_CARD_CHOICES 张候选（固定卡与随机卡 2:1），card 为其中的随机卡；旧槽位不带。
-const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card', 'choices'], gear: ['gear'], item: ['item'], keepsake: [], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
+// 杂物槽的 junk（规则 v6 G3d 弱敌战）：劣等杂物，卖价按 1/4；只在为真时写。
+const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card', 'choices'], gear: ['gear'], item: ['item'], keepsake: ['junk'], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
 
 // 战利品槽位（offer / loot 用）。
 function validateRewardSlot(slot, path, state) {
@@ -809,6 +830,9 @@ function validateRewardSlot(slot, path, state) {
         result.gear = validateGear(slot.gear, at('gear'), state);
     } else if (kind === 'item') {
         result.item = validateItem(slot.item, at('item'), state);
+    } else if (kind === 'keepsake' && slot.junk !== undefined) {
+        if (slot.junk !== true) addIssue(state, at('junk'), 'expected-true');
+        else result.junk = true;
     } else if (kind === 'inscribe') {
         result.inscription = enumField(slot.inscription, at('inscription'), state, INSCRIPTION_KEYS);
         result.cardId = idField(slot.cardId, at('cardId'), state);
@@ -980,16 +1004,20 @@ function validateLedgerPayload(type, payload, path, state) {
                 ...(payload.pick !== undefined ? { pick: payload.pick } : {}),
             };
         case 'sell': {
-            checkKnownFields(payload, ['lootId', 'gearId', 'itemId', 'rarity'], path, state);
+            checkKnownFields(payload, ['lootId', 'gearId', 'itemId', 'rarity', 'junk', 'count'], path, state);
             // lootId / gearId / itemId 必须恰好有一个。
             if (['lootId', 'gearId', 'itemId'].filter((key) => key in payload).length !== 1) return addIssue(state, path, 'sell-target-invalid');
             const rarity = payload.rarity === undefined ? {} : { rarity: enumField(payload.rarity, at('rarity'), state, LOOT_RARITIES) };
-            if ('gearId' in payload) return { gearId: idField(payload.gearId, at('gearId'), state), ...rarity };
-            if ('itemId' in payload) return { itemId: idField(payload.itemId, at('itemId'), state), ...rarity };
-            return { lootId: idField(payload.lootId, at('lootId'), state, LEDGER_ID_PATTERN), ...rarity };
+            const count = payload.count === undefined ? {} : { count: intField(payload.count, at('count'), state, 1, 'lootId' in payload ? 1 : Number.MAX_SAFE_INTEGER) };
+            if (payload.junk !== undefined && !('itemId' in payload)) addIssue(state, at('junk'), 'sell-junk-target-invalid');
+            if ('gearId' in payload) return { gearId: idField(payload.gearId, at('gearId'), state), ...rarity, ...count };
+            // 规则 v6 G3d：主角背包里劣等杂物的卖出带 junk（卖价按 1/4）；只在为真时写。
+            if (payload.junk !== undefined && payload.junk !== true) addIssue(state, at('junk'), 'expected-true');
+            if ('itemId' in payload) return { itemId: idField(payload.itemId, at('itemId'), state), ...rarity, ...count, ...(payload.junk === true ? { junk: true } : {}) };
+            return { lootId: idField(payload.lootId, at('lootId'), state, LEDGER_ID_PATTERN), ...rarity, ...count };
         }
         case 'trait': {
-            checkKnownFields(payload, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'cost'], path, state);
+            checkKnownFields(payload, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'relic', 'cost'], path, state);
             const traitKind = payload.kind === undefined ? 'passive' : enumField(payload.kind, at('kind'), state, TRAIT_KINDS);
             const result = {
                 traitId: idField(payload.traitId, at('traitId'), state),
@@ -1002,9 +1030,15 @@ function validateLedgerPayload(type, payload, path, state) {
                 Object.assign(result, { kind: traitKind, skill: validateTraitSkill(payload.skill, at('skill'), state, result.rarity) });
             } else {
                 if (payload.skill !== undefined) addIssue(state, at('skill'), 'unknown-field');
-                Object.assign(result, payload.kind === undefined ? {} : { kind: traitKind }, { passive: validatePassive(payload.passive, at('passive'), state) });
+                if (offCombatRelic(payload.relic)) {
+                    if (payload.passive !== undefined) addIssue(state, at('passive'), 'unknown-field');
+                    Object.assign(result, payload.kind === undefined ? {} : { kind: traitKind });
+                } else Object.assign(result, payload.kind === undefined ? {} : { kind: traitKind }, { passive: validatePassive(payload.passive, at('passive'), state) });
             }
-            return { ...result, ...(payload.link === undefined ? {} : { link: enumField(payload.link, at('link'), state, TRAIT_LINKS) }), cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
+            return {
+                ...result, ...(payload.link === undefined ? {} : { link: enumField(payload.link, at('link'), state, TRAIT_LINKS) }),
+                ...(payload.relic === undefined ? {} : { relic: validateRelicRef(payload.relic, at('relic'), state) }), cost: intField(payload.cost, at('cost'), state, 0, 1e5),
+            };
         }
         case 'trait-pick':
             checkKnownFields(payload, ['traitId', 'drop'], path, state);
@@ -1037,15 +1071,36 @@ function validateLedgerPayload(type, payload, path, state) {
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
             };
         // 规则 v6 G5g 战斗胜利积分：锚定胜利战报楼，amount 由程序按档位与战斗 ID 定额（10–30）。
+        // G5f-4c：bonus 为写入时持有的加金币遗物特性快照（relics），points / hpMax 必须等于按引用与定额重算的值。
         case 'battle-points': {
-            checkKnownFields(payload, ['amount', 'tier', 'combatId', 'reportId'], path, state);
+            checkKnownFields(payload, ['amount', 'tier', 'combatId', 'reportId', 'weak', 'bonus'], path, state);
             const tier = enumField(payload.tier, at('tier'), state, BATTLE_POINT_TIERS);
+            // 规则 v6 G3d：weak 为弱敌战，金额为定额的 1/4，不带加成；只在为真时写。
+            if (payload.weak !== undefined && payload.weak !== true) addIssue(state, at('weak'), 'expected-true');
+            const weak = payload.weak === true;
             const range = BATTLE_POINTS_RANGE[tier] || [BATTLE_POINTS_RANGE.normal[0], BATTLE_POINTS_RANGE.boss[1]];
-            const amount = intField(payload.amount, at('amount'), state, range[0], range[1]);
+            const amount = intField(payload.amount, at('amount'), state, weak ? 0 : range[0], range[1]);
             const combatId = textField(payload.combatId, at('combatId'), state, 120);
             // 金额必须等于按档位与战斗 ID 重算的定额，账本重放可独立复核。
-            if (BATTLE_POINTS_RANGE[tier] && typeof combatId === 'string' && amount !== battlePoints(tier, combatId)) addIssue(state, at('amount'), 'battle-points-mismatch');
-            return { amount, tier, combatId, reportId: textField(payload.reportId, at('reportId'), state, 40) };
+            if (BATTLE_POINTS_RANGE[tier] && typeof combatId === 'string' && amount !== (weak ? weakBattlePoints : battlePoints)(tier, combatId)) addIssue(state, at('amount'), 'battle-points-mismatch');
+            const value = { amount, tier, combatId, reportId: textField(payload.reportId, at('reportId'), state, 40), ...(weak ? { weak: true } : {}) };
+            if (payload.bonus === undefined) return value;
+            if (weak) addIssue(state, at('bonus'), 'battle-points-weak-bonus');
+            const bonusPath = at('bonus');
+            if (!objectField(payload.bonus, bonusPath, state)) return value;
+            checkKnownFields(payload.bonus, ['points', 'hpMax', 'relics'], bonusPath, state);
+            const sub = (key) => joinPath(bonusPath, key);
+            const points = intField(payload.bonus.points, sub('points'), state, 0, 1e4);
+            const hpMax = intField(payload.bonus.hpMax, sub('hpMax'), state, 0, 100);
+            const relics = arrayField(payload.bonus.relics, sub('relics'), state, 1, TRAIT_SLOT_MAX, (item, itemPath, st) => {
+                if (!objectField(item, itemPath, st)) return;
+                checkKnownFields(item, ['relicId', 'model'], itemPath, st);
+                return { relicId: textField(item.relicId, joinPath(itemPath, 'relicId'), st, 40), model: enumField(item.model, joinPath(itemPath, 'model'), st, RELIC_MODELS) };
+            });
+            const expected = Array.isArray(relics) && Number.isInteger(amount) ? winPointsBonus(relics, amount) : null;
+            const distinct = Array.isArray(relics) && new Set(relics.map((ref) => `${ref?.relicId}|${ref?.model}`)).size === relics.length;
+            if (!expected || !distinct || expected.relics.length !== relics.length || expected.points !== points || expected.hpMax !== hpMax) addIssue(state, bonusPath, 'battle-points-bonus-mismatch');
+            return { ...value, bonus: { points, hpMax, relics } };
         }
         case 'wound': {
             checkKnownFields(payload, ['hp', 'maxHp', 'down', 'reportId'], path, state);

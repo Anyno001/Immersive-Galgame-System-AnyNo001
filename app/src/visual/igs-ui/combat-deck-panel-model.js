@@ -10,6 +10,7 @@ import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
 import { TREASURE_SLOT_MAX, slotGearList } from '../../combat/gear-slots.js';
 import { fixedCardGroup } from '../../combat/fixed-cards/index.js';
+import { relicText } from '../../combat/relics/draw.js';
 
 // 复用战斗换算与说明，预览普通版和升级版；固定卡不带倍率。
 function cardPreview(card, attr) {
@@ -116,9 +117,10 @@ export function validateDraft(view, draft) {
 }
 
 // 人物特性（P-d）：名称、稀有度、来历、联动与效果说明（被动数值已按稀有度加强）；v4 主动特性（kind: 'active'）另给费用，说明取技能效果。
+// 规则 v6 战斗外遗物特性不带被动，说明取遗物表的用途描述，与普通特性同样呈现。
 const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null,
     ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
-    text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : '' });
+    text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : relicText(t.relic) });
 // 规则 v6 积分抽卡：未翻时 3 张背面朝上，只给张数、不透露牌面；翻开一张后给出全部牌面与翻开的位置（flipped），再决定加入卡组或放弃。
 const drawCardView = (card, attr) => ({ cardId: card.id, name: card.name || card.id, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', ...cardPreview(card, attr) });
 const pendingDrawView = (pending, attr) => {
@@ -156,7 +158,7 @@ export function deckDetailView(view, draft) {
         exp: view.exp, into: view.into, next: view.next, attributes: view.attributes,
         combat, traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
         // 杂物键：账本背包为 lootId；主角背包投影（P7b）为 itemId（同名叠数量）。
-        collection: (view.collection || []).map((k) => ({ ...k, key: k.lootId || k.itemId, price: sellPrice(k.rarity, k.lootId || k.itemId) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
+        collection: (view.collection || []).map((k) => ({ ...k, key: k.lootId || k.itemId, price: sellPrice(k.rarity, k.lootId || k.itemId, { junk: k.junk === true }) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
         pendingDraw: pendingDrawView(view.pendingDraw, view.attributes),
         relLabel: REL_TIERS[view.attributes?.tier]?.label || '',
         abilities: allocView(view.attributes)?.rows || [] };

@@ -588,7 +588,7 @@ export function bootstrapIGS(options = {}) {
         getCombatHeroInventory: typeof combatServices.heroInventory === 'function' ? () => combatServices.heroInventory() : undefined,
         setCombatHeroGear: typeof combatServices.setHeroGear === 'function' ? (gearId, equip, slotIndex) => combatServices.setHeroGear(gearId, equip, slotIndex) : undefined,
         // 背包卖出（v0.39.2）：kind 为 gear / keepsake。
-        sellCombatHeroItem: typeof combatServices.sellHeroItem === 'function' ? (kind, id) => combatServices.sellHeroItem(kind, id) : undefined,
+        sellCombatHeroItem: typeof combatServices.sellHeroItem === 'function' ? (kind, id, count) => combatServices.sellHeroItem(kind, id, count) : undefined,
         setCombatAllyTier: (name, tier) => combatServices.setAllyTier(name, tier),
         getCombatGrowth: () => combatServices.getGrowth(),
         // 检定回放先问数值系统，数值系统没有结果再回落战斗自己的。

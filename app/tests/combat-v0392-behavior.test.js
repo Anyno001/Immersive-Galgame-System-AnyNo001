@@ -258,6 +258,49 @@ test('战斗胜利积分（v6 G5g）会话收尾：普通战斗胜利向战报�
     }
 });
 
+test('弱敌战（v6 G3d）会话收尾：setup 带 weakFoes 时战报写 weak="1"、经验 1/4，battle-points 带 weak 且按 1/4 定额、不带遗物加成，可被账本校验', async () => {
+    const { createCombatSession, locateCombatStart, sessionKeyFor } = await import('../src/combat/session.js');
+    const { createCountingStorage } = await import('./helpers/combat-mock-host-services.js');
+    const { weakBattlePoints } = await import('../src/combat/points.js');
+    const { reportWeakOf } = await import('../src/combat/report.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const chat = [{ is_user: true, mes: '出发' }, { is_user: false, mes: '前方出现了敌人。\n[igs-combat:start|史莱姆|草原]', swipe_id: 0 }];
+    const located = locateCombatStart(chat, 1);
+    assert.equal(located.ok, true);
+    const setup = { rulesVersion: COMBAT_RULES.version, controlledId: 'hero', canEscape: true, weakFoes: true, units: [hero(Array(5).fill('basic-strike'), { speed: 100 }), foe({ maxHp: 1 })] };
+    assert.ok(COMBAT_RULES.version >= 6);
+    assert.equal(createBattle({ ...setup, weakFoes: false }, 1).ok, false, 'weakFoes 只接受 true');
+    const record = { v: 1, combatId: located.combatId, anchor: located.anchor, seed: seedFor(located.combatId), setup, actions: [], encounter: '草原', tiers: ['normal'], expTargets: ['我'] };
+    const records = new Map();
+    const chatRecord = {
+        read: () => ({ ok: true, value: records.get(located.combatId) || null }),
+        write: async (anchor, combatId, patch) => { records.set(combatId, { ...(records.get(combatId) || {}), ...patch }); return { ok: true }; },
+    };
+    const appended = [];
+    const ledger = {
+        effectiveState: async () => ({ ok: true, offers: new Map(), attributes: {}, characters: new Map(), classes: new Map() }),
+        append: async (entries) => { appended.push(...entries); return { ok: true }; },
+        scan: async () => ({ ok: true }),
+    };
+    const storage = createCountingStorage({ [sessionKeyFor('chat-1')]: JSON.stringify(record) });
+    const send = async (text) => { chat.push({ is_user: true, mes: text, swipe_id: 0 }); return { ok: true, messageId: chat.length - 1 }; };
+    const session = createCombatSession({ ledger, tables: {}, storage, chat, getChatId: () => 'chat-1', userName: '我', chatRecord, send, now: () => 1000 });
+    assert.equal(session.resume().ok, true);
+    session.act(session.state().legal.find((a) => a.type === 'play'));
+    if (session.state().status === 'battle') session.act({ type: 'end-turn' });
+    assert.equal(session.state().battle.outcome, 'victory');
+    const done = await session.finish();
+    assert.equal(done.ok, true, JSON.stringify(done.reason));
+    const reportText = chat[chat.length - 1].mes;
+    assert.equal(reportWeakOf(reportText), true, reportText);
+    const expAmount = Math.floor(COMBAT_RULES.tiers.normal.exp / 4);
+    assert.match(reportText, new RegExp(`\\[igs-combat:exp\\|我\\|${expAmount}\\|`), reportText);
+    const paid = appended.filter((entry) => entry.type === 'battle-points');
+    assert.equal(paid.length, 1);
+    assert.deepEqual(paid[0].payload, { amount: weakBattlePoints('normal', located.combatId), tier: 'normal', combatId: located.combatId, reportId: paid[0].payload.reportId, weak: true });
+    assert.equal(normalizeLedgerEntry(paid[0]).ok, true, JSON.stringify(normalizeLedgerEntry(paid[0]).errors));
+});
+
 // ---------- 账本：专属卡按等级解锁 / 助战绝招 ----------
 const attack = (id, amount = 6) => ({ id, name: `斩${id}`, type: 'attack', cost: 1, rarity: 'common', effects: [{ op: 'damage', amount }] });
 const guard = (id) => ({ id, name: `守${id}`, type: 'skill', cost: 1, rarity: 'common', effects: [{ op: 'block', amount: 5 }] });
@@ -937,7 +980,7 @@ test('规则 v6 卡牌三选一：本职业固定 2 + 随机 1 按种子定，�
     const { fixedCard, fixedCardGroup } = await import('../src/combat/fixed-cards/index.js');
     const { emptyPick, flipCard, flipView, lootOf, normalizePick, pickCardChoice } = await import('../src/combat/flip.js');
     const rank = (rarity) => ['common', 'uncommon', 'rare', 'epic', 'mythic'].indexOf(rarity);
-    const strip = ({ fixedIds, randomAt, archetype, ...rest }) => rest;
+    const strip = ({ fixedIds, randomAt, archetype, relic, ...rest }) => rest;
     const me = { kind: 'deck-character', id: 'pc-hero', classProfile: { archetype: 'warrior' }, owned: new Map() };
     let cards = 0;
     let general = 0;
@@ -949,6 +992,9 @@ test('规则 v6 卡牌三选一：本职业固定 2 + 随机 1 按种子定，�
             const old = planRewardSlots({ combatId, tier, character: me });
             assert.deepEqual([...plan.slots, ...plan.reserve].map(strip), [...old.slots, ...old.reserve]);
             assert.ok([...old.slots, ...old.reserve].every((slot) => slot.fixedIds === undefined));
+            // 规则 v6 遗物宝物（G5f）：relic 只出现在宝物槽上，旧调用不带。
+            assert.ok([...old.slots, ...old.reserve].every((slot) => slot.relic === undefined));
+            for (const slot of [...plan.slots, ...plan.reserve].filter((s) => s.relic)) assert.equal(slot.gearSlot, 'treasure');
             for (const slot of [...plan.slots, ...plan.reserve].filter((s) => s.kind === 'card')) {
                 cards += 1;
                 assert.equal(slot.archetype, 'warrior');
@@ -1228,4 +1274,554 @@ test('战斗胜利积分（v6 G5g）：按档位与战斗 ID 定额；锚定胜�
     const forged = amount === 16 ? 17 : 16;
     assert.equal(normalizeLedgerEntry(entryAt(0, { ...paid, amount: forged })).ok, false);
     assert.equal(normalizeLedgerEntry(entryAt(0, { amount, tier: 'elite', reportId: 'r1' })).ok, false);
+});
+
+test('胜利积分加成（v6 G5f-4c）：按持有的加金币遗物特性快照加成，可复核；赤鳞果另记遗物生命上限；快照遗物当时未持有或数值伪造即拒收', async () => {
+    const { BATTLE_POINTS_TAG_HASH } = await import('../src/combat/ledger.js');
+    const { battlePoints } = await import('../src/combat/points.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const { heldOffCombat, winPointsBonus } = await import('../src/combat/relics/off-combat.js');
+    const coin = { relicId: 'rl-r-18', model: 'original' };
+    const hat = { relicId: 'rl-u-02', model: 'original' };
+    const scale = { relicId: 'rl-s-08', model: 'original' };
+    assert.equal(winPointsBonus([], 13), null);
+    assert.equal(winPointsBonus([{ relicId: 'rl-r-18', model: 'split' }], 13), null, '拆解模型是战斗内被动，不加成');
+    assert.deepEqual(winPointsBonus([coin, hat], 13), { points: 8 + 3, hpMax: 0, relics: [coin, hat] });
+    assert.deepEqual(winPointsBonus([scale], 13), { points: 0, hpMax: 1, relics: [scale] });
+    assert.deepEqual(heldOffCombat([{ relic: coin }, { relic: coin }, { relic: { relicId: 'rl-c-02', model: 'original' } }, {}], 'win-points'), [coin]);
+
+    const floor = (id) => user(`<igs-combat-report id="${id}" result="win">战报</igs-combat-report>`);
+    const traitAt = (messageId, relic) => {
+        const anchor = { messageId, swipeId: 0, tagHash: 'trait', occurrence: 0 };
+        return { id: ledgerEntryId('trait', 'pc-hero', anchor), type: 'trait', character: 'pc-hero', anchor, createdAt: 7, payload: { traitId: `tr-${messageId}`, name: '遗物特性', rarity: 'rare', kind: 'passive', relic, cost: 100 } };
+    };
+    // 基础 2 槽已被天生特性占满，新特性先进待选；换掉天生被动后才算持有（D-19：待选中的特性不生效）。
+    const pickAt = (messageId) => {
+        const anchor = { messageId, swipeId: 0, tagHash: 'trait', occurrence: 1 };
+        return { id: ledgerEntryId('trait-pick', 'pc-hero', anchor), type: 'trait-pick', character: 'pc-hero', anchor, createdAt: 7, payload: { traitId: `tr-${messageId}`, drop: 'pp-pc-hero' } };
+    };
+    const gain = (messageId, relic) => [traitAt(messageId, relic), pickAt(messageId)];
+    const pointsAt = (messageId, payload) => {
+        const anchor = { messageId, swipeId: 0, tagHash: BATTLE_POINTS_TAG_HASH, occurrence: 0 };
+        return { id: ledgerEntryId('battle-points', 'pc-hero', anchor), type: 'battle-points', character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const amount = battlePoints('normal', 'cb-1');
+    const base = { amount, tier: 'normal', combatId: 'cb-1', reportId: 'r1' };
+    const withBonus = (relics) => ({ ...base, bonus: winPointsBonus(relics, amount) });
+
+    assert.equal(normalizeLedgerEntry(pointsAt(1, withBonus([coin, hat]))).ok, true);
+    assert.equal(normalizeLedgerEntry(pointsAt(1, { ...base, bonus: { ...winPointsBonus([coin], amount), points: 9 } })).ok, false, '加成数值伪造');
+    assert.equal(normalizeLedgerEntry(pointsAt(1, { ...base, bonus: { points: 8, hpMax: 0, relics: [coin, coin] } })).ok, false, '同一件不能重复计');
+    assert.equal(normalizeLedgerEntry(pointsAt(1, { ...base, bonus: { points: 0, hpMax: 0, relics: [{ relicId: 'rl-c-02', model: 'original' }] } })).ok, false, '非加金币遗物');
+
+    // 特性在胜利战报之前已持有：定额 + 加成写进积分。
+    const held = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('正文'), floor('r1')]);
+    const before = heroOf(await held.ledger.effectiveState()).points;
+    await held.tables.append('ledger', [traitAt(0, coin), pointsAt(1, withBonus([coin]))]);
+    const pendingState = await held.ledger.effectiveState();
+    assert.ok(pendingState.diagnostics.some((item) => item.code === 'combat-points-bonus-not-held'), '待选中的特性不算持有');
+    assert.equal(heroOf(pendingState).points - before, -100);
+    await held.tables.append('ledger', [pickAt(0)]);
+    const heldState = await held.ledger.effectiveState();
+    assert.equal(heldState.diagnostics.some((item) => item.code === 'combat-points-bonus-not-held'), false);
+    assert.equal(heroOf(heldState).points - before, amount + 8 - 100);
+
+    // 特性在胜利之后才拿到：重放时快照遗物不在持有里，整条拒收。
+    const late = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('正文'), floor('r1'), ai('之后')]);
+    const lateBefore = heroOf(await late.ledger.effectiveState()).points;
+    await late.tables.append('ledger', [...gain(2, coin), pointsAt(1, withBonus([coin]))]);
+    const lateState = await late.ledger.effectiveState();
+    assert.ok(lateState.diagnostics.some((item) => item.code === 'combat-points-bonus-not-held'));
+    assert.equal(heroOf(lateState).points - lateBefore, -100);
+
+    // 赤鳞果：每胜最大生命 +1 记在遗物来源，不进战斗成长。
+    const hp = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('正文'), floor('r1')]);
+    const hpBefore = heroOf(await hp.ledger.effectiveState()).hpMax;
+    await hp.tables.append('ledger', [...gain(0, scale), pointsAt(1, withBonus([scale]))]);
+    const hpHero = heroOf(await hp.ledger.effectiveState());
+    assert.equal(hpHero.hpMax - hpBefore, 1);
+    assert.equal(hpHero.relicHpMax, 1);
+    assert.equal(hpHero.battleGrowth, undefined);
+});
+
+
+test('弱敌战（v6 G3d）：敌人全为「远逊」不计场次、不给删卡；槽位数不变、多出普通劣等杂物；经验与胜利积分 1/4、不带遗物加成；劣等杂物卖价 1/4', async () => {
+    const { weakFoesOf } = await import('../src/combat/session.js');
+    const { buildCombatReport, reportIdFor, reportWeakOf } = await import('../src/combat/report.js');
+    const { BATTLE_POINTS_TAG_HASH } = await import('../src/combat/ledger.js');
+    const { battlePoints, sellPrice, weakBattlePoints } = await import('../src/combat/points.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    // 判定：全部远逊才算弱敌战；没有关系档按「相当」（D-23）。
+    const start = { enemies: [{ name: '小猫' }, { name: '小狗' }] };
+    const tiers = (a, b) => new Map([['小猫', a && { tier: a }], ['小狗', b && { tier: b }]]);
+    assert.equal(weakFoesOf(start, tiers('outclassed', 'outclassed')), true);
+    assert.equal(weakFoesOf(start, tiers('outclassed', 'weaker')), false);
+    assert.equal(weakFoesOf(start, tiers('outclassed', null)), false);
+    assert.equal(weakFoesOf({ enemies: [] }, new Map()), false);
+
+    // 奖励：槽位数不变，绝大多数为普通劣等杂物，其余槽稀有度封顶普通；经验 1/4；只在 v6（candidates）生效。
+    const me = { kind: 'deck-character', id: 'pc-hero', classProfile: { archetype: 'warrior' }, owned: new Map() };
+    let junk = 0;
+    let total = 0;
+    for (let i = 0; i < 60; i += 1) {
+        const args = { combatId: `cb|weak|${i}`, tier: 'boss', enemyTiers: ['boss'], character: me, candidates: true, links: { reflip: true } };
+        const full = planRewardSlots(args);
+        const weak = planRewardSlots({ ...args, weak: true });
+        assert.equal(weak.weak, true);
+        assert.equal(weak.slots.length, full.slots.length, '槽位数不变（再翻照常加槽）');
+        assert.equal(weak.reserve.length, full.reserve.length);
+        assert.equal(weak.exp, Math.floor(full.exp / 4));
+        for (const slot of [...weak.slots, ...weak.reserve]) {
+            total += 1;
+            assert.equal(slot.rarity, 'common', JSON.stringify(slot));
+            assert.notEqual(slot.gearSlot, 'treasure');
+            if (slot.kind === 'keepsake') { assert.equal(slot.junk, true); junk += 1; }
+        }
+        assert.deepEqual(planRewardSlots(args), full, '普通战斗不受影响');
+        assert.equal(planRewardSlots({ ...args, candidates: false, weak: true }).weak, undefined, '旧规则不走弱敌战');
+    }
+    assert.ok(junk / total > 0.88, `劣等杂物 ${junk}/${total}`);
+
+    // 战报：经验 1/4，战报块带 weak="1"。
+    const built = buildCombatReport({ combatId: 'cb-w', state: { outcome: 'victory', units: {} }, events: [], enemyTiers: ['normal'], expTargets: ['主角'], weak: true });
+    assert.equal(built.ok, true, JSON.stringify(built));
+    assert.equal(built.exp[0].amount, Math.floor(COMBAT_RULES.tiers.normal.exp / 4));
+    assert.equal(reportWeakOf(built.text), true);
+    assert.equal(reportWeakOf(buildCombatReport({ combatId: 'cb-w', state: { outcome: 'victory', units: {} }, events: [], enemyTiers: ['normal'], expTargets: ['主角'] }).text), false);
+
+    // 劣等杂物卖价 1/4（至少 1）。
+    for (const key of ['a', 'b', 'c']) assert.equal(sellPrice('common', key, { junk: true }), Math.max(1, Math.floor(sellPrice('common', key) / 4)));
+
+    // 账本：弱敌战胜利不计场次、战报里的删牌标签不入账；积分记录的 weak 须与战报一致。
+    const tables = memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]);
+    const ref = { chat: [ai('正文')] };
+    const ledger = createCombatLedger({ tables, chat: () => ref.chat, userName: '主角', now: () => 7, wallet: () => 1000 });
+    const copyId = heroOf(await ledger.effectiveState()).deckEntries[0].copyId;
+    const weakRid = reportIdFor('cb|weak-floor');
+    const fullRid = reportIdFor('cb|full-floor');
+    ref.chat.push(user(`<igs-combat-report id="${weakRid}" result="win" weak="1">终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${weakRid}]\n[igs-combat:purge|主角|${weakRid}|${copyId}]`));
+    const scanned = await ledger.scan();
+    assert.equal(scanned.entries.some((e) => e.type === 'purge'), false);
+    assert.ok(scanned.diagnostics.some((d) => d.code === 'combat-purge-weak-report'), JSON.stringify(scanned.diagnostics));
+    assert.equal((await ledger.append(scanned.entries)).ok, true);
+    let hero = heroOf(await ledger.effectiveState());
+    assert.equal(hero.purge, undefined, '弱敌战不计胜场');
+    ref.chat.push(user(`<igs-combat-report id="${fullRid}" result="win">终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${fullRid}]`));
+    assert.equal((await ledger.append((await ledger.scan()).entries)).ok, true);
+    hero = heroOf(await ledger.effectiveState());
+    assert.equal(hero.purge.battle, 1);
+
+    const pointsAt = (messageId, occurrence, payload) => {
+        const anchor = { messageId, swipeId: 0, tagHash: BATTLE_POINTS_TAG_HASH, occurrence };
+        return { id: ledgerEntryId('battle-points', 'pc-hero', anchor), type: 'battle-points', character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const weakPaid = { amount: weakBattlePoints('normal', 'cb|weak-floor'), tier: 'normal', combatId: 'cb|weak-floor', reportId: weakRid, weak: true };
+    const fullPaid = { amount: battlePoints('normal', 'cb|full-floor'), tier: 'normal', combatId: 'cb|full-floor', reportId: fullRid };
+    assert.equal(normalizeLedgerEntry(pointsAt(1, 0, weakPaid)).ok, true);
+    assert.equal(normalizeLedgerEntry(pointsAt(1, 0, { ...weakPaid, amount: battlePoints('normal', 'cb|weak-floor') })).ok, false, '弱敌战不能按全额');
+    assert.equal(normalizeLedgerEntry(pointsAt(1, 0, { ...weakPaid, bonus: { points: 5, hpMax: 0, relics: [{ relicId: 'rl-c-01', model: 'original' }] } })).ok, false, '弱敌战不带遗物加成');
+    assert.equal(normalizeLedgerEntry(pointsAt(1, 0, { ...weakPaid, weak: false })).ok, false);
+    const before = hero.points;
+    await tables.append('ledger', [
+        pointsAt(1, 0, weakPaid), pointsAt(2, 0, fullPaid),
+        pointsAt(1, 1, { amount: battlePoints('normal', 'cb|weak-floor'), tier: 'normal', combatId: 'cb|weak-floor', reportId: weakRid }),
+        pointsAt(2, 1, { ...fullPaid, amount: weakBattlePoints('normal', 'cb|full-floor'), weak: true }),
+    ]);
+    const state = await ledger.effectiveState();
+    assert.equal(state.inactive.filter((item) => item.reason === 'battle-points-weak-mismatch').length, 2);
+    assert.equal(heroOf(state).points - before, weakPaid.amount + fullPaid.amount);
+});
+
+test('弱敌战（v6 G3d）新建链：开战楼关系冻结，奖励失败重试与重新准备不漂移，setup、战报与真实账本同口径', async t => {
+    const { createCombatSession, sessionKeyFor } = await import('../src/combat/session.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { attributeViewFor } = await import('../src/combat/ledger.js');
+    const { createCombatChatRecord } = await import('../src/host/combat-chat-record.js');
+    const { createCountingStorage } = await import('./helpers/combat-mock-host-services.js');
+    const { weakBattlePoints } = await import('../src/combat/points.js');
+    const { reportWeakOf } = await import('../src/combat/report.js');
+    const db = createLedgerMockHost({ supportCallbacks: true });
+    db.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: db.api });
+    assert.equal((await tables.ensure()).ok, true);
+    const enemy = { ...templateEnemy('小猫', 'normal'), skills: [{ ...idle, id: 'wait-a' }, { ...idle, id: 'wait-b' }] };
+    assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2), row(enemy, 3)])).ok, true);
+    const chat = [ai('[igs-combat:rel|小猫|远逊]'), ai('[igs-combat:start|桥头弱敌|小猫]'), ai('[igs-combat:rel|小猫|相当]')];
+    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7 });
+    assert.equal((await ledger.scan()).ok, true);
+    assert.equal(attributeViewFor(await ledger.effectiveState(), '小猫').tier, 'even');
+    assert.equal(attributeViewFor(await ledger.effectiveState({ throughMessageId: 1 }), '小猫').tier, 'outclassed');
+    assert.equal((await ledger.effectiveState({ throughMessageId: -1 })).reason, 'combat-floor-invalid');
+    const chatRecord = createCombatChatRecord({ SillyTavern: { getContext: () => ({ chat, saveChat: async () => {} }) } });
+    const storage = createCountingStorage();
+    let rejectReward = true;
+    const rewardRequests = [];
+    const request = async prompt => {
+        const entities = JSON.parse(prompt.user).entities;
+        rewardRequests.push(...entities);
+        return JSON.stringify({ entities: entities.map(entity => ({
+        key: entity.key,
+        value: entity.kind === 'encounter-theme' ? { theme: 'western' }
+            : rejectReward ? {} : Object.fromEntries(['slots', 'reserve'].map(set => [set,
+                (entity.input[set] || []).map((slot, i) => [`旧物${set}${i}`,
+                    slot.kind === 'item' ? 'potion' : slot.kind === 'card' ? (slot.cost === 0 ? 'jab' : 'strike')
+                        : slot.kind === 'gear' ? (slot.templates?.[0] || 'opening-guard') : null,
+                    '桥头战利品'])])),
+        })) });
+    };
+    const options = { ledger, tables, storage, chat: () => chat, getChatId: () => 'g3d-new', userName: '主角', chatRecord,
+        request, retryDelays: [], llm: { source: 'tavern' }, now: () => 7,
+        send: async text => { chat.push(user(text)); return { ok: true, messageId: chat.length - 1 }; } };
+    const session = createCombatSession(options);
+    t.after(() => { session.dispose(); tables.client.dispose(); });
+    const prepared = await session.prepare(1);
+    assert.equal(prepared.ok, true, JSON.stringify(prepared));
+    assert.equal(session.state().lobby.weakFoes, true);
+    assert.equal(session.state().reward.status, 'failed');
+    assert.equal(chatRecord.read(session.state().anchor, session.state().combatId).value.prepared.weakFoes, true);
+    rejectReward = false;
+    const retried = await session.retryReward();
+    assert.equal(retried.ok, true, JSON.stringify(retried));
+    assert.equal(session.state().reward.status, 'ready', JSON.stringify({ reward: session.state().reward, requests: rewardRequests }));
+    const combatId = session.state().combatId;
+    const offer = (await ledger.effectiveState()).offers.get(combatId);
+    assert.equal(offer.exp, Math.floor(COMBAT_RULES.tiers.normal.exp / 4));
+    assert.equal(offer.slots.length, REWARD_SLOT_COUNT);
+    assert.ok([...offer.slots, ...offer.reserve].every(slot => slot.rarity === 'common'));
+    assert.ok(offer.slots.some(slot => slot.junk === true));
+    session.reset();
+    assert.equal((await session.prepare(1)).ok, true);
+    assert.equal(session.state().lobby.weakFoes, true, '重新准备读取已存判定，不取之后的关系');
+    assert.equal(session.start().ok, true);
+    session.flushPersist();
+    assert.equal(JSON.parse(storage.data.get(sessionKeyFor('g3d-new'))).setup.weakFoes, true);
+    for (let i = 0; i < 400 && session.state().status === 'battle'; i += 1) {
+        const state = session.state();
+        const action = state.legal.find(a => a.type === 'play') || state.legal.find(a => a.type === 'end-turn');
+        assert.ok(action, '存在合法出牌或结束回合动作');
+        assert.equal(session.act(action).ok, true);
+    }
+    assert.equal(session.state().battle.outcome, 'victory');
+    assert.equal((await session.loadFlip()).ok, true);
+    assert.equal(session.state().flip.purge, undefined);
+    assert.equal((await session.flip(0)).ok, true);
+    if (session.state().flip.needCard) assert.equal((await session.pickCard('skip')).ok, true);
+    const before = heroOf(await ledger.effectiveState({ raw: true }));
+    const done = await session.finish();
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.equal(reportWeakOf(chat.at(-1).mes), true);
+    const paid = tables.read().ledger.filter(entry => entry.type === 'battle-points');
+    assert.equal(paid.length, 1);
+    assert.equal(paid[0].payload.weak, true);
+    assert.equal(paid[0].payload.amount, weakBattlePoints('normal', combatId));
+    assert.equal(paid[0].payload.bonus, undefined);
+    const after = heroOf(await ledger.effectiveState({ raw: true }));
+    assert.equal(after.exp - before.exp, offer.exp);
+    assert.equal(after.points - before.points, paid[0].payload.amount);
+    assert.equal(after.purge, undefined, '弱敌胜利不计普通胜场');
+});
+
+test('劣等杂物（v6 G3d）库存往返：同名不同品质分开、同品质叠加，品质旁的回收价值与真实到账一致', async t => {
+    const { JSDOM } = await import('jsdom');
+    const { createRecordPanelController } = await import('../src/visual/igs-ui/record-panel.js');
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
+    const { createCombatServices } = await import('../src/core/combat-services.js');
+    const { reportIdFor, attachLoot } = await import('../src/combat/report.js');
+    const { sellPrice } = await import('../src/combat/points.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const { scanGrowthTags, computeEffectiveState } = await import('../src/combat/ledger.js');
+    const { heroInventoryView } = await import('../src/combat/inventory-view.js');
+    for (const firstJunk of [false, true]) {
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        db.sheets.sheet_userbag = userInventorySheet();
+        const tables = createCombatTables({ api: db.api });
+        const inventory = createInventoryTables({ api: db.api, client: tables.client, serial: tables.serial });
+        assert.equal((await tables.ensure()).ok, true);
+        assert.equal((await inventory.ensure()).ok, true);
+        assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2)])).ok, true);
+        const chat = [ai('桥头')];
+        const ledger = createCombatLedger({ tables, inventory, chat: () => chat, userName: '主角', now: () => 7 });
+        t.after(() => tables.client.dispose());
+        let sequence = 0;
+        const award = async junk => {
+            const combatId = `cb|stock|${sequence++}`;
+            const reportId = reportIdFor(combatId);
+            const anchor = { messageId: chat.length - 1, swipeId: 0, tagHash: 'offer', occurrence: sequence };
+            const slot = { index: 0, kind: 'keepsake', rarity: 'common', name: '旧铜铃', origin: '桥头战利品', ...(junk ? { junk: true } : {}) };
+            const slots = [slot, ...[1, 2].map(index => ({ ...slot, index, name: `未选杂物${index}` }))];
+            const offer = { id: ledgerEntryId('offer', 'pc-hero', anchor), type: 'offer', character: 'pc-hero', anchor,
+                payload: { combatId, tier: 'normal', exp: 5, reveal: 0, slots }, createdAt: 7 };
+            assert.equal((await ledger.append([offer])).ok, true);
+            chat.push(user(attachLoot(`<igs-combat-report result="win" id="${reportId}">战报</igs-combat-report>`,
+                { character: '主角', reportId, index: 0, set: 'main', slot })));
+            const pending = scanGrowthTags(await ledger.read(), chat, { userName: '主角', messageIds: [chat.length - 1], now: 7 });
+            const forged = clone(pending.entries.find(entry => entry.type === 'loot'));
+            assert.ok(forged);
+            if (junk) delete forged.payload.slot.junk;
+            else forged.payload.slot.junk = true;
+            const beforeStock = clone(inventory.read().inventory.items);
+            const rejected = await ledger.append([forged]);
+            assert.ok(rejected.stock.some(item => item.skipped && item.reason === 'combat-loot-slot-mismatch'), JSON.stringify(rejected));
+            assert.equal(tables.read().ledger.some(entry => entry.id === forged.id), false, '品质不符不写领取记录');
+            assert.deepEqual(inventory.read().inventory.items, beforeStock, '品质不符不改库存');
+            // 同一领取身份仍可按 offer 的真实品质入库。
+            const scanned = await ledger.scan({ messageIds: [chat.length - 1] });
+            assert.equal(scanned.ok, true, JSON.stringify(scanned));
+            assert.equal(scanned.entries.filter(entry => entry.type === 'loot').length, 1);
+            chat.push(ai('下一场'));
+        };
+
+        await award(firstJunk);
+        await award(!firstJunk);
+        await award(true);
+        await award(true);
+        await award(true);
+        let heroView = heroOf(await ledger.effectiveState({ raw: true }));
+        assert.equal(heroView.collection.length, 2);
+        const junk = heroView.collection.find(item => item.junk === true);
+        const normal = heroView.collection.find(item => item.junk !== true);
+        assert.ok(junk && normal);
+        assert.notEqual(junk.itemId, normal.itemId);
+        assert.equal(junk.count, 4);
+        assert.equal(normal.count, 1);
+        const definition = inventory.read().gear.rows.find(row => row.name === junk.name)?.definition;
+        assert.equal(definition?.junk, true, '装配定义读回保留劣等标记');
+        assert.equal((await ledger.scan()).ok, true);
+        assert.deepEqual(heroOf(await ledger.effectiveState({ raw: true })).collection, heroView.collection, '重复扫描不重复领取');
+        const dom = new JSDOM('<div id="igs-overlay"></div>');
+        const services = createCombatServices({
+            global: { AutoCardUpdaterAPI: db.api, SillyTavern: { getContext: () => ({ chat }) } },
+            storage: createMemoryStorage(), getChatId: () => `recycle-${firstJunk}`, getUserName: () => '主角',
+            getReaderSettings: () => ({ combatExpansion: { enabled: true } }),
+        });
+        t.after(() => services.resetChat());
+        const beforeInvalid = clone(inventory.read().inventory.items);
+        const ledgerSize = tables.read().ledger.length;
+        for (const count of [0, -1, 1.5, '2', null, NaN, Number.MAX_SAFE_INTEGER + 1]) {
+            const rejected = await services.sellHeroItem('keepsake', junk.itemId, count);
+            assert.equal(rejected.reason, 'combat-sell-count-invalid', String(count));
+        }
+        assert.equal((await services.sellHeroItem('keepsake', junk.itemId, 5)).reason, 'combat-sell-count-insufficient');
+        assert.equal(tables.read().ledger.length, ledgerSize, '非法数量不写账本');
+        assert.deepEqual(inventory.read().inventory.items, beforeInvalid, '非法数量不改库存');
+        let saleFinished;
+        let sale = new Promise(resolve => { saleFinished = resolve; });
+        const soldCounts = [];
+        const panel = createRecordPanelController(dom.window.document,
+            { AutoCardUpdaterAPI: db.api, localStorage: createMemoryStorage() }, null, {
+                getHeroInventory: () => ({ ...heroView, ok: heroView.inventory?.ok === true }),
+                sellHeroItem: async (kind, key, count) => {
+                    assert.equal(kind, 'keepsake');
+                    assert.equal(key, junk.itemId);
+                    soldCounts.push(count);
+                    const result = await services.sellHeroItem(kind, key, count);
+                    heroView = heroOf(await ledger.effectiveState({ raw: true }));
+                    saleFinished(result);
+                    return result;
+                },
+            });
+        t.after(() => { panel.close(); dom.window.close(); });
+        assert.equal(panel.open(dom.window.document.querySelector('#igs-overlay'), {}, 'inventory').ok, true);
+        const button = [...dom.window.document.querySelectorAll('[data-record-act="select"]')].find(node => node.textContent.includes(junk.name));
+        assert.ok(button, '库存中的劣等杂物可选');
+        button.click();
+        const price = sellPrice(junk.rarity, junk.itemId, { junk: true });
+        const qualityRow = () => [...dom.window.document.querySelectorAll('.igs-record-item-detail .igs-record-fields div')].find(node => node.querySelector('dt')?.textContent === '品质');
+        assert.equal(qualityRow()?.querySelector('dd')?.textContent, `劣等 · ${price} 积分`);
+        const recycle = dom.window.document.querySelector('[data-record-act="sell"]');
+        assert.equal(recycle.textContent, '回收');
+        recycle.click();
+        const modalOf = () => dom.window.document.querySelector('.igs-page-modal[role="dialog"]');
+        let modal = modalOf();
+        assert.ok(modal, '点击回收打开独立确认弹窗');
+        assert.equal(dom.window.document.querySelector('[data-record-act="sell"]'), recycle, '原回收按钮保持不变');
+        assert.equal(dom.window.document.querySelector('.igs-record-item-actions [data-igs-modal="ok"]'), null);
+        assert.ok(modal.textContent.includes(`是否回收「${junk.name}」`));
+        assert.ok(modal.textContent.includes(`${price} 积分`));
+        const quantity = modal.querySelector('input[type="number"]');
+        assert.equal(quantity.value, '1');
+        assert.equal(quantity.max, '4');
+        const setQuantity = (dialog, value) => {
+            const input = dialog.querySelector('input[type="number"]');
+            input.value = String(value);
+            input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        };
+        for (const value of ['', 0, 1.5, 5]) {
+            setQuantity(modal, value);
+            assert.equal(modal.querySelector('[data-igs-modal="ok"]').disabled, true);
+            modal.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            assert.equal(modalOf(), modal, '非法数量不能由 Enter 确认');
+        }
+        setQuantity(modal, 2);
+        assert.equal(modal.querySelector('[data-igs-modal="ok"]').disabled, false);
+        assert.equal(modal.querySelector('.igs-page-modal-summary').textContent, `总计 ${price * 2} 积分`);
+        assert.equal(qualityRow()?.querySelector('dd')?.textContent, `劣等 · ${price} 积分`);
+        assert.equal(tables.read().ledger.filter(entry => entry.type === 'sell').length, 0, '确认前不回收、不入账');
+        const stockBeforeConfirm = clone(inventory.read().inventory.items);
+        recycle.click();
+        assert.equal(modalOf(), modal, '连续点击回收不重复打开或提交');
+        modal.querySelector('[data-igs-modal="cancel"]').click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(modalOf(), null);
+        assert.equal(dom.window.document.activeElement, recycle, '取消后焦点返回回收按钮');
+        recycle.click();
+        modal = modalOf();
+        modal.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(modalOf(), null, 'Esc 取消确认');
+        recycle.click();
+        const staleConfirm = modalOf().querySelector('[data-igs-modal="ok"]');
+        panel.close();
+        assert.equal(modalOf(), null, '关闭面板清理确认弹窗');
+        staleConfirm.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(inventory.read().inventory.items, stockBeforeConfirm);
+        assert.equal(tables.read().ledger.filter(entry => entry.type === 'sell').length, 0, '取消、Esc、关闭面板均不回收');
+        assert.equal(panel.open(dom.window.document.querySelector('#igs-overlay'), {}, 'inventory').ok, true);
+        [...dom.window.document.querySelectorAll('[data-record-act="select"]')].find(node => node.textContent.includes(junk.name)).click();
+        dom.window.document.querySelector('[data-record-act="sell"]').click();
+        setQuantity(modalOf(), 2);
+        const confirm = modalOf().querySelector('[data-igs-modal="ok"]');
+        assert.equal(confirm.textContent, '确认');
+        const beforePoints = heroView.points;
+        confirm.click();
+        confirm.click();
+        const result = await sale;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(modalOf(), null);
+        assert.equal(tables.read().ledger.filter(entry => entry.type === 'sell').length, 1, '重复确认只提交一条批量记录');
+        assert.equal(result.ok, true, JSON.stringify(result));
+        assert.equal(result.price, price * 2);
+        assert.equal(heroView.points - beforePoints, price * 2);
+        assert.deepEqual(soldCounts, [2]);
+        assert.equal(dom.window.document.querySelector('.igs-record-feedback').textContent, `已回收${junk.name} × 2，获得 ${price * 2} 积分`);
+        assert.equal(heroView.collection.find(item => item.itemId === junk.itemId).count, 2);
+        assert.equal(inventory.read().inventory.items.find(item => item.name === junk.name)?.quantity, 2);
+        assert.ok(inventory.read().gear.rows.some(item => item.name === junk.name), '部分回收保留装配定义');
+        assert.equal(heroView.collection.find(item => item.itemId === normal.itemId).count, 1);
+        const sold = tables.read().ledger.find(entry => entry.type === 'sell');
+        assert.equal(sold.payload.count, 2);
+        assert.equal(sold.payload.junk, true);
+        assert.equal(normalizeLedgerEntry(sold).ok, true);
+        for (const count of [0, -1, 1.5, '2', null]) {
+            assert.equal(normalizeLedgerEntry({ ...sold, payload: { ...sold.payload, count } }).ok, false);
+        }
+        for (const payload of [{ gearId: 'gear-probe', junk: true }, { lootId: 'loot-probe', junk: true }]) {
+            assert.equal(normalizeLedgerEntry({ ...sold, payload }).ok, false, '不支持的卖出目标不能静默丢弃 junk');
+        }
+        const snapshot = await ledger.read();
+        const legacy = { ...snapshot, entries: snapshot.entries.map(entry => clone(entry)) };
+        delete legacy.entries.find(entry => entry.id === sold.id).payload.count;
+        const legacyState = computeEffectiveState(legacy, chat, { userName: '主角', heroInventory: heroInventoryView(inventory.read()) });
+        assert.equal(legacyState.ok, true);
+        assert.equal(heroOf(legacyState).points, heroView.points - price, '旧 sell 缺 count 按单件重放');
+        sale = new Promise(resolve => { saleFinished = resolve; });
+        dom.window.document.querySelector('[data-record-act="sell"]').click();
+        assert.equal(modalOf().querySelector('input').max, '2', '回读后上限变为剩余数量');
+        setQuantity(modalOf(), 2);
+        modalOf().querySelector('[data-igs-modal="ok"]').click();
+        const full = await sale;
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(full.ok, true, JSON.stringify(full));
+        assert.equal(full.price, price * 2);
+        assert.deepEqual(soldCounts, [2, 2]);
+        assert.equal(heroView.collection.some(item => item.itemId === junk.itemId), false);
+        assert.equal(inventory.read().inventory.items.some(item => item.name === junk.name), false, '全量回收删除物品表行');
+        assert.equal(inventory.read().gear.rows.some(item => item.name === junk.name), false, '全量回收删除装配定义');
+        assert.equal([...dom.window.document.querySelectorAll('.igs-record-slot-name')].some(node => node.textContent === junk.name), false, 'UI 回读移除耗尽物品');
+        assert.equal(heroView.points - beforePoints, price * 4);
+        assert.equal(heroOf(await ledger.effectiveState({ raw: true })).points, heroView.points, '重新重放积分不重复增加');
+        const ring = { gearId: gearIdFor('回收铜戒'), name: '回收铜戒', slot: 'accessory', rarity: 'rare', bonus: { ability: 'con', amount: 3 } };
+        assert.equal((await ledger.grantInitialGear('pc-hero', [ring], { anchor: { messageId: chat.length - 1, swipeId: 0 } })).ok, true);
+        assert.equal((await inventory.changeQuantities({ name: ring.name, delta: 3, category: '装备' })).ok, true);
+        const gearPrice = sellPrice(ring.rarity, ring.gearId);
+        const beforeGear = tables.read().ledger.length;
+        assert.equal((await services.sellHeroItem('gear', ring.gearId, 4)).reason, 'combat-sell-count-insufficient', '穿戴件不计入上限');
+        assert.equal(tables.read().ledger.length, beforeGear);
+        const spares = await services.sellHeroItem('gear', ring.gearId, 3);
+        assert.equal(spares.ok, true, JSON.stringify(spares));
+        assert.equal(spares.price, gearPrice * 3);
+        assert.equal(inventory.read().inventory.items.find(item => item.name === ring.name)?.quantity, 1);
+        assert.ok(inventory.read().gear.rows.some(item => item.name === ring.name), '保留穿戴件的定义');
+        heroView = heroOf(await ledger.effectiveState({ raw: true }));
+        assert.ok(equippedGear(heroView.gear.slots).some(item => item.gearId === ring.gearId));
+        assert.equal((await services.sellHeroItem('gear', ring.gearId)).reason, 'combat-gear-equipped');
+        assert.equal((await ledger.setGear('pc-hero', ring.gearId, false)).ok, true);
+        const lastGear = await services.sellHeroItem('gear', ring.gearId);
+        assert.equal(lastGear.ok, true, JSON.stringify(lastGear));
+        assert.equal(lastGear.price, gearPrice, '省略数量仍回收一件');
+        assert.equal(inventory.read().inventory.items.some(item => item.name === ring.name), false);
+        assert.equal(inventory.read().gear.rows.some(item => item.name === ring.name), false);
+        assert.equal(heroOf(await ledger.effectiveState({ raw: true })).points - beforePoints, price * 4 + gearPrice * 4);
+        const originalDelete = db.api.deleteRow;
+        const gearTableName = inventory.read().gear.name;
+        const normalBefore = inventory.read();
+        const pointsBeforeFailure = heroOf(await ledger.effectiveState({ raw: true })).points;
+        let cleanupAttempts = 0;
+        db.api.deleteRow = function (first, second) {
+            const tableName = first && typeof first === 'object' ? first.tableName : first;
+            if (tableName === gearTableName) { cleanupAttempts += 1; return false; }
+            return originalDelete.call(this, first, second);
+        };
+        t.after(() => { db.api.deleteRow = originalDelete; });
+        const cleanupFailed = await services.sellHeroItem('keepsake', normal.itemId);
+        assert.equal(cleanupFailed.ok, false, JSON.stringify(cleanupFailed));
+        assert.ok(cleanupAttempts > 0, '通过真实装配表删除写口注入失败');
+        assert.equal(cleanupFailed.stock[0].restored, true);
+        assert.equal(cleanupFailed.stock[0].revoked, true);
+        assert.equal(heroOf(await ledger.effectiveState({ raw: true })).points, pointsBeforeFailure, '失败回收撤销积分');
+        const normalAfter = inventory.read();
+        const stockOf = snapshot => snapshot.inventory.items.find(item => item.name === normal.name);
+        assert.deepEqual(
+            [stockOf(normalAfter)?.quantity, stockOf(normalAfter)?.description, stockOf(normalAfter)?.category],
+            [stockOf(normalBefore)?.quantity, stockOf(normalBefore)?.description, stockOf(normalBefore)?.category],
+            '定义删除失败后恢复物品数量与文本字段',
+        );
+        assert.deepEqual(normalAfter.gear.rows.find(item => item.name === normal.name)?.definition,
+            normalBefore.gear.rows.find(item => item.name === normal.name)?.definition);
+        db.api.deleteRow = originalDelete;
+        const unverifiedLedger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7,
+            inventory: { ...inventory, async setGearRow(name, record) {
+                const result = await inventory.setGearRow(name, record);
+                return record === null && result.ok ? { ok: false, reason: 'gear-write-unverified' } : result;
+            } },
+        });
+        const unverified = await unverifiedLedger.sellKeepsake(normal.itemId);
+        assert.equal(unverified.ok, false, JSON.stringify(unverified));
+        assert.equal(unverified.stock[0].restored, true, '删除已执行但回执未确认时恢复原定义');
+        assert.equal(unverified.stock[0].revoked, true);
+        assert.equal(stockOf(inventory.read())?.quantity, stockOf(normalBefore)?.quantity);
+        assert.deepEqual(inventory.read().gear.rows.find(item => item.name === normal.name)?.definition,
+            normalBefore.gear.rows.find(item => item.name === normal.name)?.definition);
+        assert.equal(heroOf(await ledger.effectiveState({ raw: true })).points, pointsBeforeFailure);
+        const rollbackLedger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7,
+            inventory: {
+                ...inventory,
+                setGearRow: (name, record) => record === null
+                    ? Promise.resolve({ ok: false, reason: 'gear-write-failed' }) : inventory.setGearRow(name, record),
+                changeQuantities: changes => (Array.isArray(changes) ? changes : [changes]).some(change => change.delta > 0)
+                    ? Promise.resolve({ ok: false, reason: 'inventory-write-failed', applied: [] }) : inventory.changeQuantities(changes),
+            },
+        });
+        const rollbackFailed = await rollbackLedger.sellKeepsake(normal.itemId);
+        assert.equal(rollbackFailed.ok, false, JSON.stringify(rollbackFailed));
+        assert.equal(rollbackFailed.reason, 'combat-sell-rollback-failed', '补偿失败不得报回收成功');
+        assert.equal(rollbackFailed.stock[0].restored, false);
+        assert.equal(rollbackFailed.stock[0].revoked, true);
+        assert.equal(stockOf(inventory.read()), undefined);
+        assert.equal(heroOf(await ledger.effectiveState({ raw: true })).points, pointsBeforeFailure);
+        const originalStock = stockOf(normalBefore);
+        assert.equal((await inventory.changeQuantities({
+            name: originalStock.name, delta: originalStock.quantity,
+            description: originalStock.description, category: originalStock.category,
+        })).ok, true, '故障解除后显式恢复受影响的测试库存');
+        assert.equal(stockOf(inventory.read())?.quantity, originalStock.quantity);
+        const retried = await services.sellHeroItem('keepsake', normal.itemId);
+        assert.equal(retried.ok, true, JSON.stringify(retried));
+        const normalPrice = sellPrice(normal.rarity, normal.itemId);
+        assert.equal(retried.price, normalPrice);
+        assert.equal(heroOf(await ledger.effectiveState({ raw: true })).points, pointsBeforeFailure + normalPrice, '重试只结算一次');
+        assert.equal(inventory.read().inventory.items.some(item => item.name === normal.name), false);
+        assert.equal(inventory.read().gear.rows.some(item => item.name === normal.name), false);
+    }
 });

@@ -26,6 +26,10 @@ export const BATTLE_POINTS_RANGE = Object.freeze({
     normal: Object.freeze([10, 15]), elite: Object.freeze([16, 22]), boss: Object.freeze([23, 30]),
 });
 export const BATTLE_POINT_TIERS = Object.freeze(['normal', 'elite', 'boss']);
+// 规则 v6 G3d 弱敌战（D-24）：敌方全部「远逊」时经验与胜利积分按 1/4 向下取整，劣等杂物卖价按 1/4（至少 1）。
+export const WEAK_SHARE = 0.25;
+export const weakShare = (value) => Math.floor((Number(value) || 0) * WEAK_SHARE);
+export const weakBattlePoints = (tier, combatId) => weakShare(battlePoints(tier, combatId));
 
 // 本场档位：有首领取首领，否则有精英取精英，其余为普通。
 export const battleTierOf = (tiers) => (Array.isArray(tiers) && tiers.includes('boss') ? 'boss' : Array.isArray(tiers) && tiers.includes('elite') ? 'elite' : 'normal');
@@ -36,9 +40,10 @@ export function battlePoints(tier, combatId) {
     return min + (hash32(`igs-win:${combatId ?? ''}`) % (max - min + 1));
 }
 
-// 出售价：基础价 ± 20%，浮动由 seed 哈希决定（同 seed 恒定），最低 1。
-export function sellPrice(rarity, seed) {
+// 出售价：基础价 ± 20%，浮动由 seed 哈希决定（同 seed 恒定），最低 1；劣等杂物（junk）按 1/4。
+export function sellPrice(rarity, seed, { junk = false } = {}) {
     const base = KEEPSAKE_PRICES[rarity] ?? KEEPSAKE_PRICES.common;
     const spread = Math.round(base * SELL_PRICE_SPREAD);
-    return Math.max(1, base - spread + (hash32(`igs-sell:${seed ?? ''}`) % (spread * 2 + 1)));
+    const price = Math.max(1, base - spread + (hash32(`igs-sell:${seed ?? ''}`) % (spread * 2 + 1)));
+    return junk === true ? Math.max(1, weakShare(price)) : price;
 }

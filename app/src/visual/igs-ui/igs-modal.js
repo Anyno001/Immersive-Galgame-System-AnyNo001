@@ -33,6 +33,9 @@ ${IGS_HINT_THEME_STYLE_TEXT}
 @media (pointer:coarse){.igs-page-modal-actions button{min-height:44px;}}
 .igs-page-modal-input{width:100%;box-sizing:border-box;margin:0;padding:9px 12px;border-radius:8px;border:0;outline:0;background:var(--igs-hint-field);color:inherit;font:inherit;font-size:14px;}
 .igs-page-modal-input:focus{box-shadow:inset 0 0 0 1.5px var(--igs-hint-accent);}
+.igs-page-modal-quantity{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--igs-hint-soft);}
+.igs-page-modal-summary{margin:0;font-size:14px;line-height:1.6;overflow-wrap:anywhere;}
+.igs-page-modal-actions button:disabled{opacity:.45;cursor:not-allowed;}
 .igs-page-modal-actions{display:flex;justify-content:center;gap:8px;}
 .igs-page-modal-actions button{min-height:40px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:var(--igs-hint-soft);font:inherit;font-size:13px;letter-spacing:.08em;cursor:pointer;transition:background .15s,opacity .15s;}
 .igs-page-modal-actions button:hover,.igs-page-modal-actions button:focus-visible{background:var(--igs-hint-fill);color:var(--igs-hint-ink);outline:none;}
@@ -118,7 +121,7 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         let theme = '';
         try { theme = getTheme() ? normalizeSettingsTheme(getTheme()) : ''; } catch (_) { theme = ''; }
         if (theme) el.setAttribute('data-igs-hint-theme', theme);
-        el.setAttribute('role', entry.kind === 'prompt' ? 'dialog' : 'alertdialog');
+        el.setAttribute('role', entry.kind === 'prompt' || entry.kind === 'quantity' ? 'dialog' : 'alertdialog');
         el.setAttribute('aria-modal', 'true');
         el.setAttribute('aria-label', entry.message);
         const card = doc.createElement('div');
@@ -152,14 +155,29 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
             } else card.appendChild(preview(entry.imageUrl, '尚未保存的一致性重绘候选'));
         }
         let input = null;
-        if (entry.kind === 'prompt') {
+        let summary = null;
+        if (entry.kind === 'prompt' || entry.kind === 'quantity') {
             input = doc.createElement('input');
             input.className = 'igs-page-modal-input';
-            input.type = 'text';
+            input.type = entry.kind === 'quantity' ? 'number' : 'text';
             input.value = entry.value;
-            input.setAttribute('aria-label', entry.message);
+            input.setAttribute('aria-label', entry.inputLabel || entry.message);
             input.addEventListener('input', () => { entry.value = input.value; });
-            card.appendChild(input);
+            if (entry.kind === 'quantity') {
+                input.min = String(entry.min);
+                input.max = String(entry.max);
+                input.step = '1';
+                input.setAttribute('inputmode', 'numeric');
+                const label = doc.createElement('label');
+                label.className = 'igs-page-modal-quantity';
+                label.appendChild(doc.createTextNode(entry.inputLabel || '数量'));
+                label.appendChild(input);
+                card.appendChild(label);
+                summary = doc.createElement('p');
+                summary.className = 'igs-page-modal-summary';
+                summary.setAttribute('aria-live', 'polite');
+                card.appendChild(summary);
+            } else card.appendChild(input);
         }
         const actions = doc.createElement('div');
         actions.className = 'igs-page-modal-actions';
@@ -177,8 +195,28 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         }
         card.appendChild(actions);
         el.appendChild(card);
+        const quantityValue = () => {
+            const value = Number(input ? input.value : entry.value);
+            return Number.isSafeInteger(value) && value >= entry.min && value <= entry.max ? value : null;
+        };
+        if (entry.kind === 'quantity') {
+            const updateQuantity = () => {
+                const value = quantityValue();
+                const valid = value !== null;
+                input.setAttribute('aria-invalid', String(!valid));
+                actions.lastChild.disabled = !valid;
+                summary.textContent = valid
+                    ? (typeof entry.formatQuantity === 'function' ? entry.formatQuantity(value) : `${value} 件`)
+                    : `请输入 ${entry.min}–${entry.max} 之间的整数`;
+            };
+            input.addEventListener('input', updateQuantity);
+            updateQuantity();
+        }
         const accept = () => {
-            if (entry.kind !== 'progress') settle(entry, entry.kind === 'prompt' ? (input ? input.value : entry.value) : true);
+            if (entry.kind === 'quantity') {
+                const value = quantityValue();
+                if (value !== null) settle(entry, value);
+            } else if (entry.kind !== 'progress') settle(entry, entry.kind === 'prompt' ? (input ? input.value : entry.value) : true);
         };
         el.addEventListener('click', (event) => {
             if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
@@ -226,6 +264,10 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
             originalImageUrl: labels.originalImageUrl || '',
             onCancel: labels.onCancel,
             choices: Array.isArray(labels.choices) ? labels.choices : [],
+            min: labels.min ?? 1,
+            max: labels.max ?? Number.MAX_SAFE_INTEGER,
+            inputLabel: labels.inputLabel || '',
+            formatQuantity: labels.formatQuantity,
         };
         const result = new Promise((resolve) => {
             entry.resolve = resolve;
@@ -244,6 +286,7 @@ export function createIgsModal({ getHost = () => null, getTheme = () => '', glob
         alert: (message, labels) => open('alert', message, '', labels),
         confirm: (message, labels) => open('confirm', message, '', labels),
         prompt: (message, value = '', labels) => open('prompt', message, value, labels),
+        quantity: (message, value = 1, labels) => open('quantity', message, value, labels),
         confirmImage: (imageUrl, message, labels = {}) => open('confirm', message, '', { ...labels, imageUrl }),
         // 几个并列选项各一个按钮（choices: [[value, label]]），点哪个返回哪个 value；取消、Esc 返回 null。
         pick: (message, choices, labels = {}) => open('pick', message, '', { ...labels, choices }),

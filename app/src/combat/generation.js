@@ -21,6 +21,7 @@ import {
 import { assembleChallengeFoe, pickFoe } from './challenge-foes.js';
 import { parseCombatInit } from './abilities.js';
 import { planRewardSlots } from './rewards.js';
+import { isRelicPassive, resolveRelic } from './relics/draw.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 
 // 支持的实体种类（顺序即处理顺序的参考）
@@ -201,16 +202,19 @@ export function classTierEntity({ character, cls, tier, rarity, tierName = '', m
 }
 
 // 人物特性请求：shape 给定时效果已由程序定好，模型只起名和写来历；link 是程序按 D9 抽定的翻牌联动，只进 fixed
-export function traitEntity({ character, rarity, traitId, existing = [], shape = null, link = null }) {
+// relic（规则 v6 遗物特性，relics/draw.js 的 planTraitRelic）给定时名称与效果都由遗物表定，模型只写来历。
+export function traitEntity({ character, rarity, traitId, existing = [], shape = null, link = null, relic = null }) {
     const existingNames = existing.map((trait) => trait?.name).filter(Boolean);
-    const effect = shape ? (shape.kind === 'active' ? `${shape.skill.cost} 费主动技能：${shape.skill.description}` : shape.passive.description) : null;
+    const resolved = relic ? resolveRelic(relic.relicId, relic.model) : null;
+    const shown = resolved ? { kind: 'passive', effect: resolved.passive?.description || resolved.description, fixedName: resolved.name } : null;
+    const effect = !shown && shape ? (shape.kind === 'active' ? `${shape.skill.cost} 费主动技能：${shape.skill.description}` : shape.passive.description) : null;
     return {
         key: `trait:${character.id}`,
         kind: 'trait',
         role: 'trait',
         owner: character.id,
-        input: { name: character.name, rarity, ...(existingNames.length ? { existing: existingNames } : {}), ...(shape ? { kind: shape.kind, effect } : {}) },
-        fixed: { traitId, rarity, ...(shape ? { shape } : {}), ...(link ? { link } : {}) },
+        input: { name: character.name, rarity, ...(existingNames.length ? { existing: existingNames } : {}), ...(shown || (shape ? { kind: shape.kind, effect } : {})) },
+        fixed: { traitId, rarity, ...(!shown && shape ? { shape } : {}), ...(link ? { link } : {}), ...(shown ? { relic: { relicId: resolved.relicId, model: resolved.model } } : {}) },
     };
 }
 
@@ -345,19 +349,27 @@ function rewardGearTemplates(slot, seed) {
     return templateCandidates(allowed, (key) => GEAR_PASSIVE_TEMPLATES[key].label, '', `${seed}|gear|${slot.index}`, { min: 5, weightOf: passiveTemplateWeight });
 }
 const withGearTemplates = (slots, seed) => slots.map((slot) => (slot.kind === 'gear' ? { ...slot, templates: rewardGearTemplates(slot, seed) } : slot));
+// 遗物宝物槽给模型看的内容：程序定好的名称与效果说明（不给遗物 ID 与模型）。
+function relicShown(ref) {
+    const relic = resolveRelic(ref?.relicId, ref?.model);
+    return relic ? { relic: { name: relic.name, effect: relic.passive?.description || relic.description } } : {};
+}
 
 // 战斗奖励请求：先规划奖励槽位（plan），再生成 entity；参数缺失返回 error
 // inscribe 为真时（规则 v5 普通战斗）卡组角色可出刻印槽，刻印种类与目标副本由程序定，模型只写来历。
 // candidates 为真时（规则 v6 普通战斗）卡组角色的卡牌槽是三选一，见 rewards.js 的 withCardCandidates。
-export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false } = {}) {
+export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false, weak = false } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
-    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe, candidates });
+    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe, candidates, weak });
     const slots = withGearTemplates(plan.slots, plan.seed);
     const reserve = withGearTemplates(plan.reserve, `${plan.seed}|reserve`);
-    // 给模型的槽位信息去掉 index 与 count（由程序掌握）；刻印槽只给刻印名与牌名，不给副本与卡牌 ID。
+    // 给模型的槽位信息去掉 index 与 count（由程序掌握）；刻印槽只给刻印名与牌名，不给副本与卡牌 ID；
+    // 遗物宝物槽（规则 v6）只给程序定好的名称与效果，不给遗物 ID 与模型。
     const visibleSlots = (slots) => slots.map(({ index, count, ...rest }) => (rest.kind === 'inscribe'
         ? { kind: rest.kind, rarity: rest.rarity, inscription: INSCRIPTION_LABELS[rest.inscription], card: rest.cardName }
-        : rest));
+        : rest.relic
+            ? (({ relic, templates, ...shown }) => ({ ...shown, ...relicShown(relic) }))(rest)
+            : rest));
     const enemyNames = [...new Set((Array.isArray(enemies) ? enemies : []).map((enemy) => String(enemy?.name || '').trim()).filter(Boolean))];
     return {
         plan,
@@ -617,7 +629,8 @@ function settleEntity(entity, value, state) {
     if (entity.kind === 'trait') {
         const assembled = assembleTrait(value, context);
         if (assembled.errors) return { ok: false, errors: assembled.errors };
-        if (effectsDamage((assembled.value.passive || assembled.value.skill).effects) > COMBAT_RULES.allySkillDamageCap) return { ok: false, errors: [errorItem('template', 'damage-cap')] };
+        const relicExempt = isRelicPassive(assembled.value);
+        if (!relicExempt && effectsDamage((assembled.value.passive || assembled.value.skill)?.effects) > COMBAT_RULES.allySkillDamageCap) return { ok: false, errors: [errorItem('template', 'damage-cap')] };
         return { ok: true, result: { trait: assembled.value }, diagnostics: assembled.diagnostics };
     }
     // 其余是 skill-to-card（成长）
@@ -636,7 +649,8 @@ function settleReward(entity, value, state) {
     const entry = normalizeLedgerEntry(ledgerEntry(entity, 'offer', payload, state.now));
     if (!entry.ok) return { ok: false, errors: entry.errors.map(stripPayloadPath) };
     for (const field of ['slots', 'reserve']) {
-        const index = (entry.value.payload[field] || []).findIndex((slot) => !!slot.gear?.passive && effectsDamage(slot.gear.passive.effects) > COMBAT_RULES.allySkillDamageCap);
+        // 遗物还原出的原样被动（规则 v6 G5f）数值由遗物表定，不受副 LLM 模板的伤害上限约束。
+        const index = (entry.value.payload[field] || []).findIndex((slot) => !!slot.gear?.passive && !isRelicPassive(slot.gear) && effectsDamage(slot.gear.passive.effects) > COMBAT_RULES.allySkillDamageCap);
         if (index >= 0) return { ok: false, errors: [errorItem(`${field}[${index}][1]`, 'damage-cap')] };
     }
     return { ok: true, result: { entry: entry.value }, diagnostics: assembled.diagnostics };

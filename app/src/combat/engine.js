@@ -215,6 +215,8 @@ function validateSetup(setup) {
     if (setup.randomTargets !== undefined && typeof setup.randomTargets !== 'boolean') return { reason: 'invalid-setup' };
     // foeCap（规则 v6 敌方编制）：场上普通敌人（不含爪牙）上限，空出的总位置只给爪牙；旧 setup 不带时只按总位置算。
     if (setup.foeCap !== undefined && !(Number.isInteger(setup.foeCap) && setup.foeCap >= 1 && setup.foeCap <= COMBAT_RULES.maxEnemiesOnField)) return { reason: 'invalid-setup' };
+    // weakFoes（规则 v6 G3d）：弱敌战标记，只影响奖励、积分与场次，不进战斗状态；只在为真时写。
+    if (setup.weakFoes !== undefined && setup.weakFoes !== true) return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [index, unit] of setup.units.entries()) {
         const path = `units[${index}]`;

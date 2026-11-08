@@ -36,6 +36,7 @@ const gearDefinition = (gear) => ({
     ...(gear.rarity ? { rarity: gear.rarity } : {}),
     ...(gear.bonus ? { bonus: gear.bonus } : {}),
     ...(gear.link ? { link: gear.link } : {}),
+    ...(gear.relic ? { relic: { ...gear.relic } } : {}),
 });
 
 // 以下三个函数把定义转成表行记录（展示用文本字段 + 原始定义）
@@ -93,6 +94,30 @@ const cleanupIfEmpty = (name, current, delta) => (current + delta <= 0 ? [{ name
 // 再获得已丢失物品时保留原定义，不重置加成、被动与效果。
 const revive = (inventory, name, kind, definition) => (inventory.lost || []).find((entry) => entry.definition?.kind === kind && sameName(entry.name, name))?.definition || definition;
 
+// 物品表按名字叠数量；普通与劣等杂物不能共用一份定义，包括已丢失的物品。
+function keepsakeStockName(inventory, item) {
+    const known = (name) => inventory.collection.find((entry) => sameName(entry.name, name))
+        || (inventory.lost || []).find((entry) => entry.definition?.kind === 'keepsake' && sameName(entry.name, name));
+    const differs = (entry) => entry && (entry.junk === true || entry.definition?.junk === true) !== (item.junk === true);
+    if (!differs(known(item.name))) return item.name;
+    const quality = item.junk === true ? '劣等' : '普通';
+    for (let n = 1; ; n += 1) {
+        const name = `${item.name}（${quality}${n === 1 ? '' : n}）`;
+        const kind = stockKindOf(inventory, name);
+        if ((!kind || kind === 'keepsake') && !differs(known(name))) return name;
+    }
+}
+
+function keepsakePlan(inventory, item, restore = false) {
+    const name = keepsakeStockName(inventory, item);
+    const conflict = kindConflict(inventory, name, 'keepsake');
+    if (conflict) return conflict;
+    const definition = { kind: 'keepsake', origin: item.origin || '', ...(item.rarity ? { rarity: item.rarity } : {}), ...(item.junk === true ? { junk: true } : {}) };
+    const value = restore ? revive(inventory, name, 'keepsake', definition) : definition;
+    const rows = stockKindOf(inventory, name) === 'keepsake' ? [] : [{ name, record: keepsakeRecord(value) }];
+    return plan(rows, [{ name, delta: 1, description: value.origin, category: CATEGORY_LABELS.keepsake }]);
+}
+
 // 为一条账本条目生成库存计划。不认识的类型返回 null。
 // panelTag：来自战斗面板的装备操作（背包里已有，直接穿上）。
 export function stockPlan(entry, inventory, { panelTag } = {}) {
@@ -142,13 +167,8 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
             const worn = kind === 'gear' && count >= have ? equippedGear(inventory.gear.slots).find((gear) => sameName(gear.name, payload.name)) : null;
             return plan(worn ? [{ name: worn.name, record: gearRecord(gearDefinition(worn), false) }] : [], [{ name: hits[0].name, delta: -count, lost: true }]);
         }
-        case 'keepsake': {
-            const conflict = kindConflict(inventory, payload.name, 'keepsake');
-            if (conflict) return conflict;
-            const definition = revive(inventory, payload.name, 'keepsake', { kind: 'keepsake', origin: payload.origin || '', ...(payload.rarity ? { rarity: payload.rarity } : {}) });
-            const rows = stockKindOf(inventory, payload.name) === 'keepsake' ? [] : [{ name: payload.name, record: keepsakeRecord(definition) }];
-            return plan(rows, [{ name: payload.name, delta: 1, description: definition.origin, category: CATEGORY_LABELS.keepsake }]);
-        }
+        case 'keepsake':
+            return keepsakePlan(inventory, payload, true);
         case 'loot': {
             const slot = payload.slot;
             if (slot.kind === 'gear') {
@@ -166,27 +186,28 @@ export function stockPlan(entry, inventory, { panelTag } = {}) {
                 return plan(rows, [{ name: slot.item.name, delta: slot.item.count, description: definition.description, category: CATEGORY_LABELS.item }]);
             }
             if (slot.kind === 'keepsake') {
-                const conflict = kindConflict(inventory, slot.name, 'keepsake');
-                if (conflict) return conflict;
-                const definition = { kind: 'keepsake', origin: slot.origin || '', rarity: slot.rarity };
-                const rows = stockKindOf(inventory, slot.name) === 'keepsake' ? [] : [{ name: slot.name, record: keepsakeRecord(definition) }];
-                return plan(rows, [{ name: slot.name, delta: 1, description: definition.origin, category: CATEGORY_LABELS.keepsake }]);
+                return keepsakePlan(inventory, slot);
             }
             return null;
         }
         case 'sell': {
+            const count = payload.count === undefined ? 1 : payload.count;
+            if (!Number.isSafeInteger(count) || count < 1) return { ok: false, reason: 'combat-sell-count-invalid' };
             if (payload.gearId) {
                 const inSlot = equippedGear(inventory.gear.slots).some((gear) => gear.gearId === payload.gearId);
                 // 只剩已装备的一件时不能卖
                 if (inSlot && !inventory.gear.bag.some((gear) => gear.gearId === payload.gearId)) return { ok: false, reason: 'combat-gear-equipped' };
                 const bagGear = inventory.gear.bag.find((gear) => gear.gearId === payload.gearId);
                 if (!bagGear) return { ok: false, reason: 'combat-gear-missing' };
+                if (count > bagGear.count) return { ok: false, reason: 'combat-sell-count-insufficient' };
                 const equippedCount = inSlot ? 1 : 0;
-                return plan([], [{ name: bagGear.name, delta: -1 }], cleanupIfEmpty(bagGear.name, bagGear.count + equippedCount, -1));
+                return plan([], [{ name: bagGear.name, delta: -count }], cleanupIfEmpty(bagGear.name, bagGear.count + equippedCount, -count));
             }
             const keepsakeId = payload.itemId || payload.lootId;
             const keepsake = inventory.collection.find((candidate) => candidate.itemId === keepsakeId);
-            return keepsake ? plan([], [{ name: keepsake.name, delta: -1 }], cleanupIfEmpty(keepsake.name, keepsake.count, -1)) : { ok: false, reason: 'combat-keepsake-missing' };
+            if (!keepsake) return { ok: false, reason: 'combat-keepsake-missing' };
+            if (count > keepsake.count) return { ok: false, reason: 'combat-sell-count-insufficient' };
+            return plan([], [{ name: keepsake.name, delta: -count }], cleanupIfEmpty(keepsake.name, keepsake.count, -count));
         }
         default:
             return null;

@@ -27,7 +27,8 @@ export const combatInventoryFixture = {
     { name: '月光吊坠', quantity: 1, description: '夜里会泛起微光的银色吊坠。' },
     { name: '疗伤药', quantity: 3, description: '涂抹后能止血镇痛的药膏。' },
     { name: '烟雾弹', quantity: 1, description: '摔碎后迅速弥漫白烟。' },
-    { name: '褪色徽章', quantity: 1, description: '某支早已解散的护卫队的徽章。' }
+    { name: '褪色徽章', quantity: 1, description: '某支早已解散的护卫队的徽章。' },
+    { name: '破铜片', quantity: 2, description: '弱小对手留下的残片，边沿已经磨损。' }
   ],
   view: {
     ok: true,
@@ -45,7 +46,11 @@ export const combatInventoryFixture = {
       { itemId: 'item-preview-salve', name: '疗伤药', count: 3 },
       { itemId: 'item-preview-smoke', name: '烟雾弹', count: 1 }
     ],
-    collection: [{ itemId: 'item-preview-badge', name: '褪色徽章', origin: '旧护卫队', rarity: 'rare', count: 1 }],
+    collection: [
+      { itemId: 'item-preview-badge', name: '褪色徽章', origin: '旧护卫队', rarity: 'rare', count: 1 },
+      { itemId: 'item-preview-junk', name: '破铜片', origin: '桥头弱敌战', rarity: 'common', junk: true, count: 2 },
+    ],
+    points: 100,
     others: [],
     diagnostics: []
   }

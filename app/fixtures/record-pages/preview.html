@@ -58,6 +58,7 @@ import { createCombatPreview } from './fixtures/combat.fixture.js';
 import { createCombatPanelController } from '../../src/visual/igs-ui/combat-panel.js';
 import { createCombatDeckPanelController } from '../../src/visual/igs-ui/combat-deck-panel.js';
 import { planCardDraw } from '../../src/combat/rewards.js';
+import { sellPrice } from '../../src/combat/points.js';
 import { fixedCard } from '../../src/combat/fixed-cards/index.js';
 import { buildSkillCutin, buildAwakenCutin, COMBAT_CUTIN_MS } from '../../src/visual/igs-ui/combat-cutin.js';
 import { probeSpriteHead } from '../../src/visual/igs-ui/fx-anchor.js';
@@ -150,6 +151,23 @@ const previewUse = name => {
   else { inventorySheet.content.splice(inventorySheet.content.indexOf(row), 1); heroInventory.items.splice(heroInventory.items.indexOf(item), 1); }
   return { ok: true };
 };
+const previewSell = (kind, key, count = 1) => {
+  if (!Number.isSafeInteger(count) || count < 1) return { ok: false, reason: 'combat-sell-count-invalid' };
+  const pool = kind === 'keepsake' ? heroInventory.collection : kind === 'gear' ? heroInventory.gear.bag : [];
+  const item = pool.find(entry => (kind === 'keepsake' ? entry.itemId : entry.gearId) === key);
+  if (!item) return { ok: false, reason: 'combat-item-missing' };
+  if (count > item.count) return { ok: false, reason: 'combat-sell-count-insufficient' };
+  const row = inventorySheet.content.find(cells => cells[0] === item.name);
+  if (!row || Number(row[1]) <= 0) return { ok: false, reason: 'combat-item-missing' };
+  const price = sellPrice(item.rarity, key, { junk: item.junk === true }) * count;
+  item.count -= count;
+  const after = Number(row[1]) - count;
+  if (item.count === 0) pool.splice(pool.indexOf(item), 1);
+  if (after > 0) row[1] = String(after);
+  else inventorySheet.content.splice(inventorySheet.content.indexOf(row), 1);
+  heroInventory.points = (heroInventory.points || 0) + price;
+  return { ok: true, price };
+};
 // ?itemart=1：给每件物品画一张示意物品图（canvas 转 data:image/png，按名字配色），用于看背包详情头的点击放大；不读任何本地素材。
 const itemArtPreview = new URLSearchParams(location.search).get('itemart') === '1';
 const itemArtCache = new Map();
@@ -170,7 +188,7 @@ const previewItemArt = name => {
   return url;
 };
 const record = createRecordPanelController(document, globalShim, async () => ({ ok: true }), {
-  ...(heroInventory ? { getHeroInventory: () => heroInventory, setHeroGear: async (id, equip) => previewGear(id, equip), useInventoryItem: async name => previewUse(name) } : {}),
+  ...(heroInventory ? { getHeroInventory: () => heroInventory, setHeroGear: async (id, equip) => previewGear(id, equip), useInventoryItem: async name => previewUse(name), sellHeroItem: async (kind, key, count) => previewSell(kind, key, count) } : {}),
   ...(itemArtPreview ? { resolveItemImage: previewItemArt } : {}),
 });
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });

@@ -20,6 +20,7 @@ import { gearBonusText } from './combat-deck-panel-model.js';
 import { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } from '../../combat/inventory-writes.js';
 import { sellPrice } from '../../combat/points.js';
 import { equippedGear, slotGearList } from '../../combat/gear-slots.js';
+import { createIgsModal } from './igs-modal.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' });
 const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系', favor: '好感总览' });
@@ -40,6 +41,7 @@ function indexHeroInventory(view) {
             // 同名装备穿着一件、背包还有余量时，背包里的那件可以卖。
             if (index.has(it.name)) { if (kind === 'gear' && !extra.equipped) index.get(it.name).spare = true; continue; }
             index.set(it.name, { kind, slot: it.slot || '', rarity: it.rarity || '', gearId: kind === 'gear' ? String(it.gearId || '') : '', itemId: kind === 'keepsake' ? String(it.itemId || '') : '',
+                ...(kind === 'keepsake' && it.junk === true ? { junk: true } : {}),
                 ...(kind === 'gear' && it.bonus ? { bonus: it.bonus } : {}), ...(kind === 'gear' && it.passive ? { passive: it.passive } : {}), ...extra });
         }
     };
@@ -49,7 +51,7 @@ function indexHeroInventory(view) {
 }
 // 可卖出：杂物，以及背包里（未穿着或有余量）的装备；道具与没有装配定义的剧情物品不可卖。售价按稀有度与物品身份确定。
 const sellKeyOf = meta => (meta?.kind === 'keepsake' ? meta.itemId : meta?.kind === 'gear' && (!meta.equipped || meta.spare) ? meta.gearId : '');
-const sellPriceOf = meta => sellPrice(meta?.rarity || 'common', sellKeyOf(meta));
+const sellPriceOf = meta => sellPrice(meta?.rarity || 'common', sellKeyOf(meta), { junk: meta?.junk === true });
 // 不可售出标记：道具与没有装配定义的剧情物品；装备穿着时卸下即可卖，只显示「已装备」，不标不可售。
 const unsellableOf = meta => Boolean(meta) && meta.kind !== 'gear' && !sellKeyOf(meta);
 const DIARY_PREFS_KEY = 'igs_record_diary_prefs';
@@ -138,8 +140,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     let message = '';
     let heroInv = null;
     let heroMeta = new Map();
-    // 背包卖出待确认的物品 ID（v0.39.2）：点「卖出」后在原处确认售价或取消；换物品、重读与开关面板时清空。
-    let sellPending = '';
+    // 回收请求绑定本次物品；关闭、重读或切换物品时取消确认。
+    let recyclePending = null;
+    const recycleModal = createIgsModal({ getHost: () => root, getTheme: () => theme, global: { document: doc } });
     let metricsOf = () => ({ metrics: [], stages: [] });
     let readKeys = new Set();
     let previousFocus = null;
@@ -266,7 +269,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         invSort = 'default';
         invQuery = '';
         message = '';
-        sellPending = '';
+        cancelRecycle();
         setHeroInventory(null);
         prefs = { ...DIARY_PREF_DEFAULTS, ...loadJson(DIARY_PREFS_KEY, {}) };
         prefs.fontSize = clampDiaryFontSize(prefs.fontSize);
@@ -303,6 +306,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     function close() {
         tableReadController?.abort(); tableReadController = null;
+        cancelRecycle();
         if (!root) return { ok: true, reason: 'not-open' };
         closeItemImageViewer(doc);
         unwatchLayout?.();
@@ -329,6 +333,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     function reload() {
         tableReadController?.abort();
+        cancelRecycle();
         if (category === 'inventory') refreshHeroInventory();
         const read = () => {
             const readResult = client.readTables();
@@ -474,22 +479,47 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         render();
     }
 
-    // 背包卖出（v0.39.2）：只主角背包里有装配定义的杂物与背包中的装备；确认后经宿主注入的 sellHeroItem 写一条 sell 并重读，金钱按稀有度计入。
+    function cancelRecycle() {
+        const pending = recyclePending;
+        recyclePending = null;
+        pending?.confirmation?.cancel();
+    }
+
     async function sellItem() {
+        if (recyclePending) return;
         const item = (model?.entries || []).find(entry => entry.id === selectedId);
         const meta = item && heroInv ? heroOf(item) : null;
         const key = sellKeyOf(meta);
-        sellPending = '';
         if (!key || typeof options.sellHeroItem !== 'function') return;
+        const stock = meta.kind === 'keepsake' ? heroInv.collection : heroInv.gear?.bag;
+        const available = stock?.find(entry => (meta.kind === 'keepsake' ? entry.itemId : entry.gearId) === key)?.count;
+        if (!Number.isSafeInteger(available) || available < 1) return;
+        const unitPrice = sellPriceOf(meta);
         const target = root;
-        message = '正在卖出'; render();
+        const pending = { target, itemId: item.id, confirmation: null };
+        recyclePending = pending;
+        pending.confirmation = recycleModal.quantity(`是否回收「${item.title}」？`, 1, {
+            min: 1, max: available, inputLabel: `回收数量（最多 ${available} 件）`,
+            formatQuantity: count => `总计 ${unitPrice * count} 积分`,
+            okLabel: '确认', cancelLabel: '取消',
+        });
+        const count = await pending.confirmation;
+        if (recyclePending !== pending) return;
+        if (count === null || root !== target || selectedId !== pending.itemId) {
+            recyclePending = null;
+            if (root === target) root.querySelector('[data-record-act="sell"]')?.focus?.({ preventScroll: true });
+            return;
+        }
+        message = '正在回收'; render();
         let result;
-        try { result = await options.sellHeroItem(meta.kind, key); } catch (_) { result = { ok: false, reason: 'combat-action-threw' }; }
-        if (root !== target) return;
+        try { result = await options.sellHeroItem(meta.kind, key, count); } catch (_) { result = { ok: false, reason: 'combat-action-threw' }; }
+        if (recyclePending !== pending || root !== target) return;
+        recyclePending = null;
         const ok = result?.ok === true;
         if (ok) reload();
-        message = ok ? `已卖出${item.title}，获得 ${result.price ?? sellPriceOf(meta)} 金钱` : deckReasonText(result?.reason);
+        message = ok ? `已回收${item.title} × ${count}，获得 ${result.price ?? unitPrice * count} 积分` : deckReasonText(result?.reason);
         render();
+        root.querySelector('[data-record-act="sell"]')?.focus?.({ preventScroll: true });
     }
 
     function onClick(event) {
@@ -514,10 +544,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         turn = '';
         if (action === 'use') { useItem(); return; }
         if (action === 'equip' || action === 'unequip') { wearItem(action === 'equip'); return; }
-        if (action === 'sell') { sellPending = selectedId; message = ''; render(); return; }
-        if (action === 'sell-confirm') { sellItem(); return; }
-        if (action === 'sell-cancel') { sellPending = ''; render(); return; }
-        if (action === 'select' && id !== selectedId) sellPending = '';
+        if (action === 'sell') { sellItem(); return; }
+        if (action === 'select' && id !== selectedId) cancelRecycle();
         if (action === 'theme') applyTheme(id);
         if (action !== 'toggle-prefs' && action !== 'pref' && action !== 'font-size') message = '';
         if (action === 'table' && model.tables.some(item => item.uid === id)) {
@@ -594,8 +622,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const badge = quantity && quantity !== '1';
             const selected = item.id === selectedId;
             const meta = heroInv ? heroOf(item) : null;
-            const unsellable = meta && unsellableOf(meta) ? '<small class="igs-record-slot-unsellable">(不可售出)</small>' : '';
-            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}${meta?.equipped ? '（已装备）' : ''}${unsellable ? '（不可售出）' : ''}" ${selected ? 'aria-current="true"' : ''}>${meta?.equipped ? '<small class="igs-record-slot-worn" aria-hidden="true">已装备</small>' : ''}<span class="igs-record-slot-icon" aria-hidden="true">${itemIcon(item.title)}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}${unsellable}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
+            const unsellable = meta && unsellableOf(meta) ? '<small class="igs-record-slot-unsellable">(不可回收)</small>' : '';
+            return `<button type="button" data-record-act="select" data-record-id="${escapeHtml(item.id)}" aria-label="查看${escapeHtml(item.title)}${meta?.equipped ? '（已装备）' : ''}${unsellable ? '（不可回收）' : ''}" ${selected ? 'aria-current="true"' : ''}>${meta?.equipped ? '<small class="igs-record-slot-worn" aria-hidden="true">已装备</small>' : ''}<span class="igs-record-slot-icon" aria-hidden="true">${itemIcon(item.title)}</span><span class="igs-record-slot-name">${escapeHtml(item.title || '未命名')}${unsellable}</span>${badge ? `<small class="igs-record-slot-quantity">×${escapeHtml(quantity)}</small>` : ''}</button>`;
         }).join('');
     }
 
@@ -616,17 +644,17 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const quantity = String(chosen.quantity ?? '').trim();
             const useService = typeof options.useInventoryItem === 'function';
             const chosenMeta = heroInv ? heroOf(chosen) : null;
+            const sellKey = sellKeyOf(chosenMeta);
+            const canRecycle = Boolean(sellKey) && typeof options.sellHeroItem === 'function';
+            const quality = chosenMeta?.junk === true ? '劣等' : STOCK_RARITY_LABELS[chosenMeta?.rarity] || '普通';
             const bonusText = chosenMeta?.kind === 'gear' ? gearBonusText(chosenMeta) : '';
             const passiveText = chosenMeta?.kind === 'gear' ? (chosenMeta.passive?.description || chosenMeta.passive?.name || '') : '';
-            const gearCells = [...(bonusText ? [{ label: '加成', value: bonusText }] : []), ...(passiveText ? [{ label: '被动', value: passiveText }] : [])];
+            const gearCells = [...(chosenMeta?.junk === true || canRecycle ? [{ label: '品质', value: canRecycle ? `${quality} · ${sellPriceOf(chosenMeta)} 积分` : quality }] : []), ...(bonusText ? [{ label: '加成', value: bonusText }] : []), ...(passiveText ? [{ label: '被动', value: passiveText }] : [])];
             // 战斗开启时装备不给「使用」：穿着的给「卸下」，背包里的给「装上」。
             const wearButton = chosenMeta?.gearId && typeof options.setHeroGear === 'function'
                 ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="${chosenMeta.equipped ? 'unequip' : 'equip'}">${chosenMeta.equipped ? '卸下' : '装上'}</button></div>` : '';
-            const sellKey = sellKeyOf(chosenMeta);
-            const sellButton = sellKey && typeof options.sellHeroItem === 'function'
-                ? (sellPending === chosen.id
-                    ? `<button type="button" class="igs-rp-btn is-primary" data-record-act="sell-confirm">确认卖出 · ${escapeHtml(sellPriceOf(chosenMeta))} 金钱</button><button type="button" class="igs-rp-btn" data-record-act="sell-cancel">取消</button>`
-                    : `<button type="button" class="igs-rp-btn" data-record-act="sell">卖出</button>`) : '';
+            const sellButton = canRecycle
+                ? `<button type="button" class="igs-rp-btn" data-record-act="sell">回收</button>` : '';
             const baseButton = chosenMeta?.kind === 'gear' ? wearButton
                 : ((useService || typeof fillDraft === 'function') && quantity !== '0'
                     ? `<div class="igs-record-item-actions"><button type="button" class="igs-rp-btn" data-record-act="use">使用</button>${useService ? '' : `<small>把「使用${escapeHtml(chosen.title || '')}」填入输入框，不会自动发送</small>`}</div>` : '');

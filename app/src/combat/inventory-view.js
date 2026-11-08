@@ -37,6 +37,7 @@ function gearPayload(item, definition) {
         ...(definition.rarity ? { rarity: definition.rarity } : {}),
         ...(definition.bonus ? { bonus: definition.bonus } : {}),
         ...(definition.link ? { link: definition.link } : {}),
+        ...(definition.relic ? { relic: { ...definition.relic } } : {}),
     });
 }
 
@@ -87,6 +88,7 @@ export function heroInventoryView(table) {
                 origin: String(definition.origin || ''),
                 rarity: definition.rarity || 'common',
                 count: item.quantity,
+                ...(definition.junk === true ? { junk: true } : {}),
             });
             continue;
         }

@@ -2,6 +2,7 @@
 // 纯函数。文案与阈值原样来自 v0.39.0。
 import { COMBAT_RULES, TOKEN_CARDS, combatExpReward } from './rules.js';
 import { hashString } from './random.js';
+import { weakShare } from './points.js';
 import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
 import { mechanicReporters, statusDef, statusLabel } from './mechanics/registry.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
@@ -272,7 +273,8 @@ function sideStatus(units, side) {
 }
 
 // 生成战报。战斗未结束返回 { ok: false }；胜利时按敌人阶级发经验，并追加经验标记行。
-export function buildCombatReport({ combatId, encounter = '', state, events, enemyTiers = [], expTargets = [], detail = 'normal' } = {}) {
+// weak 为真（规则 v6 G3d 弱敌战）时经验按 1/4 向下取整，战报块带 weak="1"，账本据此不计胜场。
+export function buildCombatReport({ combatId, encounter = '', state, events, enemyTiers = [], expTargets = [], detail = 'normal', weak = false } = {}) {
     const result = REPORT_RESULT[state?.outcome];
     if (!result) return { ok: false, reason: 'combat-not-finished' };
     const units = state.units;
@@ -295,12 +297,13 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     const ending = result === 'lose' && state.wipe === true && !allyAlive ? WIPE_TEXT : result === 'win' && state.noLoot === true ? FLED_WIN_TEXT : ENDING_TEXT[result];
     lines.push(`${ending}我方：${sideStatus(units, 'ally')}。敌方：${sideStatus(units, 'enemy')}。`);
     const reportId = reportIdFor(combatId);
-    const expEach = result === 'win' ? Math.min(combatExpReward(enemyTiers), 1e3) : 0;
+    const fullExp = result === 'win' ? Math.min(combatExpReward(enemyTiers), 1e3) : 0;
+    const expEach = weak === true ? weakShare(fullExp) : fullExp;
     const exp = expEach > 0 ? [...new Set(expTargets.map(sanitize).filter(Boolean))].map((name) => ({ name, amount: expEach })) : [];
     const expMarks = exp.map((item) => `[igs-combat:exp|${item.name}|${item.amount}|战斗:${reportId}]`);
     const text = [
         '（战斗结束）',
-        `<igs-combat-report id="${reportId}" result="${result}" encounter="${sanitize(encounter)}">`,
+        `<igs-combat-report id="${reportId}" result="${result}" encounter="${sanitize(encounter)}"${weak === true ? ' weak="1"' : ''}>`,
         ...lines.filter(Boolean),
         '</igs-combat-report>',
         ...expMarks,
@@ -311,6 +314,8 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
 
 const REPORT_ID_PATTERN = /<igs-combat-report\b[^>]*\bid\s*=\s*"([^"]+)"/i;
 export const reportIdOf = (text) => String(text || '').match(REPORT_ID_PATTERN)?.[1] ?? null;
+// 规则 v6 G3d：战报块带 weak="1" 即为弱敌战。
+export const reportWeakOf = (text) => /<igs-combat-report\b[^>]*\bweak\s*=\s*"1"/i.test(String(text || ''));
 
 export const COMBAT_SKIP_TEXT = '（本场战斗不使用卡牌结算，请直接用文字描写这场战斗的经过与结果。）';
 export const COMBAT_RULES_VERSION = COMBAT_RULES.version;

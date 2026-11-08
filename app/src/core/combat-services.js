@@ -24,7 +24,8 @@ import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
 import { equippedGear } from '../combat/gear-slots.js';
 import { ASCEND_TIERS, CARD_DRAW_COST, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
-import { planCardDraw } from '../combat/rewards.js';
+import { ownedRelicIds, planCardDraw } from '../combat/rewards.js';
+import { planTraitRelic } from '../combat/relics/draw.js';
 import { fixedCard } from '../combat/fixed-cards/index.js';
 import { TRAIT_BASE_SLOTS, keptInnateKinds, nextTraitSlot, planTrait, planTraitLink, traitFits, traitSeed } from '../combat/traits.js';
 import { planTraitShape } from '../combat/trait-pool.js';
@@ -368,7 +369,7 @@ export function createCombatServices(options = {}) {
 
     // 背包卖出（v0.39.2，人物状态面板的背包页取消后统一在阅读器背包卖）：只主角；装备须在背包里（穿戴中由账本拒收），杂物按 itemId。
     // 售价按稀有度由账本计算，积分记在主角名下；战斗进行中只读。返回的 price 为本次所得。
-    function sellHeroItem(kind, id) {
+    function sellHeroItem(kind, id, count = 1) {
         return enqueue(async () => {
             if (isDeckBusy()) return { ok: false, reason: 'combat-deck-readonly' };
             const context = await ledgerContext();
@@ -377,7 +378,7 @@ export function createCombatServices(options = {}) {
             if (!heroId || !context.state.characters.get(heroId)) return { ok: false, reason: 'combat-points-not-protagonist' };
             const write = kind === 'gear' ? context.ledgerImpl.sellGear : kind === 'keepsake' ? context.ledgerImpl.sellKeepsake : null;
             if (typeof write !== 'function') return { ok: false, reason: 'combat-sell-unavailable' };
-            return write(String(id || ''));
+            return write(String(id || ''), count);
         });
     }
 
@@ -1109,10 +1110,12 @@ export function createCombatServices(options = {}) {
         const { rarity } = planTrait(seed);
         const shape = planTraitShape(seed, rarity);
         const link = planTraitLink(seed, rarity);
+        // 规则 v6 遗物特性（G5f）：是否出遗物、出哪件、原版或拆解都由程序按种子定，副 LLM 只写来历。
+        const relic = planTraitRelic({ seed, rarity, archetype: hero.classProfile?.archetype, owned: ownedRelicIds(hero) });
         const traitId = `tr-${Date.now().toString(36)}`;
         const kept = keptInnateKinds(hero);
         const innate = [kept.includes('active') ? hero.profile?.heroSkill : null, kept.includes('passive') ? hero.profile?.personalPassive : null].filter(Boolean);
-        const entities = await withCharacterLore([traitEntity({ character: hero, rarity, traitId, shape, link, existing: [...innate, ...(hero.traits || [])] })], readLore);
+        const entities = await withCharacterLore([traitEntity({ character: hero, rarity, traitId, shape, link, relic, existing: [...innate, ...(hero.traits || [])] })], readLore);
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };
         const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
         if (signal?.aborted) return { ok: false, reason: 'request-stale' };

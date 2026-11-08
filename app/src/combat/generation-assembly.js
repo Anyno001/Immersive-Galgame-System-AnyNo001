@@ -16,6 +16,7 @@ import { hash32, hashString, nextRandom } from './random.js';
 import { isEnemyArtKey } from './enemy-art.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool } from './fixed-cards/index.js';
+import { resolveRelic } from './relics/draw.js';
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const indexPath = (path, index) => `${path}[${index}]`;
@@ -611,17 +612,26 @@ export function assembleItem(raw, { key, input }) {
 const deepCopy = (value) => JSON.parse(JSON.stringify(value));
 
 // 特质：fixed.shape 给定时直接用其形状（主动技能或被动），否则按被动模板与稀有度生成
+// fixed.relic（规则 v6 遗物特性）给定时名称与被动都由遗物表还原，模型只写来历；战斗外模型的遗物特性不带被动，只记引用。
 export function assembleTrait(raw, { key, fixed = {} } = {}) {
     const invalid = expectObject(raw);
     if (invalid) return invalid;
     const collector = createCollector(key);
-    const shape = fixed.shape || null;
-    const name = requiredText(raw.name, 'name', collector, 20);
-    const template = shape ? null : pickTemplate(raw.template, 'template', collector, GEAR_PASSIVE_TEMPLATES);
-    if (!name || (!shape && !template)) return { errors: collector.errors };
+    const relic = fixed.relic ? resolveRelic(fixed.relic.relicId, fixed.relic.model) : null;
+    if (fixed.relic && !relic) return { errors: [{ path: 'relic', reason: 'relic-trait-invalid' }] };
+    // 遗物被动的 id / name 换成本特性自己的，其余（触发器、过滤、效果、描述）原样保留。
+    const relicPassiveBody = relic?.passive ? (({ id: _id, name: _name, ...rest }) => rest)(relic.passive) : null;
+    const shape = relic ? (relicPassiveBody ? { kind: 'passive', passive: relicPassiveBody } : null) : fixed.shape || null;
+    const name = relic ? relic.name : requiredText(raw.name, 'name', collector, 20);
+    const template = shape || relic ? null : pickTemplate(raw.template, 'template', collector, GEAR_PASSIVE_TEMPLATES);
+    if (!name || (!shape && !relic && !template)) return { errors: collector.errors };
     const origin = typeof raw.origin === 'string' ? raw.origin.trim() : '';
     if (origin.length > REWARD_ORIGIN_MAX) collector.note('origin', origin.length, REWARD_ORIGIN_MAX);
-    const base = { traitId: fixed.traitId, name, origin: origin.slice(0, REWARD_ORIGIN_MAX), rarity: fixed.rarity, ...(fixed.link ? { link: fixed.link } : {}) };
+    const base = {
+        traitId: fixed.traitId, name, origin: origin.slice(0, REWARD_ORIGIN_MAX), rarity: fixed.rarity, ...(fixed.link ? { link: fixed.link } : {}),
+        ...(relic ? { relic: { relicId: relic.relicId, model: relic.model } } : {}),
+    };
+    if (relic && !relic.passive) return { value: { ...base, kind: 'passive' }, diagnostics: collector.diagnostics };
     if (shape?.kind === 'active') {
         const { cost, effects, description } = shape.skill;
         return { value: { ...base, kind: 'active', skill: { id: `${fixed.traitId}-s`, name, cost, effects: deepCopy(effects), description } }, diagnostics: collector.diagnostics };
@@ -661,6 +671,18 @@ function buildRewardEntry(value, path, collector, slot, seed) {
         if (!label || !slot.cardId || !slot.copyId) return collector.fail(path, 'inscribe-slot-invalid');
         return { ...base, name: `${label}·${String(slot.cardName || '')}`.slice(0, 20), inscription: slot.inscription, cardId: slot.cardId, copyId: slot.copyId, cardName: String(slot.cardName || slot.cardId).slice(0, 40) };
     }
+    // 规则 v6 遗物宝物槽（rewards.js 的 withRelics）：条目、模型、名称与效果都由程序定，模型只写来历。
+    if (slot.kind === 'gear' && slot.relic) {
+        const relic = resolveRelic(slot.relic.relicId, slot.relic.model);
+        if (!relic) return collector.fail(path, 'relic-slot-invalid');
+        const gearId = gearIdFor(relic.name);
+        const passive = relic.passive ? { ...relic.passive, id: `${gearId}-p`, name: relic.name } : null;
+        const description = passive ? passive.description : relic.description;
+        return {
+            ...base, name: relic.name,
+            gear: { gearId, name: relic.name, slot: slot.gearSlot, ...(passive ? { passive } : {}), description, relic: { relicId: relic.relicId, model: relic.model } },
+        };
+    }
     const name = requiredText(nameValue, paths[0], collector, 20);
     // 装备槽带程序给的候选（规则 v5 D10）时只能从候选里选；旧槽位不带候选，照旧用全表。
     const gearTable = Array.isArray(slot.templates) && slot.templates.length ? restrictTable(GEAR_PASSIVE_TEMPLATES, slot.templates) : GEAR_PASSIVE_TEMPLATES;
@@ -676,7 +698,8 @@ function buildRewardEntry(value, path, collector, slot, seed) {
         const item = itemFromTemplate(template);
         return { ...base, name, item: { itemId: itemIdFor(name), name, count: slot.count, effects: item.effects, description: item.description } };
     }
-    return { ...base, name };
+    // 规则 v6 G3d 弱敌战的劣等杂物：junk 由程序定，随奖励单与战利品记录保存。
+    return { ...base, name, ...(slot.kind === 'keepsake' && slot.junk === true ? { junk: true } : {}) };
 }
 
 // 奖励：按 input.slots（以及可选 input.reserve 备选）逐槽生成

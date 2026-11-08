@@ -5304,7 +5304,7 @@ ${row.key}`;
             getHeroInventory: typeof options.getCombatHeroInventory === 'function' ? () => options.getCombatHeroInventory() : null,
             setHeroGear: typeof options.setCombatHeroGear === 'function' ? (gearId, equip, slotIndex) => options.setCombatHeroGear(gearId, equip, slotIndex) : null,
             // 背包卖出（v0.39.2）：人物状态面板的背包页已取消，主角装备与杂物统一在这里卖出。
-            sellHeroItem: typeof options.sellCombatHeroItem === 'function' ? (kind, id) => options.sellCombatHeroItem(kind, id) : null,
+            sellHeroItem: typeof options.sellCombatHeroItem === 'function' ? (kind, id, count) => options.sellCombatHeroItem(kind, id, count) : null,
         });
         const mapController = createMapPanelController(doc, options.global, fillRecordDraft, {
             mediaCache: options.media?.cache,

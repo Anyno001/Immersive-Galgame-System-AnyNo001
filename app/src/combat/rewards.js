@@ -2,8 +2,10 @@
 import { cardCopyLimit, combatExpReward, difficultyRule } from './rules.js';
 import { GEAR_SLOTS, REWARD_CARD_CHOICES, REWARD_SLOT_COUNT } from './schema.js';
 import { hash32, hashString, nextRandom } from './random.js';
+import { weakShare } from './points.js';
 import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from './fixed-cards/index.js';
+import { drawRelic } from './relics/draw.js';
 
 const RARITY_ORDER = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 const rarityIndex = (rarity) => RARITY_ORDER.indexOf(rarity);
@@ -145,6 +147,33 @@ function buildSlots(seed, rule, kinds, count, fortune, loot = null, targets = nu
     return slots;
 }
 
+// 规则 v6 G3d 弱敌战（D-24）：槽位数不变，每槽（含精英、首领的保底槽）按 WEAK_JUNK_CHANCE 出普通劣等杂物（junk）；
+// 其余槽稀有度封顶普通（宝物降为普通装备），不做杂物转卡牌、难度升档与特性关联升档。独立种子域 `${seed}|weak`。
+export const WEAK_JUNK_CHANCE = 0.95;
+function buildWeakSlots(seed, kinds, count, targets = null) {
+    const random = randomFrom(`${seed}|weak`);
+    const slots = [];
+    for (let index = 0; index < count; index += 1) {
+        if (random() < WEAK_JUNK_CHANCE) {
+            slots.push({ index, kind: 'keepsake', rarity: 'common', junk: true });
+            continue;
+        }
+        let kind = pickWeighted(random, kinds);
+        let mark = null;
+        if (kind === 'inscribe') {
+            mark = pickInscription(`${seed}|weak|inscribe|${index}`, targets || []);
+            if (!mark) kind = 'card';
+        }
+        if (kind === 'treasure') kind = 'gear';
+        const slot = { index, kind, rarity: 'common', ...(mark || {}) };
+        if (kind === 'card') slot.cost = pickWeighted(random, CARD_COST_WEIGHTS);
+        if (kind === 'gear') slot.gearSlot = PLAIN_GEAR_SLOTS[pickIndex(random, PLAIN_GEAR_SLOTS.length)];
+        if (kind === 'item') slot.count = 1;
+        slots.push(slot);
+    }
+    return slots;
+}
+
 // 规则 v6 卡牌槽的固定候选：从本职业固定池按槽位稀有度（史诗及以上按稀有）取 count 张不同的牌，
 // 跳过已达同名上限与已选的牌，不够时逐档降低稀有度补足；floor 为最低稀有度（无色池没有普通，按罕见起算）。
 const FIXED_TOP = rarityIndex('rare');
@@ -179,6 +208,24 @@ function withCardCandidates(slots, seed, pool, owned, archetype, general = []) {
     });
 }
 
+// 规则 v6 宝物槽（G5f）：按槽位种子从遗物表抽一件宝物遗物，原版 / 拆解模型由 relic-model 种子域 1:1 定，记在槽位 relic；
+// 已持有与同一次奖励里已抽到的不再出。候选用尽时槽位不带 relic，照旧由副 LLM 按被动模板起名。
+export function ownedRelicIds(character) {
+    const gear = character?.gear || {};
+    const slotted = Object.values(gear.slots || {}).flatMap((value) => (Array.isArray(value) ? value : value ? [value] : []));
+    const traits = Array.isArray(character?.traits) ? character.traits : [];
+    return [...slotted, ...(Array.isArray(gear.bag) ? gear.bag : []), ...traits].map((item) => item?.relic?.relicId).filter((id) => typeof id === 'string');
+}
+function withRelics(slots, seed, archetype, taken) {
+    return slots.map((slot) => {
+        if (slot.kind !== 'gear' || slot.gearSlot !== 'treasure') return slot;
+        const got = drawRelic({ seed: `${seed}|relic|${slot.index}`, home: 'treasure', rarity: slot.rarity, archetype, owned: taken });
+        if (!got) return slot;
+        taken.push(got.relicId);
+        return { ...slot, relic: { relicId: got.relicId, model: got.model } };
+    });
+}
+
 // 规则 v6 积分抽卡（D-09 / D-15）：稀有度与费用的权重表；候选只取本职业，不混无色。
 export const CARD_DRAW_RARITY = Object.freeze([['common', 60], ['uncommon', 32], ['rare', 8]]);
 // 积分抽卡规划：以主角 ID 加已抽次数为种子，定稀有度、随机卡费用、本职业固定候选 2 张与随机卡位置。
@@ -202,7 +249,8 @@ export function planCardDraw(character) {
 // 规划一场战斗的奖励。返回 { seed, tier, exp, links, slots, reserve }。
 // inscribe 为真（规则 v5 胜利奖励）时卡组角色可出刻印槽；日常挑战等其他调用方不开启，槽位与旧规则一致。
 // candidates 为真（规则 v6 胜利奖励）时卡组角色的卡牌槽展开为三选一（本职业固定卡、按比例混入无色固定卡、本职业随机卡，见 withCardCandidates）。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false } = {}) {
+// weak 为真（规则 v6 G3d 弱敌战，只与 candidates 同开）时按 buildWeakSlots 出槽，经验按 1/4 向下取整。
+export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false, weak = false } = {}) {
     const tierKey = Object.hasOwn(TIER_LOOT, tier) ? tier : 'normal';
     const rule = TIER_LOOT[tierKey];
     const normalLinks = normalizeLinks(links);
@@ -219,8 +267,14 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     const pool = deck && candidates === true ? fixedClassPool(archetype) : [];
     const general = pool.length ? FIXED_GENERAL_CARDS : [];
     const owned = character?.owned instanceof Map ? character.owned : new Map();
-    const slots = withCardCandidates(buildSlots(seed, rule, kinds, count, normalLinks.fortune, lootFor(seed), targets), seed, pool, owned, archetype, general);
+    // 宝物遗物只在规则 v6 卡组角色出（与三选一同一开关），旧战斗与重放的槽位形状不变。
+    const taken = deck && candidates === true ? ownedRelicIds(character) : null;
+    const relics = (list, key) => (taken ? withRelics(list, key, archetype, taken) : list);
+    const weakOn = weak === true && candidates === true;
+    const base = (key) => (weakOn ? buildWeakSlots(key, kinds, count, targets) : buildSlots(key, rule, kinds, count, normalLinks.fortune, lootFor(key), targets));
+    const slots = relics(withCardCandidates(base(seed), seed, pool, owned, archetype, general), seed);
     const reserveSeed = `${seed}|reserve`;
-    const reserve = withCardCandidates(buildSlots(reserveSeed, rule, kinds, count, normalLinks.fortune, lootFor(reserveSeed), targets), reserveSeed, pool, owned, archetype, general);
-    return { seed, tier: tierKey, exp: victoryExpFor(enemyTiers), links: normalLinks, slots, reserve };
+    const reserve = relics(withCardCandidates(base(reserveSeed), reserveSeed, pool, owned, archetype, general), reserveSeed);
+    const exp = weakOn ? weakShare(victoryExpFor(enemyTiers)) : victoryExpFor(enemyTiers);
+    return { seed, tier: tierKey, exp, links: normalLinks, slots, reserve, ...(weakOn ? { weak: true } : {}) };
 }

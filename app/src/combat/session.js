@@ -13,7 +13,8 @@ import {
 import { generateWithRetry } from './generation-retry.js';
 import { attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
 import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance } from './ledger.js';
-import { battlePoints, battleTierOf } from './points.js';
+import { battlePoints, battleTierOf, weakBattlePoints } from './points.js';
+import { heldOffCombat, winPointsBonus } from './relics/off-combat.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
 import { scaleCatalog, scaleSkills } from './card-scaling.js';
@@ -328,7 +329,7 @@ function skillFillEntities(ledgerState, start, userName, filledIds) {
 }
 
 // 组装备战大厅：主角、在场盟友、缺席盟友、倒下盟友、敌人模板及可控角色
-function buildLobby(ledgerState, start, userName, fallbackTemplates) {
+function buildLobby(ledgerState, start, userName, fallbackTemplates, weakFoes) {
     const hero = findCharacter(ledgerState, userName);
     if (!hero || hero.kind !== 'deck-character') return { ok: false, reason: 'combat-protagonist-missing' };
     const allies = [hero];
@@ -365,7 +366,15 @@ function buildLobby(ledgerState, start, userName, fallbackTemplates) {
         const view = attributeViewFor(ledgerState, name);
         if (view) enemyAttributes.set(name, view);
     }
-    return { ok: true, heroId: hero.id, allies, absent, downed, enemies, templated, controllable, enemyAttributes };
+    return { ok: true, heroId: hero.id, allies, absent, downed, enemies, templated, controllable, enemyAttributes, ...(weakFoes === true ? { weakFoes: true } : {}) };
+}
+
+// 规则 v6 G3d 弱敌战：开战标签里的敌人全部相对主角「远逊」时为真（防刷场次）；没有关系档的敌人按默认档「相当」计（D-23）。
+// enemyAttributes 为 名字 -> 属性视图（attributeViewFor），缺项按默认档。
+export function weakFoesOf(start, enemyAttributes) {
+    const enemies = Array.isArray(start?.enemies) ? start.enemies : [];
+    const tierOf = (name) => (enemyAttributes instanceof Map ? enemyAttributes.get(name)?.tier : null);
+    return enemies.length > 0 && enemies.every((enemy) => tierOf(enemy?.name) === 'outclassed');
 }
 
 // 本场战斗的奖励计划（主角缺档案时按名字临时造一个角色引用）。规则 v5 的战斗可出刻印槽；已存的 v3 / v4 战斗不出。
@@ -375,10 +384,13 @@ function planReward(ledgerState, session, userName, difficulty) {
     const character = hero || { kind: 'deck-character', id: profileIdFor('deck-character', userName), name: userName };
     const enemyTiers = session.start.enemies.flatMap((enemy) => Array(Math.max(1, Number(enemy.count) || 1)).fill(session.start.tier));
     const rulesVersion = session.record?.setup?.rulesVersion ?? COMBAT_RULES.version;
+    // 已开战只认 setup；准备与重试共用开战楼冻结的判定。
+    const weak = rulesVersion >= 6 && (session.record?.setup ? session.record.setup.weakFoes === true
+        : session.weakFoes === true);
     return rewardEntity({
         combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
         encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
-        inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6,
+        inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6, weak,
     });
 }
 
@@ -495,6 +507,8 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
         rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
         openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, units: [...allies, ...enemies],
     };
+    // 规则 v6 G3d：弱敌战标记只在为真时写进新建 setup，战报、奖励与账本重放只认已存值。
+    if (lobby.weakFoes === true) setup.weakFoes = true;
     const reserve = reserveQueue(enemies, tiers, combatId);
     if (reserve) setup.reserve = reserve;
     const controlledAlly = lobby.allies.find((ally) => ally.id === controlled);
@@ -703,7 +717,7 @@ export function createCombatSession(options = {}) {
     const ok = (extra = {}) => ({ ok: true, ...extra, session: snapshot() });
     const fail = (reason, extra = {}) => ({ ok: false, reason, ...extra, session: snapshot() });
     const sessionKey = () => sessionKeyFor(getChatId());
-    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(session.theme ? { theme: session.theme } : {}), ...(isChallenge(session) ? { kind: 'challenge' } : {}) });
+    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(typeof session.weakFoes === 'boolean' ? { weakFoes: session.weakFoes } : {}), ...(session.theme ? { theme: session.theme } : {}), ...(isChallenge(session) ? { kind: 'challenge' } : {}) });
 
     // 会话记录读写：写入走节流，读取先看内存
     const readSession = () => persist.read(sessionKey());
@@ -767,6 +781,7 @@ export function createCombatSession(options = {}) {
     const buildReport = (session) => (isChallenge(session) ? buildChallengeReportFor(session) : buildCombatReport({
         combatId: session.combatId, encounter: session.record.encounter, state: session.battle, events: session.events,
         enemyTiers: session.record.tiers, expTargets: session.record.expTargets, detail: resolveOption(options.reportDetail) || 'normal',
+        weak: session.record.setup?.weakFoes === true,
     }));
 
     // ---- 聊天记录（战斗结果、翻牌选择随聊天走） ----
@@ -900,7 +915,8 @@ export function createCombatSession(options = {}) {
             combatId: identity.combatId, offer, pick: picks.reduce(laterPick, null) || emptyPick(),
             points, payer: !!heroId && offer.character === heroId,
             character: ledgerState.characters.get(offer.character)?.name || getUserName(),
-            purge: heroId && v6 ? purgeOfHero(ledgerState.characters.get(heroId), identity.combatId, points) : null,
+            // 规则 v6 G3d：弱敌战不计场次，不给删卡机会。
+            purge: heroId && v6 && current.record?.setup?.weakFoes !== true ? purgeOfHero(ledgerState.characters.get(heroId), identity.combatId, points) : null,
             heroName: (heroId && ledgerState.characters.get(heroId)?.name) || getUserName(),
         };
         return finishWith(viewOfFlip(context), context);
@@ -1040,9 +1056,12 @@ export function createCombatSession(options = {}) {
             if (signal?.aborted || !isCurrent(session)) { setState({ status: 'idle' }); return fail('request-stale'); }
         }
         // 账本状态：只在本函数确实写过表之后才重新读取，其余步骤传递同一份
-        let ledgerState = await ledger.effectiveState();
+        let ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId });
         if (!ledgerState.ok) return blocked(session, ledgerState.reason, ledgerState.detail ? { detail: ledgerState.detail } : {});
         const alreadyPrepared = !!chatRecord.value?.prepared;
+        session.weakFoes = COMBAT_RULES.version >= 6 && (alreadyPrepared
+            ? chatRecord.value.prepared.weakFoes === true
+            : weakFoesOf(session.start, new Map(session.start.enemies.map(({ name }) => [name, attributeViewFor(ledgerState, name)]))));
         let entities = neededProfiles(ledgerState, located.start, userName, { heroOnly: alreadyPrepared });
         const initNames = alreadyPrepared ? [userName] : [userName, ...located.start.allies, ...located.start.enemies.map((enemy) => enemy.name)];
         if (ledgerState.attributes?.table === 'ok') {
@@ -1147,12 +1166,12 @@ export function createCombatSession(options = {}) {
             }
         }
         if (!stillWanted()) { setState({ status: 'idle' }); return fail('request-stale'); }
-        const lobby = buildLobby(ledgerState, located.start, userName, fallbackTemplates);
+        const lobby = buildLobby(ledgerState, located.start, userName, fallbackTemplates, session.weakFoes);
         if (!lobby.ok) return blocked(session, lobby.reason);
         lobby.vitals = lobbyVitals(lobby, difficultyOf());
         const skipped = (generated?.rejected || []).filter((item) => item.fallback?.kind === 'skip').map((item) => item.owner);
         const newTheme = theme && theme !== savedTheme ? { theme } : {};
-        if (!chatRecord.value?.prepared || newTheme.theme) await writeChatRecord(session, { ...(chatRecord.value?.prepared ? {} : { prepared: { at: now() } }), ...newTheme });
+        if (!chatRecord.value?.prepared || newTheme.theme) await writeChatRecord(session, { ...(chatRecord.value?.prepared ? {} : { prepared: { at: now(), weakFoes: session.weakFoes } }), ...newTheme });
         return ok({
             session: setState({
                 ...session, ...(theme ? { theme } : {}), status: 'lobby', lobby, skipped, reward: rewardStatus(ledgerState, session.combatId, rewardPlan?.plan, rewardFailure),
@@ -1399,8 +1418,20 @@ export function createCombatSession(options = {}) {
         const combatId = current.combatId;
         if (report.result === 'win' && !isChallenge(current) && !intimate && Number.isInteger(reportMessageId) && ledger?.append && typeof hero === 'string' && hero && typeof combatId === 'string' && combatId) {
             const tier = battleTierOf(current.record?.tiers);
+            // 规则 v6 G3d：弱敌战积分为定额的 1/4，遗物加成不触发。
+            const weak = current.record?.setup?.weakFoes === true;
+            const amount = weak ? weakBattlePoints(tier, combatId) : battlePoints(tier, combatId);
+            // G5f-4c：按写入此刻持有的加金币遗物特性记加成快照（规则 v6 战斗才有）；读不到账本时不带加成，定额照发。
+            let bonus = null;
+            if (!weak && (current.record?.setup?.rulesVersion ?? 0) >= 6 && typeof ledger.effectiveState === 'function') {
+                try {
+                    const owned = await ledger.effectiveState({ raw: true });
+                    const traits = owned?.ok ? owned.characters?.get(hero)?.traits : null;
+                    bonus = winPointsBonus(heldOffCombat(traits, 'win-points'), amount);
+                } catch { bonus = null; }
+            }
             const anchor = { messageId: reportMessageId, swipeId: reportSwipeId(), tagHash: BATTLE_POINTS_TAG_HASH, occurrence: 0 };
-            const entry = { id: ledgerEntryId('battle-points', hero, anchor), type: 'battle-points', character: hero, anchor, payload: { amount: battlePoints(tier, combatId), tier, combatId, reportId: report.reportId }, createdAt: now() };
+            const entry = { id: ledgerEntryId('battle-points', hero, anchor), type: 'battle-points', character: hero, anchor, payload: { amount, tier, combatId, reportId: report.reportId, ...(weak ? { weak: true } : {}), ...(bonus ? { bonus } : {}) }, createdAt: now() };
             try {
                 pointsResult = await ledger.append([entry]);
             } catch {
