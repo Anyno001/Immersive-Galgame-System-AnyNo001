@@ -50,7 +50,7 @@ import { describeFailure, imagePromptStatusClass, imagePromptStatusText } from '
 import { handleArtistLibraryAction, setArtistLibraryField, setArtistSelection } from './settings-artist-library.js';
 import { preserveConfiguredArtists } from '../../generated-images/artist-library.js';
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
-import { previewStatusHudPosition } from './status-hud-position-fields.js';
+import { previewStatusHudAvatarFraming, previewStatusHudPosition } from './status-hud-position-fields.js';
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 import { BUILD_CUSTOM_OPTION, normalizeBuild, pickSummary, validCustomSkillName } from '../../scene/stats/stat-build.js';
 import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
@@ -1458,6 +1458,10 @@ export function createSettingsHost(deps) {
                 previewStatusHudPosition(target);
                 return;
             }
+            if (target.type === 'range' && target.hasAttribute('data-hud-avatar-axis')) {
+                previewStatusHudAvatarFraming(target);
+                return;
+            }
             if (target.type === 'range' && target.getAttribute('data-path') === 'readerSettings.typewriter.sound.volume') {
                 const label = root.querySelector('[data-range-value="readerSettings.typewriter.sound.volume"]');
                 if (label) label.textContent = `${Math.round(Number(target.value) * 100)}%`;
@@ -1746,7 +1750,7 @@ export function createSettingsHost(deps) {
                 return;
             }
             if (path) noteRecentChange(target, path);
-            if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound|statusHud\.position)\./.test(path || '')) return;
+            if (event.target && event.target.type === 'range' && !/^readerSettings\.(typewriter\.sound\.|statusHud\.position\.|statusHud\.avatar(ShiftX|ShiftY|Zoom)$)/.test(path || '')) return;
             if (!path) return;
             controller.setValue(path, target.value, { liveInput: target.tagName !== 'SELECT' && target.type !== 'color' });
             persistImmediateField(path);

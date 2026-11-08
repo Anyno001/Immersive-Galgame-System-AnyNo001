@@ -12,6 +12,10 @@ export const STATUS_HUD_LOCATION_SCALE = Object.freeze({ small: 1.2, medium: 1.4
 const STATUS_HUD_OVERALL_SCALE = 0.8;
 export const STATUS_HUD_AVATAR_RADIUS_IDS = Object.freeze(['square', 'soft', 'small', 'medium', 'large', 'circle']);
 export const STATUS_HUD_AVATAR_RADIUS_PX = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
+export const STATUS_HUD_AVATAR_SOURCE_IDS = Object.freeze(['upload', 'sprite']);
+export const STATUS_HUD_AVATAR_SHIFT_MAX = 60;
+export const STATUS_HUD_AVATAR_ZOOM_MIN = 50;
+export const STATUS_HUD_AVATAR_ZOOM_MAX = 250;
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
 export const STATUS_HUD_TABLES_MODE_IDS = Object.freeze(['auto', 'manual']);
@@ -66,6 +70,10 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     nsfwCgPortraitShiftX: 0,
     nsfwCgPortraitZoom: 100,
     avatarRadius: 'circle',
+    avatarSource: 'upload',
+    avatarShiftX: 0,
+    avatarShiftY: 0,
+    avatarZoom: 100,
     background: 'none',
     barColor: 'color',
     tables: [],
@@ -107,6 +115,12 @@ export function normalizeStatusHudSettings(raw) {
         nsfwCgPortraitShiftX: clampPortraitShift(src.nsfwCgPortraitShiftX),
         nsfwCgPortraitZoom: clampPortraitZoom(src.nsfwCgPortraitZoom),
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
+        // 头像来源：upload 用上传 / 生成的头像；sprite 从本页立绘裁脸（跟衣服、表情走），取不到立绘时退回上传头像。
+        avatarSource: STATUS_HUD_AVATAR_SOURCE_IDS.includes(src.avatarSource) ? src.avatarSource : STATUS_HUD_DEFAULTS.avatarSource,
+        // 跟随立绘时的取景：左右、上下为头像框宽的百分比（正数 = 图往右 / 往下），缩放为百分比。
+        avatarShiftX: Math.round(clampNumber(src.avatarShiftX, -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX, 0)),
+        avatarShiftY: Math.round(clampNumber(src.avatarShiftY, -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX, 0)),
+        avatarZoom: Math.round(clampNumber(src.avatarZoom, STATUS_HUD_AVATAR_ZOOM_MIN, STATUS_HUD_AVATAR_ZOOM_MAX, 100)),
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
         tables: normalizeStatusHudTables(src.tables),
@@ -258,6 +272,9 @@ export function buildStatusHudModel(input = {}) {
     const emotion = character ? String(input.emotion || '').trim() : '';
     // 服装属于当前立绘角色：说话人与立绘角色一致时才取服装头像。
     const outfit = input.outfitFor && input.outfitFor.character === character ? String(input.outfitFor.outfit || '') : '';
+    const spriteAvatar = settings.avatarSource === 'sprite' && character && input.spriteAvatar
+        && (resolveCharacterKey(characters, sceneAssets.characterAliases, input.spriteAvatar.character) || input.spriteAvatar.character) === character
+        ? String(input.spriteAvatar.url || '').trim() : '';
 
     // 地点栏只在没有角色的旁白页显示；内心页属于角色页，与对白页同样不显示地点。
     const showSceneInfo = settings.showLocation && input.isNarration === true && !rawCharacter;
@@ -269,9 +286,10 @@ export function buildStatusHudModel(input = {}) {
         time: showSceneInfo && settings.showLocationDetails ? String(input.time || '').trim() : '',
         weather: showSceneInfo && settings.showLocationDetails ? String(input.weather || '').trim() : '',
         showLocationDetails: settings.showLocationDetails,
-        // 当前服装设了头像时优先用它，未设时沿用角色头像。
-        avatar: resolveStatusAvatar({ [character]: outfitAvatarOf(sceneAssets.characterOutfits, sceneAssets.characterAliases, character, outfit) }, character)
-            || resolveStatusAvatar(sceneAssets.statusAvatars, character),
+        // 跟随立绘且本页取得到说话人立绘时用立绘裁脸；否则当前服装设了头像时优先用它，未设时沿用角色头像。
+        avatar: (spriteAvatar || resolveStatusAvatar({ [character]: outfitAvatarOf(sceneAssets.characterOutfits, sceneAssets.characterAliases, character, outfit) }, character)
+            || resolveStatusAvatar(sceneAssets.statusAvatars, character)),
+        avatarCrop: spriteAvatar ? { x: settings.avatarShiftX, y: settings.avatarShiftY, zoom: settings.avatarZoom } : null,
         avatarRadius: settings.avatarRadius,
         background: settings.background,
         barColor: settings.barColor,

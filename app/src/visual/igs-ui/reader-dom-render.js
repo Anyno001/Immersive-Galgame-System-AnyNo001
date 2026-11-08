@@ -36,7 +36,7 @@ import { repositionBattleImpacts } from './fx-battle.js';
 import { renderDailyFx } from './fx-daily.js';
 import { enabledPackIds } from './fx-daily-model.js';
 import { audioCuesOf } from './fx-camera-gate.js';
-import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
+import { FALLBACK_HEAD, HEAD_ASPECT, peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 import { applyCreatureScale, applyGiantLayer, creatureDisplayProfileOf, giantAsideCenter, placeCreature, posXForCenterPct, setCreatureFloat, syncCastFloat } from './creature-layout.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
@@ -1054,6 +1054,44 @@ export function applyStatusHudPosition(host, position) {
     }
 }
 
+// 状态栏头像跟随立绘：方框里放整张立绘，按头位把脸摆到框中心；取景框约 2.4 个头宽，再叠用户设的缩放与偏移。
+// 偏移、缩放单位：头像框宽的百分比 / 百分比倍率。头位没探测过时先按默认头位摆，探测完再挪到位。
+export function statusHudSpriteCrop(probe, crop) {
+    const head = probe && probe.head && Number(probe.head.w) > 0 ? probe.head : FALLBACK_HEAD;
+    const aspect = probe && probe.naturalW > 0 && probe.naturalH > 0 ? probe.naturalH / probe.naturalW : 1.6;
+    const zoom = crop && Number(crop.zoom) > 0 ? Number(crop.zoom) / 100 : 1;
+    const w = Math.max(0.02, Number(head.w));
+    const imgW = zoom / (w * 2.4);
+    const faceX = Number(head.x) * imgW;
+    const faceY = (Number(head.top) * aspect + w * HEAD_ASPECT * 0.55) * imgW;
+    const round = (n) => Math.round(n * 100) / 100;
+    return {
+        width: round(imgW * 100),
+        left: round((0.5 - faceX) * 100 + (Number(crop && crop.x) || 0)),
+        top: round((0.5 - faceY) * 100 + (Number(crop && crop.y) || 0)),
+    };
+}
+
+function statusHudSpriteAvatar(doc, url, crop, radius) {
+    const box = doc.createElement('div');
+    box.className = 'igs-hud-avatar igs-hud-avatar-sprite';
+    box.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
+    const img = doc.createElement('img');
+    img.setAttribute('src', url);
+    img.setAttribute('alt', '');
+    const place = (probe) => {
+        const at = statusHudSpriteCrop(probe, crop);
+        img.style.width = `${at.width}%`;
+        img.style.left = `${at.left}%`;
+        img.style.top = `${at.top}%`;
+    };
+    const known = peekSpriteHead(url, doc);
+    place(known);
+    if (!known) probeSpriteHead(url, doc).then((probe) => { if (probe && img.isConnected) place(probe); }, () => {});
+    box.appendChild(img);
+    return box;
+}
+
 export function applyStatusHudToDom(root, snapshot) {
     const host = findStatusHudHost(root);
     if (!host) return;
@@ -1103,7 +1141,9 @@ export function applyStatusHudToDom(root, snapshot) {
     if (hud.character) {
         const avatarFrame = doc.createElement('div');
         avatarFrame.className = 'igs-hud-avatar-frame';
-        if (hud.avatar) {
+        if (hud.avatar && hud.avatarCrop) {
+            avatarFrame.appendChild(statusHudSpriteAvatar(doc, hud.avatar, hud.avatarCrop, radius));
+        } else if (hud.avatar) {
             const img = doc.createElement('img');
             img.className = 'igs-hud-avatar';
             img.setAttribute('src', hud.avatar);

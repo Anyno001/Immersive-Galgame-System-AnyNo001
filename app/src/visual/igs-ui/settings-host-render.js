@@ -44,7 +44,7 @@ import { esc, toHex } from './reader-value-utils.js';
 import { normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { listStatusHudTables, normalizeStatusHudSettings, resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
-import { isStatusHudPhone, renderStatusHudPositionField, statusHudPositionDevice } from './status-hud-position-fields.js';
+import { isStatusHudPhone, renderStatusHudAvatarFraming, renderStatusHudPositionField, statusHudPositionDevice } from './status-hud-position-fields.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
@@ -206,7 +206,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小')),
                 // 头像圆角、背景、配色直接摊开，不再收进「高级」。
                 field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
+                field('readerSettings.statusHud.avatarSource', '头像来源', segmentedInput('readerSettings.statusHud.avatarSource', statusHud.avatarSource, [['upload', '上传头像'], ['sprite', '跟随立绘']], '头像来源')),
                 '</div>',
+                statusHud.avatarSource === 'sprite' ? renderStatusHudAvatarFraming(statusHud) : '',
                 renderStatusHudPositionField(statusHud, statusHudPositionDevice(asyncState, win), isStatusHudPhone(win) ? 'mobile' : 'pc'),
                 '<div class="igs-source-filter-grid">',
                 field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),

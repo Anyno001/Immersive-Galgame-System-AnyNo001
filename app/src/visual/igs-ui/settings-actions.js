@@ -2334,6 +2334,12 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'status-hud-avatar-reset') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        readerDraft.statusHud = { ...normalizeStatusHudSettings(readerDraft.statusHud), avatarShiftX: 0, avatarShiftY: 0, avatarZoom: 100 };
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('status-avatar-set-url:')) {
         const rest = normalizedAction.slice('status-avatar-set-url:'.length);
         const colon = rest.indexOf(':');
