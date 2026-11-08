@@ -33,6 +33,10 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     traitReviewN: 30,
     hudFame: false,
     hudFameDetail: false,
+    // 自然回血（D 批）：按天（每天 5/10/15%）或按楼（每楼 1/3/5%，只算 AI 楼）。
+    healMode: 'day',
+    healDay: 10,
+    healFloor: 3,
     sheetGen: 'prompt',
     backfill: 'auto',
     bars: Object.freeze({ stamina: true, money: true, stress: true }),
@@ -47,6 +51,10 @@ const NEW_CHAT = new Set(['ask', 'auto', 'off']);
 const STORY_CHECK = new Set(['preroll', 'manual', 'off']);
 const SHEET_GEN = new Set(['prompt', 'auto', 'off']);
 const BACKFILL = new Set(['auto', 'manual', 'off']);
+const HEAL_MODES = new Set(['day', 'floor']);
+const HEAL_DAY = Object.freeze([5, 10, 15]);
+const HEAL_FLOOR = Object.freeze([1, 3, 5]);
+const healPct = (list, value, fallback) => (list.includes(Number(value)) ? Number(value) : fallback);
 
 function bool(value, fallback) {
     return typeof value === 'boolean' ? value : fallback;
@@ -179,6 +187,9 @@ export function normalizeStatsSettings(raw) {
         // 状态栏显示声望（汇总一行）；开了它之后「显示细项」才生效（每条、每一对各自成条）。
         hudFame: bool(src.hudFame, d.hudFame),
         hudFameDetail: bool(src.hudFameDetail, d.hudFameDetail),
+        healMode: pick(HEAL_MODES, src.healMode, d.healMode),
+        healDay: healPct(HEAL_DAY, src.healDay, d.healDay),
+        healFloor: healPct(HEAL_FLOOR, src.healFloor, d.healFloor),
         sheetGen: pick(SHEET_GEN, src.sheetGen, d.sheetGen),
         backfill: pick(BACKFILL, src.backfill, d.backfill),
         bars: {

@@ -985,18 +985,18 @@ const STATUS_HUD_TOGGLE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" 
 const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.3"/></svg>';
 
 const STATUS_HUD_COLOR_VARS = Object.freeze({
-    trust: 'var(--igs-hud-bar-trust,#4ab3da)',
-    like: 'var(--igs-hud-bar-like,#ee83b6)',
-    grudge: 'var(--igs-hud-bar-grudge,#2f6b6e)',
-    desire: 'var(--igs-hud-bar-desire,#e5484d)',
-    cold: 'var(--igs-hud-bar-cold,#6a8fc4)',
-    know: 'var(--igs-hud-bar-know,#e8a355)',
+    trust: 'var(--igs-hud-bar-trust,#2fb8e0)',
+    like: 'var(--igs-hud-bar-like,#f27ab0)',
+    grudge: 'var(--igs-hud-bar-grudge,#1f6f66)',
+    desire: 'var(--igs-hud-bar-desire,#e03a4e)',
+    cold: 'var(--igs-hud-bar-cold,#5b72e0)',
+    know: 'var(--igs-hud-bar-know,#e8d03a)',
     'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
-    'slot-2': 'var(--igs-hud-bar-2,#55c795)',
-    'slot-3': 'var(--igs-hud-bar-3,#eec254)',
-    'slot-4': 'var(--igs-hud-bar-4,#b57fe0)',
-    'slot-5': 'var(--igs-hud-bar-5,#ea8a8a)',
-    'slot-6': 'var(--igs-hud-bar-6,#8896ea)',
+    'slot-2': 'var(--igs-hud-bar-2,#5cc46a)',
+    'slot-3': 'var(--igs-hud-bar-3,#f5b52e)',
+    'slot-4': 'var(--igs-hud-bar-4,#b45be0)',
+    'slot-5': 'var(--igs-hud-bar-5,#f0584f)',
+    'slot-6': 'var(--igs-hud-bar-6,#f58a3a)',
 });
 
 const STATUS_HUD_RADIUS = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
@@ -1203,8 +1203,8 @@ export function applyStatusHudToDom(root, snapshot) {
     menu.className = 'igs-hud-entry-menu';
     menu.setAttribute('aria-label', '资料入口');
     if (!recordMenuOpen) menu.setAttribute('hidden', '');
-    // 好感总览入口只在当前 HUD 已有好感度条时出现；数据仍来自状态栏所选表。
-    const hasFavorBar = hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || '')));
+    // 好感总览入口：当前 HUD 有好感度条，或本聊天有好感数据可看（hud.favorData：数值系统有已登记角色 / 状态栏已选读取表）。
+    const hasFavorBar = Boolean(hud && hud.favorData) || (hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || ''))));
     // 「人物状态」项只在卡牌战斗扩展开启时出现。
     const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     // 「随身系统」项只在接了引擎且总开关开着时出现，名字跟随设置里的系统名。

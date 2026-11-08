@@ -53,7 +53,7 @@ const BASE_PROMPTS = {
         '[igs-stat:grudge|角色名|上升/下降|{{强度}}]（芥蒂是对主角的不满与心结，可与好感同时很高；上升如被敷衍、冷落、羞辱，下降如道歉、弥补、释怀、接纳、和解）',
         '[igs-stat:know|角色名|上升/下降]（深谈、得知主角的秘密或真实一面时上升，发现此前对主角的看法有误时下降）',
         '[igs-stat:event|角色名|约会/告白/共患难/交心]（约会、告白只在角色发起或接受时写，被拒不写；交心用于朋友、家人间的深谈、托付秘密、并肩扛事）',
-        '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；与上一行的关键事件不同，不影响关系进展）',
+        '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；与上一行的关键事件不同，不影响关系进展）',
         '[igs-stat:event|角色名|吸血/歌唱/发情]（正文有吸血、歌唱、发情的描写时写一次）',
         '[igs-stat:gift|角色名|礼物类别]',
         '生活（档位前可加角色名，不写角色名则指主角）：',
@@ -68,7 +68,7 @@ const BASE_PROMPTS = {
         '[igs-stat:insight|角色名|技能名]（想通、开窍或生死关头的突破时写；日常练习用 grow）',
     ].join('\n'),
     mandates: '【本轮必须写出】{{事项}}',
-    fame: '【主角声望】以下是各个群体对主角的看法，正文中旁人的反应须与之相符：\n{{声望}}',
+    fame: '【声望】以下是各方对相关人物的看法，正文中旁人的反应须与之相符：\n{{声望}}',
     status: '【角色状态】以下状态由数值系统记录，正文中须与之相符：\n{{状态}}',
 };
 
@@ -294,7 +294,7 @@ export function buildStatsPrompt(state, opts = {}) {
     if (dice.length) push('dice', dice.join('\n'));
     push('tags', fillTemplate(prompts.tags, {
         好感档位: FAVOR_PROMPT_GROUPS.map((g) => `${g.label}：${g.words.join('/')}`).join('；'), 压力强度: STRESS_STRENGTHS.slice(0, 3).join('/'), 强度: FAVOR_STRENGTHS.join('/'), 好感强度: FAVOR_STRENGTHS.join('/'), 体力档位: STAMINA_EVENTS.join('/'), 金钱档位: MONEY_TIERS.join('/'), 伤势档位: HURT_TIERS.join('/'),
-    }, diagnostics) + [...conditionalTagLines(state, opts), ...fameTagLines(opts.fameBars), ...strainTagLines(state), STATUS_TAG_LINE()].map((line) => `\n${line}`).join('') + (opts.nsfw ? `\n${DESIRE_TAG_LINE}` : '') + (opts.nsfw && opts.intimateCost && opts.intimateCost !== 'off' ? `\n${INTIMATE_TAG_LINE}` : ''));
+    }, diagnostics) + [...conditionalTagLines(state, opts), ...fameTagLines(opts.fameBars), ...strainTagLines(state), STATUS_TAG_LINE(opts.worlds)].map((line) => `\n${line}`).join('') + (opts.nsfw ? `\n${DESIRE_TAG_LINE}` : '') + (opts.nsfw && opts.intimateCost && opts.intimateCost !== 'off' ? `\n${INTIMATE_TAG_LINE}` : ''));
     if (opts.combatOn) push('combat', combatSegmentText(prompts, opts, diagnostics));
     const party = (opts.partyLines || []).filter(Boolean);
     if (opts.combatOn && party.length) push('party', fillTemplate(prompts.party, { 同伴: party.join('\n') }, diagnostics));

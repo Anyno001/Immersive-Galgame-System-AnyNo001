@@ -146,7 +146,7 @@ test('四类走向：沦陷只涨不跌且满了二次转换；崩溃回落归�
     const dark = { ...heroBars({ stress: 40, strain: { name: '黑化', type: '扭曲' } }) };
     assert.equal(settleDay(dark, { random: high, rev: 2 }).protagonist.bars.stress, 40);
     const crumble = heroBars({ stress: 40, strain: { name: '疯狂', type: '崩溃' } });
-    assert.equal(settleDay(crumble, { random: high, rev: 2 }).protagonist.bars.stress, 30);
+    assert.equal(settleDay(crumble, { random: high, rev: 2 }).protagonist.bars.stress, 34);
     const r = floor(atPeak(3), '[igs-stat:break|觉醒]');
     assert.equal(r.state.protagonist.bars.stress, 100);
     const spent = shiftStress({ stress: 5, strain: { name: '觉醒', type: '蜕变' } }, 10);

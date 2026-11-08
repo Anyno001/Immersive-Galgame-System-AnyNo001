@@ -31,7 +31,7 @@ test('迁出项不占特质格，特质格满时仍可挂', () => {
     assert.equal(slotUsage(cat, '林夏').slots, 0);
     for (const n of ['坚韧', '黏人', '傲娇', '乐天派', '冰山']) cat = applyTraitChange(null, cat, '林夏', n, true, 'manual').catalog;
     assert.equal(slotUsage(cat, '林夏').slots, 5);
-    assert.equal(applyTraitChange(null, cat, '林夏', '浪漫', true, 'manual').reason, 'full');
+    assert.equal(applyTraitChange(null, cat, '林夏', '浪漫主义者', true, 'manual').reason, 'full');
     assert.equal(applyTraitChange(null, cat, '林夏', '旧伤', true, 'manual').reason, undefined);
 });
 
@@ -61,7 +61,7 @@ test('动物系解耦：动物系占 1 格，捆绑项不占格', () => {
 });
 
 test('合成不额外占格；隐藏特质占格并保留 hidden', () => {
-    const traits = { 林夏: { 犬系: on(), 黏人: on(), 爱撒娇: on(), 'combo:大型犬': on('story', { parts: ['犬系', '黏人', '爱撒娇'] }) } };
+    const traits = { 林夏: { 犬系: on(), 黏人: on(), 撒娇精: on(), 'combo:大型犬': on('story', { parts: ['犬系', '黏人', '撒娇精'] }) } };
     assert.equal(slotUsage({ traits }, '林夏').slots, 3);
     const hid = sanitizeTraits({ 林夏: { 傲娇: on('story', { hidden: true }) } });
     assert.equal(hid.林夏.傲娇.hidden, true);
@@ -84,7 +84,7 @@ test('别名合并：并入主特质并记原叫法；正名已有时不被覆�
     assert.equal(out.苏晴.学霸.label, undefined);
     assert.equal(hasTrait(null, { traits: out }, '林夏', '学霸'), true);
     assert.equal(listTraits({ traits: out }, '林夏').find((t) => t.id === '学霸').label, '学者');
-    for (const pair of [['运动系', '运动解压'], ['嘴硬心软', '傲娇'], ['乖宝宝', '傻白甜'], ['王子病', '自恋'], ['宅', '内向'], ['不良', '混混'], ['道心坚定', '坚韧'], ['侠客', '讲义气'], ['世家子弟', '富二代'], ['猎人', '野外生存']]) {
+    for (const pair of [['运动系', '运动狂'], ['嘴硬心软', '傲娇'], ['乖宝宝', '傻白甜'], ['王子病', '自恋'], ['宅', 'i人'], ['不良', '混混'], ['道心坚定', '坚韧'], ['侠客', '讲义气'], ['世家子弟', '富二代'], ['猎人', '野外生存']]) {
         assert.ok(sanitizeTraits({ 甲: { [pair[0]]: on() } }).甲[pair[1]], pair.join('→'));
     }
 });

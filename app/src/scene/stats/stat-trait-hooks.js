@@ -104,7 +104,7 @@ export function settleTraitTags(before, directives, ctx) {
     return state;
 }
 
-// 日结算后处理（rev ≥ 2，settleDay 专用）：每天固定压力（乐天派）、不在身边缓升（黏人、犬系）、在场缓降（爱撒娇、兔系）、元气。
+// 日结算后处理（rev ≥ 2，settleDay 专用）：每天固定压力（乐天派）、不在身边缓升（黏人、犬系）、在场缓降（撒娇精、兔系）、元气。
 // days 为本次推进天数（日结算 1）；跳跃楼不调用。ctx：{ traits, nsfw, present }。
 export function dailyTraitPass(state, ctx, changes) {
     const cat = traitCatalogOf(ctx.traits, ctx.nsfw);

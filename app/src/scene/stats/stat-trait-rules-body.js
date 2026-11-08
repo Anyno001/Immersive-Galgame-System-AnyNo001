@@ -8,7 +8,7 @@
 // - 只 import 底层状态工具（stat-state、stat-strain），它们只在函数体内使用，模块顶层不求值，循环加载安全。
 // - 体力、金钱、压力的改动都在本文件内基于底层工具实现，返回新 state，变动记进 ctx.changes（source 为 'trait'）。
 // - 天气、地点：数值结算的 ctx 目前不带这两项。钩子只读可选字段 ctx.weather、ctx.place（或 ctx.location / ctx.scene，字符串），
-//   读不到时依赖环境的特质（耐寒、耐热、恐高、怕黑、幽闭、野外生存、旧伤的阴雨天）静默不生效，不报错；接线批把识别结果放进 ctx 即可生效。
+//   读不到时依赖环境的特质（耐寒、耐热、恐高症、怕黑、幽闭恐惧症、野外生存、旧伤的阴雨天）静默不生效，不报错；接线批把识别结果放进 ctx 即可生效。
 //   日结算钩子的 ctx 只有 { traits, nsfw, present }，野外生存的「漏餐兜底」目前同样静默。
 // - 新增存档字段都挂在 state.clock 上：mealDays（各人最近进食日）、lowStaminaDay（主角体力最近低于一半的日期）、
 //   sturdyStreak（连续体力未低于一半的天数）、growDay（主角最近一次成长日）、phobiaDays（环境类效果每天只记一次）。
@@ -177,7 +177,7 @@ function staminaHook(state, api) {
     return next;
 }
 
-// 金钱：精打细算、败家子（花钱）；打工收入：生财有道、不善营生、熟练工（与生财有道取高，不叠加）。
+// 金钱：持家能手、败家子（花钱）；打工收入：财迷、穷光蛋、熟练工（与财迷取高，不叠加）。
 function moneyHook(state, api) {
     const { ctx } = api;
     const seen = ctx.changes.slice();
@@ -185,7 +185,7 @@ function moneyHook(state, api) {
     for (const c of seen) {
         if (c.key !== 'money' || c.source !== 'tag' || !(c.to < c.from) || !barsOfName(next, c.target)) continue;
         const spent = c.from - c.to;
-        if (api.has(next, c.target, '精打细算')) next = moveMoney(next, c.target, Math.round(spent * 0.25), '精打细算', ctx.changes);
+        if (api.has(next, c.target, '持家能手')) next = moveMoney(next, c.target, Math.round(spent * 0.25), '持家能手', ctx.changes);
         if (api.has(next, c.target, '败家子')) next = moveMoney(next, c.target, -Math.round(spent * 0.5), '败家子', ctx.changes);
     }
     // 打工收入按档位差额补减：高一档 / 低一档；已是最高 / 最低档不再动。
@@ -193,8 +193,8 @@ function moneyHook(state, api) {
     const table = ctx.moneyTable;
     const at = work ? MONEY_TIERS.indexOf(work.income) : -1;
     if (at >= 0 && table) {
-        const rich = api.has(next, HERO, '生财有道') ? '生财有道' : api.has(next, HERO, '熟练工') ? '熟练工' : '';
-        const poor = api.has(next, HERO, '不善营生') ? '不善营生' : '';
+        const rich = api.has(next, HERO, '财迷') ? '财迷' : api.has(next, HERO, '熟练工') ? '熟练工' : '';
+        const poor = api.has(next, HERO, '穷光蛋') ? '穷光蛋' : '';
         const amountOf = (i) => Number(table[MONEY_TIERS[i]]) || 0;
         let delta = 0;
         if (rich && at < MONEY_TIERS.length - 1) delta += amountOf(at + 1) - amountOf(at);
@@ -204,7 +204,7 @@ function moneyHook(state, api) {
     return next;
 }
 
-// 压力与体力：耐痛 / 怕痛（受伤时）、恐高 / 怕黑 / 幽闭（读地点，每天一次）、旧伤（阴雨天或剧烈运动体力额外下降）。
+// 压力与体力：耐痛 / 怕疼鬼（受伤时）、恐高症 / 怕黑 / 幽闭恐惧症（读地点，每天一次）、旧伤（阴雨天或剧烈运动体力额外下降）。
 function painEnvHook(state, api) {
     const { ctx, directives } = api;
     const seen = ctx.changes.slice();
@@ -214,9 +214,9 @@ function painEnvHook(state, api) {
     if (hurt && api.has(next, HERO, '耐痛')) {
         for (const c of seen) if (c.target === HERO && c.key === 'stress' && c.source === 'tag' && c.to > c.from) next = moveStress(next, HERO, c.from - c.to, '耐痛', ctx.changes);
     }
-    if (hurt && api.has(next, HERO, '怕痛')) next = api.bumpHeroStress(next, api.SMALL.压力, '怕痛');
+    if (hurt && api.has(next, HERO, '怕疼鬼')) next = api.bumpHeroStress(next, api.SMALL.压力, '怕疼鬼');
     const place = placeOf(ctx);
-    for (const [id, re] of [['恐高', HEIGHT], ['怕黑', DARK], ['幽闭', TIGHT]]) {
+    for (const [id, re] of [['恐高症', HEIGHT], ['怕黑', DARK], ['幽闭恐惧症', TIGHT]]) {
         if (!re.test(place) || !api.has(next, HERO, id)) continue;
         const marked = onceToday(next, id);
         if (marked) next = moveStress(marked, HERO, PHOBIA_STRESS, id, ctx.changes);
@@ -240,7 +240,7 @@ function painEnvHook(state, api) {
     return next;
 }
 
-// 人际：人见人爱 / 不讨喜（主角挂，所有角色对其好感上升 ×1.2 / ×0.8）、社恐（对方好感在无感及以下时，好感、信任上升减半）。
+// 人际：团宠 / 万人嫌（主角挂，所有角色对其好感上升 ×1.2 / ×0.8）、社恐（对方好感在无感及以下时，好感、信任上升减半）。
 // 读本楼已记的标签变动补差额；api.bump 保证好感不越过未解锁关口。
 function relationHook(state, api) {
     const { ctx } = api;
@@ -248,8 +248,8 @@ function relationHook(state, api) {
     const ups = seen.filter((c) => c.source === 'tag' && c.target !== HERO && (c.key === '好感' || c.key === '信任') && c.to > c.from && state.characters[c.target]);
     if (!ups.length) return state;
     let next = state;
-    const loved = api.has(next, HERO, '人见人爱');
-    const unloved = api.has(next, HERO, '不讨喜');
+    const loved = api.has(next, HERO, '团宠');
+    const unloved = api.has(next, HERO, '万人嫌');
     const shy = api.has(next, HERO, '社恐');
     const favorBefore = (name) => {
         const f = seen.find((c) => c.target === name && c.key === '好感' && c.source === 'tag');
@@ -259,7 +259,7 @@ function relationHook(state, api) {
         const rise = c.to - c.from;
         if (c.key === '好感' && (loved || unloved)) {
             const amount = Math.round(rise * 0.2);
-            if (amount) next = api.bump(next, c.target, '好感', loved ? amount : -amount, loved ? '人见人爱' : '不讨喜');
+            if (amount) next = api.bump(next, c.target, '好感', loved ? amount : -amount, loved ? '团宠' : '万人嫌');
         }
         if (shy && favorBefore(c.target) <= 0) {
             const refund = rise - Math.max(1, Math.round(rise / 2));
@@ -422,7 +422,7 @@ export const DAILY_HOOKS = [sleepHook, missedMealHook, dailyMoneyHook, growthHoo
 // 情场老手：约会类检定，类别名用「约会」，约会类检定调用 traitDice 时传这个类别。
 export const DICE = [
     ['话痨', '社交', 1],
-    ['嘴笨', '社交', -1],
+    ['不善言辞', '社交', -1],
     ['情场老手', '约会', 1],
     ['一技之长', '全部', 1, (character, ctx) => Boolean(ctx) && Number(ctx.skillValue) >= 80],
 ];

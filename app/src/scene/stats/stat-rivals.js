@@ -30,5 +30,11 @@ export function statsRivalSet(ledger, { windowDays = RIVAL_WINDOW_DAYS } = {}) {
         if (!name || name === PROTAGONIST || !c) continue;
         if (Number(c.dims && c.dims.芥蒂) >= RIVAL_GRUDGE_MIN || c.romance === true) out.add(name);
     }
+    // 相安 / 同心：情敌只剩自己的伙伴时，不再因彼此算入。
+    for (const name of [...out]) {
+        const partners = ((state.characters || {})[name] || {}).relStates;
+        const mates = (Array.isArray(partners) ? partners : []).filter((r) => (r.id === '相安' || r.id === '同心') && r.toward).map((r) => r.toward);
+        if (mates.length && [...out].every((n) => n === name || mates.includes(n))) out.delete(name);
+    }
     return out;
 }

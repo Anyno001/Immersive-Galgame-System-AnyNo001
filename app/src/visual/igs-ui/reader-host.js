@@ -135,7 +135,7 @@ import { createOriginPageController } from './origin-panel.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { parseTables } from '../../data/shujuku/table-parser.js';
 import { lookupSkillValue } from '../../data/shujuku/skill-table.js';
-import { STATUS_HUD_PHONE_MEDIA, buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar, statusHudUsesTables } from '../../data/shujuku/status-hud-model.js';
+import { STATUS_HUD_PHONE_MEDIA, buildStatusHudModel, normalizeStatusHudSettings, resolveStatusAvatar, resolveStatusHudPicks, statusHudUsesTables } from '../../data/shujuku/status-hud-model.js';
 import { readOptionItems } from '../../choices/option-table.js';
 import { buildItemActionText, extractBodyChoices, listPresentNames, normalizeOptionSources, splitQuickActions } from '../../choices/option-sources.js';
 import { buildItemCatalog } from '../../data/shujuku/item-catalog.js';
@@ -2533,7 +2533,7 @@ export function createIgsReaderHost(options = {}) {
                 return { ok: true, expanded };
             }
             if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
-            if (normalizedAction === 'favor' && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
+            if (normalizedAction === 'favor' && !hud.favorData && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
             if (normalizedAction === 'combat' && !normalizeCombatExpansionSettings(settings?.combatExpansion).enabled) return { ok: false, reason: 'combat-disabled' };
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             if (!menu.hasAttribute('hidden')) {
@@ -4463,7 +4463,15 @@ ${row.key}`;
             const userCharacter = String(sceneAssets.userCharacter || '').trim();
             const asHero = Boolean(userCharacter) && (speaker === userCharacter || hud.character === userCharacter);
             const heroSpeaker = asHero ? PROTAGONIST : speaker;
-            return withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, speaker: heroSpeaker }), heroSpeaker, userName));
+            const composed = withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, speaker: heroSpeaker }), heroSpeaker, userName));
+            // 好感总览数据信号：数值系统有已登记角色，或状态栏已选到读取表；旁白页、只有主角条的页面据此也显示入口。
+            let favorData = false;
+            try {
+                const live = typeof options.statsFavorOverview === 'function' ? options.statsFavorOverview() : null;
+                favorData = live ? Boolean(live.people && live.people.length) : Boolean(usesTables && resolveStatusHudPicks(statusHud, readResult, tableData.parsed()).length);
+            } catch (_) { favorData = false; }
+            if (composed && favorData) composed.favorData = true;
+            return composed;
         };
         const readStatusHudTables = () => tableData.read();
         const render = payload.render || {};

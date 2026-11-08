@@ -6,6 +6,7 @@
 //   strain：{ name, type, final? } 转换后的状态；压力条换名换色，stress 改记新状态的深度。
 // 角色档案上的定型标记：feud（芥蒂满 100，宿仇，不再自然消退）、obsessed（欲望满 100，痴迷）。
 import { clamp } from './stat-state.js';
+import { SKIP_FULL_DAYS, SKIP_STRESS_FLOOR } from './stat-status-defs.js';
 
 export const STRESS_LIMIT_FLOORS = 3;
 export const STRESS_LIMIT_RELEASE = 90;
@@ -77,11 +78,35 @@ export function shiftStress(bars, delta, source = null) {
     return to === from ? next : { ...next, stress: to };
 }
 
-// 日结算的压力自然变化：普通压力与崩溃 −10，沦陷、扭曲、蜕变不变。
-export function relaxStress(bars) {
+// 日结算的压力自然变化（D 批）：普通压力与崩溃每天 −当前×15%（向上取整，最少 −3），沦陷、扭曲、蜕变不变。
+// 时间跳跃（days > 1）按天数逐日复利；跳过 SKIP_FULL_DAYS 天以上直接降到 SKIP_STRESS_FLOOR（已低于则不动）。
+export const STRESS_RELAX_RATE = 0.15;
+export const STRESS_RELAX_MIN = 3;
+const rawDrop = (value) => Math.ceil(value * STRESS_RELAX_RATE);
+export const stressDrop = (value) => Math.max(STRESS_RELAX_MIN, rawDrop(value));
+
+export function relaxedStress(from, days = 1) {
+    if (!(days > 0)) return from;
+    if (days >= SKIP_FULL_DAYS) return from > SKIP_STRESS_FLOOR ? SKIP_STRESS_FLOOR : from;
+    let value = from;
+    for (let i = 0; i < days; i += 1) value = Math.max(0, value - stressDrop(value));
+    return value;
+}
+
+// 变动记录里的公式行（calc 格式）：例 压力 60→51：60×15%=9。
+export function stressRelaxCalc(from, to, days = 1) {
+    if (days >= SKIP_FULL_DAYS) return [{ label: `跳过${days}天，压力降到${SKIP_STRESS_FLOOR}`, value: from - to }, { label: '结果', value: to }];
+    if (days > 1) return [{ label: `跳过${days}天，逐日回落（当前×15%，最少3，复利）`, value: from - to }, { label: '结果', value: to }];
+    return [{ label: rawDrop(from) < STRESS_RELAX_MIN ? `${from}×15%，最少${STRESS_RELAX_MIN}` : `${from}×15%`, value: from - to }, { label: '结果', value: to }];
+}
+
+export function relaxStress(bars, days = 1) {
     const type = bars.strain ? strainTypeOf(bars.strain.name.replace(/^彻底/, '')) || bars.strain.type : null;
     if (type && type !== '崩溃') return bars;
-    return shiftStress(bars, -10);
+    const from = Number(bars.stress) || 0;
+    const to = relaxedStress(from, days);
+    if (to === from && !bars.strain) return bars;
+    return shiftStress(bars, to - from);
 }
 
 // break 标签：只在极限时生效；转换后同一条从 0 起计（蜕变从满格起，用一点少一点）。返回 { bars, change } 或 { reason }。

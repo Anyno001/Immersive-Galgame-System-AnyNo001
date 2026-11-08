@@ -41,8 +41,8 @@ test('花痴：好感、欲望上升与冷却都加倍', () => {
     assert.equal(traitScale(s, c, '林夏', '好感', 'cool'), 2);
 });
 
-test('无欲无求：好感上升减半且不冷却；欲望上升被退回', () => {
-    const traits = traitsOf('无欲无求');
+test('性冷淡：好感上升减半且不冷却；欲望上升被退回', () => {
+    const traits = traitsOf('性冷淡');
     const c = cat(traits);
     const s = world({ dims: { 好感: 30, 欲望: 10 } });
     assert.equal(traitScale(s, c, '林夏', '好感', 'up'), 0.5);
@@ -131,8 +131,8 @@ test('吝啬鬼：收入压力下降，花钱压力上升加倍；送礼好感�
     assert.equal(dims(gift).好感, 4);
 });
 
-test('购物解压：花钱压力下降一小档，每天最多一次', () => {
-    const traits = heroTraits('购物解压');
+test('购物狂：花钱压力下降一小档，每天最多一次', () => {
+    const traits = heroTraits('购物狂');
     const spent = [{ source: 'tag', target: '主角', key: 'money', from: 100, to: 0 }];
     const first = tags(world({}, {}, { stress: 30 }), [], traits, { changes: [...spent] });
     assert.equal(first.state.protagonist.bars.stress, 25);
@@ -140,8 +140,8 @@ test('购物解压：花钱压力下降一小档，每天最多一次', () => {
     assert.equal(second.state.protagonist.bars.stress, 25);
 });
 
-test('化悲愤为食欲：压力过半进食体力回复 ×1.5；压力低时不加', () => {
-    const traits = heroTraits('化悲愤为食欲');
+test('暴食党：压力过半进食体力回复 ×1.5；压力低时不加', () => {
+    const traits = heroTraits('暴食党');
     const eat = [{ source: 'tag', target: '主角', key: 'stamina', from: 40, to: 50, note: '进食' }];
     const high = tags(world({}, {}, { stress: 60, stamina: 50 }), [], traits, { changes: [...eat] });
     assert.equal(high.state.protagonist.bars.stamina, 55);
@@ -149,39 +149,39 @@ test('化悲愤为食欲：压力过半进食体力回复 ×1.5；压力低时�
     assert.equal(low.state.protagonist.bars.stamina, 50);
 });
 
-test('越累越清醒：体力低于三成多一个奖励骰', () => {
-    const c = cat(traitsOf('越累越清醒'));
+test('铁人：体力低于三成多一个奖励骰', () => {
+    const c = cat(traitsOf('铁人'));
     assert.equal(traitDice(world({}, { stamina: 20 }), c, '林夏', '学习'), 1);
     assert.equal(traitDice(world({}, { stamina: 80 }), c, '林夏', '学习'), 0);
-    assert.equal(traitDice(world(), cat(heroTraits('越累越清醒')), '主角', '社交', { stamina: 10 }), 1);
+    assert.equal(traitDice(world(), cat(heroTraits('铁人')), '主角', '社交', { stamina: 10 }), 1);
 });
 
-test('存款即安全感：富裕档每天压力额外下降；跌出富裕压力小升', () => {
-    const traits = heroTraits('存款即安全感');
+test('存钱党：富裕档每天压力额外下降；跌出富裕压力小升', () => {
+    const traits = heroTraits('存钱党');
     const d = day(world({}, {}, { money: RICH_FROM + 1, stress: 40 }), traits);
-    assert.ok(d.changes.some((c) => c.note === '存款即安全感' && c.to < c.from));
+    assert.ok(d.changes.some((c) => c.note === '存钱党' && c.to < c.from));
     const poor = day(world({}, {}, { money: 5, stress: 40 }), traits);
-    assert.ok(!poor.changes.some((c) => c.note === '存款即安全感'));
+    assert.ok(!poor.changes.some((c) => c.note === '存钱党'));
     const drop = tags(world({}, {}, { stress: 10 }), [], traits, { changes: [{ source: 'tag', target: '主角', key: 'money', from: RICH_FROM + 5, to: 3 }] });
     assert.equal(drop.state.protagonist.bars.stress, 15);
 });
 
-test('运动解压：体力消耗中及以上压力下降；轻不触发', () => {
-    const traits = heroTraits('运动解压');
+test('运动狂：体力消耗中及以上压力下降；轻不触发', () => {
+    const traits = heroTraits('运动狂');
     const s = world({}, {}, { stress: 30 });
     assert.equal(tags(s, [{ kind: 'stamina', value: '中' }], traits).state.protagonist.bars.stress, 25);
     assert.equal(tags(s, [{ kind: 'stamina', value: '轻' }], traits).state.protagonist.bars.stress, 30);
 });
 
-test('睡一觉就好：入睡时压力再降一份', () => {
-    const traits = heroTraits('睡一觉就好');
+test('睡神：入睡时压力再降一份', () => {
+    const traits = heroTraits('睡神');
     const s = world({}, {}, { stress: 40 });
     assert.equal(tags(s, [{ kind: 'sleep' }], traits).state.protagonist.bars.stress, 30);
     assert.equal(tags(s, [], traits).state.protagonist.bars.stress, 40);
 });
 
-test('压力变动力：压力过半时打工收入高一档', () => {
-    const traits = heroTraits('压力变动力');
+test('抗压王：压力过半时打工收入高一档', () => {
+    const traits = heroTraits('抗压王');
     const flags = { work: { income: '普通' } };
     const hi = tags(world({}, {}, { stress: 60, money: 100 }), [], traits, { flags });
     assert.equal(hi.state.protagonist.bars.money, 100 + 500 - 100);

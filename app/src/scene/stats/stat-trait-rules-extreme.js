@@ -19,7 +19,7 @@ export const SCALE = [
     // 极端性格
     // 花痴：人设写明的「颜值高」无法在结算里判定，这里对其自身好感、欲望上升与冷却一律生效。
     ['花痴', '好感', 'up', 2], ['花痴', '欲望', 'up', 2], ['花痴', '好感', 'cool', 2],
-    ['无欲无求', '好感', 'up', 0.5],
+    ['性冷淡', '好感', 'up', 0.5],
     ['偏执狂', '信任', 'up', 0.5],
     ['没心没肺', '芥蒂', 'fade', 2], ['没心没肺', '了解', 'up', 0.5],
     ['佛系', '芥蒂', 'up', 0.5], ['佛系', '压力', 'up', 0.75],
@@ -27,7 +27,7 @@ export const SCALE = [
     ['疯批', '欲望', 'up', 1.5, (c) => stressOf(c) >= HALF], ['疯批', '好感', 'up', 1.5, (c) => stressOf(c) >= HALF],
 ];
 export const FLAG = [
-    ['noCool', '无欲无求'],
+    ['noCool', '性冷淡'],
     ['noFade:芥蒂', '偏执狂'],
 ];
 export const DAILY = [];
@@ -108,7 +108,7 @@ export const TAG_HOOKS = [
         }
         return next;
     },
-    // 金钱与压力互换：吝啬鬼、购物解压、存款即安全感（跌出富裕）。读本楼标签落下的金钱变动。
+    // 金钱与压力互换：吝啬鬼、购物狂、存钱党（跌出富裕）。读本楼标签落下的金钱变动。
     (state, api) => {
         const { ctx, directives } = api;
         const snapshot = [...ctx.changes];
@@ -127,41 +127,41 @@ export const TAG_HOOKS = [
                     if (gained > 0) next = api.bump(next, name, '好感', -Math.floor(gained * 0.5), '吝啬鬼');
                 }
             }
-            // 购物解压：花钱那一楼压力下降一小档，每天最多一次。
-            if (spent && api.has(next, name, '购物解压') && marksOf(next, name).shopDay !== next.clock.day) {
-                next = moveBar(next, name, 'stress', -api.SMALL.压力, '购物解压', ctx.changes);
+            // 购物狂：花钱那一楼压力下降一小档，每天最多一次。
+            if (spent && api.has(next, name, '购物狂') && marksOf(next, name).shopDay !== next.clock.day) {
+                next = moveBar(next, name, 'stress', -api.SMALL.压力, '购物狂', ctx.changes);
                 next = setMarks(next, name, { shopDay: next.clock.day });
             }
-            // 存款即安全感：本楼金钱跌出「富裕」，压力小升。
-            if (api.has(next, name, '存款即安全感') && money.some((c) => c.from >= RICH_FROM && c.to < RICH_FROM)) next = moveBar(next, name, 'stress', api.SMALL.压力, '存款即安全感', ctx.changes);
+            // 存钱党：本楼金钱跌出「富裕」，压力小升。
+            if (api.has(next, name, '存钱党') && money.some((c) => c.from >= RICH_FROM && c.to < RICH_FROM)) next = moveBar(next, name, 'stress', api.SMALL.压力, '存钱党', ctx.changes);
         }
         return next;
     },
-    // 资源互换：化悲愤为食欲、运动解压、睡一觉就好、压力变动力。
+    // 资源互换：暴食党、运动狂、睡神、抗压王。
     (state, api) => {
         const { ctx, directives } = api;
         const snapshot = [...ctx.changes];
         let next = state;
         for (const name of holders(next)) {
-            // 化悲愤为食欲：压力过半时进食，体力回复 ×1.5（补上多出的一半）。
-            if ((Number(barsFor(next, name).stress) || 0) >= HALF && api.has(next, name, '化悲愤为食欲')) {
+            // 暴食党：压力过半时进食，体力回复 ×1.5（补上多出的一半）。
+            if ((Number(barsFor(next, name).stress) || 0) >= HALF && api.has(next, name, '暴食党')) {
                 const ate = snapshot.filter((c) => c.target === name && c.key === 'stamina' && c.source === 'tag' && c.note === '进食' && c.to > c.from).reduce((s, c) => s + (c.to - c.from), 0);
-                if (ate > 0) next = moveBar(next, name, 'stamina', half(ate), '化悲愤为食欲', ctx.changes);
+                if (ate > 0) next = moveBar(next, name, 'stamina', half(ate), '暴食党', ctx.changes);
             }
-            // 运动解压：体力消耗「中」及以上那一楼，压力下降一小档。
-            if (api.has(next, name, '运动解压') && directives.some((d) => d.kind === 'stamina' && (d.value === '中' || d.value === '重') && forTarget(d, name))) {
-                next = moveBar(next, name, 'stress', -api.SMALL.压力, '运动解压', ctx.changes);
+            // 运动狂：体力消耗「中」及以上那一楼，压力下降一小档。
+            if (api.has(next, name, '运动狂') && directives.some((d) => d.kind === 'stamina' && (d.value === '中' || d.value === '重') && forTarget(d, name))) {
+                next = moveBar(next, name, 'stress', -api.SMALL.压力, '运动狂', ctx.changes);
             }
-            // 睡一觉就好：入睡时压力下降 ×2（入睡标签不带角色，只算主角；补上与自然回落相当的一份）。
-            if (isHero(name) && api.has(next, name, '睡一觉就好') && directives.some((d) => d.kind === 'sleep')) next = moveBar(next, name, 'stress', -10, '睡一觉就好', ctx.changes);
+            // 睡神：入睡时压力下降 ×2（入睡标签不带角色，只算主角；补上与自然回落相当的一份）。
+            if (isHero(name) && api.has(next, name, '睡神') && directives.some((d) => d.kind === 'sleep')) next = moveBar(next, name, 'stress', -10, '睡神', ctx.changes);
         }
-        // 压力变动力：压力过半时打工收入高一档（补上与高一档的差额）。
+        // 抗压王：压力过半时打工收入高一档（补上与高一档的差额）。
         const work = ctx.flags && ctx.flags.work;
-        if (work && work.income && api.has(next, HERO, '压力变动力') && (Number(next.protagonist.bars.stress) || 0) >= HALF) {
+        if (work && work.income && api.has(next, HERO, '抗压王') && (Number(next.protagonist.bars.stress) || 0) >= HALF) {
             const table = ctx.moneyTable || DEFAULT_MONEY_TABLE;
             const up = MONEY_TIERS[MONEY_TIERS.indexOf(work.income) + 1];
             const gap = up ? (Number(table[up]) || 0) - (Number(table[work.income]) || 0) : 0;
-            next = moveBar(next, HERO, 'money', gap, '压力变动力', ctx.changes);
+            next = moveBar(next, HERO, 'money', gap, '抗压王', ctx.changes);
         }
         return next;
     },
@@ -216,14 +216,14 @@ export const TAG_HOOKS = [
         }
         return next;
     },
-    // 无欲无求：欲望不上升（把本楼其他结算加上的欲望退回去）。放在床上专属之后，一并抵消。
+    // 性冷淡：欲望不上升（把本楼其他结算加上的欲望退回去）。放在床上专属之后，一并抵消。
     (state, api) => {
         const snapshot = [...api.ctx.changes];
         let next = state;
         for (const name of Object.keys(next.characters)) {
-            if (!api.has(next, name, '无欲无求')) continue;
+            if (!api.has(next, name, '性冷淡')) continue;
             const gained = gainOf(snapshot, name, '欲望');
-            if (gained > 0) next = api.bump(next, name, '欲望', -gained, '无欲无求');
+            if (gained > 0) next = api.bump(next, name, '欲望', -gained, '性冷淡');
         }
         return next;
     },
@@ -242,8 +242,8 @@ export const DAILY_HOOKS = [
                 if (marks.lastBattleDay === undefined) patch.lastBattleDay = day;
                 else if (day - marks.lastBattleDay >= 2) next = moveBar(next, name, 'stress', api.TRAIT_STRESS_DAILY, '战斗狂', changes, 'daily');
             }
-            // 存款即安全感：金钱在「富裕」档及以上，每天压力额外下降一小档。
-            if (api.has(next, name, '存款即安全感') && (Number(barsFor(next, name).money) || 0) >= RICH_FROM) next = moveBar(next, name, 'stress', -api.TRAIT_STRESS_DAILY, '存款即安全感', changes, 'daily');
+            // 存钱党：金钱在「富裕」档及以上，每天压力额外下降一小档。
+            if (api.has(next, name, '存钱党') && (Number(barsFor(next, name).money) || 0) >= RICH_FROM) next = moveBar(next, name, 'stress', -api.TRAIT_STRESS_DAILY, '存钱党', changes, 'daily');
             // 夜夜笙歌：欲望每天自然回升一档；连续两天未亲密，压力小升。
             if (api.has(next, name, '夜夜笙歌')) {
                 if (!isHero(name)) next = setDesire(next, name, (Number(next.characters[name].dims && next.characters[name].dims.欲望) || 0) + 2, '夜夜笙歌', changes);
@@ -264,8 +264,8 @@ export const DAILY_HOOKS = [
 // DICE：[特质键, 检定类别(社交/战斗/技术/敏捷/手工/学习/全部…), 奖惩骰数(+1 奖励 / -1 惩罚), 条件(character, ctx)?]
 export const DICE = [
     ['战斗狂', '战斗', 1],
-    // 越累越清醒：体力低于三成。主角没有角色档案，调用方在 ctx.stamina 传入检定者体力；NPC 读自身 bars。
-    ['越累越清醒', '全部', 1, (c, ctx) => {
+    // 铁人：体力低于三成。主角没有角色档案，调用方在 ctx.stamina 传入检定者体力；NPC 读自身 bars。
+    ['铁人', '全部', 1, (c, ctx) => {
         const own = ctx && Number.isFinite(Number(ctx.stamina)) ? Number(ctx.stamina) : Number(c && c.bars && c.bars.stamina);
         return Number.isFinite(own) && own < 30;
     }],

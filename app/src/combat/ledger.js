@@ -48,6 +48,8 @@ export const ASCEND_TAG_HASH = 'ascend';
 export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
 export const USE_TAG_HASH = 'use';
+// 数值系统的自然回血（按楼/按天/跳过天数）：锚定楼层与 swipe，不需要正文标签。
+export const NATURAL_HEAL_TAG_HASH = 'nat';
 export const ALLOC_TAG_HASH = 'alloc';
 // 日常挑战圆满后的经验牌：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
@@ -273,7 +275,7 @@ function inactiveReason(entry, scanFloor) {
     const needsTag = !(FLOOR_ONLY_TYPES.has(entry.type) || challengeReward
         || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH)
         || (entry.type === 'equip' && anchor.tagHash === INIT_GEAR_TAG_HASH)
-        || (entry.type === 'heal' && anchor.tagHash === USE_TAG_HASH));
+        || (entry.type === 'heal' && (anchor.tagHash === USE_TAG_HASH || anchor.tagHash === NATURAL_HEAL_TAG_HASH)));
     if (needsTag && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
     if (challengeReward && floor.challenge?.outcome !== '圆满') return 'challenge-reward-invalid';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
@@ -1262,6 +1264,19 @@ export function scanLifeTags(snapshot, chat, options = {}) {
     const entries = [];
     const alreadyWritten = (kind, character, anchor) => candidateEntryIds(index, kind, character, userName, anchor)
         .some((id) => snapshot.ids.has(id) || entries.some((entry) => entry.id === id));
+    // 自然回血（数值系统结算给出的 { messageId, name, amount }，amount 为最大生命的百分比 1–100）：每个角色每楼每 swipe 只写一条，
+    // 重新生成换了 swipe 后旧记录自动失效，不会重复计；回血量不乘难度倍率（scale 固定 100）。
+    for (const heal of Array.isArray(options.naturalHeals) ? options.naturalHeals : []) {
+        const floor = floors[heal && heal.messageId];
+        if (!isObject(floor) || floor.is_user === true || !heal.name) continue;
+        const anchor = { messageId: heal.messageId, swipeId: swipeOf(floor), tagHash: NATURAL_HEAL_TAG_HASH, occurrence: 0 };
+        if (alreadyWritten('heal', heal.name, anchor)) continue;
+        const key = characterKeyFor(index, heal.name, userName);
+        entries.push({
+            id: ledgerEntryId('heal', key, anchor), type: 'heal', character: key, anchor,
+            payload: { amount: Math.min(100, Math.max(1, Math.round(Number(heal.amount) || 1))), mode: 'percent', scale: 100, reason: String(heal.reason || '自然回血').slice(0, 80) }, createdAt: now,
+        });
+    }
     for (const messageId of messageIds) {
         const floor = floors[messageId];
         if (!isObject(floor) || floor.is_user === true) continue;
@@ -1846,13 +1861,13 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return { ...scanned, ok, write, attributeWrite };
     }
 
-    async function scanLife({ messageIds, battleHurts, heroPrefs } = {}) {
+    async function scanLife({ messageIds, battleHurts, heroPrefs, naturalHeals } = {}) {
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return snapshot;
         const floors = getChat();
         const effectiveState = resolveState(snapshot, floors, false).state;
         const life = scanLifeTags(snapshot, floors, {
-            userName: getUserName(), sourceFilter: getSourceFilter(), messageIds, now: now(), healScale: getHealScale(), battleHurts, heroPrefs, effectiveState,
+            userName: getUserName(), sourceFilter: getSourceFilter(), messageIds, now: now(), healScale: getHealScale(), battleHurts, heroPrefs, naturalHeals, effectiveState,
         });
         if (!life.ok) return life;
         const write = life.entries.length ? await append(life.entries) : null;

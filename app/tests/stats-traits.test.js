@@ -55,7 +55,7 @@ test('互斥：动物系每人最多一个；后挂的顶掉先挂的并给出�
 
 test('满额：自动最多 3；同挂满 5 时剧情顶掉最早的自动项，手动挂满拒绝；成就另计 2；摘下组成项拆合成', () => {
     let cat = { traits: {} };
-    for (const n of ['乐天派', '抖M', '抖S', '多疑']) cat = applyTraitChange(null, cat, '林夏', getTraitByName(n).id, true, 'auto').catalog;
+    for (const n of ['乐天派', '抖M', '抖S', '疑心病']) cat = applyTraitChange(null, cat, '林夏', getTraitByName(n).id, true, 'auto').catalog;
     assert.equal(listTraits(cat, '林夏').length, 3, '自动评定最多 3 项');
     for (const n of ['坚韧', '黏人']) cat = applyTraitChange(null, cat, '林夏', getTraitByName(n).id, true, 'manual').catalog;
     assert.equal(listTraits(cat, '林夏').length, TRAIT_LIMITS.total);
@@ -68,10 +68,10 @@ test('满额：自动最多 3；同挂满 5 时剧情顶掉最早的自动项，
     for (const n of ['熟练工', '一技之长']) ach = applyTraitChange(null, ach, '林夏', n, true, 'achieve').catalog;
     assert.equal(applyTraitChange(null, ach, '林夏', '万事通', true, 'achieve').reason, 'achieve-full');
     // 合成占 1 格：组成项仍生效，摘下组成项即拆回。
-    const combo = { traits: { 林夏: { 犬系: on(), 黏人: on(), 爱撒娇: on(), 'combo:大型犬': { on: true, src: 'story', parts: ['犬系', '黏人', '爱撒娇'] } } } };
+    const combo = { traits: { 林夏: { 犬系: on(), 黏人: on(), 撒娇精: on(), 'combo:大型犬': { on: true, src: 'story', parts: ['犬系', '黏人', '撒娇精'] } } } };
     assert.equal(hasTrait(null, combo, '林夏', '犬系'), true);
     const cleaned = sanitizeCatalog(combo);
-    assert.deepEqual(cleaned.traits.林夏['combo:大型犬'].parts, ['犬系', '黏人', '爱撒娇']);
+    assert.deepEqual(cleaned.traits.林夏['combo:大型犬'].parts, ['犬系', '黏人', '撒娇精']);
     const after = applyTraitChange(null, combo, '林夏', '黏人', false, 'manual');
     assert.equal(listTraits(after.catalog, '林夏').some((t) => t.id.startsWith('combo:')), false);
 });
@@ -214,17 +214,17 @@ test('心性·病娇：吃醋芥蒂加倍、欲望不消退', () => {
     assert.equal(desire(['病娇']), 30);
 });
 
-test('心性·多疑 / 傻白甜：信任上升减半 / 加倍，单楼上限随倍率放大', () => {
+test('心性·疑心病 / 傻白甜：信任上升减半 / 加倍，单楼上限随倍率放大', () => {
     const trust = (names, level = '大') => dims(floor(npc(), `[igs-stat:trust|林夏|上升|${level}]`, traitsOf(...names))).信任;
     assert.equal(trust([]), 6);
-    assert.equal(trust(['多疑']), 3);
+    assert.equal(trust(['疑心病']), 3);
     assert.equal(trust(['傻白甜']), 10, '6×1.7=10，单楼上限 6 随倍率放大');
 });
 
 test('心性·乐天派：每天压力额外下降；主角同样适用', () => {
     const s = { ...createStatsState(), protagonist: { ...createStatsState().protagonist, bars: { stamina: 100, money: 0, stress: 30 } } };
     const r = settleDay(s, { random: high, rev: 2, traits: { 主角: { [getTraitByName('乐天派').id]: on() } } });
-    assert.equal(r.protagonist.bars.stress, 15, '日结算 −10 再 −5');
+    assert.equal(r.protagonist.bars.stress, 20, '日结算 30×15%=5 再 −5');
 });
 
 test('心性·抖M / 抖S：自己压力上升时欲望同步小升；主角压力上升那一楼抖S 欲望小升', () => {
@@ -299,31 +299,31 @@ test('恋爱人设·毒舌：信任上升加快', () => {
     assert.equal(dims(floor(npc(), '[igs-stat:trust|林夏|上升|中]', traitsOf('毒舌'))).信任, 5);
 });
 
-test('恋爱人设·黏人 / 占有欲强 / 白月光：主角在场不冷却；黏人不在身边时压力缓升', () => {
+test('恋爱人设·黏人 / 占有狂 / 白月光：主角在场不冷却；黏人不在身边时压力缓升', () => {
     const run = (names, present) => settleDay({ ...npc({ dims: { 好感: 60 }, lastSeenDay: 1 }), clock: { ...createStatsState().clock, day: 9 } }, { random: high, rev: 2, traits: traitsOf(...names), nsfw: true, present });
     assert.equal(run([], []).characters.林夏.dims.好感, 59);
     assert.equal(run(['黏人'], ['林夏']).characters.林夏.dims.好感, 60);
-    assert.equal(run(['占有欲强'], ['林夏']).characters.林夏.dims.好感, 60);
+    assert.equal(run(['占有狂'], ['林夏']).characters.林夏.dims.好感, 60);
     assert.equal(run(['黏人'], []).characters.林夏.dims.好感, 59, '不在场照常冷却');
     const stressOf = (names, present) => run(names, present).characters.林夏.bars.stress;
     assert.equal(stressOf(['黏人'], []), 3);
     assert.equal(stressOf(['黏人'], ['林夏']), 0);
 });
 
-test('恋爱人设·天然呆 / 占有欲强：吃醋不加芥蒂', () => {
-    for (const name of ['天然呆', '占有欲强']) {
+test('恋爱人设·天然呆 / 占有狂：吃醋不加芥蒂', () => {
+    for (const name of ['天然呆', '占有狂']) {
         const r = floor(npc({ dims: { 好感: 30, 芥蒂: 10 } }), '[igs-stat:favor|林夏|吃醋|中]', traitsOf(name));
         assert.equal(dims(r).芥蒂, 10, name);
     }
     assert.equal(dims(floor(npc({ dims: { 好感: 30, 芥蒂: 10 } }), '[igs-stat:favor|林夏|吃醋|中]')).芥蒂, 12);
 });
 
-test('恋爱人设·元气：其在场的日子主角压力每天额外下降；爱撒娇：在场时其压力下降', () => {
+test('恋爱人设·元气：其在场的日子主角压力每天额外下降；撒娇精：在场时其压力下降', () => {
     const s = { ...npc({}, { stress: 20 }), protagonist: { ...createStatsState().protagonist, bars: { stamina: 100, money: 0, stress: 30 } }, clock: { ...createStatsState().clock, day: 1 } };
     const r = settleDay(s, { random: high, rev: 2, traits: traitsOf('元气'), nsfw: true, present: ['林夏'] });
-    assert.equal(r.protagonist.bars.stress, 17, '−10 再 −3');
-    const e = settleDay(s, { random: high, rev: 2, traits: traitsOf('爱撒娇'), nsfw: true, present: ['林夏'] });
-    assert.equal(e.characters.林夏.bars.stress, 7, '−10 再 −3');
+    assert.equal(r.protagonist.bars.stress, 22, '30×15%=5 再 −3');
+    const e = settleDay(s, { random: high, rev: 2, traits: traitsOf('撒娇精'), nsfw: true, present: ['林夏'] });
+    assert.equal(e.characters.林夏.bars.stress, 14, '最少 −3 再 −3');
 });
 
 test('恋爱人设·包容：芥蒂上升减半；主角压力上升「大」那一楼其在场时主角压力下降一小档', () => {
@@ -378,7 +378,7 @@ test('动物系·兔系：其压力上升加快、信任上升加快、主角在
     assert.equal(stress(floor(npc(), '[igs-stat:stress|林夏|上升|中]', traitsOf('兔系'))), 15);
     assert.equal(dims(floor(npc(), '[igs-stat:trust|林夏|上升|大]', traitsOf('兔系'))).信任, 9);
     const r = settleDay({ ...npc({}, { stress: 20 }), clock: { ...createStatsState().clock, day: 1 } }, { random: high, rev: 2, traits: traitsOf('兔系'), nsfw: true, present: ['林夏'] });
-    assert.equal(r.characters.林夏.bars.stress, 7);
+    assert.equal(r.characters.林夏.bars.stress, 14);
 });
 
 test('动物系·熊系：主角受伤那一楼其好感上升一大档；芥蒂上升减半', () => {

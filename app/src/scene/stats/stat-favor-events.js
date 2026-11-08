@@ -3,6 +3,7 @@ import { FAVOR_GATES, HEART_FULL, applyDim, gateKey, stageOf } from './stat-favo
 import { DIM_MAX, DIM_MIN, clamp } from './stat-state.js';
 import { rollStatCheck } from './stat-rng.js';
 import { hasTrait } from './stat-traits.js';
+import { withCalc } from './stat-status-defs.js';
 
 export const RECENT_MAX = 10;
 export const COOLDOWN_DAYS = 3;
@@ -81,15 +82,21 @@ export function fadeGrudge(character, days = 1, scale = 1) {
     const from = Number(character.dims.芥蒂) || 0;
     if (from <= GRUDGE_FADE_FLOOR || !(days > 0)) return { character, change: null };
     const to = Math.max(GRUDGE_FADE_FLOOR, from - Math.floor(days * scale));
-    return to === from ? { character, change: null } : { character: { ...character, dims: { ...character.dims, 芥蒂: to } }, change: { key: '芥蒂', from, to, note: '淡忘' } };
+    if (to === from) return { character, change: null };
+    // 小心结只会淡到 25，再往下需要剧情和解（D 批）。
+    const calc = [{ label: `芥蒂 ${from}：每天−1${scale === 1 ? '' : `×${scale}`}，共${days}天，最低${GRUDGE_FADE_FLOOR}`, value: from - to }, { label: '小心结需要剧情和解', value: '—' }, { label: '结果', value: to }];
+    return { character: { ...character, dims: { ...character.dims, 芥蒂: to } }, change: withCalc({ key: '芥蒂', from, to, note: '淡忘' }, { calc }) };
 }
 
-// 欲望缓慢消退：非恋爱对象每天 −1，最低到 0；没有欲望维度的角色不新增字段。
-export function fadeDesire(character, days = 1) {
+// 欲望缓慢消退：每天 −1，最低到 floor（非恋爱对象 0，恋爱对象 DESIRE_ROMANCE_FLOOR）；没有欲望维度的角色不新增字段。
+export const DESIRE_ROMANCE_FLOOR = 25;
+export function fadeDesire(character, days = 1, floor = 0) {
     const from = Number(character.dims.欲望) || 0;
-    if (from <= 0 || !(days > 0)) return { character, change: null };
-    const to = Math.max(0, from - Math.floor(days));
-    return to === from ? { character, change: null } : { character: { ...character, dims: { ...character.dims, 欲望: to } }, change: { key: '欲望', from, to, note: '淡忘' } };
+    if (from <= floor || !(days > 0)) return { character, change: null };
+    const to = Math.max(floor, from - Math.floor(days));
+    if (to === from) return { character, change: null };
+    const calc = [{ label: `欲望 ${from}：每天−1，共${days}天，最低${floor}${floor ? '（恋爱对象）' : ''}`, value: from - to }, { label: '结果', value: to }];
+    return { character: { ...character, dims: { ...character.dims, 欲望: to } }, change: withCalc({ key: '欲望', from, to, note: '淡忘' }, { calc }) };
 }
 
 // 近 7 天信任下降、芥蒂上升的账：[{ day, dim, amount }]，超过 7 天的作废。
@@ -98,8 +105,8 @@ export function liveHurts(character, day, span = RECENT_HURT_DAYS) {
     return list.filter((e) => e && Number(e.amount) > 0 && day - (Number(e.day) || 0) <= span);
 }
 
-// 伤势恢复天数：自愈减半（向上取整），伤口难愈加倍。
-export function hurtDaysOf(state, catalog, name) {
+// 误会账存活天数（D 批改名，原 hurtDaysOf，行为不变）：自愈减半（向上取整），伤口难愈加倍。身体伤势的回血倍率另见 stat-day.js 的 healMultiplier。
+export function misunderstandDaysOf(state, catalog, name) {
     if (hasTrait(state, catalog, name, '自愈')) return Math.ceil(RECENT_HURT_DAYS / 2);
     return hasTrait(state, catalog, name, '伤口难愈') ? RECENT_HURT_DAYS * 2 : RECENT_HURT_DAYS;
 }

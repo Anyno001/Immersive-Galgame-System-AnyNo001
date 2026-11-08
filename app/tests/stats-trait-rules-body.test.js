@@ -72,11 +72,11 @@ test('浅眠 / 瞌睡虫：入睡回复减半 / 加倍', () => {
     assert.equal(run('瞌睡虫'), 100);
 });
 
-test('耐痛：受伤那一楼压力上升撤销；怕痛：额外上升', () => {
+test('耐痛：受伤那一楼压力上升撤销；怕疼鬼：额外上升', () => {
     const seed = [{ source: 'tag', target: '主角', key: 'stress', from: 0, to: 10, note: '上升' }];
     const directives = [{ kind: 'hurt', value: '轻伤' }];
     assert.equal(tags(base({ stress: 10 }), hero('耐痛'), { seed, directives }).state.protagonist.bars.stress, 0);
-    assert.equal(tags(base({ stress: 10 }), hero('怕痛'), { seed, directives }).state.protagonist.bars.stress, 15);
+    assert.equal(tags(base({ stress: 10 }), hero('怕疼鬼'), { seed, directives }).state.protagonist.bars.stress, 15);
 });
 
 test('耐痛：重伤时体力扣减减半', () => {
@@ -92,8 +92,8 @@ test('耐寒 / 耐热：天气带寒冷、炎热字样时体力扣减减半；�
     assert.equal(stamina(tags(base({ stamina: 80 }), hero('耐热'), { seed, ctx: { weather: '大雪' } })), 80);
 });
 
-test('恐高 / 怕黑 / 幽闭：对应地点压力缓升，每天只记一次；读不到地点不生效', () => {
-    for (const [name, place] of [['恐高', '楼顶天台'], ['怕黑', '漆黑的地下室'], ['幽闭', '狭窄的电梯']]) {
+test('恐高症 / 怕黑 / 幽闭恐惧症：对应地点压力缓升，每天只记一次；读不到地点不生效', () => {
+    for (const [name, place] of [['恐高症', '楼顶天台'], ['怕黑', '漆黑的地下室'], ['幽闭恐惧症', '狭窄的电梯']]) {
         const r = tags(base(), hero(name), { ctx: { place } });
         assert.equal(r.state.protagonist.bars.stress, 3, name);
         assert.equal(tags(r.state, hero(name), { ctx: { place } }).state.protagonist.bars.stress, 3, `${name} 同日不重复`);
@@ -115,9 +115,9 @@ test('旧伤：阴雨天与剧烈运动体力额外下降；晴天无事', () =>
 
 // ---- 养成 ----
 
-test('精打细算：花钱 ×0.75（退回四分之一）；败家子：花钱 ×1.5', () => {
+test('持家能手：花钱 ×0.75（退回四分之一）；败家子：花钱 ×1.5', () => {
     const seed = [{ source: 'tag', target: '主角', key: 'money', from: 1000, to: 900, note: '普通' }];
-    assert.equal(tags(base({ money: 900 }), hero('精打细算'), { seed }).state.protagonist.bars.money, 925);
+    assert.equal(tags(base({ money: 900 }), hero('持家能手'), { seed }).state.protagonist.bars.money, 925);
     assert.equal(tags(base({ money: 900 }), hero('败家子'), { seed }).state.protagonist.bars.money, 850);
 });
 
@@ -126,25 +126,25 @@ test('败家子：每天金钱自动小减，没钱不再减', () => {
     assert.equal(dailyTraitPass(base({ money: 0 }), { traits: hero('败家子'), nsfw: true }, []).protagonist.bars.money, 0);
 });
 
-test('生财有道 / 不善营生：打工收入高一档 / 低一档', () => {
+test('财迷 / 穷光蛋：打工收入高一档 / 低一档', () => {
     const flags = { work: { income: '普通' } };
     const run = (name) => tags(base({ money: 100 }), hero(name), { ctx: { flags } }).state.protagonist.bars.money;
-    assert.equal(run('生财有道'), 500);
-    assert.equal(run('不善营生'), 20);
+    assert.equal(run('财迷'), 500);
+    assert.equal(run('穷光蛋'), 20);
 });
 
-test('话痨 / 嘴笨：社交类检定多一个奖励骰 / 惩罚骰', () => {
+test('话痨 / 不善言辞：社交类检定多一个奖励骰 / 惩罚骰', () => {
     const state = base();
     assert.equal(traitDice(state, traitCatalogOf(hero('话痨')), '主角', '社交'), 1);
-    assert.equal(traitDice(state, traitCatalogOf(hero('嘴笨')), '主角', '社交'), -1);
+    assert.equal(traitDice(state, traitCatalogOf(hero('不善言辞')), '主角', '社交'), -1);
     assert.equal(traitDice(state, traitCatalogOf(hero('话痨')), '主角', '战斗'), 0);
 });
 
-test('人见人爱 / 不讨喜：主角挂，角色好感上升 ×1.2 / ×0.8', () => {
+test('团宠 / 万人嫌：主角挂，角色好感上升 ×1.2 / ×0.8', () => {
     const seed = [{ source: 'tag', target: '林夏', key: '好感', from: 10, to: 20, note: '开心' }];
     const mk = () => withNpc(base(), {}, { 好感: 20 });
-    assert.equal(tags(mk(), hero('人见人爱'), { seed }).state.characters.林夏.dims.好感, 22);
-    assert.equal(tags(mk(), hero('不讨喜'), { seed }).state.characters.林夏.dims.好感, 18);
+    assert.equal(tags(mk(), hero('团宠'), { seed }).state.characters.林夏.dims.好感, 22);
+    assert.equal(tags(mk(), hero('万人嫌'), { seed }).state.characters.林夏.dims.好感, 18);
 });
 
 test('社恐：对方好感无感以下时，好感与信任上升减半', () => {

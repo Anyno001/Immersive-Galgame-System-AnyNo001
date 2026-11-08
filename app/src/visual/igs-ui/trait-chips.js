@@ -3,6 +3,7 @@
 //   特质 stats-op:trait-id:<编码名>|<编码键>|<1挂上 0摘下>；悟性 stats-op:aptitude:<编码名>:<编码档>（摘下即回平庸）。
 // 悟性在界面上并入「天资」组的两个互斥胶囊，仍读写 catalog.aptitude，不占格位。
 import { TRAIT_DEFS, TRAIT_GROUPS, TRAIT_LIMITS, PROTAGONIST_NAME, getTraitDef, isComboKey, slotUsage, traitReqStatus } from '../../scene/stats/stat-traits.js';
+import { CYCLE_DEFS, STATUS_DEFS, STATUS_GROUPS, STATUS_URGENCY, getStatusDef, subInWorlds } from '../../scene/stats/stat-status-defs.js';
 import { TRAIT_RECIPES } from '../../scene/stats/stat-trait-recipes.js';
 import { esc } from './reader-value-utils.js';
 
@@ -135,10 +136,105 @@ function shownTraits(name, model) {
     return { shown, items, usage, level, nsfwOn, attrs };
 }
 
-// 观赏区：特质只读小标签（我的角色页用）。
+// 观赏区：出身 / 特质 / 成就 / 状态 / 关系五栏，全部只读小标签（我的角色页、其他角色卡用）；出身、成就、状态、关系为空时整栏不显示。
+const isOrigin = (x) => { const d = getTraitDef(x.id); return Boolean(d && d.group === '出身'); };
+const isAchieve = (x) => { const d = getTraitDef(x.id); return Boolean(d && d.group === '成就') || x.src === 'achieve'; };
+
+// 角色当前的状态条目：{ title, rank }；受伤读战斗生命（仅主角有数据），其余读 model.statusMap（catalog.statuses），timer 带剩余天数、cycle 写「周期」。
+export function statusRows(name, model) {
+    const rows = [];
+    const v = name === PROTAGONIST_NAME && model.vitals;
+    if (v && Number(v.maxHp) > 0 && (v.down || Number(v.hp) < Number(v.maxHp))) {
+        const pct = v.down ? 0 : Math.max(0, Math.round((Number(v.hp) / Number(v.maxHp)) * 100));
+        rows.push({ title: '受伤 ' + pct + '%', rank: STATUS_URGENCY.受伤 });
+    }
+    const own = (model.statusMap && model.statusMap[name]) || {};
+    for (const [key, e] of Object.entries(own)) {
+        if (!e) continue;
+        let text = key + (e.toward ? '·' + e.toward : '');
+        if (e.kind === 'cycle') text += ' 周期';
+        else if (e.kind === 'timer' && Number.isFinite(Number(e.until)) && Number.isFinite(Number(model.day))) text += ' ' + Math.max(0, Number(e.until) - Number(model.day)) + '天';
+        rows.push({ title: text, rank: Object.hasOwn(STATUS_URGENCY, key) ? STATUS_URGENCY[key] : 3 });
+    }
+    return rows.sort((a, b) => a.rank - b.rank);
+}
+
+// 状态编辑：来源小字、状态列表（改天数、摘下、注入开关）、周期设置、「＋ 挂上状态」分组面板。
+const STATUS_SRC_TEXT = Object.freeze({ setting: '设定', story: '剧情', system: '系统', cycle: '周期', manual: '手动' });
+export const statusSourceText = (e) => '来源：' + (STATUS_SRC_TEXT[e && e.src] || '剧情') + (e && Number.isFinite(Number(e.floor)) && Number(e.floor) > 0 ? ' · 第' + Number(e.floor) + '楼' : '');
+const statusAction = (op, name, key, extra = '') => 'stats-op:' + op + ':' + encodeURIComponent(name) + '|' + encodeURIComponent(key) + (extra === '' ? '' : '|' + extra);
+const dayOf = (model) => (Number.isFinite(Number(model.day)) ? Number(model.day) : Number(model.statusDay) || 0);
+
+function statusRow(name, key, e, model) {
+    const def = getStatusDef(key);
+    const left = Number.isFinite(Number(e.until)) ? Math.max(0, Number(e.until) - dayOf(model)) : null;
+    const title = key + (e.toward ? '·' + e.toward : '') + (left !== null ? ' · 剩余' + left + '天' : '');
+    const timed = e.kind === 'timer' || e.kind === 'cycle';
+    const buttons = (timed ? dropButton(statusAction('status-days', name, key), '改天数') : '')
+        + dropButton(statusAction('status-drop', name, key), '摘下')
+        + dropButton(statusAction('status-inject', name, key, e.inject === false ? '1' : '0'), e.inject === false ? '注入：关' : '注入：开');
+    return '<div class="igs-edit-row igs-status-row"><div class="igs-edit-main"><b>' + esc(title) + '</b>' + (def && def.desc ? '<span>' + esc(def.desc) + '</span>' : '') + '<span class="igs-status-src">' + esc(statusSourceText(e)) + '</span></div><div class="igs-edit-ops">' + buttons + '</div></div>';
+}
+
+function cycleRow(name, def, model) {
+    const own = (model.cycleMap && model.cycleMap[name] && model.cycleMap[name][def.id]) || null;
+    const v = own || { period: def.period, length: def.length, last: 0 };
+    const input = (field, label, value) => '<label class="igs-settings-field"><span>' + label + '</span><input type="number" min="' + (field === 'last' ? 0 : 1) + '" data-stats-cycle="' + esc(encodeURIComponent(name) + '|' + encodeURIComponent(def.id)) + '" data-cycle-field="' + field + '" value="' + esc(value) + '" aria-label="' + esc(def.id + label) + '"></label>';
+    return '<div class="igs-edit-row igs-cycle-row"><div class="igs-edit-main"><b>' + esc(def.id + '周期') + '</b></div><div class="igs-edit-ops">' + dropButton(statusAction('cycle-start', name, def.id), '今天开始') + '</div></div>'
+        + '<div class="igs-cycle-box">' + input('period', '周期天数', v.period) + input('length', '持续天数', v.length) + input('last', '上次开始日', v.last) + '</div>';
+}
+
+function statusAddPanel(name, model, advancedOpen) {
+    const own = (model.statusMap && model.statusMap[name]) || {};
+    const worlds = (model.worldsManual && model.worldsManual.length ? model.worldsManual : model.worlds) || [];
+    const groups = STATUS_GROUPS.map((group) => {
+        const defs = STATUS_DEFS.filter((d) => d.group === group && d.kind !== 'cycle' && !own[d.id] && subInWorlds(d.sub, worlds));
+        if (!defs.length) return '';
+        const key = 'status-group:' + name + ':' + group;
+        return '<details class="igs-trait-group" data-advanced="' + esc(key) + '"' + advancedOpen(key) + '><summary><b>' + esc(group) + '</b><span>' + defs.length + '</span></summary><div class="igs-trait-pick">'
+            + defs.map((d) => pickChip(statusAction('status-pick', name, d.id), d.name, '', d.desc || '')).join('') + '</div></details>';
+    }).join('');
+    const key = 'status-add:' + name;
+    return '<details class="igs-add-fold" data-advanced="' + esc(key) + '"' + advancedOpen(key) + '><summary class="igs-edit-add">＋ 挂上状态</summary><div class="igs-trait-panel">' + (groups || '<div class="igs-trait-limits">没有可挂的状态</div>') + '</div></details>';
+}
+
+// 编辑区：状态列表与周期设置（默认随「编辑」折叠）。
+export function renderStatusEdit(name, model, advancedOpen = () => '') {
+    const own = (model.statusMap && model.statusMap[name]) || {};
+    const entries = Object.entries(own).filter(([, e]) => e);
+    const worlds = (model.worldsManual && model.worldsManual.length ? model.worldsManual : model.worlds) || [];
+    // 周期设置只给已挂上或已设过周期的状态，避免每个角色都列出生理期、发情期等；首次设置先经「＋ 挂上状态」。
+    const cycles = CYCLE_DEFS.filter((c) => subInWorlds(c.sub, worlds) && (own[c.id] || (model.cycleMap && model.cycleMap[name] && model.cycleMap[name][c.id]))).map((c) => cycleRow(name, c, model)).join('');
+    return editCard('状态', String(entries.length), entries.map(([key, e]) => statusRow(name, key, e, model)).join('') + cycles, statusAddPanel(name, model, advancedOpen));
+}
+
+// 角色的关系状态：toward 优先写「对 X：结怨」；否则 ta 写「对主角」、me 写「主角对其」、both 写「与主角」。
+export function relationRows(name, model) {
+    const list = model.relMap && model.relMap[name];
+    return (Array.isArray(list) ? list : []).filter((r) => r && r.id).map((r) => (r.toward ? '对' + r.toward + '：' + r.id : r.dir === 'me' ? '主角对其：' + r.id : r.dir === 'both' ? '与主角：' + r.id : '对主角：' + r.id));
+}
+
 export function renderTraitView(name, model) {
     const { shown, usage } = shownTraits(name, model);
-    return viewBlock('data-traits-of="' + esc(name) + '"', '特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.filter((x) => !x.waived).map((x) => tag(x.title, x.off)).join(''));
+    const list = shown.filter((x) => !x.waived);
+    const block = (attr, title, items, count) => viewBlock(attr + '="' + esc(name) + '"', title, String(count ?? items.length), items.map((x) => tag(x.title, x.off)).join(''));
+    const origin = list.filter(isOrigin);
+    const achieve = list.filter((x) => !isOrigin(x) && isAchieve(x));
+    const plainList = list.filter((x) => !isOrigin(x) && !isAchieve(x));
+    const status = statusRows(name, model);
+    const rel = relationRows(name, model);
+    return (origin.length ? block('data-origin-of', '出身', origin) : '')
+        + viewBlock('data-traits-of="' + esc(name) + '"', '特质', usage.slots + '/' + TRAIT_LIMITS.total, plainList.map((x) => tag(x.title, x.off)).join(''))
+        + (achieve.length ? block('data-achieve-of', '成就', achieve) : '')
+        + (status.length ? viewBlock('data-status-of="' + esc(name) + '"', '状态', String(status.length), status.map((x) => tag(x.title)).join('')) : '')
+        + (rel.length ? viewBlock('data-rel-of="' + esc(name) + '"', '关系', String(rel.length), rel.map((x) => tag(x)).join('')) : '');
+}
+
+// 名字旁：只显示最紧急的 1 个状态，其余收成「+N」。
+export function renderNameStatus(name, model) {
+    const rows = statusRows(name, model);
+    if (!rows.length) return '';
+    return '<span class="igs-person-chips">' + tag(rows[0].title) + (rows.length > 1 ? '<span class="igs-person-more">+' + (rows.length - 1) + '</span>' : '') + '</span>';
 }
 
 // 编辑区：特质编辑列表（每行 名字 + 说明 + 摘下，末行「＋ 添加特质」）。
@@ -146,7 +242,7 @@ export function renderTraitEdit(name, model, advancedOpen = () => '') {
     const { shown, items, usage, level, nsfwOn, attrs } = shownTraits(name, model);
     const full = usage.slots >= TRAIT_LIMITS.total;
     const add = full ? '<span class="igs-edit-add is-off" title="已满格，请先摘下一项">＋ 添加特质</span>' : addPanel(name, items.map((t) => t.id), nsfwOn, usage, level, attrs, advancedOpen);
-    return editCard('特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => editRow(x.title, x.desc, x.buttons, x.waived)).join(''), add) + traitNoteField(name, model);
+    return renderStatusEdit(name, model, advancedOpen) + editCard('特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => editRow(x.title, x.desc, x.buttons, x.waived)).join(''), add) + traitNoteField(name, model);
 }
 
 // 「评定注意」：用户写给特质评定的说明，失焦即写进聊天存档；只用于特质评定，不进正文提示词。

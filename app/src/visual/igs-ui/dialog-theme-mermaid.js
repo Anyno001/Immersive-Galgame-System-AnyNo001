@@ -118,6 +118,6 @@ export const MERMAID_HUD_THEME = Object.freeze({
     placeholder: `background:radial-gradient(circle at 50% 30%,${mermaidPearl(0.3)},${mermaidDeep(0.92)});color:${MERMAID_PEARL_HI};`,
     placeholderSvg: `stroke:${MERMAID_PEARL_HI};stroke-width:1.1;`,
     track: `height:${s(2)};border:0;border-radius:0;background:${mermaidPearl(0.22)};overflow:visible;`,
-    fill: `background:${fill(60)} !important;border-radius:0;box-shadow:0 0 6px ${fill(70)};`,
+    fill: `background:${fill(88)} !important;border-radius:0;box-shadow:0 0 6px ${fill(92)};`,
     value: 'font-weight:400;',
 });

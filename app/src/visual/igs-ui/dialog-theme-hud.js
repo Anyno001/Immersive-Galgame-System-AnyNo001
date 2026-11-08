@@ -56,7 +56,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:repeating-linear-gradient(135deg,#f6b6c9 0 4px,#f29ab5 4px 8px);color:#fff;',
         placeholderSvg: 'fill:#fff;stroke:#fff;',
         track: `height:${s(8)};border:1.5px solid #5e5356;border-radius:999px;background:#fff;`,
-        fill: `background:repeating-linear-gradient(135deg,rgba(255,255,255,.34) 0 3px,transparent 3px 6px),${fillMix(80, '#fff')} !important;border-radius:999px;`,
+        fill: `background:repeating-linear-gradient(135deg,rgba(255,255,255,.34) 0 3px,transparent 3px 6px),${fillMix(90, '#fff')} !important;border-radius:999px;`,
         value: 'font-weight:700;',
     },
     [DIALOG_SKIN_RETRO_JAPANESE]: {
@@ -69,7 +69,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:radial-gradient(circle at 50% 38%,#f6ecd6,#e2cfa9);box-shadow:inset 0 0 0 2px #b98c5d;color:#6b4a36;',
         placeholderSvg: 'fill:#6b4a36;stroke:#6b4a36;',
         track: `height:${s(7)};border:1px solid #6b4a36;border-radius:0;background:#e2d3b5;`,
-        fill: `background:linear-gradient(180deg,rgba(255,255,255,.22) 0 40%,transparent 40%),${fillMix(62, '#7a4e33')} !important;border-radius:0;`,
+        fill: `background:linear-gradient(180deg,rgba(255,255,255,.22) 0 40%,transparent 40%),${fillMix(90, '#7a4e33')} !important;border-radius:0;`,
     },
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: {
         neutral: '#171412',
@@ -95,7 +95,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:radial-gradient(circle at 50% 35%,#6a5242,#3a2d26);box-shadow:inset 0 0 0 1.5px #b98a5a;color:#d9aa6e;',
         placeholderSvg: 'stroke:#d9aa6e;stroke-width:1.9;',
         track: `height:${s(7)};border:1px solid #b98a5a;border-radius:1px;background:#241a15;`,
-        fill: `background:linear-gradient(180deg,rgba(255,236,200,.35) 0 1px,transparent 1px),${fillMix(58, '#c8893a')} !important;border-radius:0;`,
+        fill: `background:linear-gradient(180deg,rgba(255,236,200,.35) 0 1px,transparent 1px),${fillMix(90, '#c8893a')} !important;border-radius:0;`,
     },
     [DIALOG_SKIN_DAY_MINIMAL]: {
         neutral: '#8a8778',
@@ -106,7 +106,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:#e7e5dc;color:#8a8778;',
         placeholderSvg: 'stroke:#6f6d62;stroke-width:1.1;',
         track: `height:${s(3)};border:0;border-radius:0;background:rgba(58,57,53,.18);`,
-        fill: `background:${fillMix(65, '#8a8778')} !important;border-radius:0;`,
+        fill: `background:${fillMix(90, '#8a8778')} !important;border-radius:0;`,
         value: 'font-weight:400;letter-spacing:.04em;',
     },
     [DIALOG_SKIN_WARM_PICTUREBOOK]: {
@@ -118,7 +118,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:repeating-linear-gradient(135deg,#e7e1da 0 4px,#ded7cf 4px 8px);color:#4f4a45;',
         placeholderSvg: 'fill:#f4efe9;stroke:#4f4a45;stroke-width:1.8;',
         track: `height:${s(9)};border:1.5px solid #4f4a45;border-radius:999px;background:#e3ddd6;`,
-        fill: `background:repeating-linear-gradient(135deg,rgba(255,255,255,.22) 0 3px,transparent 3px 6px),${fillMix(78, '#f1ede9')} !important;border-radius:999px;`,
+        fill: `background:repeating-linear-gradient(135deg,rgba(255,255,255,.22) 0 3px,transparent 3px 6px),${fillMix(90, '#f1ede9')} !important;border-radius:999px;`,
     },
     [CLASSIC]: {
         neutral: '#cdbd92',
@@ -131,7 +131,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:radial-gradient(circle at 50% 35%,#4e5340,#2c2f22);color:#d9b061;',
         placeholderSvg: 'stroke:#d9b061;stroke-width:1.4;',
         track: `height:${s(6)};border:1px solid #b8903f;border-radius:${s(3)};background:rgba(0,0,0,.42);`,
-        fill: `background:linear-gradient(180deg,rgba(255,240,200,.4),transparent 60%),${fillMix(55, '#d9b061')} !important;border-radius:${s(3)};`,
+        fill: `background:linear-gradient(180deg,rgba(255,240,200,.4),transparent 60%),${fillMix(90, '#d9b061')} !important;border-radius:${s(3)};`,
     },
     [DIALOG_SKIN_ELEGANT_EUROPEAN]: {
         neutral: '#d4cfdc',
@@ -144,7 +144,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:radial-gradient(circle at 50% 30%,rgba(112,92,186,.55),rgba(12,12,22,.8));color:#e4dfeb;',
         placeholderSvg: 'stroke:#e4dfeb;stroke-width:1;',
         track: `height:${s(2)};border:0;border-radius:0;background:rgba(236,232,244,.2);overflow:visible;`,
-        fill: `background:${fillMix(60, '#c4b0ff')} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, '#c4b0ff')};`,
+        fill: `background:${fillMix(88, '#c4b0ff')} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(92, '#c4b0ff')};`,
         value: 'font-weight:400;',
     },
     [DIALOG_SKIN_MAGIC_ACADEMY]: {
@@ -158,7 +158,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: `background:radial-gradient(circle at 50% 30%,${magicTint(MAGIC_METAL, 30)},${magicVeil(90)});color:${MAGIC_METAL_HI};`,
         placeholderSvg: `stroke:${MAGIC_METAL_HI};stroke-width:1.1;`,
         track: `height:${s(2)};border:0;border-radius:0;background:${magicTint(MAGIC_METAL, 22)};overflow:visible;`,
-        fill: `background:${fillMix(60, MAGIC_METAL_HI)} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(70, MAGIC_METAL_HI)};`,
+        fill: `background:${fillMix(88, MAGIC_METAL_HI)} !important;border-radius:0;box-shadow:0 0 6px ${fillMix(92, MAGIC_METAL_HI)};`,
         value: 'font-weight:400;',
     },
     [DIALOG_SKIN_QINGLV]: QINGLV_HUD_THEME,
@@ -183,7 +183,7 @@ const HUD_THEMES = Object.freeze({
         placeholder: 'background:#ece2d6;color:#5c4949;',
         placeholderSvg: 'fill:#a5bf6b;stroke:#5c4949;stroke-width:1.5;',
         track: `height:${s(8)};border:1.5px solid #5c4949;border-radius:999px;background:#ece2d6;`,
-        fill: `background:radial-gradient(rgba(255,255,255,.28) 1px,transparent 1.4px) 0 0/4px 4px,${fillMix(75, '#a5bf6b')} !important;border-radius:999px;`,
+        fill: `background:radial-gradient(rgba(255,255,255,.28) 1px,transparent 1.4px) 0 0/4px 4px,${fillMix(90, '#a5bf6b')} !important;border-radius:999px;`,
     },
     [DIALOG_SKIN_GRADIENT_VEIL]: {
         neutral: 'rgba(255,255,255,.8)',

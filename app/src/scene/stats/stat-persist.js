@@ -6,6 +6,7 @@ import { BASE_ATTRIBUTES } from './stat-state.js';
 import * as registry from './stat-registry.js';
 import { sanitizeFameBars } from './stat-fame.js';
 import { sanitizeCycles, sanitizeStatuses } from './stat-status.js';
+import { WORLD_GENRES } from './stat-status-defs.js';
 import { LEGACY_TRAIT_KEYS, mergeLegacyForced, sanitizeAptitude, sanitizeTraits } from './stat-traits.js';
 
 const { validSkillName, canonicalSkillName, mergeLegacyValue } = registry;
@@ -87,7 +88,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {} };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -161,6 +162,10 @@ export function sanitizeCatalog(raw) {
     // 状态与周期（B 批，结构见 stat-status-defs.js）：旧档没有字段时为 {}。
     out.statuses = sanitizeStatuses(raw.statuses);
     out.cycles = sanitizeCycles(raw.cycles);
+    // 题材（E5）：worlds 为副模型读世界书的判定（auto），worldsManual 为手动多选覆盖；取值限 WORLD_GENRES。
+    const genres = (v) => [...new Set((Array.isArray(v) ? v : []).filter((w) => WORLD_GENRES.includes(w)))];
+    out.worlds = genres(raw.worlds);
+    out.worldsManual = genres(raw.worldsManual);
     return out;
 }
 

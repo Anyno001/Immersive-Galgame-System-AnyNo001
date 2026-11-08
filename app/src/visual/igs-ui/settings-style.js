@@ -313,6 +313,12 @@ details.igs-stats-person details.igs-edit-fold>summary{padding-left:0}
 .igs-edit-card .igs-add-fold[open]>.igs-trait-panel{display:flex}
 .igs-edit-card .igs-trait-pick .igs-trait-chip{background:var(--igs-settings-raised)}
 .igs-trait-limits{padding:4px 0;font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-edit-main>.igs-status-src{font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-cycle-box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:0 0 10px;border-bottom:1px solid var(--igs-settings-raised)}
+.igs-cycle-row{border-bottom:0;padding-bottom:6px}
+@media (max-width:520px){.igs-status-row{flex-wrap:wrap}.igs-status-row>.igs-edit-main{flex:1 1 100%}.igs-status-row>.igs-edit-ops{max-width:100%;flex:1 1 100%;justify-content:flex-start}}
+.igs-world-pick{display:flex;flex-wrap:wrap;gap:6px}
+.igs-world-pick .igs-settings-action.is-on{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
 details.igs-stats-person .igs-stats-hero-actions>.igs-settings-action{background:var(--igs-settings-raised)}
 details.igs-stats-person .igs-stats-hero-actions>.igs-settings-action:hover{background:var(--igs-settings-accent)}
 .igs-trait-group>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px;font-size:12px;color:var(--igs-settings-ink-2);cursor:pointer;user-select:none}

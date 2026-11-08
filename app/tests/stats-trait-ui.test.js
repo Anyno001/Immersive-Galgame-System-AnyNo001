@@ -46,7 +46,7 @@ test('满格时「＋ 添加特质」置灰且没有面板', () => {
     const items = ['companion', 'bodiless', 'kin', 'fragile', '长生'].map((id) => item(id));
     const html = renderTraitBlock('小雪', { traitList: { 小雪: { items, slots: 5, auto: 0, achieve: 0 } }, traitNsfw: false });
     assert.match(html, /igs-edit-add is-off/);
-    assert.doesNotMatch(html, /igs-trait-panel/);
+    assert.doesNotMatch(html, /data-advanced="trait-add:/);
 });
 
 test('添加面板：NSFW 关时不列 nsfw 项，主角只列主角可用项，已挂项不再列出', () => {

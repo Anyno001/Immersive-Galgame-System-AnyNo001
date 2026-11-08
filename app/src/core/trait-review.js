@@ -130,12 +130,15 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
 
 // 顺带识别的事件（不新增正文标签）：恩仇类由调用方注入类型表（bond-rules 的 EVENT_TYPES），其余为评定事件。
 export const REVIEW_EVENT_TYPES = Object.freeze(['夸奖', '批评', '拒绝', '背叛', '求助', '耳语', '信仰质疑']);
-const JSON_SHAPE = '{"results":[{"name":"角色名","tags":["标签"],"add":["特质名"],"basis":{"特质名":["依据标签"]},"waive":["免掉的捆绑特质名"],"remove":["特质名"],"status":[{"name":"状态名","on":true,"src":"setting或story","toward":"对象名（关系状态才写）"}]}],"events":[{"name":"角色名","type":"事件","dir":"ta或me"}]}';
+const JSON_SHAPE_BASE = '{"results":[{"name":"角色名","tags":["标签"],"add":["特质名"],"basis":{"特质名":["依据标签"]},"waive":["免掉的捆绑特质名"],"remove":["特质名"],"status":[{"name":"状态名","on":true,"src":"setting或story","toward":"对象名（关系状态才写）"}]}],"events":[{"name":"角色名","type":"事件","dir":"ta或me"}]}';
+const shapeOf = (genres) => (genres && genres.length ? JSON_SHAPE_BASE.slice(0, -1) + ',"worlds":["题材"]}' : JSON_SHAPE_BASE);
 
 // 3. 提示词：只列「特质名：评定依据」，不列倍率；NSFW 关时不列 nsfw 项。mode：'initial' | 'story'。
 // statusDefs：状态定义表（stat-status-defs 的 STATUS_DEFS，由调用方注入）；给出时附状态名单与 status 字段说明。
-export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = [], statusDefs = null) {
+export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = [], statusDefs = null, genres = null) {
     const p = payload || {};
+    const JSON_SHAPE = shapeOf(genres);
+    const worldLine = genres && genres.length ? `worlds 写世界书与人设体现的世界观题材，只能从这些里选：${genres.join('、')}；没有明确依据就留空。` : '';
     const defList = (Array.isArray(defs) ? defs : []).filter((d) => d && !d.boundOnly && (p.nsfw || !d.nsfw));
     const lines = [];
     lines.push(mode === 'initial'
@@ -172,12 +175,12 @@ export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = []
         p.floors.forEach((f) => lines.push(`【${f.role === 'user' ? '用户' : 'AI'}${f.no != null ? ` 第${f.no}楼` : ''}】${f.text}`));
     }
     if (mode === 'initial') {
-        lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '每个角色都写 tags；没有合适特质时 add 留空；不写 remove，events 留空；特质名必须与上表完全一致。');
+        lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '每个角色都写 tags；没有合适特质时 add 留空；不写 remove，events 留空；特质名必须与上表完全一致。', ...(worldLine ? [worldLine] : []));
         return lines.join('\n');
     }
     const kinds = [...(Array.isArray(eventTypes) ? eventTypes : []), ...REVIEW_EVENT_TYPES];
     lines.push('', `另外，最近正文里若有明确发生的下列事件，在 events 里记一条（name 为受事角色，dir 写 ta 表示主角对 TA、me 表示 TA 对主角，可省）：${kinds.join('、')}。没有就留空。`);
-    lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '没有变化的角色可以省略；add 为获得、remove 为失去；特质名必须与上表完全一致。');
+    lines.push('', `只输出一段 JSON，不要任何解释或代码块标记，格式：${JSON_SHAPE}`, '没有变化的角色可以省略；add 为获得、remove 为失去；特质名必须与上表完全一致。', ...(worldLine ? [worldLine] : []));
     return lines.join('\n');
 }
 
@@ -249,6 +252,15 @@ export function parseReviewReply(text, defs, opts = {}) {
 
 // 状态评定结果（与特质分开）：返回 [{ charName, status, on, src: 'setting'|'story', toward? }]；
 // 状态名须在 statusDefs 里，关系状态缺 toward 丢弃；src 认不出按 story。
+// 世界观题材（E5）：取回复里的 worlds，只留 allowed 里的值，去重；没有返回 null（不覆盖已有判定）。
+export function parseReviewWorlds(text, allowed) {
+    const root = extractJson(text);
+    const raw = root && !Array.isArray(root) && typeof root === 'object' ? root.worlds : null;
+    if (!Array.isArray(raw)) return null;
+    const ok = new Set(Array.isArray(allowed) ? allowed : []);
+    return [...new Set(raw.map(clean).filter((w) => ok.has(w)))];
+}
+
 export function parseReviewStatuses(text, statusDefs, opts = {}) {
     const defs = new Map((Array.isArray(statusDefs) ? statusDefs : []).map((d) => [d.name, d]));
     const allowed = Array.isArray(opts.chars) && opts.chars.length ? new Set(opts.chars.map(clean)) : null;

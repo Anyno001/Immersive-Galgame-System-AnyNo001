@@ -73,6 +73,6 @@ export const WASTELAND_HUD_THEME = Object.freeze({
     placeholder: `background:linear-gradient(180deg,#3b372f,#211e1a);color:${TAPE};`,
     placeholderSvg: `fill:none;stroke:${TAPE};stroke-width:1.3;`,
     track: `height:${s(5)};border:1px solid ${SOOT};border-radius:0;background:rgba(0,0,0,.35);`,
-    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 60%,${WASTELAND_HAZARD}) !important;border-radius:0;`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 88%,${WASTELAND_HAZARD}) !important;border-radius:0;`,
     value: 'font-weight:700;',
 });

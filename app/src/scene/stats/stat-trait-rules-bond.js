@@ -11,11 +11,14 @@
 // 【事件入口】正文标签读不到「救命」「背叛」「偷窃」这类语义，由副模型或演出层填 ctx.bondEvents：
 //   [{ type, target?, who?, dir?, by? }]，type 取值见 EVENT_TYPES；标签里读得到的（芥蒂上升、共患难 / 交心事件、被迫类压力来源、战斗标签、打工）本文件自行推导。
 import { shiftStress } from './stat-strain.js';
-import { barsOf, withBars, withCharacter } from './stat-state.js';
+import { DIM_MAX, barsOf, clamp, dimMin, isRomance, withBars, withCharacter } from './stat-state.js';
+import { START_FIX_VALUE, START_MODIFIERS } from './stat-vocab.js';
+import { calcRow, withCalc } from './stat-status-defs.js';
+import { INTIMATE_STOP } from '../intimate-duel.js';
 
 export const EVENT_TYPES = Object.freeze([
     '救命', '帮忙', '报恩', '遇险', '结怨', '血仇', '和解', '道歉', '复仇', '决裂', '共犯', '挟持', '获救',
-    '身份揭开', '偷窃成功', '偷窃被发现', '谎言揭穿', '被追查', '被抓', '杀伤',
+    '身份揭开', '偷窃成功', '偷窃被发现', '谎言揭穿', '被追查', '被抓', '杀伤', '猜忌',
 ]);
 
 // 「一档」换算（沿用普通档强度表）：信任下降小 3 / 大 15；芥蒂上升小 2 / 大 10、下降大 10；压力小 5 / 大 20；好感信任一大档 6。
@@ -31,11 +34,17 @@ const DAILY_STRESS = 3;
 const FADE_DAYS = 7;
 const LIKE = 26;
 const CAPTIVE_DAYS = 3;
+// 结怨可随时间淡去的性格；芥蒂淡到「小心结」下限即解开（与 stat-favor-events.js 的 GRUDGE_FADE_FLOOR 同值）。
+const FORGIVING = Object.freeze(['宽容', '以德报怨', '老好人', '一笑泯恩仇']);
+const GRUDGE_FADE_FLOOR = 25;
 // 惯偷偷到手的金额：少量档。打工收入档位表（少量 20、普通 100、昂贵 500、巨额 3000）。
 const MONEY_TABLE = Object.freeze({ 少量: 20, 普通: 100, 昂贵: 500, 巨额: 3000 });
 const MONEY_ORDER = Object.freeze(['少量', '普通', '昂贵', '巨额']);
 
 const dimOf = (c, dim) => Number(c && c.dims && c.dims[dim]) || 0;
+// 结怨挂上多少天内算「近期」（与误会账同为七天）；相安升同心的好感门槛（深爱档下限，同 stat-favor 的 FAVOR_STAGES）。
+const RECENT_HATE_DAYS = 7;
+const DEEP_LOVE = 76;
 
 export const SCALE = [
     ['骗子', '了解', 'up', 0.5],
@@ -92,6 +101,105 @@ export function bondDice(state, actor, opponent = null) {
 }
 export const consumeFavorDice = (state, actor) => dropRel(state, actor, '欠你人情', 'ta');
 
+// 主角对抗时的「结怨对象」：对方与主角之间有结怨 / 血仇（任一方向）或宿仇。
+export const hatesOpponent = (state, name) => Boolean(state && state.characters && state.characters[name] && (state.characters[name].feud || hasRel(state, name, '结怨') || hasRel(state, name, '血仇')));
+
+// ---- 猜忌 / 心结（关系状态，TA 对主角） ----
+// 记账字段：src（setting 开局 / story 剧情）、trust、grudge（开局扣的信任、加的芥蒂数额，正数）。
+// 角色档案的 startMods 记已挂过的开局修饰，解除后不会重复补挂。
+const OPENING_RELS = ['猜忌', '心结'];
+const PAIR_RELS = ['相安', '同心'];
+
+// 开局修饰对应的扣加数额，按 START_FIX 档位换算。
+export function openingRelAmounts(mod) {
+    const tier = OPENING_RELS.includes(mod) ? START_MODIFIERS[mod] : null;
+    if (!tier) return null;
+    return { trust: tier.信任 ? -START_FIX_VALUE.信任[tier.信任] : 0, grudge: tier.芥蒂 ? START_FIX_VALUE.芥蒂[tier.芥蒂] : 0 };
+}
+
+// 给角色挂开局猜忌 / 心结。offsets 为实际生效的开局修正（负信任、正芥蒂），传入时数额不超过它。
+export function attachOpeningRels(state, name, mods, { offsets = null, src = 'setting' } = {}) {
+    const cur = state.characters[name];
+    if (!cur) return state;
+    const done = Array.isArray(cur.startMods) ? cur.startMods : [];
+    let next = state;
+    const added = [];
+    for (const mod of mods || []) {
+        const amt = OPENING_RELS.includes(mod) && !done.includes(mod) && !added.includes(mod) ? openingRelAmounts(mod) : null;
+        if (!amt) continue;
+        const trust = offsets ? Math.min(amt.trust, Math.max(0, -(Number(offsets.信任) || 0))) : amt.trust;
+        const grudge = offsets ? Math.min(amt.grudge, Math.max(0, Number(offsets.芥蒂) || 0)) : amt.grudge;
+        next = addRel(next, name, mod, 'ta', { src, trust, grudge });
+        added.push(mod);
+    }
+    return added.length ? withCharacter(next, name, { ...next.characters[name], startMods: [...done, ...added] }) : next;
+}
+
+// 旧档修复：info = { notes: { 角色: 起始关系变动 note }, jealous: [曾吃醋的角色] }（由运行时扫账本给出）。
+// 起始关系·恋人 且 romance 仍为 undefined 补 true；note 里带猜忌 / 心结且还没处理过则补挂关系状态；吃醋记录补 jealousSeen。
+export function repairLegacyStart(state, info) {
+    if (!info) return state;
+    let next = state;
+    for (const [name, note] of Object.entries(info.notes || {})) {
+        const cur = next.characters[name];
+        if (!cur) continue;
+        const parts = String(note).replace(/^起始关系·/, '').split('+');
+        if (parts[0] === '恋人' && cur.romance === undefined) next = withCharacter(next, name, { ...cur, romance: true });
+        next = attachOpeningRels(next, name, parts.slice(1), { src: 'setting' });
+    }
+    for (const name of info.jealous || []) {
+        const cur = next.characters[name];
+        if (cur && !cur.jealousSeen) next = withCharacter(next, name, { ...cur, jealousSeen: true });
+    }
+    return next;
+}
+
+// 误会解除时的关系状态清理：猜忌 / 心结摘掉，按一半退回开局扣的信任与加的芥蒂；近 7 天挂上的结怨（TA 恨你）一并摘掉。
+const halfBack = (n) => (n > 0 ? Math.max(1, Math.round(n / 2)) : 0);
+export function hasClearableBond(state, name) {
+    if (OPENING_RELS.some((id) => hasRel(state, name, id, 'ta'))) return true;
+    const hate = findRel(state, name, '结怨', 'ta');
+    return Boolean(hate && Number.isFinite(Number(hate.since)) && state.clock.day - Number(hate.since) <= RECENT_HATE_DAYS);
+}
+export function clearBond(state, name, changes) {
+    let next = state;
+    for (const id of OPENING_RELS) {
+        const r = findRel(next, name, id, 'ta');
+        if (!r) continue;
+        const dims = { ...next.characters[name].dims };
+        for (const [dim, back, sign] of [['信任', halfBack(Number(r.trust) || 0), 1], ['芥蒂', halfBack(Number(r.grudge) || 0), -1]]) {
+            if (!back) continue;
+            const from = Number(dims[dim]) || 0;
+            const to = clamp(from + sign * back, dimMin(dim), DIM_MAX);
+            if (to === from) continue;
+            dims[dim] = to;
+            changes.push({ source: 'tag', target: name, key: dim, from, to, note: '误会解除·' + id });
+        }
+        next = dropRel(withCharacter(next, name, { ...next.characters[name], dims }), name, id, 'ta');
+    }
+    const hate = findRel(next, name, '结怨', 'ta');
+    if (hate && Number.isFinite(Number(hate.since)) && next.clock.day - Number(hate.since) <= RECENT_HATE_DAYS) next = dropRel(next, name, '结怨', 'ta');
+    return next;
+}
+
+// 背叛：猜忌坐实转结怨。摘掉猜忌；TA 无以德报怨、尚未结怨（或宿仇）则挂结怨。
+export function betrayHate(state, api, name) {
+    if (!state.characters[name]) return state;
+    const next = dropRel(state, name, '猜忌', 'ta');
+    if (api.has(next, name, '以德报怨') || hates(next, name)) return next;
+    return addRel(next, name, '结怨', 'ta', { hold: dimOf(next.characters[name], '芥蒂') });
+}
+
+// ---- 相安 / 同心（两位恋爱对象之间，记在双方档案上，dir 为 both，toward 为对方） ----
+const hasPair = (state, a, id, b) => relStatesOf(state, a).some((r) => r.id === id && r.toward === b);
+const pairPartners = (state, name) => relStatesOf(state, name).filter((r) => PAIR_RELS.includes(r.id) && r.toward).map((r) => r.toward);
+export const pairPartnersOf = pairPartners;
+function setPair(state, a, b, id) {
+    if (!state.characters[a]) return state;
+    const kept = relStatesOf(state, a).filter((r) => !(PAIR_RELS.includes(r.id) && r.toward === b));
+    return setRels(state, a, [...kept, { id, dir: 'both', since: state.clock.day, toward: b }]);
+}
+
 // TA 恨你：结怨（TA 方向）或宿仇。
 const hates = (state, name) => hasRel(state, name, '结怨', 'ta') || Boolean(state.characters[name] && state.characters[name].feud);
 const hatesCharacter = (c) => Boolean(c && (c.feud || (Array.isArray(c.relStates) && c.relStates.some((r) => r.id === '结怨' && r.dir === 'ta'))));
@@ -108,10 +216,10 @@ export const DICE = [
 // ---- 钩子内部工具 ----
 
 // 本楼标签结算（source 为 tag）里某角色某维度已发生的涨幅或跌幅合计。
-function sumTag(ctx, name, key, sign) {
+function sumTag(ctx, name, key, sign, pass = null) {
     let sum = 0;
     for (const c of ctx.changes || []) {
-        if (c.source !== 'tag' || c.target !== name || c.key !== key) continue;
+        if (c.source !== 'tag' || c.target !== name || c.key !== key || (pass && !pass(c))) continue;
         const d = Number(c.to) - Number(c.from);
         if (sign > 0 ? d > 0 : d < 0) sum += d;
     }
@@ -268,8 +376,25 @@ function ongoing(state, api) {
         }
         // 结怨（TA 恨你）：TA 好感上升减半。
         if (hasRel(state, name, '结怨', 'ta') && gain > 0) next = api.bump(next, name, '好感', -Math.floor(gain / 2), '结怨');
+        // 猜忌（TA 对你）：信任上升减半（四舍五入）。
+        // 开局设定与误会解除退回的信任不算在内。
+        if (hasRel(state, name, '猜忌', 'ta')) next = halveTrust(next, api, name, sumTag(ctx, name, '信任', 1, (c) => !/^(起始关系|开局修正|误会解除)/.test(String(c.note || ''))));
         // 爱恨交织：好感上升时欲望同步小升。
         if (hasRel(state, name, '爱恨交织', 'ta') && gain > 0) next = api.bump(next, name, '欲望', api.SMALL.欲望, '爱恨交织');
+    }
+    return next;
+}
+
+// 猜忌：本楼标签结算给的信任上升量 gain 减去一半，变动带明细。
+function halveTrust(state, api, name, gain) {
+    const cut = Math.round(gain / 2);
+    if (gain <= 0 || cut <= 0) return state;
+    const list = api.ctx.changes;
+    const before = list.length;
+    const next = api.bump(state, name, '信任', -cut, '猜忌');
+    if (list.length > before) {
+        const row = list[list.length - 1];
+        list[list.length - 1] = withCalc(row, { calc: [calcRow('信任上升', gain), calcRow('猜忌 减半', -cut), calcRow('结果', row.to - row.from)] });
     }
     return next;
 }
@@ -328,8 +453,8 @@ export function applyEvent(state, api, ev) {
             next = api.bump(next, name, '好感', api.BIG.好感 * m, '报恩');
             next = api.bump(next, name, '信任', api.BIG.信任 * m, '报恩');
         }
-        // 不愿亏欠：TA 报恩后对主角好感上升一大档（主角没有好感条，不结算主角一侧）。
-        if (dir === 'ta' && api.has(next, name, '不愿亏欠')) next = api.bump(next, name, '好感', api.BIG.好感, '不愿亏欠');
+        // 恩怨分明：TA 报恩后对主角好感上升一大档（主角没有好感条，不结算主角一侧）。
+        if (dir === 'ta' && api.has(next, name, '恩怨分明')) next = api.bump(next, name, '好感', api.BIG.好感, '恩怨分明');
         return next;
     }
     case '结怨': {
@@ -368,6 +493,7 @@ export function applyEvent(state, api, ev) {
         // 恩怨两难走向决裂，转回宿仇。
         return hasRel(next, name, '恩怨两难', 'ta') ? setFeud(dropRel(next, name, '恩怨两难', 'ta'), name, true) : next;
     case '共犯': return hasRel(next, name, '共犯') ? next : addRel(next, name, '共犯', 'both');
+    case '猜忌': return dir === 'ta' && !hasRel(next, name, '猜忌', 'ta') ? addRel(next, name, '猜忌', 'ta', { src: 'story', trust: 0, grudge: 0 }) : next;
     default: return next;
     }
 }
@@ -409,6 +535,58 @@ function bondHook(state, api) {
     for (const name of Object.keys(next.characters)) {
         if (hasRel(next, name, '结怨', 'ta')) next = patchRel(next, name, '结怨', 'ta', { hold: dimOf(next.characters[name], '芥蒂') });
     }
+    next = harmonyHook(next, api);
+    next = rivalWinHook(next, api);
+    return next;
+}
+
+// 修罗场转后宫：两位恋爱对象（isRomance）都有过吃醋记录（jealousSeen），同一楼对两人都写了共患难 / 交心，
+// 或两人同楼在场（ctx.present）且写了其中一人的共患难 / 交心 → 双方互挂「相安」；
+// 已相安、双方好感都到深爱档（76）再次满足 → 升「同心」（相安与同心同楼不连升）。
+function harmonyHook(state, api) {
+    const { ctx, directives } = api;
+    let next = state;
+    for (const c of ctx.changes) {
+        const cur = c.source === 'tag' && c.note === '吃醋' ? next.characters[c.target] : null;
+        if (cur && !cur.jealousSeen) next = withCharacter(next, c.target, { ...cur, jealousSeen: true });
+    }
+    const hit = new Set(directives.filter((d) => d.kind === 'event' && (d.value === '共患难' || d.value === '交心') && next.characters[d.target]).map((d) => d.target));
+    if (!hit.size) return next;
+    const present = new Set(Array.isArray(ctx.present) ? ctx.present : []);
+    const names = Object.keys(next.characters).filter((n) => next.characters[n].jealousSeen && isRomance(next.characters[n], n, ctx.romanceSeen));
+    for (let i = 0; i < names.length; i += 1) {
+        for (let j = i + 1; j < names.length; j += 1) {
+            const [x, y] = [names[i], names[j]];
+            if (!((hit.has(x) && hit.has(y)) || (hit.has(x) && present.has(y)) || (hit.has(y) && present.has(x)))) continue;
+            if (hasPair(next, x, '同心', y)) continue;
+            if (hasPair(next, x, '相安', y)) {
+                if (hasPair(state, x, '相安', y) && dimOf(next.characters[x], '好感') >= DEEP_LOVE && dimOf(next.characters[y], '好感') >= DEEP_LOVE) next = setPair(setPair(next, x, y, '同心'), y, x, '同心');
+                continue;
+            }
+            next = setPair(setPair(next, x, y, '相安'), y, x, '相安');
+        }
+    }
+    return next;
+}
+
+// 相爱相杀：亲密对决（主导，我方主导 / 险胜）或战斗中胜过对方，TA 好感上升一小档（主角没有好感条，只结算 TA 一侧）。
+// 对方：亲密对决取战报的 counterpart；战斗取在场且不是同伴的合成持有者。
+const DUEL_WIN = ['我方主导', '险胜'];
+function rivalWinHook(state, api) {
+    const { ctx, directives } = api;
+    const battle = ctx.flags && ctx.flags.battle;
+    const won = battle && battle.outcome && battle.outcome !== '败' && battle.outcome !== '撤' ? battle : null;
+    const duels = directives.filter((d) => d.kind === 'challenge' && d.ending && d.ending !== INTIMATE_STOP && d.mechanic === '主导' && DUEL_WIN.includes(d.ending));
+    if (!won && !duels.length) return state;
+    const allies = new Set(won ? [won.ally, ...(won.allies || [])].filter(Boolean) : []);
+    const present = new Set([...(Array.isArray(ctx.present) ? ctx.present : []), ...directives.map((d) => d.target).filter(Boolean)]);
+    let next = state;
+    for (const name of Object.keys(next.characters)) {
+        if (!api.has(next, name, 'combo:相爱相杀')) continue;
+        const duel = duels.some((d) => d.counterpart === name);
+        const fight = won && present.has(name) && !allies.has(name);
+        if (duel || fight) next = api.bump(next, name, '好感', api.SMALL.好感, '相爱相杀');
+    }
     return next;
 }
 
@@ -421,18 +599,22 @@ function bondDaily(state, api) {
     let next = state;
     let heroOwes = false;
     for (const name of Object.keys(next.characters)) {
-        // 忘恩负义：救命之恩过七天自动淡化为欠你人情（知恩图报不淡化）。
+        // 白眼狼：救命之恩过七天自动淡化为欠你人情（知恩图报不淡化）。
         const life = findRel(next, name, '救命之恩', 'ta');
-        if (life && api.has(next, name, '忘恩负义') && !api.has(next, name, '知恩图报') && day - (Number(life.since) || day) >= FADE_DAYS) {
+        if (life && api.has(next, name, '白眼狼') && !api.has(next, name, '知恩图报') && day - (Number(life.since) || day) >= FADE_DAYS) {
             next = addRel(dropRel(next, name, '救命之恩', 'ta'), name, '欠你人情', 'ta');
         }
-        // 不愿亏欠：欠恩期间每天压力缓升（NPC 欠主角记在 ta，主角欠 TA 记在 me）。
+        // 恩怨分明：欠恩期间每天压力缓升（NPC 欠主角记在 ta，主角欠 TA 记在 me）。
         const owesTa = hasRel(next, name, '救命之恩', 'ta') || hasRel(next, name, '欠你人情', 'ta');
-        if (owesTa && api.has(next, name, '不愿亏欠')) next = bumpStress(next, name, DAILY_STRESS, '不愿亏欠', changes);
+        if (owesTa && api.has(next, name, '恩怨分明')) next = bumpStress(next, name, DAILY_STRESS, '恩怨分明', changes);
         if (hasRel(next, name, '救命之恩', 'me') || hasRel(next, name, '欠你人情', 'me')) heroOwes = true;
         // 结怨（TA 恨你）不自然消退：芥蒂被日结算淡忘的部分补回。
+        // 宽容一类性格（宽容、以德报怨、老好人、一笑泯恩仇）例外：不补回，芥蒂淡到 25 以下时结怨自行解开。
         const hate = findRel(next, name, '结怨', 'ta');
-        if (hate && Number.isFinite(hate.hold) && dimOf(next.characters[name], '芥蒂') < hate.hold) {
+        const forgiving = hate && FORGIVING.some((id) => api.has(next, name, id));
+        if (forgiving && dimOf(next.characters[name], '芥蒂') <= GRUDGE_FADE_FLOOR) {
+            next = dropRel(next, name, '结怨', 'ta');
+        } else if (hate && !forgiving && Number.isFinite(hate.hold) && dimOf(next.characters[name], '芥蒂') < hate.hold) {
             const c = next.characters[name];
             changes.push({ source: 'daily', target: name, key: '芥蒂', from: dimOf(c, '芥蒂'), to: hate.hold, note: '结怨不消退' });
             next = withCharacter(next, name, { ...c, dims: { ...c.dims, 芥蒂: hate.hold } });
@@ -446,7 +628,7 @@ function bondDaily(state, api) {
             next = withCharacter(next, name, rest);
         }
     }
-    if (heroOwes && api.has(next, '主角', '不愿亏欠')) next = bumpStress(next, '主角', DAILY_STRESS, '不愿亏欠', changes);
+    if (heroOwes && api.has(next, '主角', '恩怨分明')) next = bumpStress(next, '主角', DAILY_STRESS, '恩怨分明', changes);
     return refreshLoveHate(next);
 }
 

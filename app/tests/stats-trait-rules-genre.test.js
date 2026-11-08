@@ -45,7 +45,7 @@ test('诅咒：每天压力 +5，日结算后主角压力 +5 再减自然回落'
     const t = { 主角: { [getTraitByName('诅咒').id]: on } };
     assert.equal(traitDaily(s, traitCatalogOf(t, true), '主角', '压力'), 5);
     const r = settleDay(s, { random: high, rev: 2, traits: t, nsfw: true });
-    assert.equal(r.protagonist.bars.stress, 25, '30 减 10 加 5');
+    assert.equal(r.protagonist.bars.stress, 30, '30×15%=5 回落再加 5');
 });
 
 test('已标记：主角与他人亲近，已标记者压力上升一大档；无特质不变', () => {

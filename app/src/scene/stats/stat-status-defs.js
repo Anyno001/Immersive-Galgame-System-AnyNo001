@@ -38,6 +38,30 @@ const STATUS_ROWS = [
     ['失恋期', '个人', 'timer', 14, '', '{{名}}刚刚失恋', '压力每天缓升；对他人好感上升减半', '热恋期'],
     ['冷战中', '关系', 'until', 0, '', '{{名}}正与{{对象}}冷战', '彼此好感不上升；同场时压力缓升', ''],
     ['身体不适', '个人', 'timer', 2, '', '{{名}}身体不适', '体力消耗略快', ''],
+    // E1 批（backlog 第 10 条）：通用状态。醉酒为 until：次日由系统转成宿醉；手头紧、犯瘾由系统按条件挂摘（见 stat-status-auto.js）。
+    ['醉酒', '个人', 'until', 0, '', '{{名}}喝醉了，举止失控、口齿不清', '压力上升略慢；次日转为宿醉', '宿醉'],
+    ['失眠', '个人', 'timer', 2, '', '{{名}}近来失眠，睡不安稳', '体力恢复变慢', ''],
+    ['受惊', '个人', 'timer', 1, '', '{{名}}受到惊吓，惊魂未定', '压力上升加快', ''],
+    ['热恋期', '个人', 'timer', 14, '', '{{名}}正处于热恋期，心情甜蜜', '压力上升变慢', '失恋期'],
+    ['吃醋中', '关系', 'until', 0, '', '{{名}}正在吃{{对象}}的醋', '压力上升略快', ''],
+    ['心情很好', '个人', 'timer', 3, '', '{{名}}心情很好', '压力上升变慢', ''],
+    ['赶工期', '个人', 'timer', 5, '', '{{名}}正在赶工，疲惫又焦躁', '压力上升略快', ''],
+    ['手头紧', '个人', 'until', 0, '', '{{名}}最近手头紧，为钱发愁', '压力上升略快', ''],
+    ['中毒', '个人', 'timer', 3, '', '{{名}}中了毒，虚弱难受', '体力恢复大减', ''],
+    ['犯瘾', '个人', 'until', 0, '', '{{名}}犯了瘾，心神不宁', '压力上升加快', ''],
+    ['信物', '关系', 'until', 0, '', '{{名}}留着{{对象}}送的信物', '压力上升略慢', ''],
+    // 世界观状态：子类对应登记表「题材子类」；系统不自动挂，正文标签或副模型评定挂摘。
+    ['透支', '个人', 'timer', 2, '修仙/西幻', '{{名}}灵力（魔力）透支，虚弱无力', '体力恢复变慢', ''],
+    ['受祝福', '个人', 'timer', 3, '西幻', '{{名}}受到祝福，心境安稳', '压力上升变慢', ''],
+    ['走火入魔', '个人', 'until', 0, '修仙', '{{名}}走火入魔，心神不稳', '压力上升加快', '闭关中'],
+    ['闭关中', '个人', 'until', 0, '修仙', '{{名}}正在闭关，不见外人', '压力上升略慢', '走火入魔'],
+    ['渡劫', '个人', 'until', 0, '修仙', '{{名}}正在渡劫，生死一线', '压力上升加快', ''],
+    ['被控制', '个人', 'until', 0, '妖异', '{{名}}被人控制，言行不由自己', '压力上升加快', ''],
+    ['感染初期', '个人', 'timer', 3, '末世', '{{名}}被感染，尚在潜伏期，隐隐发热', '体力恢复变慢', '感冒'],
+    // 周期状态（D 批，kind:'cycle'）：由 catalog.cycles 按日期挂摘，正文标签「来了」可校准上次开始日；天数不写在定义里。
+    ['生理期', '个人', 'cycle', 0, '', '{{名}}正处于生理期', '体力消耗略快；情绪容易波动', ''],
+    ['发情期', '个人', 'cycle', 0, 'ABO', '{{名}}正处于发情期，信息素外溢、身体燥热', '压力缓升；欲望更容易上升', '易感期'],
+    ['易感期', '个人', 'cycle', 0, 'ABO', '{{名}}正处于易感期，情绪激烈、占有欲强', '压力缓升；对冲突更敏感', '发情期'],
 ];
 
 const freezeDef = ([name, group, kind, days, sub, inject, desc, excl]) => Object.freeze({
@@ -67,7 +91,7 @@ export const STATUS_URGENCY = Object.freeze({ 受伤: 0, 感冒: 1, 中毒: 1, �
 
 // 周期（D 批）：第一批生理期、ABO 发情期、易感期（用户 11-08 定）。
 export const CYCLE_DEFS = Object.freeze([
-    Object.freeze({ id: '生理期', status: '身体不适', period: 28, length: 5, sub: '' }),
+    Object.freeze({ id: '生理期', status: '生理期', period: 28, length: 5, sub: '' }),
     Object.freeze({ id: '发情期', status: '发情期', period: 28, length: 3, sub: 'ABO' }),
     Object.freeze({ id: '易感期', status: '易感期', period: 28, length: 3, sub: 'ABO' }),
 ]);
@@ -139,3 +163,23 @@ export function withCalc(change, { calc = null, capped = null, dropped = null, t
 
 // 关键事件四档（A 批）。
 export const EVENT_GRADES = Object.freeze(['大成功', '成功', '失败', '大失败']);
+
+// ───── E1 状态效果（数值）：每个状态一条，只接两个入口 —— stressUp 压力上升倍率、staminaRecover 过天体力恢复到的上限倍率。
+// 读取用 stat-status.js 的 statusScale(cat, 名, 键)；同键多个状态连乘。
+export const STATUS_EFFECT = Object.freeze({
+    感冒: ['staminaRecover', 0.85], 宿醉: ['staminaRecover', 0.8], 醉酒: ['stressUp', 0.8], 失眠: ['staminaRecover', 0.8],
+    受惊: ['stressUp', 1.5], 失恋期: ['stressUp', 1.3], 热恋期: ['stressUp', 0.8], 冷战中: ['stressUp', 1.2],
+    吃醋中: ['stressUp', 1.2], 心情很好: ['stressUp', 0.7], 赶工期: ['stressUp', 1.2], 手头紧: ['stressUp', 1.2],
+    身体不适: ['staminaRecover', 0.9], 中毒: ['staminaRecover', 0.6], 犯瘾: ['stressUp', 1.3], 信物: ['stressUp', 0.9],
+    透支: ['staminaRecover', 0.8], 受祝福: ['stressUp', 0.8], 走火入魔: ['stressUp', 1.5], 闭关中: ['stressUp', 0.8],
+    渡劫: ['stressUp', 1.3], 被控制: ['stressUp', 1.3], 感染初期: ['staminaRecover', 0.8], 生理期: ['staminaRecover', 0.9],
+    发情期: ['stressUp', 1.2], 易感期: ['stressUp', 1.2],
+});
+
+// 题材（E5）：登记表「题材子类」出现过的全部取值（子类可写「修仙/西幻」表示任一）。
+export const WORLD_GENRES = Object.freeze(['ABO', '修仙', '西幻', '兽人', '吸血鬼', '哨向', '契约', '妖异', '星际', '末世', '蛋糕叉', '人鱼']);
+// 子类为空始终保留；worlds 为空不过滤；否则子类任一取值在 worlds 里才保留。
+export const subInWorlds = (sub, worlds) => {
+    if (!sub || !Array.isArray(worlds) || !worlds.length) return true;
+    return String(sub).split('/').some((w) => worlds.includes(w));
+};

@@ -197,8 +197,8 @@ test('知恩图报：受恩方恩情效果加倍', () => {
     assert.equal(dim(r.state, '芥蒂'), 10);
 });
 
-test('欠你人情与报恩：帮忙挂人情，报恩清除；不愿亏欠报恩后好感一大档', () => {
-    const { state, traits } = make({ dims: { 好感: 10 } }, {}, ['不愿亏欠']);
+test('欠你人情与报恩：帮忙挂人情，报恩清除；恩怨分明报恩后好感一大档', () => {
+    const { state, traits } = make({ dims: { 好感: 10 } }, {}, ['恩怨分明']);
     const a = tags(state, traits, [], { bondEvents: [{ type: '帮忙', target: '林夏' }] });
     assert.ok(hasRel(a.state, '林夏', '欠你人情', 'ta'));
     const b = tags(a.state, traits, [], { bondEvents: [{ type: '报恩', target: '林夏' }] });
@@ -206,23 +206,23 @@ test('欠你人情与报恩：帮忙挂人情，报恩清除；不愿亏欠报�
     assert.equal(dim(b.state, '好感'), 16);
 });
 
-test('忘恩负义：救命之恩过七天淡化为欠你人情；知恩图报不淡化', () => {
-    const { state, traits } = make({}, {}, ['忘恩负义']);
+test('白眼狼：救命之恩过七天淡化为欠你人情；知恩图报不淡化', () => {
+    const { state, traits } = make({}, {}, ['白眼狼']);
     const owed = addRel(state, '林夏', '救命之恩', 'ta');
     const faded = days(owed, traits);
     assert.equal(hasRel(faded, '林夏', '救命之恩'), false);
     assert.ok(hasRel(faded, '林夏', '欠你人情', 'ta'));
     const early = dailyTraitPass({ ...owed, clock: { ...owed.clock, day: 3 } }, { traits, nsfw: true, present: [] }, []);
     assert.ok(hasRel(early, '林夏', '救命之恩'));
-    const keep = make({}, {}, ['忘恩负义', '知恩图报']);
+    const keep = make({}, {}, ['白眼狼', '知恩图报']);
     assert.ok(hasRel(days(addRel(keep.state, '林夏', '救命之恩', 'ta'), keep.traits), '林夏', '救命之恩'));
 });
 
-test('不愿亏欠：欠恩期间每天压力缓升（NPC 欠主角、主角欠 TA 两侧）', () => {
-    const { state, traits } = make({}, { stress: 10 }, ['不愿亏欠']);
+test('恩怨分明：欠恩期间每天压力缓升（NPC 欠主角、主角欠 TA 两侧）', () => {
+    const { state, traits } = make({}, { stress: 10 }, ['恩怨分明']);
     const npc = days(addRel(state, '林夏', '欠你人情', 'ta'), traits);
     assert.equal(npc.characters.林夏.bars.stress, 13);
-    const t = { 主角: { [getTraitByName('不愿亏欠').id]: on } };
+    const t = { 主角: { [getTraitByName('恩怨分明').id]: on } };
     const me = days(addRel(state, '林夏', '救命之恩', 'me'), t);
     assert.equal(hero(me).stress, hero(state).stress + 3);
 });

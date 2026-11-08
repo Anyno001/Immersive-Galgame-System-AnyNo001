@@ -208,6 +208,6 @@ export const PSYCH_HUD_THEME = Object.freeze({
     placeholder: `background:linear-gradient(180deg,${CREAM},#f3e3f6);color:${PINK_DEEP};`,
     placeholderSvg: `fill:none;stroke:${PINK_DEEP};stroke-width:1.3;`,
     track: `height:${s(6)};border:0;border-radius:999px;background:rgba(199,180,240,.3);`,
-    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 50%,${PINK}) !important;border-radius:999px;`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 85%,${PINK}) !important;border-radius:999px;`,
     value: 'font-weight:400;',
 });

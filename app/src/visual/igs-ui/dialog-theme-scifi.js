@@ -87,6 +87,6 @@ export const SCIFI_HUD_THEME = Object.freeze({
     placeholder: `background:linear-gradient(180deg,${deep('.5')},${deep('.75')});color:#9eeeff;`,
     placeholderSvg: 'fill:none;stroke:#9eeeff;stroke-width:1.3;',
     track: `height:${s(3)};border:0;border-radius:0;background:${holo('.14')};`,
-    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 50%,rgb(${HOLO})) !important;border-radius:0;box-shadow:0 0 6px ${holo('.6')};`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 85%,rgb(${HOLO})) !important;border-radius:0;box-shadow:0 0 6px ${holo('.6')};`,
     value: 'font-weight:600;letter-spacing:.06em;',
 });

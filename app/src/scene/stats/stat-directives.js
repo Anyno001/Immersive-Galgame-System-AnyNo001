@@ -18,16 +18,15 @@ function freeText(raw) {
 const FAME_STRENGTH_WORDS = Object.freeze(['小', '中', '大']);
 function parseFame(fields) {
     const list = fields.map((f) => String(f ?? '').trim());
-    const at = list.findIndex((f) => normalizeTier('dim', DIM_DIRECTIONS, f));
-    if (at < 0 || at > 2) return null;
+    const at = list.slice(0, 4).findIndex((f) => normalizeTier('dim', DIM_DIRECTIONS, f));
+    if (at < 0) return null;
     const value = normalizeTier('dim', DIM_DIRECTIONS, list[at]);
     const given = list[at + 1] || '';
     const strength = given ? normalizeTier('strength', FAME_STRENGTH_WORDS, given) : null;
     if (given && !strength) return null;
-    const bar = at >= 1 ? freeText(list[0]) : null;
-    const partner = at === 2 ? freeText(list[1]) : null;
-    if ((at >= 1 && !bar) || (at === 2 && !partner)) return null;
-    return { kind: 'fame', value, ...(bar ? { bar } : {}), ...(partner ? { partner } : {}), ...(strength ? { strength } : {}) };
+    const segs = list.slice(0, at).map(freeText);
+    if (segs.some((seg) => !seg)) return null;
+    return { kind: 'fame', value, segs, ...(strength ? { strength } : {}) };
 }
 
 function battleCount(raw) {
@@ -38,7 +37,7 @@ function battleCount(raw) {
 }
 
 // ctx：{ rev, moodGroups, diagnostics }。rev ≥ 1（新楼）才认新方向词、情绪组兜底、芥蒂与压力强度；rev ≥ 2 另认交心、clear、insight、hero、romance、起始关系标记、更多近义词与十年跳跃上限；缺省按旧规则，旧楼重算结果不变。
-function parseFields([kindRaw, a, b, c, d], ctx = {}) {
+function parseFields([kindRaw, a, b, c, d, e], ctx = {}) {
     const rev = Number(ctx.rev) >= 1;
     const rev2 = Number(ctx.rev) >= 2;
     const kind = String(kindRaw || '').trim().toLowerCase();
@@ -138,8 +137,8 @@ function parseFields([kindRaw, a, b, c, d], ctx = {}) {
     case 'insight': { const skill = freeText(b); return rev2 && target && skill ? { kind, target, skill } : null; }
     case 'hero': { const value = rev2 ? normalizeTier('hero', HERO_STATES, a) : null; return value ? { kind, value } : null; }
     case 'romance': { const end = rev2 && String(b ?? '').trim() === '结束'; return end && target ? { kind, target, value: '结束' } : null; }
-    // 声望（rev≥2）：fame|条名|方向|强度 或 fame|方向|强度（只开一条时）；组合热度 fame|条名|搭档|方向|强度。
-    case 'fame': case '声望': return rev2 ? parseFame([a, b, c, d]) : null;
+    // 声望（rev≥2）：fame|条名|方向|强度 或 fame|方向|强度（只开一条时）；组合热度 fame|条名|搭档|方向|强度；归属非主角的条在条名前加归属段。
+    case 'fame': case '声望': return rev2 ? parseFame([a, b, c, d, e]) : null;
     // 状态（rev ≥ 2）：status|角色名|状态名|开始/结束，关系状态第五段为对象名；状态名须在定义表里，开始/结束词认不出整条丢弃。
     case 'status': case '状态': {
         const def = rev2 ? getStatusDef(String(b ?? '').trim()) : null;

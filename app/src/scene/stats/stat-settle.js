@@ -19,9 +19,12 @@ import { applyBreak, markFixations, shiftStress, trackStressPeak } from './stat-
 import { STRESS_STRENGTH_DELTA } from './stat-bars.js';
 import { amplifyLimit, clampScale, extraGatesOf, getTraitDef, hasTrait, isComboKey, isFoodGift, listTraits, traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
 import { calcRow, withCalc } from './stat-status-defs.js';
+import { attachOpeningRels, clearBond, hasClearableBond, pairPartnersOf } from './stat-trait-rules-bond.js';
 import { moonlightJealousy, settleTraitTags } from './stat-trait-hooks.js';
 import { consumeFavor, luckyReroll } from './stat-trait-dice.js';
 import { settleStatusDirectives } from './stat-status.js';
+import { autoStatuses, statusScale } from './stat-status-auto.js';
+import { settleNaturalHeal } from './stat-heal.js';
 
 const CHARACTER_KINDS = new Set(['favor', 'dim', 'gift', 'event']);
 // rev ≥ 2 新增：误会解除、顿悟、恋爱结束都带角色名，需要解析成已登记角色。
@@ -112,9 +115,14 @@ function settleClear(state, directives, ctx) {
     let next = state;
     for (const d of directives) {
         if (d.kind !== 'clear') continue;
+        const first = next.characters[d.target];
+        if (!first) continue;
+        const live = liveHurts(first, next.clock.day);
+        // 猜忌 / 心结 / 近 7 天挂上的结怨：误会解除时一并摘掉（不依赖误会账），猜忌与心结按一半退回开局数额。
+        const bond = hasClearableBond(next, d.target);
+        if (bond) next = clearBond(next, d.target, ctx.changes);
+        if (!live.length) { if (!bond) ctx.diagnostics.push({ code: 'stat-clear-empty', name: d.target }); continue; }
         const cur = next.characters[d.target];
-        const live = cur ? liveHurts(cur, next.clock.day) : [];
-        if (!live.length) { ctx.diagnostics.push({ code: 'stat-clear-empty', name: d.target }); continue; }
         const dims = { ...cur.dims };
         for (const dim of ['信任', '芥蒂']) {
             const sum = live.filter((e) => e.dim === dim).reduce((a, e) => a + e.amount, 0);
@@ -382,6 +390,7 @@ function settleStartRelations(before, directives, ctx) {
             ...(ctx.rev >= 2 && d.value === '恋人' ? { romance: true } : {}),
             ...(Object.keys(offsets).length ? { startFix: { ...(base.startFix || {}), ...Object.fromEntries(Object.keys(offsets).map((k) => [k, true])) } } : {}),
         });
+        if (ctx.rev >= 2) state = attachOpeningRels(state, d.target, mods, { offsets });
     }
     return state;
 }
@@ -446,6 +455,8 @@ export function applyManualRelations(state, manual, changes = [], { nsfw = false
             changes.push({ source: 'manual', target: name, key, from, to, note: '手动修改' });
         }
         if (dims.bars) next = applyManualBars(next, name, dims.bars, changes);
+        // 起始关系补填出「恋人」：同时记为恋爱对象（已明确设过的不改）。
+        if (dims.romance === true && next.characters[name].romance === undefined) next = withCharacter(next, name, { ...next.characters[name], romance: true });
         if (!Object.keys(patch).length) continue;
         const favor = Object.hasOwn(patch, '好感') ? patch.好感 : Number(cur.dims.好感) || 0;
         const gates = FAVOR_GATES.map(gateKey);
@@ -462,6 +473,12 @@ function settleCharacters(before, directives, ctx) {
     for (const d of directives) {
         if (!CHARACTER_KINDS.has(d.kind)) continue;
         if (d.dim === '欲望' && !ctx.nsfw) { ctx.diagnostics.push({ code: 'stat-dim-disabled', name: d.target, dim: d.dim }); continue; }
+        // 相安 / 同心：本楼在场的其他人全是其伙伴时，不再因对方吃醋（吃醋标签跳过）。
+        if (ctx.rev >= 2 && d.kind === 'favor' && d.value === '吃醋' && state.characters[d.target]) {
+            const partners = pairPartnersOf(state, d.target);
+            const others = (Array.isArray(ctx.present) ? ctx.present : directives.filter((x) => x.target).map((x) => x.target)).filter((n) => n && n !== d.target && n !== PROTAGONIST);
+            if (partners.length && others.length && others.every((n) => partners.includes(n))) { ctx.diagnostics.push({ code: 'stat-jealous-harmony', name: d.target }); continue; }
+        }
         const current = state.characters[d.target] || createCharacter(state.clock.day, { nsfw: ctx.nsfw });
         const result = applyCharacterDirective(current, d, state, ctx);
         let { character } = result;
@@ -543,8 +560,8 @@ function settleBars(state, directives, hour, ctx) {
         bars = r.bars;
     }
     // 已捕捉日期的聊天不强制入睡：只标记体力透支，由提示词交给剧情安排休息。
-    // 拼命三郎：体力为零不进入力竭，记下透支日，次日体力只恢复到上限减一档。
-    const overdraw = bars.stamina <= 0 && !ctx.detached && ctx.rev >= 2 && hasTrait(state, ctx.traitCat, '主角', '拼命三郎');
+    // 合成「卷王」（原拼命三郎）：体力为零不进入力竭，记下透支日，次日体力只恢复到上限减一档。
+    const overdraw = bars.stamina <= 0 && !ctx.detached && ctx.rev >= 2 && hasTrait(state, ctx.traitCat, '主角', 'combo:卷王');
     if (bars.stamina <= 0 && !ctx.detached && !overdraw) ctx.flags[ctx.dateMode ? 'exhausted' : 'forcedRest'] = true;
     const next = withBars(state, bars);
     const clockPatch = { ...(stayedUp !== state.clock.stayedUp ? { stayedUp } : {}), ...(overdraw ? { overdrawDay: state.clock.day } : {}) };
@@ -559,7 +576,7 @@ function settleNpcBars(state, directives, ctx) {
         const cur = next.characters[d.target];
         if (!cur || (d.kind === 'stamina' && d.value === '受伤')) continue;
         const bars = barsOf(cur);
-        const r = ctx.rev >= 2 && d.kind === 'stress' ? stressRev2(bars, d, traitScale(next, ctx.traitCat, d.target, '压力', 'up'), traitFlag(next, ctx.traitCat, d.target, 'stressCapMid')) : applyBarDirective(bars, d, ctx.moneyTable, 0);
+        const r = ctx.rev >= 2 && d.kind === 'stress' ? stressRev2(bars, d, traitScale(next, ctx.traitCat, d.target, '压力', 'up') * (ctx.statusBox ? statusScale(ctx.statusBox.cat, d.target, 'stressUp') : 1), traitFlag(next, ctx.traitCat, d.target, 'stressCapMid')) : applyBarDirective(bars, d, ctx.moneyTable, 0);
         if (r.shortfall) { ctx.diagnostics.push({ code: 'stat-npc-shortfall', name: d.target }); }
         if (r.change) ctx.changes.push({ source: 'tag', target: d.target, key: r.change.key, from: r.change.from, to: r.change.to, note: d.value });
         if (r.bars !== bars) next = withCharacter(next, d.target, { ...cur, bars: r.bars });
@@ -598,7 +615,7 @@ function settleBreaks(state, directives, ctx) {
 
 // 主角压力上升的倍率：自身特质连乘（脆弱、坚韧等）；本楼有「温柔疏离」的人做出失望类事件时再加倍；整体夹在 ×0.5–×2。
 function heroStressScaleOf(state, directives, ctx) {
-    let scale = traitScale(state, ctx.traitCat, '主角', '压力', 'up');
+    let scale = traitScale(state, ctx.traitCat, '主角', '压力', 'up') * (ctx.statusBox ? statusScale(ctx.statusBox.cat, '主角', 'stressUp') : 1);
     for (const d of directives) {
         if (d.kind !== 'favor' || favorSign(d) >= 0 || !state.characters[d.target]) continue;
         if (hasTrait(state, ctx.traitCat, d.target, '温柔疏离')) { scale *= 2; break; }
@@ -811,7 +828,7 @@ export function settleFloorText(before, text, opts = {}) {
     }
     ctx.directives = directives;
     // 状态（B 批）：存在 catalog.statuses，本楼的改动经 meta.statuses 交给运行时写回；box 整体替换、不原地改传入的 catalog。
-    ctx.statusBox = { cat: { ...(opts.catalog || {}), traits, nsfw } };
+    ctx.statusBox = { cat: { ...(opts.catalog || {}), traits, nsfw }, cycles: ctx.dateMode };
     // 本楼 event 标签里的特质事件并进 reviewEvents（与副模型评定的去重）；meta 只记副模型那份，重算时才不会带上旧正文的事件。
     const modelReview = ctx.reviewEvents;
     if (rev >= 2) {
@@ -850,8 +867,15 @@ export function settleFloorText(before, text, opts = {}) {
     const dayBefore = state.clock.day;
     // 不眠：特质钩子只记标记，这里取剔除兜底入睡后的副本再过天，不改 directives 本身。
     state = settleClock(state, narration, ctx.dropFallbackSleep ? directives.filter((d) => !(d.kind === 'sleep' && d.fallback === true)) : directives, hour, ctx);
+    // 自然回血（D 批，rev ≥ 2）：按楼每个 AI 楼一次，按天与时间跳跃按过去的天数一次算；写回交给运行时（meta.heal）。
+    const healed = rev >= 2 ? settleNaturalHeal(state, { settings: opts.settings, engine, traitCat, present: ctx.present, days: state.clock.day - dayBefore, detached, statusBox: ctx.statusBox, changes: ctx.changes }) : [];
     // 本楼的状态标签在过天之后结算：同楼新挂的状态不会被本楼的过天或跳跃立刻摘掉。
     if (rev >= 2) settleStatusDirectives(ctx.statusBox, directives, { day: state.clock.day, floor: opts.floor, resolve, changes: ctx.changes, diagnostics });
+    // E1：系统自动挂摘（心情很好、醉酒/宿醉、手头紧、犯瘾、信物）；成瘾接触日经 meta.touch 交运行时写 counters。
+    if (rev >= 2) {
+        const auto = autoStatuses(state, ctx.statusBox, { day: state.clock.day, floor: opts.floor, narration, directives, walletExtra: opts.walletExtra, changes: ctx.changes });
+        if (Object.keys(auto.touch).length) ctx.touch = auto.touch;
+    }
     if (fameBars.length) {
         const passed = state.clock.day - dayBefore;
         if (passed > 0) state = driftFame(state, fameBars, passed, ctx.changes, passed > 1 ? `跳过${passed}天` : '日结算');
@@ -874,6 +898,9 @@ export function settleFloorText(before, text, opts = {}) {
     if (FAVOR_TIERS.includes(tier)) meta.favorTier = tier;
     if (rev) meta.strengthRev = rev;
     if (ctx.statusBox.cat.statuses !== (opts.catalog || {}).statuses) meta.statuses = ctx.statusBox.cat.statuses || {};
+    if (ctx.statusBox.cat.cycles !== (opts.catalog || {}).cycles) meta.cycles = ctx.statusBox.cat.cycles || {};
+    if (ctx.touch) meta.touch = ctx.touch;
+    if (healed.length) meta.heal = healed;
     // 离体楼标记：运行时据此跳过生命类标签（战斗账本伤势）扫描。
     if (detached) meta.flags = { ...meta.flags, detached: true };
     else if (tier === 'legacyHard') meta.favorMode = 'hard';

@@ -506,6 +506,7 @@ const STATS_SET_TEMPLATE = `
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
       <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}{{heroNotePromptField}}</div>
       <div class="igs-source-filter-grid">{{favorModeField}}{{intimateCostField}}</div>
+      <div class="igs-source-filter-grid">{{healModeField}}{{worldviewField}}</div>
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">状态栏</div>

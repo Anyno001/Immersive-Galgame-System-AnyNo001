@@ -404,6 +404,7 @@ export function createCombatServices(options = {}) {
             messageIds,
             battleHurts: b.battleHurts !== undefined ? b.battleHurts : a.battleHurts,
             heroPrefs: b.heroPrefs !== undefined ? b.heroPrefs : a.heroPrefs,
+            naturalHeals: [...(a.naturalHeals || []), ...(b.naturalHeals || [])],
         };
     }
 
@@ -427,7 +428,7 @@ export function createCombatServices(options = {}) {
         let scan = null;
         if (params.write) {
             try {
-                scan = await ledgerImpl.scanLife({ messageIds: params.messageIds, battleHurts: params.battleHurts, heroPrefs: params.heroPrefs });
+                scan = await ledgerImpl.scanLife({ messageIds: params.messageIds, battleHurts: params.battleHurts, heroPrefs: params.heroPrefs, naturalHeals: params.naturalHeals });
             } catch {
                 scan = { ok: false, reason: 'combat-ledger-scan-failed' };
             }
@@ -446,8 +447,8 @@ export function createCombatServices(options = {}) {
         return { ok: true, scan };
     }
 
-    function refreshLife({ write = false, messageIds, battleHurts, heroPrefs } = {}) {
-        const params = { write, messageIds, battleHurts, heroPrefs };
+    function refreshLife({ write = false, messageIds, battleHurts, heroPrefs, naturalHeals } = {}) {
+        const params = { write, messageIds, battleHurts, heroPrefs, naturalHeals };
         // 空闲且缓存有效的只读请求：不排队，直接返回
         if (!write && !lifeRunning && !lifeQueued && lifeCacheUsable()) {
             counters.refreshLifeCacheHits += 1;

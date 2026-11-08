@@ -88,9 +88,9 @@ export const WUXIA_HUD_THEME = Object.freeze({
     track: `height:${s(9)};border:0;border-radius:0;background:${moon('.16')};${maskOf(WX_BAR)}`,
     fill: `background:var(--igs-hud-fill-color) !important;border-radius:0;${maskOf(WX_BAR)}`,
     value: 'font-weight:400;',
-    // 淡彩色板：矿物色掺墨降饱和，同一明度档，墨底上只淡淡分色；好感褪红、信任黛青、了解青瓷、芥蒂暗朱、负好感灰蓝。
-    vars: '--igs-hud-bar-like:#a8676a;--igs-hud-bar-trust:#5f7f96;--igs-hud-bar-know:#6b8f84;--igs-hud-bar-grudge:#3a5553;--igs-hud-bar-desire:#b0443c;--igs-hud-bar-cold:#6f7a8a;'
-        + '--igs-hud-bar-1:#5f7f96;--igs-hud-bar-2:#6b8f84;--igs-hud-bar-3:#9a9a8e;--igs-hud-bar-4:#7f7290;--igs-hud-bar-5:#a0605a;--igs-hud-bar-6:#66718f;',
+    // 淡彩色板：矿物色掺墨降饱和，同一明度档，墨底上只淡淡分色；好感褪红、信任黛青、了解淡黄、芥蒂暗青、负好感灰蓝。
+    vars: '--igs-hud-bar-like:#b87a8f;--igs-hud-bar-trust:#4f78a0;--igs-hud-bar-know:#d4b83a;--igs-hud-bar-grudge:#3a5553;--igs-hud-bar-desire:#b3382f;--igs-hud-bar-cold:#6f7a9a;'
+        + '--igs-hud-bar-1:#4f9a96;--igs-hud-bar-2:#6f9a5a;--igs-hud-bar-3:#d99a2b;--igs-hud-bar-4:#8a6aa8;--igs-hud-bar-5:#c05a4a;--igs-hud-bar-6:#d9772e;',
 });
 
 

@@ -73,7 +73,7 @@ test('复核提示词带事件短表；解析分流恩仇与评定事件、丢�
 });
 
 test('合成刷新与成就授予；初体验摘下标记', () => {
-    const cat = { traits: tr({ 林夏: ['犬系', '黏人', '爱撒娇'] }), counters: {} };
+    const cat = { traits: tr({ 林夏: ['犬系', '黏人', '撒娇精'] }), counters: {} };
     const s = world({ 林夏: mk() });
     const r = refreshCombos(cat, s, '林夏', { catalog: { traits: {} }, state: s });
     assert.ok(r.catalog.traits.林夏['combo:大型犬']);
@@ -98,7 +98,7 @@ test('全局图鉴：挂上特质与合成时点亮并记首次，重复不覆�
     const mem = {};
     const storage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = v; } };
     const store = createTraitCodexStore(() => storage);
-    const cat = { traits: tr({ 林夏: ['犬系', '黏人', '爱撒娇'] }), counters: {} };
+    const cat = { traits: tr({ 林夏: ['犬系', '黏人', '撒娇精'] }), counters: {} };
     const s = world({ 林夏: mk() });
     const withCombo = refreshCombos(cat, s, '林夏').catalog;
     const next = lightCodex(store.get(), withCombo, s, { cardName: '测试卡', nsfwOn: false });
@@ -112,16 +112,16 @@ test('全局图鉴：挂上特质与合成时点亮并记首次，重复不覆�
 const heroBase = (bars = {}, clock = {}) => { const s = createStatsState(); return { ...s, clock: { ...s.clock, ...clock }, protagonist: { ...s.protagonist, bars: { ...s.protagonist.bars, ...bars } } }; };
 const sureCheck = (success) => ({ actor: '主角', skill: '话术', success, tier: success ? '普通成功' : '失败' });
 
-test('贵人相助：失败且当天未用则重掷并记「贵人相助·重掷」；用过不再重掷；日结算清标记', () => {
-    const cat = traitCatalogOf(tr({ 主角: ['贵人相助'] }), true);
+test('福星：失败且当天未用则重掷并记「福星·重掷」；用过不再重掷；日结算清标记', () => {
+    const cat = traitCatalogOf(tr({ 主角: ['福星'] }), true);
     const fail = sureCheck(false);
     const again = luckyReroll(heroBase(), cat, fail, () => ({ ...sureCheck(true), notes: [] }));
     assert.equal(again.success, true);
-    assert.equal(again.reroll, '贵人相助·重掷');
-    assert.ok(again.notes.includes('贵人相助·重掷'));
+    assert.equal(again.reroll, '福星·重掷');
+    assert.ok(again.notes.includes('福星·重掷'));
     assert.equal(luckyReroll(heroBase({}, { luckyUsed: true }), cat, fail, () => sureCheck(true)), fail);
     assert.equal(luckyReroll(heroBase(), cat, sureCheck(true), () => sureCheck(false)).success, true);
-    const r = floor(heroBase(), '平静', tr({ 主角: ['贵人相助'] }), { check: again });
+    const r = floor(heroBase(), '平静', tr({ 主角: ['福星'] }), { check: again });
     assert.equal(r.state.clock.luckyUsed, true);
     const day = settleDay({ ...r.state, clock: { ...r.state.clock, luckyUsed: true } }, { random: high, rev: 2, traits: {}, nsfw: true });
     assert.equal(day.clock.luckyUsed, false);
@@ -139,8 +139,8 @@ test('赌徒：成功收入翻倍、失败花费翻倍；当天无检定则日�
     assert.equal(idle.protagonist.bars.stress - busy.protagonist.bars.stress, 3);
 });
 
-test('拼命三郎：体力扣到 0 不力竭，记透支日，次日只恢复到 70，再过一天回满', () => {
-    const t = tr({ 主角: ['拼命三郎'] });
+test('卷王（原拼命三郎）：体力扣到 0 不力竭，记透支日，次日只恢复到 70，再过一天回满', () => {
+    const t = { 主角: { 'combo:卷王': { on: true, src: 'manual', parts: ['工作狂', '好胜', '完美主义者'] } } };
     const r = floor(heroBase({ stamina: 10 }), '[igs-stat:stamina|重]', t);
     assert.equal(r.meta.flags.forcedRest, undefined);
     assert.equal(r.state.clock.overdrawDay, r.state.clock.day);
@@ -150,12 +150,12 @@ test('拼命三郎：体力扣到 0 不力竭，记透支日，次日只恢复�
     assert.equal(floor(heroBase({ stamina: 10 }), '[igs-stat:stamina|重]', {}).meta.flags.forcedRest, true);
 });
 
-test('勤奋：成长检定多掷一次取好', () => {
+test('努力家：成长检定多掷一次取好', () => {
     const skills = { 话术: { value: 50, marked: true } };
     const seq = (values) => { let i = 0; return () => values[Math.min(i++, values.length - 1)]; };
     const run = (traits, random) => { const s = heroBase(); return settleDay({ ...s, protagonist: { ...s.protagonist, skills } }, { random, rev: 2, traits, nsfw: true }).protagonist.skills.话术.value; };
     assert.equal(run({}, seq([0.1, 0.1, 0.1])), 50);
-    assert.ok(run(tr({ 主角: ['勤奋'] }), seq([0.1, 0.99, 0.5, 0.5])) > 50);
+    assert.ok(run(tr({ 主角: ['努力家'] }), seq([0.1, 0.99, 0.5, 0.5])) > 50);
 });
 
 test('自愈 / 伤口难愈：伤势账存活天数减半 / 加倍', () => {

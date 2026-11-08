@@ -24,32 +24,32 @@ const day = (state, who, names, present) => settleDay(state, { random: high, rev
 
 // ---- 倍率与开关 ----
 
-test('敏感 / 迟钝：好感、信任下降 ×1.5 / ×0.5', () => {
+test('玻璃心 / 木头人：好感、信任下降 ×1.5 / ×0.5', () => {
     const start = npc({ dims: { 好感: 30, 信任: 30 } });
     const plain = floor(start, '[igs-stat:favor|林夏|失望|中]');
-    const sens = floor(start, '[igs-stat:favor|林夏|失望|中]', traitsFor('林夏', '敏感'));
-    const dull = floor(start, '[igs-stat:favor|林夏|失望|中]', traitsFor('林夏', '迟钝'));
+    const sens = floor(start, '[igs-stat:favor|林夏|失望|中]', traitsFor('林夏', '玻璃心'));
+    const dull = floor(start, '[igs-stat:favor|林夏|失望|中]', traitsFor('林夏', '木头人'));
     assert.ok(dims(sens).好感 < dims(plain).好感);
     assert.ok(dims(dull).好感 > dims(plain).好感);
     const t = (names) => dims(floor(start, '[igs-stat:trust|林夏|下降|中]', names.length ? traitsFor('林夏', ...names) : {})).信任;
-    assert.ok(t(['敏感']) < t([]));
-    assert.ok(t(['迟钝']) > t([]));
+    assert.ok(t(['玻璃心']) < t([]));
+    assert.ok(t(['木头人']) > t([]));
 });
 
-test('醋坛子：吃醋所加芥蒂变多；心大：吃醋不加芥蒂', () => {
+test('醋坛子：吃醋所加芥蒂变多；不拘小节：吃醋不加芥蒂', () => {
     const start = npc({ dims: { 好感: 30, 芥蒂: 10 } });
     const text = '[igs-stat:favor|林夏|吃醋|中]';
     const plain = dims(floor(start, text)).芥蒂;
     assert.ok(dims(floor(start, text, traitsFor('林夏', '醋坛子'))).芥蒂 > plain);
-    assert.equal(dims(floor(start, text, traitsFor('林夏', '心大'))).芥蒂, 10);
+    assert.equal(dims(floor(start, text, traitsFor('林夏', '不拘小节'))).芥蒂, 10);
 });
 
-test('薄情：好感冷却加倍；专一：成为恋人后好感不冷却', () => {
+test('冷血：好感冷却加倍；纯爱战士：成为恋人后好感不冷却', () => {
     const run = (names, patch = {}) => day(dayState({ dims: { 好感: 60 }, lastSeenDay: 1, ...patch }), '林夏', names, []).characters.林夏.dims.好感;
     const plain = run([]);
-    assert.ok(run(['薄情']) < plain);
-    assert.equal(run(['专一'], { romance: true }), 60);
-    assert.equal(run(['专一']), plain, '未成恋人照常冷却');
+    assert.ok(run(['冷血']) < plain);
+    assert.equal(run(['纯爱战士'], { romance: true }), 60);
+    assert.equal(run(['纯爱战士']), plain, '未成恋人照常冷却');
 });
 
 test('好奇宝宝：了解上升加快', () => {
@@ -71,38 +71,38 @@ test('工作狂：每天压力缓升', () => {
     assert.equal(day(dayState(), '主角', ['工作狂'], ['林夏']).protagonist.bars.stress, plain + 3);
 });
 
-test('外向：主角独处的日子压力缓升，有人在场不升', () => {
+test('e人：主角独处的日子压力缓升，有人在场不升', () => {
     const plain = day(dayState(), '主角', [], []).protagonist.bars.stress;
-    assert.equal(day(dayState(), '主角', ['外向'], []).protagonist.bars.stress, plain + 3);
-    assert.equal(day(dayState(), '主角', ['外向'], ['林夏']).protagonist.bars.stress, day(dayState(), '主角', [], ['林夏']).protagonist.bars.stress);
+    assert.equal(day(dayState(), '主角', ['e人'], []).protagonist.bars.stress, plain + 3);
+    assert.equal(day(dayState(), '主角', ['e人'], ['林夏']).protagonist.bars.stress, day(dayState(), '主角', [], ['林夏']).protagonist.bars.stress);
 });
 
-test('内向：与人相处的日子压力缓升，独处不升', () => {
+test('i人：与人相处的日子压力缓升，独处不升', () => {
     const plain = day(dayState(), '主角', [], ['林夏']).protagonist.bars.stress;
-    assert.equal(day(dayState(), '主角', ['内向'], ['林夏']).protagonist.bars.stress, plain + 3);
-    assert.equal(day(dayState(), '主角', ['内向'], []).protagonist.bars.stress, day(dayState(), '主角', [], []).protagonist.bars.stress);
+    assert.equal(day(dayState(), '主角', ['i人'], ['林夏']).protagonist.bars.stress, plain + 3);
+    assert.equal(day(dayState(), '主角', ['i人'], []).protagonist.bars.stress, day(dayState(), '主角', [], []).protagonist.bars.stress);
 });
 
 // ---- 每楼事件 ----
 
-test('外向 / 内向：主角压力下降加倍（外向须有人在场，内向须独处）', () => {
+test('e人 / i人：主角压力下降加倍（e人须有人在场，i人须独处）', () => {
     const text = '[igs-stat:stress|下降|中]';
     const run = (names, present) => hero(floor(heroStress(50), text, traitsFor('主角', ...names), { present })).stress;
     assert.equal(run([], ['林夏']), 40);
-    assert.equal(run(['外向'], ['林夏']), 30);
-    assert.equal(run(['外向'], []), 40, '独处不加倍');
-    assert.equal(run(['内向'], []), 30);
-    assert.equal(run(['内向'], ['林夏']), 40, '有人在场不加倍');
+    assert.equal(run(['e人'], ['林夏']), 30);
+    assert.equal(run(['e人'], []), 40, '独处不加倍');
+    assert.equal(run(['i人'], []), 30);
+    assert.equal(run(['i人'], ['林夏']), 40, '有人在场不加倍');
 });
 
-test('外向 / 内向：角色自身压力下降加倍', () => {
+test('e人 / i人：角色自身压力下降加倍', () => {
     const text = '[igs-stat:stress|林夏|下降|中]';
     const run = (name, present) => floor(npc({}, { stress: 50 }), text, traitsFor('林夏', name), { present }).state.characters.林夏.bars.stress;
-    assert.equal(run('外向', ['林夏']), 30);
-    assert.equal(run('内向', []), 30);
+    assert.equal(run('e人', ['林夏']), 30);
+    assert.equal(run('i人', []), 30);
 });
 
-test('好胜 / 淡泊 / 完美主义者：读战斗与挑战结果', () => {
+test('好胜 / 佛系 / 完美主义者：读战斗与挑战结果', () => {
     const challenge = (outcome) => ({ extraDirectives: [{ kind: 'challenge', outcome, tier: '普通', stake: '压力', domain: '' }] });
     const run = (names, outcome) => hero(floor(heroStress(50), '', traitsFor('主角', ...names), challenge(outcome))).stress;
     const plainFail = run([], '失败');
@@ -110,29 +110,29 @@ test('好胜 / 淡泊 / 完美主义者：读战斗与挑战结果', () => {
     assert.ok(plainFail > 50 && plainWin < 50);
     assert.equal(run(['好胜'], '失败'), plainFail + 5);
     assert.equal(run(['好胜'], '圆满'), plainWin - 5);
-    assert.equal(run(['淡泊'], '失败'), 50);
-    assert.equal(run(['淡泊'], '圆满'), 50);
+    assert.equal(run(['佛系'], '失败'), 50);
+    assert.equal(run(['佛系'], '圆满'), 50);
     assert.equal(run(['完美主义者'], '失败'), plainFail + (plainFail - 50));
     assert.equal(run(['完美主义者'], '圆满'), plainWin - 5, '大成功压力下降');
     assert.equal(run(['完美主义者'], '勉强'), run([], '勉强'), '普通成功无变化');
 });
 
-test('害羞：欲望上升时压力小升；亲密那一楼好感小升', () => {
-    const r = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:desire|林夏|上升|中]', traitsFor('林夏', '害羞'));
+test('害羞鬼：欲望上升时压力小升；亲密那一楼好感小升', () => {
+    const r = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:desire|林夏|上升|中]', traitsFor('林夏', '害羞鬼'));
     assert.equal(r.state.characters.林夏.bars.stress, 5);
     const i = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:intimate|林夏|轻]');
-    const s = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:intimate|林夏|轻]', traitsFor('林夏', '害羞'));
+    const s = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:intimate|林夏|轻]', traitsFor('林夏', '害羞鬼'));
     assert.equal(dims(s).好感, dims(i).好感 + 2);
 });
 
-test('慕强：主角战斗胜利那一楼，在场的其好感额外上升', () => {
+test('慕强者：主角战斗胜利那一楼，在场的其好感额外上升', () => {
     const text = '林夏在场。[igs-stat:battle|杂兵]';
     const plain = floor(npc({ dims: { 好感: 10 } }), text, {}, { present: ['林夏'] });
-    const strong = floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '慕强'), { present: ['林夏'] });
+    const strong = floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '慕强者'), { present: ['林夏'] });
     const outcome = plain.meta.events.find((e) => e.kind === 'battle').outcome;
     if (outcome === '败') assert.equal(dims(strong).好感, dims(plain).好感);
     else assert.equal(dims(strong).好感, dims(plain).好感 + 2);
-    const away = floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '慕强'), { present: [] });
+    const away = floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '慕强者'), { present: [] });
     assert.equal(dims(away).好感, dims(plain).好感, '不在场不生效');
 });
 
@@ -144,18 +144,18 @@ test('讲义气：共患难事件好感与信任额外上升', () => {
     assert.equal(dims(loyal).信任, dims(plain).信任 + 1);
 });
 
-test('浪漫：约会、告白事件好感额外上升', () => {
+test('浪漫主义者：约会、告白事件好感额外上升', () => {
     for (const ev of ['约会', '告白']) {
         const text = `[igs-stat:event|林夏|${ev}]`;
         const plain = floor(npc({ dims: { 好感: 10 } }), text);
-        assert.equal(dims(floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '浪漫'))).好感, dims(plain).好感 + 1, ev);
+        assert.equal(dims(floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '浪漫主义者'))).好感, dims(plain).好感 + 1, ev);
     }
 });
 
-test('务实：送礼好感额外上升', () => {
+test('现实派：送礼好感额外上升', () => {
     const text = '[igs-stat:gift|林夏|书]';
     const plain = floor(npc({ dims: { 好感: 10 } }), text);
-    assert.equal(dims(floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '务实'))).好感, dims(plain).好感 + 1);
+    assert.equal(dims(floor(npc({ dims: { 好感: 10 } }), text, traitsFor('林夏', '现实派'))).好感, dims(plain).好感 + 1);
 });
 
 test('过目不忘：了解不下降（失忆除外）', () => {

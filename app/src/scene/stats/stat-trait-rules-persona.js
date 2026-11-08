@@ -13,19 +13,19 @@ const MONEY_TIERS = Object.freeze(['少量', '普通', '昂贵', '巨额']);
 const HERO = '主角';
 
 export const SCALE = [
-    ['敏感', '好感', 'down', 1.5], ['敏感', '信任', 'down', 1.5],
-    ['迟钝', '好感', 'down', 0.5], ['迟钝', '信任', 'down', 0.5],
+    ['玻璃心', '好感', 'down', 1.5], ['玻璃心', '信任', 'down', 1.5],
+    ['木头人', '好感', 'down', 0.5], ['木头人', '信任', 'down', 0.5],
     ['醋坛子', '芥蒂', 'jealous', 1.5],
-    ['薄情', '好感', 'cool', 2],
+    ['冷血', '好感', 'cool', 2],
     ['好奇宝宝', '了解', 'up', 1.5],
     ['老好人', '芥蒂', 'up', 0.5],
 ];
 
 export const FLAG = [
-    // 心大：吃醋不加芥蒂（吃醋本身仍会扣少量好感）。
-    ['noJealousGrudge', '心大'],
-    // 专一：成为恋人（角色档案 romance 为真）后好感不冷却。
-    ['noCool', '专一', (c) => Boolean(c && c.romance === true)],
+    // 不拘小节：吃醋不加芥蒂（吃醋本身仍会扣少量好感）。
+    ['noJealousGrudge', '不拘小节'],
+    // 纯爱战士：成为恋人（角色档案 romance 为真）后好感不冷却。
+    ['noCool', '纯爱战士', (c) => Boolean(c && c.romance === true)],
 ];
 
 export const DAILY = [
@@ -78,7 +78,7 @@ function raiseWorkIncome(state, ctx, note) {
 const stressDown = (d) => d.kind === 'stress' && d.value === '下降';
 
 export const TAG_HOOKS = [
-    // 主角侧：好胜 / 淡泊 / 完美主义者（胜负、成败结果）、外向 / 内向（压力下降加倍）、工作狂（打工收入）。
+    // 主角侧：好胜 / 佛系 / 完美主义者（胜负、成败结果）、e人 / i人（压力下降加倍）、工作狂（打工收入）。
     (state, api) => {
         const { ctx, directives, here } = api;
         const changes = ctx.changes.slice();
@@ -92,28 +92,28 @@ export const TAG_HOOKS = [
                 else if (o.win) next = api.bumpHeroStress(next, -api.SMALL.压力, '好胜');
             }
         }
-        // 淡泊：挑战的压力变动（失败的上升、胜利的下降）全部撤销。
+        // 佛系：挑战的压力变动（失败的上升、胜利的下降）全部撤销。
         const challengeStress = changes.filter((c) => c.source === 'challenge' && c.target === HERO && c.key === 'stress');
-        if (heroHas('淡泊')) for (const c of challengeStress) next = api.bumpHeroStress(next, c.from - c.to, '淡泊');
+        if (heroHas('佛系')) for (const c of challengeStress) next = api.bumpHeroStress(next, c.from - c.to, '佛系');
         // 完美主义者：大成功压力小降；挑战失败的压力上升再加一份（加倍）；普通成功无变化。
         if (heroHas('完美主义者')) {
             for (const o of outcomes) if (o.great) next = api.bumpHeroStress(next, -api.SMALL.压力, '完美主义者');
             for (const c of challengeStress) if (c.to > c.from && String(c.note || '').includes('失败')) next = api.bumpHeroStress(next, c.to - c.from, '完美主义者');
         }
-        // 外向：与人相处时压力下降加倍；内向：独处或休息（入睡、小憩）时压力下降加倍。
+        // e人：与人相处时压力下降加倍；i人：独处或休息（入睡、小憩）时压力下降加倍。
         const rested = directives.some((d) => d.kind === 'sleep' || (d.kind === 'stamina' && !d.target && d.value === '小憩'));
         const alone = Array.isArray(ctx.present) && here.size === 0;
         for (const d of directives) {
             if (!stressDown(d) || d.target) continue;
             const amount = STRESS_DOWN[d.strength] || STRESS_DOWN.中;
-            if (heroHas('外向') && here.size > 0) next = api.bumpHeroStress(next, -amount, '外向');
-            if (heroHas('内向') && (alone || rested)) next = api.bumpHeroStress(next, -amount, '内向');
+            if (heroHas('e人') && here.size > 0) next = api.bumpHeroStress(next, -amount, 'e人');
+            if (heroHas('i人') && (alone || rested)) next = api.bumpHeroStress(next, -amount, 'i人');
         }
         // 工作狂：打工收入高一档。
         if (heroHas('工作狂')) next = raiseWorkIncome(next, ctx, '工作狂');
         return next;
     },
-    // 角色侧：外向 / 内向（自身压力下降）、害羞、慕强、讲义气、浪漫、务实、过目不忘。
+    // 角色侧：e人 / i人（自身压力下降）、害羞鬼、慕强者、讲义气、浪漫主义者、现实派、过目不忘。
     (state, api) => {
         const { ctx, directives, here } = api;
         const changes = ctx.changes.slice();
@@ -125,29 +125,29 @@ export const TAG_HOOKS = [
         for (const e of Array.isArray(ctx.events) ? ctx.events : []) if (e && e.kind === 'battle' && e.outcome !== '败' && e.outcome !== '撤') for (const n of (Array.isArray(e.allies) && e.allies.length ? e.allies : e.ally ? [e.ally] : [])) comrades.add(n);
         for (const name of Object.keys(next.characters)) {
             const has = (id) => api.has(next, name, id);
-            // 外向 / 内向：自身压力下降加倍（外向须与主角在一起，内向须不在场）。
+            // e人 / i人：自身压力下降加倍（e人须与主角在一起，i人须不在场）。
             for (const d of directives) {
                 if (!stressDown(d) || d.target !== name) continue;
                 const amount = STRESS_DOWN[d.strength] || STRESS_DOWN.中;
-                if (has('外向') && present && present.includes(name)) next = npcStress(next, name, -amount, '外向', ctx);
-                if (has('内向') && present && !present.includes(name)) next = npcStress(next, name, -amount, '内向', ctx);
+                if (has('e人') && present && present.includes(name)) next = npcStress(next, name, -amount, 'e人', ctx);
+                if (has('i人') && present && !present.includes(name)) next = npcStress(next, name, -amount, 'i人', ctx);
             }
-            // 害羞：欲望上升时压力同步小升；亲密那一楼好感额外小升。
-            if (has('害羞')) {
-                if (changes.some((c) => c.target === name && c.key === '欲望' && c.to > c.from)) next = npcStress(next, name, api.SMALL.压力, '害羞', ctx);
-                if (directives.some((d) => d.kind === 'intimate' && d.target === name)) next = api.bump(next, name, '好感', api.SMALL.好感, '害羞');
+            // 害羞鬼：欲望上升时压力同步小升；亲密那一楼好感额外小升。
+            if (has('害羞鬼')) {
+                if (changes.some((c) => c.target === name && c.key === '欲望' && c.to > c.from)) next = npcStress(next, name, api.SMALL.压力, '害羞鬼', ctx);
+                if (directives.some((d) => d.kind === 'intimate' && d.target === name)) next = api.bump(next, name, '好感', api.SMALL.好感, '害羞鬼');
             }
-            // 慕强：主角检定成功或战斗胜利的那一楼，在场的其对主角好感额外上升。
-            if (has('慕强') && win && here.has(name)) next = api.bump(next, name, '好感', api.SMALL.好感, '慕强');
+            // 慕强者：主角检定成功或战斗胜利的那一楼，在场的其对主角好感额外上升。
+            if (has('慕强者') && win && here.has(name)) next = api.bump(next, name, '好感', api.SMALL.好感, '慕强者');
             // 讲义气：共患难事件好感与信任额外上升。
             if (has('讲义气') && comrades.has(name)) {
                 next = api.bump(next, name, '好感', BONUS, '讲义气');
                 next = api.bump(next, name, '信任', BONUS, '讲义气');
             }
-            // 浪漫：约会、告白事件好感额外上升。
-            if (has('浪漫') && directives.some((d) => d.kind === 'event' && d.target === name && (d.value === '约会' || d.value === '告白'))) next = api.bump(next, name, '好感', BONUS, '浪漫');
-            // 务实：送礼好感额外上升。
-            if (has('务实') && directives.some((d) => d.kind === 'gift' && d.target === name)) next = api.bump(next, name, '好感', BONUS, '务实');
+            // 浪漫主义者：约会、告白事件好感额外上升。
+            if (has('浪漫主义者') && directives.some((d) => d.kind === 'event' && d.target === name && (d.value === '约会' || d.value === '告白'))) next = api.bump(next, name, '好感', BONUS, '浪漫主义者');
+            // 现实派：送礼好感额外上升。
+            if (has('现实派') && directives.some((d) => d.kind === 'gift' && d.target === name)) next = api.bump(next, name, '好感', BONUS, '现实派');
             // 过目不忘：了解不下降（失忆除外），把本楼已发生的下降补回。
             if (has('过目不忘') && !has('失忆')) {
                 for (const c of changes) {
@@ -161,7 +161,7 @@ export const TAG_HOOKS = [
 ];
 
 export const DAILY_HOOKS = [
-    // 外向：独处（主角身边没人 / 角色多日不在主角身边）压力缓升；内向：与人相处压力缓升。需要在场名单，读不到时不生效。
+    // e人：独处（主角身边没人 / 角色多日不在主角身边）压力缓升；i人：与人相处压力缓升。需要在场名单，读不到时不生效。
     (state, api) => {
         if (!Array.isArray(api.ctx.present)) return state;
         let next = state;
@@ -169,8 +169,8 @@ export const DAILY_HOOKS = [
             const hero = name === HERO;
             const together = hero ? api.present.size > 0 : api.present.has(name);
             const seen = hero ? api.day : Number(next.characters[name] && next.characters[name].lastSeenDay) || 0;
-            if (api.has(next, name, '外向') && !together && (hero || seen < api.day - 1)) next = api.shiftStress(name, api.TRAIT_STRESS_DAILY, '外向·独处');
-            if (api.has(next, name, '内向') && together) next = api.shiftStress(name, api.TRAIT_STRESS_DAILY, '内向·社交');
+            if (api.has(next, name, 'e人') && !together && (hero || seen < api.day - 1)) next = api.shiftStress(name, api.TRAIT_STRESS_DAILY, 'e人·独处');
+            if (api.has(next, name, 'i人') && together) next = api.shiftStress(name, api.TRAIT_STRESS_DAILY, 'i人·社交');
         }
         return next;
     },

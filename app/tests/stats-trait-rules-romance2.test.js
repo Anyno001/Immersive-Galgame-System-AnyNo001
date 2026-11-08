@@ -155,7 +155,7 @@ test('嘴替：主角压力大幅上升那一楼，其在场时主角压力小�
 });
 
 test('社畜（主角）：打工体力消耗 ×1.5；富二代（主角）：打工收入低一档', () => {
-    const w = world({}, { stamina: 100, money: 0 });
+    const w = world({}, { stamina: 100, money: 0 }, { startMoneyDone: true });
     const run = (names) => floor(w, '[igs-stat:work|打工]', mk({ 主角: names }), { random: () => 0.3 });
     const base = run([]);
     assert.equal(hero(run(['社畜'])).stamina, hero(base).stamina - 8);
@@ -356,11 +356,11 @@ test('求助：老好人答应并挂欠你人情；普通角色不挂', () => {
     assert.deepEqual(rel(floor(one(), ev('林夏', '求助'))), []);
 });
 
-test('信仰质疑：狂信徒芥蒂加倍，无神论者不变', () => {
+test('信仰质疑：狂信徒芥蒂加倍，无神论者不受影响（芥蒂上升退回）', () => {
     const text = `[igs-stat:grudge|林夏|上升|中]${ev('林夏', '信仰质疑')}`;
     const plain = d(floor(one(), text)).芥蒂;
     assert.ok(d(floor(one(), text, T('狂信徒'))).芥蒂 > plain);
-    assert.equal(d(floor(one(), text, T('无神论者'))).芥蒂, plain);
+    assert.equal(d(floor(one(), text, T('无神论者'))).芥蒂, 0);
 });
 
 test('吸血 / 歌唱 事件标签替代关键词', () => {

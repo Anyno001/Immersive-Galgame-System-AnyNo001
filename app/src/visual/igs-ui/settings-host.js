@@ -25,7 +25,7 @@ import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsC
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
 import { migrateTables, MIGRATE_BACKUP_KEY } from '../../data/shujuku/table-migrate.js';
 import { downloadStatsTemplate, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from './stats-template-link.js';
-import { FAME_KINDS, FAME_KIND_NAMES, FAME_PAIR_KIND } from '../../scene/stats/stat-fame.js';
+import { FAME_TEMPLATES, FAME_TEMPLATE_GROUPS } from '../../scene/stats/stat-fame.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData } from './reader-value-utils.js';
@@ -54,6 +54,7 @@ import { previewStatusHudAvatarFraming, previewStatusHudPosition } from './statu
 import { listSystemVoices, onSystemVoicesChanged } from './tts.js';
 import { BUILD_CUSTOM_OPTION, normalizeBuild, pickSummary, validCustomSkillName } from '../../scene/stats/stat-build.js';
 import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
+import { getStatusDef } from '../../scene/stats/stat-status-defs.js';
 import { refreshStatsBuildStatus } from './stats-settings-fields.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL } from '../../combat/abilities.js';
 import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
@@ -720,7 +721,7 @@ export function createSettingsHost(deps) {
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
         // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
-        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'trait' || kind === 'trait-id' || kind === 'trait-note' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
+        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'trait' || kind === 'trait-id' || kind === 'trait-note' || kind === 'skill-attr' || kind === 'skill-tier' || kind.startsWith('status-') || kind.startsWith('cycle-') ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -736,14 +737,58 @@ export function createSettingsHost(deps) {
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'trait') result = await op('relation', 'trait', name, { key: valuePart, on: oldPart === '1' });
             else if (kind === 'trait-id') result = await op('relation', 'trait-id', name, { id: decodeURIComponent(valuePart), on: oldPart === '1' });
+            else if (kind === 'status-pick' || kind === 'status-days') {
+                // 挂上状态与改天数：持续类状态询问天数，留空沿用默认；取消则不改。
+                const key = decodeURIComponent(valuePart);
+                const def = getStatusDef(key);
+                const timed = kind === 'status-days' || (def && (def.kind === 'timer' || def.kind === 'cycle'));
+                let days;
+                let cancelled = false;
+                if (timed) {
+                    const raw = await settingsDialogs.prompt(kind === 'status-days' ? `「${key}」从今天起还剩几天：` : `「${key}」持续几天（留空为默认）：`, '');
+                    if (raw == null) cancelled = true;
+                    else if (String(raw).trim()) days = Number(raw);
+                }
+                if (cancelled || (kind === 'status-days' && !(days >= 1))) result = { ok: true, cancelled: true };
+                else result = await op('relation', kind === 'status-pick' ? 'status-add' : 'status-days', name, { key, days });
+            }
+            else if (kind === 'status-drop') result = await op('relation', 'status-drop', name, { key: decodeURIComponent(valuePart) });
+            else if (kind === 'status-inject') result = await op('relation', 'status-inject', name, { key: decodeURIComponent(valuePart), on: oldPart === '1' });
+            else if (kind === 'cycle-start') result = await op('relation', 'cycle-start', name, { key: decodeURIComponent(valuePart) });
+            else if (kind === 'cycle-set') {
+                const [period, length, last] = oldPart.split(',').map(Number);
+                result = await op('relation', 'cycle-set', name, { key: decodeURIComponent(valuePart), period, length, last });
+            }
+            else if (kind === 'set-worlds') result = await op('relation', 'set-worlds', '', { worlds: raw ? raw.split(',').map(decodeURIComponent) : [] });
             else if (kind === 'trait-note') result = await op('relation', 'trait-note', name, { text: decodeURIComponent(valuePart) });
-            else if (kind === 'fame-add') {
-                // 开一条声望：先选性质，再起条名（留空用性质名）。
-                const kindName = await settingsDialogs.choose('选择这条声望的性质：', FAME_KIND_NAMES.map((value) => ({ value, label: `${value}（${FAME_KINDS[value].zero}到${FAME_KINDS[value].full}）` })), FAME_KIND_NAMES[0], { dropdown: true });
-                if (!FAME_KIND_NAMES.includes(kindName)) result = { ok: true, cancelled: true };
+            else if (kind === 'fame-add' || kind === 'fame-edit') {
+                // 开条或改条：模板、一句话补全、已有条各自生成草稿文本，用户确认可改后再写入。
+                let draft = null;
+                const editing = kind === 'fame-edit';
+                if (editing) { const got = await op('relation', 'fame-draft', name, {}); draft = got && got.ok ? got.draft : null; }
                 else {
-                    const raw = await settingsDialogs.prompt(kindName === FAME_PAIR_KIND ? '条名（如「CP粉」），留空则用性质名：' : '条名（如「唯粉」「路人缘」），留空则用性质名：', '');
-                    result = raw == null ? { ok: true, cancelled: true } : await op('relation', 'fame-add', '', { name: String(raw).trim() || kindName, kind: kindName });
+                    const way = await settingsDialogs.choose('选择开条方式：', [{ value: 'template', label: '模板', note: '按世界观分组，一键填好' }, { value: 'sentence', label: '一句话', note: '由辅助模型补全' }], 'template');
+                    if (way === 'template') {
+                        const group = await settingsDialogs.choose('选择世界观分组：', FAME_TEMPLATE_GROUPS.map((value) => ({ value, label: value })), FAME_TEMPLATE_GROUPS[0], { dropdown: true });
+                        const list = FAME_TEMPLATES.filter((t) => t.group === group);
+                        const picked = list.length ? await settingsDialogs.choose('选择模板：', list.map((t) => ({ value: t.name, label: t.name, note: `${t.cls} · ${t.zero}到${t.full}` })), list[0].name, { dropdown: true }) : null;
+                        if (picked && list.some((t) => t.name === picked)) { const got = await op('relation', 'fame-draft', '', { template: picked }); draft = got && got.ok ? got.draft : null; }
+                    } else if (way === 'sentence') {
+                        const sentence = await settingsDialogs.prompt('用一句话描述这条声望，如「哪吒在陈塘关百姓中的声望」：', '');
+                        if (sentence != null && String(sentence).trim()) {
+                            const busy = typeof settingsDialogs.busy === 'function' ? settingsDialogs.busy('正在补全。') : null;
+                            let got;
+                            try { got = await op('relation', 'fame-fill', '', { sentence: String(sentence).trim() }); } finally { if (busy) busy.close(); }
+                            if (got && got.ok) draft = got.draft;
+                            else result = got || { ok: false };
+                        }
+                    }
+                }
+                if (result) { /* 补全失败，沿用其原因提示 */ }
+                else if (typeof draft !== 'string') result = { ok: true, cancelled: true };
+                else {
+                    const confirmed = await settingsDialogs.edit(editing ? `修改声望「${name}」，每行一项：` : '确认这条声望的设定，可直接修改，每行一项：', draft, { okLabel: editing ? '保存' : '建立' });
+                    result = confirmed == null ? { ok: true, cancelled: true } : await op('relation', 'fame-add', '', { draft: String(confirmed), replace: editing ? name : '' });
                 }
             }
             else if (kind === 'fame-remove') {
@@ -892,7 +937,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开三条。', 'stats-fame-kind': '请选择声望的性质。', 'stats-trait-full': '特质已满格，请先摘下一项。', 'stats-trait-refused': '该特质当前无法挂上。', 'stats-trait-initial-failed': '评定失败，辅助模型未返回结果，可稍后重试。', 'stats-trait-busy': '正在复核特质，稍后再试。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开十条。', 'stats-fame-draft': '声望设定不完整，请检查条名、谁在看、类与两端叫法。', 'stats-fame-missing': '该声望已不存在。', 'stats-fame-fill-bad': '辅助模型返回的内容无法使用，未建立声望，可稍后重试。', 'stats-fame-fill-failed': '补全失败，辅助模型未返回结果，可稍后重试。', 'stats-fame-sentence': '请先写一句话。', 'stats-fame-kind': '请选择声望的性质。', 'stats-trait-full': '特质已满格，请先摘下一项。', 'stats-trait-refused': '该特质当前无法挂上。', 'stats-trait-initial-failed': '评定失败，辅助模型未返回结果，可稍后重试。', 'stats-trait-busy': '正在复核特质，稍后再试。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -1571,6 +1616,13 @@ export function createSettingsHost(deps) {
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
             if (heroSkill != null) {
                 controller.invoke(`stats-op:hero-set:${encodeURIComponent(heroSkill)}|${String(target.value).trim()}`);
+                return;
+            }
+            // 周期设置：三个数字框同写一条，取同组框的当前值。
+            const cycleKey = target?.getAttribute?.('data-stats-cycle');
+            if (cycleKey != null) {
+                const vals = ['period', 'length', 'last'].map((f) => root.querySelector(`[data-stats-cycle="${cycleKey}"][data-cycle-field="${f}"]`)?.value ?? '');
+                controller.invoke(`stats-op:cycle-set:${cycleKey}|${vals.join(',')}`);
                 return;
             }
             // 特质「评定注意」：失焦即写聊天存档。

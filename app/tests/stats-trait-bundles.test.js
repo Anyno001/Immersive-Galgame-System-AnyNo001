@@ -31,7 +31,7 @@ test('捆绑互斥：与另一本体的捆绑项冲突时拒绝，与普通特�
     assert.equal(put(killer, '熊系').reason, 'bound-conflict');
     const stingy = put({ traits: {} }, '吝啬鬼').catalog;
     assert.equal(put(stingy, '富二代').reason, 'bound-conflict');
-    const calm = put({ traits: {} }, '心大').catalog;
+    const calm = put({ traits: {} }, '不拘小节').catalog;
     const r = put(calm, '犬系');
     assert.deepEqual(ids(r.catalog), ['犬系:manual', '醋坛子:bound']);
 });

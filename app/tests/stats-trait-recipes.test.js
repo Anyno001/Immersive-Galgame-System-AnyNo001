@@ -6,7 +6,7 @@ import { TRAIT_RECIPES, resolveCombos, diffCombos, comboNoticeText } from '../sr
 const R = (name, parts) => ({ id: name, name, parts, effect: { key: name, text: '说明。' } });
 
 test('配方表：条数、名称唯一、组成项不重复、独有效果有键与说明', () => {
-  assert.equal(TRAIT_RECIPES.length, 46);
+  assert.equal(TRAIT_RECIPES.length, 47);
   assert.equal(new Set(TRAIT_RECIPES.map((r) => r.name)).size, TRAIT_RECIPES.length);
   for (const r of TRAIT_RECIPES) {
     assert.equal(new Set(r.parts).size, r.parts.length, r.name);
@@ -15,7 +15,7 @@ test('配方表：条数、名称唯一、组成项不重复、独有效果有�
 });
 
 test('齐全即合成，占 1 格', () => {
-  const r = resolveCombos(['犬系', '黏人', '爱撒娇']);
+  const r = resolveCombos(['犬系', '黏人', '撒娇精']);
   assert.deepEqual(r.combos.map((c) => c.name), ['大型犬']);
   assert.equal(r.slotsUsed, 1);
   assert.equal(r.combos[0].effect.key, 'noGrudgeOnNeglect');
@@ -28,7 +28,7 @@ test('缺一项不合成，组成项各占一格', () => {
 });
 
 test('合成腾出格子：多出的特质另计', () => {
-  const r = resolveCombos(['犬系', '黏人', '爱撒娇', '勤奋', '乐观']);
+  const r = resolveCombos(['犬系', '黏人', '撒娇精', '努力家', '乐观']);
   assert.equal(r.combos.length, 1);
   assert.equal(r.slotsUsed, 3);
 });
@@ -55,7 +55,7 @@ test('真实配方：抖S 同时满足大恶魔与暴君，表序在前者得，
 });
 
 test('不相交的配方可同时成立', () => {
-  const r = resolveCombos(['犬系', '黏人', '爱撒娇', '猫系', '傲娇', '冰山']);
+  const r = resolveCombos(['犬系', '黏人', '撒娇精', '猫系', '傲娇', '冰山']);
   assert.deepEqual(r.combos.map((c) => c.name).sort(), ['大型犬', '高冷猫猫'].sort());
   assert.equal(r.slotsUsed, 2);
 });
@@ -89,15 +89,15 @@ test('主角只能合成「主角可用」项组成的配方', () => {
 });
 
 test('diffCombos：合成通知', () => {
-  const out = diffCombos(['犬系', '黏人'], ['犬系', '黏人', '爱撒娇'], { charName: '林夏' });
-  assert.deepEqual(out, [{ type: 'combo', charName: '林夏', name: '大型犬', parts: ['犬系', '黏人', '爱撒娇'] }]);
-  assert.equal(comboNoticeText(out[0]), '林夏的「犬系」「黏人」「爱撒娇」合成为「大型犬」！');
+  const out = diffCombos(['犬系', '黏人'], ['犬系', '黏人', '撒娇精'], { charName: '林夏' });
+  assert.deepEqual(out, [{ type: 'combo', charName: '林夏', name: '大型犬', parts: ['犬系', '黏人', '撒娇精'] }]);
+  assert.equal(comboNoticeText(out[0]), '林夏的「犬系」「黏人」「撒娇精」合成为「大型犬」！');
 });
 
 test('diffCombos：拆分通知，组成项只列仍在的', () => {
-  const out = diffCombos(['犬系', '黏人', '爱撒娇'], ['犬系', '爱撒娇'], { charName: '林夏' });
-  assert.deepEqual(out, [{ type: 'split', charName: '林夏', name: '大型犬', parts: ['犬系', '爱撒娇'] }]);
-  assert.equal(comboNoticeText(out[0]), '林夏的「大型犬」拆回「犬系」「爱撒娇」。');
+  const out = diffCombos(['犬系', '黏人', '撒娇精'], ['犬系', '撒娇精'], { charName: '林夏' });
+  assert.deepEqual(out, [{ type: 'split', charName: '林夏', name: '大型犬', parts: ['犬系', '撒娇精'] }]);
+  assert.equal(comboNoticeText(out[0]), '林夏的「大型犬」拆回「犬系」「撒娇精」。');
 });
 
 test('diffCombos：无变化无通知；关系状态消失也会拆分', () => {

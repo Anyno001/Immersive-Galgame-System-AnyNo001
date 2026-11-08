@@ -78,6 +78,6 @@ export const QINGLV_HUD_THEME = Object.freeze({
     placeholder: 'background:linear-gradient(180deg,#ebe6d8,#d6ded6);color:#2f5d7c;',
     placeholderSvg: 'fill:none;stroke:#2f5d7c;stroke-width:1.3;',
     track: `height:${s(4)};border:0;border-radius:0;background:rgba(${SHIQING},.16);`,
-    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 55%,#4f8f7f) !important;border-radius:0;`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 88%,#4f8f7f) !important;border-radius:0;`,
     value: 'font-weight:400;',
 });
