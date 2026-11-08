@@ -18,6 +18,7 @@ import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool } from './fixed-cards/index.js';
 import { resolveRelic } from './relics/draw.js';
 import { planRewardMarks } from './reward-cards.js';
+import { CLASS_PASSIVE_VERSION, fixedClassPassive } from './class-passives.js';
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const indexPath = (path, index) => `${path}[${index}]`;
@@ -364,9 +365,9 @@ export function assembleClass(raw, { key, owner = key, fixed = {}, input = {} } 
         : collector.fail('archetype', 'invalid-enum', { allowed: Object.keys(COMBAT_RULES.archetypes) });
     if (!className) return finish(collector, null);
     const id = profileIdFor('class', className);
-    const classPassive = requiredPassive(raw.passive, 'passive', collector, `${id}-p1`);
+    const classPassive = fixedClassPassive(archetype, 1, `${id}-p1`);
     const classPool = cardList(raw.cards, 'cards', collector, 11, 11, id, 'c', classRaritiesFor(owner), validSlots(input?.costSlots, CARD_COST_SLOTS.class), true, archetypeTable(archetype));
-    return finish(collector, { kind: 'class', id, className, archetype, classPassive, classPool });
+    return finish(collector, { kind: 'class', id, className, archetype, classPassive, classPassiveVersion: CLASS_PASSIVE_VERSION, classPool });
 }
 
 // 职业进阶档：档名 + 3 张卡（id 可由 fixed.cardIds 指定）

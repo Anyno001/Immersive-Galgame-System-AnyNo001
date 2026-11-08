@@ -25,6 +25,7 @@ import { reportHpLostOf, reportIdFor, reportIdOf, reportWeakOf } from './report.
 import { parseChallengeReport } from './challenge-report.js';
 import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
+import { CLASS_PASSIVE_VERSION, fixedClassPassive } from './class-passives.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
 import { HERO_BASE_ARCHETYPE, characterCombatStats, heroBaseStats, vitalsOf } from './vitals.js';
 import { scanStatLifeTags } from '../scene/stats/stat-directives.js';
@@ -1256,7 +1257,10 @@ const entryDedupKey = (characterId, entry) => [characterId, entry.type, entry.an
 function effectiveClassProfile(state) {
     const classProfile = state.classProfile;
     if (!classProfile || !(state.classTier > 1)) return classProfile;
-    return { ...classProfile, classPassive: passiveAtTier(classProfile.classPassive, state.classTier), classPool: [...classProfile.classPool, ...state.tierCards] };
+    const classPassive = classProfile.classPassiveVersion === CLASS_PASSIVE_VERSION
+        ? fixedClassPassive(classProfile.archetype, state.classTier, classProfile.classPassive.id)
+        : passiveAtTier(classProfile.classPassive, state.classTier);
+    return { ...classProfile, classPassive, classPool: [...classProfile.classPool, ...state.tierCards] };
 }
 
 // 规则 v5 P5a 副本视图：卡组里的副本在前、其余按获得顺序；旧记录按 cardId 记的升级张数依次分给未显式升级的同名副本。

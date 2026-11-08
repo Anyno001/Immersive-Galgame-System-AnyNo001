@@ -34,6 +34,7 @@ function orbHit(ctx, unit, target, amount, kind, kit) {
 // 雷珠：打随机一名敌人；有雷暴（M05）时打全体敌人。
 function lightning(ctx, unit, amount, kit) {
     const foes = foesOf(ctx.state, unit);
+    if (ctx.state.rulesVersion >= 6) amount += st(unit, 'arc-core');
     if (!foes.length || amount <= 0) return;
     const hit = st(unit, 'arc-storm') ? foes : [foes[kit.rollInt(ctx.state, foes.length)]];
     for (const foe of hit) orbHit(ctx, unit, foe, amount, 'lightning', kit);
@@ -114,6 +115,7 @@ registerMechanic({
         { key: 'storm-heart', label: '雷心' },
         { key: 'static-shell', label: '静电' },
         { key: 'arc-boost', label: '雷涌' },
+        { key: 'arc-core', label: '雷蕴' },
     ],
     ops: {
         channel: {

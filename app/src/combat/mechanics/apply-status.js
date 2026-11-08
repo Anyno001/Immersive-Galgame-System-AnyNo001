@@ -63,6 +63,7 @@ export const APPLY_STATUSES = Object.freeze({
     'storm-heart': Object.freeze({ max: 1, value: 9 }),
     'static-shell': Object.freeze({ max: 1, value: 8 }),
     'arc-boost': Object.freeze({ max: 6, value: 2 }),
+    'arc-core': Object.freeze({ max: 2, value: 6 }),
     // 规则 v5 P3 召唤（summon.js）。
     doom: Object.freeze({ debuff: true, max: 20, value: 1.2 }),
     'minion-might': Object.freeze({ max: 6, value: 3 }),

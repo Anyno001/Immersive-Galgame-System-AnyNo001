@@ -2920,3 +2920,161 @@ test('奖励候选耗尽（v6 G5f-4f）：回退单随机卡仍保留无伤升�
     assert.equal(copy.inscription, slot.marks[0].inscription);
     assert.equal(heroOf(state).deck.length, before.deck.length + 1);
 });
+
+test('职业固定被动（v6 G6）：八职业三阶结构合法，新档案忽略模型被动，旧档案不补标记', async () => {
+    const { CLASS_PASSIVES, fixedClassPassive } = await import('../src/combat/class-passives.js');
+    const { normalizeProfile } = await import('../src/combat/schema.js');
+    const { assembleClass } = await import('../src/combat/generation-assembly.js');
+    assert.equal(Object.keys(CLASS_PASSIVES).length, 8);
+    for (const archetype of Object.keys(COMBAT_RULES.archetypes)) {
+        for (const tier of [1, 2, 3]) {
+            const classPassive = fixedClassPassive(archetype, tier, 'fixed-p');
+            const checked = normalizeProfile({ ...classDef('cls-blade'), archetype, classPassive, classPassiveVersion: 1 });
+            assert.equal(checked.ok, true, `${archetype}/${tier}: ${JSON.stringify(checked.errors)}`);
+        }
+        const raw = { className: '测试职业', archetype, passive: { effects: [{ op: 'energy', amount: 999 }] },
+            cards: Array.from({ length: 11 }, (_, i) => [`招式${i}`, 'strike']) };
+        const built = assembleClass(raw, { key: archetype });
+        assert.equal(built.errors, undefined, JSON.stringify(built.errors));
+        assert.equal(built.profile.classPassiveVersion, 1);
+        assert.deepEqual(built.profile.classPassive, fixedClassPassive(archetype, 1, `${built.profile.id}-p1`));
+        delete raw.passive;
+        assert.deepEqual(assembleClass(raw, { key: archetype }).profile, built.profile);
+    }
+    const old = normalizeProfile(classDef('cls-blade'));
+    assert.equal(old.ok, true);
+    assert.equal(Object.hasOwn(old.value, 'classPassiveVersion'), false);
+    assert.equal(old.value.classPassive.name, '锋锐');
+    assert.equal(normalizeProfile({ ...classDef('cls-blade'), classPassiveVersion: 2 }).ok, false);
+    assert.equal(fixedClassPassive('unknown'), null);
+    assert.equal(fixedClassPassive('mage', 4), null);
+    const copy = fixedClassPassive('mage', 2);
+    copy.effects[1].amount = 1;
+    assert.equal(fixedClassPassive('mage', 2).effects[1].amount, 3);
+});
+
+test('职业固定被动（v6 G6）实战：力量、格挡、前三回合抽牌、召唤首次量与圣辉逐阶兑现', async () => {
+    const { fixedClassPassive } = await import('../src/combat/class-passives.js');
+    const setupFor = (archetype, tier) => ({ rulesVersion: 6, controlledId: 'hero', openingCharged: true,
+        units: [hero(Array(30).fill('basic-defend'), { passives: [fixedClassPassive(archetype, tier)], speed: 100 }), foe({ speed: 100 })] });
+    for (const tier of [1, 2, 3]) {
+        const warrior = createBattle(setupFor('warrior', tier), SEED);
+        assert.equal(warrior.ok, true);
+        assert.equal(warrior.state.units.hero.statuses.strength, tier);
+        assert.equal(createBattle(setupFor('guardian', tier), SEED).state.units.hero.block, [8, 12, 15][tier - 1]);
+        assert.equal(createBattle(setupFor('priest', tier), SEED).state.units.hero.res.radiance, [3, 7, 9][tier - 1]);
+        const setup = setupFor('assassin', tier);
+        let state = createBattle(setup, SEED).state;
+        assert.equal(state.piles.hero.hand.length, tier === 3 ? 8 : 7);
+        const actions = [];
+        for (let turn = 2; turn <= 4; turn += 1) {
+            const action = { type: 'end-turn' };
+            const result = applyAction(state, action);
+            assert.equal(result.ok, true);
+            actions.push(action);
+            state = result.state;
+            assert.equal(state.turn, turn);
+            assert.equal(state.piles.hero.hand.length, tier > 1 && turn <= 3 ? (tier === 3 ? 8 : 7) : 5);
+        }
+        assert.deepEqual(replayBattle(JSON.parse(JSON.stringify(setup)), SEED, actions).state, state);
+        const summoned = createBattle(setupFor('summoner', tier), SEED).state;
+        const first = [1, 7, 9][tier - 1];
+        assert.equal(summoned.units.hero.res.minion.hp, first);
+        const second = applyAction(summoned, { type: 'end-turn' });
+        assert.equal(second.ok, true);
+        assert.equal(second.state.units.hero.res.minion.hp, first + tier);
+        assert.equal(summoned.units.hero.res.minion.hp, first, '前一快照不被写穿');
+    }
+});
+
+test('职业固定被动（v6 G6）雷珠与临时牌：双路雷伤、旧雷涌、奇迹保留消耗及弃牌伤害可重放', async () => {
+    const { fixedClassPassive } = await import('../src/combat/class-passives.js');
+    const { TOKEN_CARDS } = await import('../src/combat/rules.js');
+    for (const tier of [1, 2, 3]) {
+        const pulse = { id: 'pulse', name: '鸣雷', type: 'skill', cost: 0, effects: [
+            { op: 'apply-status', status: 'arc-boost', stacks: 3, target: 'self' },
+            { op: 'orb-pulse', amount: 1 }, { op: 'evoke', amount: 1 },
+        ] };
+        const setup = { rulesVersion: 6, controlledId: 'hero', units: [
+            hero(Array(5).fill('pulse'), { catalog: { pulse }, passives: [fixedClassPassive('mage', tier)] }), foe(),
+        ] };
+        const created = createBattle(setup, SEED);
+        assert.equal(created.ok, true);
+        assert.equal(created.state.units.hero.res.orbs.list.length, tier === 1 ? 1 : 3);
+        const action = { type: 'play', inst: created.state.piles.hero.hand[0] };
+        const played = applyAction(created.state, action);
+        assert.equal(played.ok, true, JSON.stringify(played.error));
+        assert.equal(60 - played.state.units.foe.hp, 14 + 2 * (tier - 1));
+        assert.deepEqual(replayBattle(clone(setup), SEED, [action]).state, played.state);
+        const bardSetup = { rulesVersion: 6, controlledId: 'hero', units: [
+            hero(filler, { passives: [fixedClassPassive('bard', tier)] }), foe(),
+        ] };
+        const bard = createBattle(bardSetup, SEED).state;
+        const tokens = bard.piles.hero.hand.filter(id => bard.cards[id].cardId === 'token-miracle');
+        assert.equal(tokens.length, [1, 3, 4][tier - 1]);
+        assert.ok(tokens.every(id => bard.cards[id].temp));
+        const kept = applyAction(bard, { type: 'end-turn' });
+        assert.ok(tokens.every(id => kept.state.piles.hero.hand.includes(id)));
+        const play = { type: 'play', inst: tokens[0] };
+        const used = applyAction(kept.state, play);
+        assert.equal(used.ok, true);
+        assert.equal(used.state.units.hero.energy, kept.state.units.hero.energy + 1);
+        assert.ok(used.state.piles.hero.exhaust.includes(tokens[0]));
+        assert.deepEqual(replayBattle(clone(bardSetup), SEED, [{ type: 'end-turn' }, play]).state, used.state);
+        const discard = { id: 'discard', name: '换手', type: 'skill', cost: 0, effects: [{ op: 'discard', amount: 1, mode: 'random' }] };
+        const ranger = start([hero(Array(5).fill('discard'), { catalog: { discard }, passives: [fixedClassPassive('ranger', tier)] }), foe()], { rulesVersion: 6 });
+        const hit = applyAction(ranger, { type: 'play', inst: ranger.piles.hero.hand[0] });
+        assert.equal(hit.ok, true);
+        assert.equal(60 - hit.state.units.foe.hp, tier + 1);
+        assert.equal(applyAction(ranger, { type: 'end-turn' }).state.units.foe.hp, 60, '自然弃牌不触发');
+    }
+    assert.equal(TOKEN_CARDS['token-miracle'].cost, 0);
+    assert.equal(TOKEN_CARDS['token-grace'].name, '天籁');
+});
+
+test('职业固定被动（v6 G6）账本：逐阶写入、重建回读、换职业重置与回退，旧职业仍按旧算法', async (t) => {
+    const { fixedClassPassive } = await import('../src/combat/class-passives.js');
+    const { passiveAtTier, solveCardTemplate } = await import('../src/combat/card-templates.js');
+    for (const archetype of [...Object.keys(COMBAT_RULES.archetypes), 'legacy']) {
+        const cls = { ...classDef('cls-blade'), archetype: archetype === 'legacy' ? 'warrior' : archetype };
+        if (archetype !== 'legacy') Object.assign(cls, { classPassiveVersion: 1, classPassive: fixedClassPassive(archetype, 1, 'p-cls-blade') });
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        db.sheets.sheet_userbag = userInventorySheet();
+        const tables = createCombatTables({ api: db.api });
+        t.after(() => tables.client.dispose());
+        assert.equal((await tables.ensure()).ok, true);
+        assert.equal((await tables.append('profile', [row(cls, 1), row(heroDef(), 2), row({ ...classDef('cls-other'), className: '别派' }, 3)])).ok, true);
+        const chat = Array.from({ length: Math.ceil(expFor(10) / 50) }, (_, i) => ai(`[igs-combat:exp|我|${Math.min(50, expFor(10) - i * 50)}|修炼]`));
+        const baseFloors = chat.length;
+        const open = () => createCombatLedger({ tables, chat: () => chat, userName: '主角', wallet: () => 10000, now: () => 7 });
+        let ledger = open();
+        assert.equal((await ledger.scan()).ok, true);
+        const heroOfInitial = heroOf(await ledger.effectiveState());
+        const expected = tier => archetype === 'legacy' ? passiveAtTier(heroOfInitial.classProfile.classPassive, tier) : fixedClassPassive(archetype, tier, 'p-cls-blade');
+        const baseDeck = clone(heroOfInitial.deck);
+        for (const tier of [2, 3]) {
+            chat.push(ai(`晋升${tier}`));
+            const rarity = tier === 2 ? 'rare' : 'epic';
+            const cards = [1, 2, 3].map(n => ({ id: `tier-${tier}-${n}`, name: `新招${tier}${n}`, cost: n, rarity, ...solveCardTemplate('strike', n, rarity) }));
+            const result = await ledger.ascendClass('pc-hero', { classRef: cls.id, tier, tierName: `阶${tier}`, cards });
+            assert.equal(result.ok, true, `${archetype}: ${JSON.stringify(result)}`);
+            ledger = open();
+            const view = heroOf(await ledger.effectiveState());
+            assert.equal(view.classTier, tier);
+            assert.deepEqual(view.classProfile.classPassive, expected(tier));
+            assert.deepEqual(view.deck, baseDeck);
+            assert.deepEqual((await ledger.effectiveState()).classes.get(cls.id).classPassive, heroOfInitial.classProfile.classPassive);
+        }
+        chat[baseFloors + 1].swipe_id = 1;
+        assert.equal(heroOf(await ledger.effectiveState()).classTier, 2);
+        assert.deepEqual(heroOf(await ledger.effectiveState()).classProfile.classPassive, expected(2));
+        chat[baseFloors + 1].swipe_id = 0;
+        chat.push(ai('转职'));
+        assert.equal((await ledger.respecClass('pc-hero', 'cls-other')).ok, true);
+        assert.equal(heroOf(await ledger.effectiveState()).classTier, 1);
+        chat.pop();
+        assert.equal(heroOf(await ledger.effectiveState()).classTier, 3);
+        chat.splice(baseFloors);
+        assert.deepEqual(heroOf(await ledger.effectiveState()).classProfile.classPassive, expected(1));
+    }
+});

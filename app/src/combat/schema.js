@@ -18,6 +18,7 @@ import { TREASURE_SLOT_MAX } from './gear-slots.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { RELIC_MODELS, isCombatModel, relicById } from './relics/index.js';
 import { winPointsBonus } from './relics/off-combat.js';
+import { CLASS_PASSIVE_VERSION } from './class-passives.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
 
@@ -530,7 +531,7 @@ function validateTraitSkill(skill, path, state, rarity) {
 
 // 职业档案。
 function validateClassProfile(profile, path, state) {
-    checkKnownFields(profile, ['kind', 'v', 'id', 'className', 'archetype', 'classPassive', 'classPool'], path, state);
+    checkKnownFields(profile, ['kind', 'v', 'id', 'className', 'archetype', 'classPassive', 'classPassiveVersion', 'classPool'], path, state);
     const result = {
         kind: 'class',
         v: SCHEMA_VERSION,
@@ -540,6 +541,7 @@ function validateClassProfile(profile, path, state) {
         classPassive: validatePassive(profile.classPassive, joinPath(path, 'classPassive'), state),
         classPool: arrayField(profile.classPool, joinPath(path, 'classPool'), state, 8, 16, cardValidatorFor(LOOT_RARITIES)),
     };
+    if (profile.classPassiveVersion !== undefined) result.classPassiveVersion = intField(profile.classPassiveVersion, joinPath(path, 'classPassiveVersion'), state, CLASS_PASSIVE_VERSION, CLASS_PASSIVE_VERSION);
     checkDuplicateIds(result.classPool, joinPath(path, 'classPool'), state);
     return result;
 }

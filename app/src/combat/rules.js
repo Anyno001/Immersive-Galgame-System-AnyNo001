@@ -145,6 +145,7 @@ export const TOKEN_CARDS = deepFreeze({
     // 规则 v6 乐师固定卡的衍生牌（只新增键；只由 v6 固定卡的 create 生成）。
     'token-rebuke': { id: 'token-rebuke', name: '罚音', type: 'attack', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'damage', amount: 5, hits: 1, target: 'enemy' }, { op: 'exhaust-self' }], skillRef: '罚音' },
     'token-grace': { id: 'token-grace', name: '天籁', type: 'skill', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'energy', amount: 1 }, { op: 'exhaust-self' }], skillRef: '天籁' },
+    'token-miracle': { id: 'token-miracle', name: '奇迹', type: 'skill', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'energy', amount: 1 }, { op: 'exhaust-self' }], skillRef: '奇迹' },
     'token-epiphany': { id: 'token-epiphany', name: '悟弦', type: 'skill', cost: 0, rarity: 'basic', retain: true, effects: [{ op: 'draw', amount: 2 }, { op: 'exhaust-self' }], skillRef: '悟弦' },
     'token-shelter': { id: 'token-shelter', name: '护调', type: 'skill', cost: 1, rarity: 'basic', retain: true, effects: [{ op: 'block', amount: 6, target: 'self' }, { op: 'exhaust-self' }], skillRef: '护调' },
     'token-sever': { id: 'token-sever', name: '断弦', type: 'attack', cost: 1, rarity: 'basic', effects: [{ op: 'damage', amount: 3, hits: 3, target: 'enemy' }, { op: 'exhaust-self' }], skillRef: '断弦' },

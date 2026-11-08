@@ -176,7 +176,9 @@ test('已有属性初始化后转职：新职业名与被动可见，职业池�
     const hero = await f.hero();
     assert.equal(hero.className, '雷剑客');
     assert.equal(hero.attributes.className, '雷剑客');
-    assert.equal(hero.classProfile.classPassive.name, '雷势');
+    assert.equal(hero.classProfile.classPassive.name, '战意');
+    assert.equal(hero.classProfile.classPassiveVersion, 1);
+    assert.deepEqual(hero.classProfile.classPassive.effects, [{ op: 'status', status: 'strength', stacks: 1, target: 'self' }]);
     assert.deepEqual(hero.deck, before.deck);
     assert.deepEqual(hero.owned, before.owned);
     assert.deepEqual(hero.attributes.scores, before.attributes.scores);
@@ -188,7 +190,8 @@ test('已有属性初始化后转职：新职业名与被动可见，职业池�
     assert.equal(pool.querySelector('button'), null);
     assert.ok([...pool.querySelectorAll('.igs-deck-card')].every((r) => /未拥有/.test(r.textContent) && /点伤害/.test(r.textContent)));
     assert.match(f.doc.body.textContent, /职业被动/);
-    assert.match(f.doc.body.textContent, /雷势/);
+    assert.match(f.doc.body.textContent, /战意/);
+    assert.doesNotMatch(f.doc.body.textContent, /雷势/);
     const requestCount = f.requests.length;
     f.services.resetChat();
     await f.controller.invoke('reload');
