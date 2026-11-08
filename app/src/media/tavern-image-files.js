@@ -35,7 +35,11 @@ export function createTavernImageFiles(globalObject, legacyDir) {
     async function readBlob(path, { signal } = {}) {
         const response = await mediaRequest(globalObject, `/${String(path).replace(/^\//, '')}`, { cache: 'no-store', signal });
         if (!response?.ok) throw Object.assign(new Error(response?.status === 404 || response?.status === 410 ? 'image-file-not-found' : 'image-file-unreadable'), { status: response?.status });
-        return response.blob();
+        const blob = await response.blob();
+        // 部分酒馆/反代不带图片类型头，转成 dataUrl 会变 octet-stream，被当成不是图片。
+        if (/^image\//i.test(blob?.type || '') || typeof globalObject.Blob !== 'function') return blob;
+        const ext = (/\.(\w+)$/.exec(String(path)) || [])[1]?.toLowerCase();
+        return new globalObject.Blob([blob], { type: `image/${ext === 'jpg' ? 'jpeg' : ext || 'png'}` });
     }
     // 原图任务绕过显示缓存，显示通道是否压缩由中央缓存开关决定。
     async function read(path, { strictRead = false, display = false, original = false, ticket = null, signal } = {}) {
