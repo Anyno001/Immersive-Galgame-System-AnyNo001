@@ -67,6 +67,7 @@ import { bootstrapIGS, createMemoryStorage } from '../../src/index.js';
 import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 import { chooseCard, emptyPick, flipCard, flipView, pickCardChoice, pickPurgeChoice, pickUpgradeChoice } from '../../src/combat/flip.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from '../../src/combat/fixed-cards/index.js';
+import { openWaitStagePreview } from './fixtures/wait-stage.fixture.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -235,9 +236,14 @@ function openSettingsScene() {
     scenes: { view, folders: ['学校', '户外'], collapsed: [], assign: { 教室: '学校', 走廊: '学校', 海边: '户外' } },
     characters: { view, folders: ['主角'], collapsed: [], assign: { 林夏: '主角' } },
   } } }));
-  // 只替换 localStorage，其余全局能力沿用真实 window；小写方法绑定到 window，避免 Illegal invocation。
+  // 设置预览使用内存存储和空表情备注，其余能力沿用真实 window。
   const globalProxy = new Proxy(window, { get(target, key) {
     if (key === 'localStorage') return mem;
+    if (key === 'fetch') return (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+      if (url.origin === location.origin && url.pathname === '/user/files/igs-expression-notes.json') return Promise.resolve(new Response('{"version":1,"notes":{}}', { headers: { 'content-type': 'application/json' } }));
+      return target.fetch(input, init);
+    };
     if (key === 'SillyTavern' && q.get('card')) return { getContext: () => ({ name2: q.get('card'), characters: [] }) };
     const value = Reflect.get(target, key, target);
     return typeof value === 'function' && typeof key === 'string' && /^[a-z]/.test(key) ? value.bind(target) : value;
@@ -522,6 +528,7 @@ async function openDeckFull() {
 function openPage(page) {
   current?.close?.();
   if (page === 'deck') { current = deckFull; openDeckFull(); }
+  else if (page === 'wait-stage') current = openWaitStagePreview(overlay, new URLSearchParams(location.search));
   // 设置面板也有 id 为 combat 的页面，page=combat 会先进设置页；战斗面板用 page=combat-panel 打开。
   else if (page === 'combat-panel') { current = combat; openCombat(); }
   else

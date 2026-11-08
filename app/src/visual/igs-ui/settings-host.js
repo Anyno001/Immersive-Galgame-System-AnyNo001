@@ -539,6 +539,7 @@ export function createSettingsHost(deps) {
                 return { ok: false, reason: ready.reason, missing: ready.missing };
             }
             setPath(draft, 'bridge.stats.enabled', true);
+            setPath(draft, 'readerSettings.waitStage.games', true);
         }
         if (path === 'bridge.stats.enabled' && value !== true && draft.readerSettings && draft.readerSettings.combatExpansion && draft.readerSettings.combatExpansion.enabled === true) {
             setPath(draft, path, true);

@@ -3,9 +3,16 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { build } from 'esbuild';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 const port = Number(process.env.IGS_PREVIEW_PORT || 4173);
+const gamesPath = '/src/visual/igs-ui/wait-stage-games.js';
+const games = await build({
+    entryPoints: [path.join(appRoot, gamesPath.slice(1))], bundle: true,
+    format: 'esm', platform: 'browser', write: false,
+    target: 'es2022', legalComments: 'eof',
+});
 
 const mime = {
     '.html': 'text/html; charset=utf-8',
@@ -21,6 +28,11 @@ const mime = {
 const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
     const rel = decodeURIComponent(url.pathname);
+    if (rel === gamesPath) {
+        res.writeHead(200, { 'content-type': mime['.js'], 'cache-control': 'no-store' });
+        res.end(games.outputFiles[0].text);
+        return;
+    }
     // 预览页用相对路径导入 fixtures 与资源，根路径直接返回页面会按「/」解析导致模块 404、页面全黑；改为重定向到页面自身路径并保留查询参数。
     if (rel === '/') {
         res.writeHead(302, { location: `/fixtures/record-pages/preview.html${url.search}`, 'cache-control': 'no-store' });

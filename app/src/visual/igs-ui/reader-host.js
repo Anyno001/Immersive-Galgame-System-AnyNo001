@@ -1369,6 +1369,7 @@ export function createIgsReaderHost(options = {}) {
         offImageJobLog();
         teardownStatusHudSubscription();
         closeReader();
+        waitStage.dispose();
         sourceCache.invalidate();
         tableData.invalidate();
         disarmEditReopen();
@@ -1749,6 +1750,7 @@ export function createIgsReaderHost(options = {}) {
         if (waitStage.isOpen()) return { ok: false, reason: 'awaiting-reply' };
         if (!getWaitStageGamePack()) return { ok: false, reason: 'wait-games-not-installed' };
         const settings = (current.snapshot && current.snapshot.readerSettings && current.snapshot.readerSettings.waitStage) || null;
+        if (settings && settings.games === false) return { ok: false, reason: 'wait-games-disabled' };
         waitStage.open(host, { settings, model: null, play: true });
         void refreshWaitStageModel(current);
         return { ok: true, open: true };
@@ -2773,6 +2775,7 @@ export function createIgsReaderHost(options = {}) {
         state.activeReader.mode = nextMode;
         syncReaderMountForMode(state.activeReader, nextMode);
         state.activeReader.snapshot = snapshot;
+        waitStage.syncSettings(readerSettings.waitStage);
         updateMountedReader(snapshot);
         readerStaleBehindSettings = false;
         return { ok: true };

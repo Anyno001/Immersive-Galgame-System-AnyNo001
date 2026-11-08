@@ -4,7 +4,8 @@ import { DLC_API_VERSION, createStageFxApi, createUiSkinsApi, drainDlcQueue } fr
 import { createChatsApi } from './chat-api.js';
 import { createCharactersApi } from './character-api.js';
 import { createFeedsApi, createLiveApi } from './feed-api.js';
-import { attachWaitStageGames, createWaitGamesApi, detachWaitStageGames } from '../visual/igs-ui/wait-stage-games-api.js';
+import { createWaitGamesApi } from '../visual/igs-ui/wait-stage-games-api.js';
+import { installWaitStageGames, uninstallWaitStageGames } from '../plugins/wait-stage-games-entry.js';
 
 const API_GROUPS = [
     'imageProviders',
@@ -82,7 +83,7 @@ export function attachPublicApi(globalObject, api) {
     globalObject.IGS = api;
     globalObject.ImmersiveGalgameSystem = api;
     drainDlcQueue(globalObject, api);
-    attachWaitStageGames(globalObject);
+    installWaitStageGames(globalObject);
     return api;
 }
 
@@ -92,7 +93,7 @@ export function detachPublicApi(globalObject, api) {
     if (globalObject.ImmersiveGalgameSystem === api) delete globalObject.ImmersiveGalgameSystem;
     // 销毁后 DLC 队列回到普通数组：之后再推的回调等下一次启动时统一执行，不会打到已销毁的接口上。
     if (globalObject.IGS_DLC && Object.prototype.hasOwnProperty.call(globalObject.IGS_DLC, 'push')) globalObject.IGS_DLC = [];
-    detachWaitStageGames(globalObject);
+    uninstallWaitStageGames(globalObject);
 }
 
 function createApiGroup(groupName, presetRegistry) {

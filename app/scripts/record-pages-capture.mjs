@@ -80,7 +80,7 @@ try {
         await sleep(250);
         settled = await evaluate(`(() => {
             if (window.__stageCast) return window.__stageCast.ready === true;
-            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel,#igs-combat-deck-panel');
+            const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,#igs-combat-panel,#igs-combat-deck-panel,.igs-waitstage');
             if (panel?.id === 'igs-combat-deck-panel') return window.__preview?.deckFull?.isOpen?.() ? window.__preview.deckFull.view()?.status === 'ready' : true;
             if (!panel) return false;
             if (panel.id === 'igs-combat-panel') return window.__preview?.combatState?.ready === true && !window.__preview.combat.view()?.pending;
@@ -235,7 +235,7 @@ try {
         return out;
     })() : null;
     const state = await evaluate(`(() => {
-        const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings');
+        const panel = document.querySelector('#igs-map-panel,#igs-record-panel,#igs-unified-settings,.igs-waitstage');
         const title = document.querySelector('.igs-rp-title');
         const back = document.querySelector('.igs-rp-back');
       const tRect = title?.getBoundingClientRect(), bRect = back?.getBoundingClientRect(), stage = document.getElementById('stage')?.getBoundingClientRect();
@@ -282,6 +282,12 @@ try {
             stageCastReader: ${JSON.stringify(readerSteps)},
             relationshipNodeCount: panel?.querySelectorAll?.('.igs-record-relationship-node')?.length ?? null,
             relationshipLabelCount: panel?.querySelectorAll?.('.igs-record-relationship-label')?.length ?? null,
+            waitStage: (() => {
+                const root = document.querySelector('.igs-waitstage');
+                return root ? { play: root.classList.contains('is-play'),
+                    games: [...root.querySelectorAll('[data-game]')].map(node => node.getAttribute('data-game')),
+                    boardVisible: !root.querySelector('.igs-ws-board')?.hidden } : null;
+            })(),
             // 战斗面板诊断：状态、尺寸与溢出、可见文字（截断）、手牌与焦点；不代替看图。
             combat: (() => {
                 const root = document.getElementById('igs-combat-panel');

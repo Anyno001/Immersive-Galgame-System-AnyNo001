@@ -513,8 +513,8 @@ export function applyToolbarState(root, current) {
     if (!ttsConfig.enabled) hiddenSet.add('tts-replay');
     // 「重新生成这句」只对接口来源有意义（系统语音没有缓存可丢）。
     if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
-    // 「小游戏」要等独立的小游戏脚本装上才有东西可玩。
-    if (!getWaitStageGamePack()) hiddenSet.add('mini-games');
+    // 等待页与工具栏共用独立的小游戏开关。
+    if (!getWaitStageGamePack() || readerSettings.waitStage?.games === false) hiddenSet.add('mini-games');
     // 「人物状态」在卡牌战斗扩展开启时显示；只开数值系统、本聊天为手动建档时也显示（P8c，只有建档页）。用户的排序、隐藏与固定照常生效。
     const buildEntry = typeof current.buildEntry === 'function' && current.buildEntry() === true;
     if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled && !buildEntry) hiddenSet.add('combat-status');

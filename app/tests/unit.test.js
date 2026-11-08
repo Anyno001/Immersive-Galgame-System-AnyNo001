@@ -472,3 +472,45 @@ test('gate:choices:dice-dc-d20-local-and-unknown-params-fail-closed', async () =
     assert.equal((await resolveDiceCommand('检定 我 力量 DC=14', null, {})).ok, false);
     assert.equal((await resolveDiceCommand('检定 我 力量 DC=14', null, { readAbilities: async () => null })).ok, false);
 });
+
+
+import { detachPublicApi } from '../src/api/public-api.js';
+import { createWaitGamesApi, getWaitStageGamePack, subscribeWaitStageGamePack, WAIT_GAMES_GLOBAL_KEY, WAIT_GAMES_QUEUE_KEY } from '../src/visual/igs-ui/wait-stage-games-api.js';
+
+test('G7 小游戏登记：内置优先、同ID去重、旧卸载不撤销内置、销毁后重启', () => {
+    const legacy = { id: 'igs-wait-games', list: () => ['legacy'], start() {} };
+    const root = { [WAIT_GAMES_GLOBAL_KEY]: legacy, [WAIT_GAMES_QUEUE_KEY]: [legacy, legacy] };
+    const changes = [];
+    const stop = subscribeWaitStageGamePack(pack => changes.push(pack));
+    const api = {};
+    try {
+        attachPublicApi(root, api);
+        const builtin = getWaitStageGamePack();
+        assert.notEqual(builtin, legacy);
+        assert.equal(builtin.id, legacy.id);
+        assert.equal(builtin.list({ art: {}, replay: [], names: [] }).join(','), 'rps,mahjong,tiles,snake,ludo');
+        const waitGames = createWaitGamesApi();
+        const count = changes.length;
+        root[WAIT_GAMES_GLOBAL_KEY] = legacy;
+        assert.equal(waitGames.register(legacy).duplicate, true);
+        root[WAIT_GAMES_QUEUE_KEY].push(legacy);
+        assert.equal(root[WAIT_GAMES_GLOBAL_KEY], builtin);
+        assert.equal(getWaitStageGamePack(), builtin);
+        assert.equal(changes.length, count);
+        delete root[WAIT_GAMES_GLOBAL_KEY];
+        assert.equal(waitGames.unregister(legacy).ok, false);
+        assert.equal(waitGames.unregister().ok, false);
+        assert.equal(getWaitStageGamePack(), builtin);
+        assert.equal(waitGames.register({ id: legacy.id }).ok, false);
+        detachPublicApi(root, api);
+        assert.equal(getWaitStageGamePack(), null);
+        root[WAIT_GAMES_GLOBAL_KEY] = legacy;
+        attachPublicApi(root, api);
+        assert.notEqual(getWaitStageGamePack(), legacy);
+        assert.notEqual(getWaitStageGamePack(), builtin);
+        detachPublicApi(root, api);
+        assert.equal(getWaitStageGamePack(), null);
+        assert.equal(root[WAIT_GAMES_GLOBAL_KEY], undefined);
+        assert.deepEqual(root[WAIT_GAMES_QUEUE_KEY], []);
+    } finally { detachPublicApi(root, api); stop(); }
+});

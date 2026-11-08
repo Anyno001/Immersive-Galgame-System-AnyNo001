@@ -495,7 +495,7 @@ export function createWaitStageRuntime(options = {}) {
 
     function openGame(id) {
         const pack = getWaitStageGamePack();
-        if (!pack || typeof pack.start !== 'function' || !board || !model || phase !== 'wait') return;
+        if (!settings.games || !pack || typeof pack.start !== 'function' || !board || !model || phase !== 'wait') return;
         clearTimer();
         game = { id };
         gameState = { listeners: new Set(), hostListeners: new Set() };
@@ -514,9 +514,10 @@ export function createWaitStageRuntime(options = {}) {
         if (!gamesRow) return;
         gamesRow.innerHTML = '';
         const pack = getWaitStageGamePack();
-        const list = (!minimal && (play || settings.games) && pack && model) ? listWaitStageGameIds(model) : [];
+        const list = (!minimal && settings.games && pack && model) ? listWaitStageGameIds(model) : [];
         if (play && !game) {
-            if (!pack) setNote('还没装小游戏脚本。');
+            if (!settings.games) setNote('小游戏已关闭。');
+            else if (!pack) setNote('小游戏暂不可用。');
             else if (!model) setNote('正在摆桌…');
             else setNote(list.length ? '' : '最近几楼里还凑不齐小游戏要的角色和台词，多读几楼再来。');
         }
@@ -540,12 +541,25 @@ export function createWaitStageRuntime(options = {}) {
         });
     }
 
-    subscribeWaitStageGamePack(() => {
+    const offGamePack = subscribeWaitStageGamePack(() => {
         if (!root || phase !== 'wait' || game) return;
         renderGames();
     });
 
     return {
+        syncSettings(value) {
+            settings = normalizeWaitStageSettings(value);
+            if (!root) return;
+            if (!settings.games && play) { closeRoot(); return; }
+            if (!settings.games && game) {
+                closeGame();
+                if (replyReady && !imageHold) showNextFloorAction();
+            } else if (phase === 'wait' && !game) renderGames();
+        },
+        dispose() {
+            closeRoot();
+            offGamePack();
+        },
         open(host, opts = {}) {
             if (!host || !host.appendChild) return null;
             const nextDoc = host.ownerDocument || resolveDoc();

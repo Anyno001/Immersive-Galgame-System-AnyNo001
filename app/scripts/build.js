@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { contentHash, findTruncatedFontTables, fontSliceName, JSDELIVR_FILE_LIMIT_BYTES, readSliceManifest, renderSliceFontFaces, SPLIT_FONT_MIN_BYTES } from './font-slices.js';
 import { externalizeSkinAssets, verifySkinAssets } from './skin-assets.js';
+import { bundleWaitStageGames, verifyWaitGamesBundle } from './wait-games-bundle.js';
 
 const appRoot = path.resolve(import.meta.dirname, '..');
 const srcRoot = path.join(appRoot, 'src');
@@ -14,7 +15,8 @@ const stampFile = path.join(appRoot, '.cache', 'build-stamps.json');
 const stamps = readStamps();
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
-const graph = buildModuleGraph(entryFile);
+const waitGamesModule = await bundleWaitStageGames(appRoot);
+const graph = buildModuleGraph(entryFile, new Map([[waitGamesModule.file, waitGamesModule]]));
 const compiled = renderBundle(graph, moduleId(entryFile));
 // 地图底图：源码里以相对路径引用的图片（内置 map-demo 与 assets/map-styles 下的自带款式）统一改写为 ./maps/<文件名> 并随 bundle 发布。
 const MAP_ASSET_DIRS = {
@@ -269,6 +271,7 @@ for (const name of ['igs.bundle.js', 'igs.bundle.debug.js', 'igs.bundle.css', 'm
 }
 
 const builtBundle = fs.readFileSync(path.join(distRoot, 'igs.bundle.js'), 'utf8');
+verifyWaitGamesBundle(builtBundle);
 if (/^\s*import\s/m.test(builtBundle) || builtBundle.includes("from '../src/index.js'")) {
     throw new Error('Build output must be self-contained and must not import app/src modules at runtime.');
 }
@@ -316,7 +319,7 @@ function pruneDir(dir, keep) {
     }
 }
 
-function buildModuleGraph(rootFile) {
+function buildModuleGraph(rootFile, prebundled = new Map()) {
     const modules = new Map();
     visit(rootFile);
     return modules;
@@ -325,6 +328,10 @@ function buildModuleGraph(rootFile) {
         const absolute = path.resolve(file);
         const id = moduleId(absolute);
         if (modules.has(id)) return;
+        if (prebundled.has(absolute)) {
+            modules.set(id, prebundled.get(absolute));
+            return;
+        }
         const source = fs.readFileSync(absolute, 'utf8').replace(/\r\n?/g, '\n');
         const dependencies = extractDependencies(source).map((request) => resolveLocalModule(absolute, request));
         modules.set(id, { id, file: absolute, source, dependencies });
@@ -338,7 +345,7 @@ function renderBundle(graph, entryId) {
     const transformed = [];
     let entryExports = [];
     for (const module of graph.values()) {
-        const result = transformModule(module);
+        const result = module.prebundled ? { code: module.source, exportNames: [] } : transformModule(module);
         if (module.id === entryId) entryExports = result.exportNames;
         transformed.push([
             `__igsRegister(${JSON.stringify(module.id)}, function(module, exports, require) {`,
@@ -414,7 +421,7 @@ async function minifyBundle(source) {
     } catch (error) {
         throw new Error('Build needs the esbuild dev dependency; run `pnpm install` in app/ first.');
     }
-    const result = await esbuild.transform(source, { minify: true, format: 'esm', legalComments: 'none', charset: 'utf8' });
+    const result = await esbuild.transform(source, { minify: true, format: 'esm', legalComments: 'eof', charset: 'utf8' });
     const header = source.split('\n').slice(0, 2).join('\n');
     return `${header}\n${result.code}`;
 }

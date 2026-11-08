@@ -1,4 +1,4 @@
-// 等待过场里的小游戏。这段不进 Gal 前端主体，只由独立导入脚本登记后才会玩。
+// 主体内置的等待小游戏；玩法子树由 esbuild 处理麻将依赖。
 import { MAHJONG_STYLE, startMahjong } from './wait-stage-mahjong.js';
 import { SCMJ_STYLE } from './wait-stage-scmj.js';
 import { SNAKE_STYLE, startSnake } from './wait-stage-snake.js';

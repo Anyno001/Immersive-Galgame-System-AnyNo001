@@ -1,9 +1,15 @@
-// 等待小游戏的安装位。主体只留这个登记表；具体玩法在独立脚本里，装上之后才登记进来。
+// 内置与旧外挂共用登记写口；内置包的同 ID 登记优先。
 export const WAIT_GAMES_GLOBAL_KEY = '__IGS_WAIT_GAME_PACK__';
 export const WAIT_GAMES_QUEUE_KEY = 'IGS_WAIT_GAMES';
 
 let current = null;
+let builtin = null;
+let attachedRoot = null;
 const listeners = new Set();
+
+function syncGlobalPack() {
+    if (attachedRoot) attachedRoot[WAIT_GAMES_GLOBAL_KEY] = current;
+}
 
 function emit(pack) {
     for (const listener of listeners) {
@@ -19,15 +25,23 @@ export function registerWaitStageGamePack(pack) {
     if (!pack || typeof pack.list !== 'function' || typeof pack.start !== 'function') {
         return { ok: false, reason: 'invalid-wait-game-pack' };
     }
-    current = pack;
+    const selected = builtin && pack.id === builtin.id ? builtin : pack;
+    if (current === selected || (selected !== builtin && current && selected.id && current.id === selected.id)) {
+        syncGlobalPack();
+        return { ok: true, id: current.id || '', duplicate: true };
+    }
+    current = selected;
+    syncGlobalPack();
     emit(current);
-    return { ok: true, id: pack.id || '' };
+    return { ok: true, id: current.id || '' };
 }
 
 export function unregisterWaitStageGamePack(pack) {
+    if (current && current === builtin) return { ok: false, reason: 'builtin-wait-game-pack' };
     if (pack && current && pack !== current) return { ok: false, reason: 'different-pack' };
     if (!current) return { ok: true };
     current = null;
+    syncGlobalPack();
     emit(null);
     return { ok: true };
 }
@@ -53,17 +67,17 @@ export function createWaitGamesApi() {
     };
 }
 
-// IGS 启动时认领已经挂在窗口上的小游戏包；之后再推进来的包立刻登记。
-// 关掉 IGS 只摘掉本次登记，窗口上的包还留着，下次启动再认领。
-export function attachWaitStageGames(globalObject) {
+export function attachWaitStageGames(globalObject, builtinPack = null) {
     if (!globalObject) return current;
     const queued = Array.isArray(globalObject[WAIT_GAMES_QUEUE_KEY]) ? globalObject[WAIT_GAMES_QUEUE_KEY].filter(Boolean) : [];
     const external = globalObject[WAIT_GAMES_GLOBAL_KEY] || queued[queued.length - 1] || null;
-    if (external) registerWaitStageGamePack(external);
+    attachedRoot = globalObject;
+    builtin = builtinPack;
+    if (builtin) registerWaitStageGamePack(builtin);
+    else if (external) registerWaitStageGamePack(external);
     const queue = [];
     queue.push = (pack) => {
         if (!pack) return 0;
-        globalObject[WAIT_GAMES_GLOBAL_KEY] = pack;
         registerWaitStageGamePack(pack);
         return 1;
     };
@@ -72,8 +86,12 @@ export function attachWaitStageGames(globalObject) {
 }
 
 export function detachWaitStageGames(globalObject) {
-    unregisterWaitStageGamePack();
+    const wasBuiltin = builtin;
+    builtin = null;
+    attachedRoot = null;
+    if (current) { current = null; emit(null); }
     if (!globalObject) return;
     const pack = globalObject[WAIT_GAMES_GLOBAL_KEY];
-    globalObject[WAIT_GAMES_QUEUE_KEY] = pack ? [pack] : [];
+    if (pack === wasBuiltin) delete globalObject[WAIT_GAMES_GLOBAL_KEY];
+    globalObject[WAIT_GAMES_QUEUE_KEY] = pack && pack !== wasBuiltin ? [pack] : [];
 }

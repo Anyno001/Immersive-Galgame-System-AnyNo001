@@ -65,6 +65,11 @@ import { waitForReaderPage } from './helpers/reader-render.js';
 import { setStagePauseReason } from '../src/visual/igs-ui/stage-pause.js';
 import { VISUAL_MODES } from '../src/visual/visual-mode.js';
 
+import { createWaitStageRuntime, buildWaitStageModel } from '../src/visual/igs-ui/wait-stage-runtime.js';
+import { installWaitStageGames, uninstallWaitStageGames } from '../src/plugins/wait-stage-games-entry.js';
+import { COMBAT_TABLE_REQUIRED_API } from '../src/data/shujuku/combat-tables.js';
+
+
 const appRoot = path.resolve(import.meta.dirname, '..');
 
 test('gate:simulation:legacy-native-marker-inside-dialogue-keeps-one-page-and-visible-speaker', () => {
@@ -382,6 +387,75 @@ test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
     }
 });
 
+test('G7 小游戏设置：开启战斗自动打开，之后可独立关闭，关闭战斗不改小游戏', () => {
+    const storage = createMemoryStorage();
+    const api = Object.fromEntries(COMBAT_TABLE_REQUIRED_API.map(name => [name, () => ({})]));
+    const vn = bootstrapIGS({ global: { localStorage: storage, AutoCardUpdaterAPI: api }, autoAttachMagicWand: false });
+    try {
+        const { controller } = vn.openSettings({ page: 'combat', mode: 'pc' });
+        const value = () => controller.getSnapshot().draft.readerSettings;
+        const games = enabled => controller.setValue('readerSettings.waitStage.games', enabled);
+        assert.equal(games(false).ok, true);
+        assert.equal(controller.setValue('readerSettings.combatExpansion.enabled', true).ok, true);
+        assert.equal(value().waitStage.games, true);
+        assert.equal(games(false).ok, true);
+        assert.equal(value().combatExpansion.enabled, true);
+        assert.equal(controller.setValue('readerSettings.combatExpansion.enabled', false).ok, true);
+        assert.equal(value().waitStage.games, false);
+        assert.equal(controller.setValue('readerSettings.__battleMode', 'card').ok, true);
+        assert.equal(value().waitStage.games, true);
+        assert.equal(controller.setValue('readerSettings.__battleMode', 'off').ok, true);
+        assert.equal(value().waitStage.games, true);
+        assert.equal(games(false).ok, true);
+        delete api.insertRow;
+        assert.equal(controller.setValue('readerSettings.__battleMode', 'card').ok, false);
+        assert.equal(value().waitStage.games, false, '未通过开启检查不触发联动');
+        assert.equal(controller.close().ok, true);
+        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).readerSettings.waitStage.games, false);
+    } finally { vn.destroy(); }
+});
+
+test('G7 小游戏门禁：等待页与主动入口共用开关，运行中关闭不丢下一楼', () => {
+    const doc = createFakeDocument();
+    const root = {};
+    installWaitStageGames(root);
+    const runtime = createWaitStageRuntime({ doc, timers: { setTimeout: () => 1, clearTimeout() {} }, random: () => 0.25 });
+    const model = buildWaitStageModel({ turns: [], sceneAssets: {}, random: () => 0.25 });
+    try {
+        for (const play of [false, true]) {
+            const layer = runtime.open(doc.body, { play, model, settings: { games: false } });
+            assert.equal(layer.querySelector('.igs-ws-games').hidden, true);
+            assert.equal(layer.querySelectorAll('[data-game]').length, 0);
+        }
+        let layer = runtime.open(doc.body, { play: true, model, settings: { enabled: false, games: true } });
+        assert.ok(layer.querySelector('[data-game="rps"]'), '关闭等待过场不阻止主动玩小游戏');
+        runtime.syncSettings({ games: false });
+        assert.equal(runtime.isOpen(), false);
+        layer = runtime.open(doc.body, { model, settings: { games: true } });
+        const start = layer.querySelector('[data-game="rps"]');
+        start.dispatchEvent({ type: 'click', target: start });
+        assert.equal(layer.querySelector('.igs-ws-board').hidden, false);
+        assert.equal(runtime.replyArrived({ status: { status: 'none' } }), false);
+        runtime.syncSettings({ games: false });
+        assert.equal(runtime.isOpen(), true, '正在等回复时只退出游戏');
+        assert.equal(layer.querySelector('.igs-ws-board').hidden, true);
+        assert.equal(layer.querySelector('.igs-ws-games').hidden, true);
+        assert.equal(layer.querySelector('[data-igs-waitstage-next]').hidden, false);
+    } finally { runtime.dispose(); uninstallWaitStageGames(root); }
+});
+
+test('G7 工具栏：关闭小游戏时隐藏按钮并拒绝快捷入口', async () => {
+    const root = {};
+    installWaitStageGames(root);
+    const h = makeAutoPlayReader('当前楼正文。', { waitStage: { games: false } });
+    try {
+        const button = h.overlay.querySelector('[data-action="mini-games"]');
+        assert.ok(!button || button.hidden || button.style.display === 'none');
+        const result = await h.opened.controller.invokeAction('mini-games');
+        assert.equal(result.reason, 'wait-games-disabled');
+        assert.equal(h.document.querySelector('.igs-waitstage'), null);
+    } finally { h.host.destroy(); uninstallWaitStageGames(root); }
+});
 
 function makeAutoPlayReader(raw = '第一段。\n第二段。\n第三段。', readerSettings = {}) {
     const document = createFakeDocument();

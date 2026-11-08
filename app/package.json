@@ -8,8 +8,7 @@
     "build": "node scripts/build.js",
     "build:fonts": "node scripts/split-fonts.js",
     "build:loader": "node scripts/build-loader.js",
-    "build:wait-games": "node scripts/build-wait-games.js",
-    "build:local": "npm run build && npm run build:loader && npm run build:wait-games && node scripts/build-local-package.js",
+    "build:local": "npm run build && npm run build:loader && node scripts/build-local-package.js",
     "package:loader": "npm run build && npm run build:loader"
   },
   "devDependencies": {

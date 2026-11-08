@@ -112,7 +112,7 @@ export function planBattleMode(mode, ready) {
   const cx = 'readerSettings.combatExpansion.enabled';
   if (mode === 'card') {
     if (!ready || ready.ok !== true) return { ok: false, writes: [[cx, false]], reason: ready && ready.reason, missing: ready && ready.missing, message: (ready && ready.message) || '' };
-    return { ok: true, writes: [[cx, true], ['bridge.stats.enabled', true]] };
+    return { ok: true, writes: [[cx, true], ['bridge.stats.enabled', true], ['readerSettings.waitStage.games', true]] };
   }
   if (mode === 'story') return { ok: true, writes: [[fx, true], [cx, false]] };
   if (mode === 'off') return { ok: true, writes: [[fx, false], [cx, false]] };
