@@ -1880,6 +1880,198 @@ test('获得时遗物（v6 G5f-4d）：特性真正装上才结算，按装上�
 
 });
 
+test('加卡遗物（v6 G5f-4e）：实际新增副本自动升级、每五张回血与每张积分，旧记录/待选/跳过/拒收不触发，回退撤销', async () => {
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const at = (type, messageId, occurrence, payload, tagHash = 'trait') => {
+        const anchor = { messageId, swipeId: 0, tagHash, occurrence };
+        return { id: ledgerEntryId(type, 'pc-hero', anchor), type, character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const traits = ['rl-c-06', 'rl-u-10', 'rl-r-07', 'rl-r-16', 'rl-r-26'];
+    const setup = (profile = heroDef()) => {
+        const env = ledgerSetup([row(classDef('cls-blade'), 1), row(profile, 2)], [ai('持有特性'), user('<igs-combat-report id="hurt" result="win">战报</igs-combat-report>'), ai('学牌'), ai('之后')]);
+        const trait = (i, occurrence) => at('trait', 0, occurrence, { traitId: `added-tr-${i}`, name: '加卡特性', rarity: 'rare', kind: 'passive', relic: { relicId: traits[i], model: 'original' }, cost: 100 });
+        const entries = [
+            trait(0, 0), at('trait-pick', 0, 1, { traitId: 'added-tr-0', drop: 'pp-pc-hero' }),
+            trait(1, 2), at('trait-pick', 0, 3, { traitId: 'added-tr-1', drop: 'pc-hero-h0' }),
+            at('trait-slot', 0, 4, { slot: 3, cost: 500 }), trait(2, 5),
+            at('trait-slot', 0, 6, { slot: 4, cost: 1000 }), trait(3, 7),
+            at('trait-slot', 0, 8, { slot: 5, cost: 2000 }), trait(4, 9),
+        ];
+        return { ...env, entries, hero: async () => heroOf(await env.ledger.effectiveState()) };
+    };
+    const fresh = (id, type = 'attack') => ({ id, name: `新牌${id}`, type, rarity: 'common', cost: 1,
+        effects: [{ op: type === 'attack' ? 'damage' : 'block', amount: type === 'attack' ? 6 : 5 }], upgraded: { effects: [{ op: type === 'attack' ? 'damage' : 'block', amount: type === 'attack' ? 8 : 7 }] } });
+    const learnAt = (i, card, added = true) => {
+        const anchor = { messageId: 2, swipeId: 0, tagHash: `learn${i}`, occurrence: 0 };
+        return { id: ledgerEntryId('learn', 'pc-hero', anchor), type: 'learn', character: 'pc-hero', anchor, payload: { card, merge: true, ...(added ? { added: true } : {}) }, createdAt: 7 };
+    };
+    const env = setup();
+    await env.tables.append('ledger', env.entries);
+    const base = await env.hero();
+    assert.equal(base.traits.length, 5, '五件加卡特性已真正装上');
+    assert.deepEqual((await env.ledger.effectiveState()).diagnostics, []);
+    const wound = at('wound', 1, 0, { hp: base.hpMax - 45, maxHp: base.hpMax, down: false, reportId: 'hurt' }, 'wound');
+    await env.tables.append('ledger', [wound]);
+    const cards = ['attack', 'skill', 'power', 'attack', 'skill'].map((type, i) => fresh(`added-${i}`, type));
+    env.ref.chat[2].mes = cards.map((card, i) => `[igs-combat:learn|主角|${card.name}|历练${i}]`).join('\n');
+    // 以真实扫描锚点写 learn，覆盖重放时标签有效性校验。
+    const { extractGrowthDirectives } = await import('../src/scene/combat-directives.js');
+    const directives = extractGrowthDirectives(env.ref.chat[2].mes).directives;
+    const learns = cards.map((card, i) => {
+        const directive = directives[i];
+        const entry = learnAt(i, card);
+        entry.anchor = { messageId: 2, swipeId: 0, tagHash: directive.tagHash, occurrence: directive.occurrence };
+        entry.id = ledgerEntryId('learn', 'pc-hero', entry.anchor);
+        const normalized = normalizeLedgerEntry(entry);
+        assert.equal(normalized.ok, true, JSON.stringify(normalized.errors));
+        return normalized.value;
+    });
+    await env.tables.append('ledger', learns.slice(0, 4));
+    let me = await env.hero();
+    assert.equal(me.points - base.points, 60);
+    assert.equal(me.wound.hp, base.hpMax - 45, '未满五张不回血');
+    assert.ok(me.deckEntries.slice(-4).every((entry) => entry.upgraded), '三种牌型均自动升级');
+    await env.tables.append('ledger', learns.slice(4));
+    me = await env.hero();
+    assert.equal(me.points - base.points, 75);
+    assert.equal(me.wound.hp, base.hpMax - 25);
+    assert.equal(me.deck.length - base.deck.length, 5);
+    const learnedModels = [...me.catalog.values()].filter((card) => card.id.startsWith('added-'));
+    assert.equal(learnedModels.length, 3, '五张新牌按三种模型归并，不依赖重放后保留的目录 ID');
+    assert.deepEqual(['attack', 'skill', 'power'].map((type) => me.deckEntries.filter((entry) => learnedModels.some((card) => card.id === entry.cardId && card.type === type)).length), [2, 2, 1]);
+    assert.equal(me.deckEntries.at(-1).upgraded, true, '并卡副本也自动升级');
+    assert.deepEqual((await env.ledger.effectiveState()).diagnostics, []);
+    assert.deepEqual(await env.hero(), me, '重复读取不重复奖励');
+    env.ref.chat[2].swipe_id = 1;
+    const rolled = await env.hero();
+    assert.deepEqual([rolled.points, rolled.deck.length, rolled.wound.hp], [base.points, base.deck.length, base.hpMax - 45]);
+    env.ref.chat[2].swipe_id = 0;
+    assert.equal((await env.hero()).points, me.points);
+    const old = setup();
+    await old.tables.append('ledger', old.entries);
+    old.ref.chat[2].mes = env.ref.chat[2].mes;
+    const oldBefore = await old.hero();
+    const oldLearns = learns.map((entry) => { const copy = clone(entry); delete copy.payload.added; return copy; });
+    await old.tables.append('ledger', oldLearns);
+    const oldHero = await old.hero();
+    assert.equal(oldHero.points, oldBefore.points);
+    assert.equal(oldHero.deckEntries.slice(-5).some((entry) => entry.upgraded), false);
+    assert.equal(normalizeLedgerEntry({ ...learns[0], payload: { ...learns[0].payload, added: false } }).ok, false);
+    assert.equal(normalizeLedgerEntry(at('card-pick', 2, 0, { drawId: 'draw-x', pick: 'skip', added: true })).ok, false);
+    assert.equal(normalizeLedgerEntry(at('reward', 2, 0, { level: 2, choice: { kind: 'skip' }, added: true })).ok, false);
+
+    // 公开写口：等级奖励、积分抽卡和人偶镜实际新增副本才触发。
+    const { planCardDraw } = await import('../src/combat/rewards.js');
+    const { fixedCard } = await import('../src/combat/fixed-cards/index.js');
+    const publicEnv = setup();
+    await publicEnv.tables.append('ledger', publicEnv.entries);
+    publicEnv.ref.chat[3].mes = `[igs-combat:exp|主角|${expFor(2)}|历练]`;
+    const expScan = await publicEnv.ledger.scan();
+    assert.equal((await publicEnv.ledger.append(expScan.entries)).ok, true);
+    const publicBefore = await publicEnv.hero();
+    assert.equal((await publicEnv.ledger.claimReward('pc-hero', 2, { kind: 'card', cardId: 'c1' })).ok, true);
+    let publicHero = await publicEnv.hero();
+    assert.equal(publicHero.points - publicBefore.points, 15);
+    const rewardCopy = publicHero.deckEntries.find((entry) => entry.copyId.startsWith('reward|'));
+    assert.ok(rewardCopy && !rewardCopy.upgraded, '无升级形态的牌仍获得积分');
+    assert.equal(publicEnv.tables.ledger.find((entry) => entry.type === 'reward').payload.added, true);
+    // 余额只用于写口扣费验证，不产生额外加卡事件。
+    const paidLedger = createCombatLedger({ tables: publicEnv.tables, chat: () => publicEnv.ref.chat, userName: '主角', wallet: () => 10000, now: () => 7 });
+    for (const mode of ['fixed', 'random', 'skip']) {
+        const beforePick = heroOf(await paidLedger.effectiveState());
+        const plan = planCardDraw(beforePick);
+        const choices = plan.fixedIds.map((id) => clone(fixedCard(id)));
+        choices.splice(plan.randomAt, 0, fresh(plan.cardId));
+        assert.equal((await paidLedger.drawCard('pc-hero', { drawId: plan.drawId, choices })).ok, true);
+        const position = mode === 'fixed' ? (plan.randomAt === 0 ? 1 : 0) : plan.randomAt;
+        assert.equal((await paidLedger.flipCard('pc-hero', plan.drawId, position)).ok, true);
+        const beforeWrite = heroOf(await paidLedger.effectiveState());
+        const picked = await paidLedger.pickCard('pc-hero', plan.drawId, mode === 'skip' ? 'skip' : position);
+        assert.equal(picked.ok, true, JSON.stringify(picked));
+        publicHero = heroOf(await paidLedger.effectiveState());
+        assert.equal(publicHero.points - beforeWrite.points, mode === 'skip' ? 0 : 15);
+        assert.equal(publicHero.deck.length - beforeWrite.deck.length, mode === 'skip' ? 0 : 1);
+        if (mode !== 'skip') assert.equal(publicHero.deckEntries.at(-1).upgraded, true);
+    }
+    const beforeMirror = heroOf(await paidLedger.effectiveState());
+    assert.equal((await paidLedger.drawTrait('pc-hero', { traitId: 'added-mirror', name: '人偶镜', kind: 'passive', rarity: 'rare', relic: { relicId: 'rl-s-07', model: 'original' } })).ok, true);
+    const waitingMirror = heroOf(await paidLedger.effectiveState());
+    assert.equal(waitingMirror.deck.length, beforeMirror.deck.length, '待选期间没有加卡');
+    assert.equal((await paidLedger.pickTrait('pc-hero', 'added-mirror', 'added-tr-2')).ok, true);
+    const afterMirror = heroOf(await paidLedger.effectiveState());
+    assert.equal(afterMirror.deck.length, beforeMirror.deck.length + 1);
+    assert.equal(afterMirror.points - waitingMirror.points, 15, '人偶镜走同一加卡入口');
+    assert.equal(publicEnv.tables.ledger.find((entry) => entry.payload.traitId === 'added-mirror').payload.added, true);
+    assert.deepEqual((await paidLedger.effectiveState()).diagnostics, []);
+
+    const { attachLoot, reportIdFor } = await import('../src/combat/report.js');
+    const { cardCopyLimit } = await import('../src/combat/rules.js');
+    for (const mode of ['single', 'fixed', 'random', 'skip', 'cap']) {
+        const lootEnv = setup();
+        await lootEnv.tables.append('ledger', lootEnv.entries);
+        const plan = planCardDraw(await lootEnv.hero());
+        const choices = plan.fixedIds.map((id) => clone(fixedCard(id)));
+        choices.splice(plan.randomAt, 0, fresh(plan.cardId));
+        const pick = mode === 'random' ? plan.randomAt : (plan.randomAt === 0 ? 1 : 0);
+        const card = mode === 'single' ? fresh('added-single') : choices[pick];
+        if (mode === 'cap') {
+            lootEnv.ref.chat[2].mes = Array.from({ length: cardCopyLimit(card.rarity) }, (_, i) => `[igs-combat:learn|主角|${card.name}|上限${i}]`).join('\n');
+            const tags = extractGrowthDirectives(lootEnv.ref.chat[2].mes).directives;
+            await lootEnv.tables.append('ledger', tags.map((tag, i) => {
+                const entry = learnAt(i, card, false);
+                entry.anchor = { messageId: 2, swipeId: 0, tagHash: tag.tagHash, occurrence: tag.occurrence };
+                entry.id = ledgerEntryId('learn', 'pc-hero', entry.anchor);
+                return entry;
+            }));
+            assert.equal((await lootEnv.hero()).owned.get(card.id), cardCopyLimit(card.rarity));
+        }
+        const slot = { index: 0, kind: 'card', rarity: card.rarity, name: card.name, origin: '', card, ...(mode === 'single' ? {} : { choices }) };
+        const slots = [slot, ...[1, 2].map((index) => ({ index, kind: 'keepsake', rarity: 'common', name: `杂物${index}`, origin: '' }))];
+        const combatId = `added-loot-${mode}`;
+        assert.equal((await lootEnv.ledger.append([at('offer', 0, 0, { combatId, tier: 'normal', exp: 10, reveal: 0, slots }, 'offer')])).ok, true);
+        const reportId = reportIdFor(combatId);
+        lootEnv.ref.chat[3] = user(attachLoot(`<igs-combat-report result="win" id="${reportId}">我方获胜。</igs-combat-report>`, {
+            character: '主角', reportId, index: 0, set: 'main', slot, ...(mode === 'single' ? {} : { pick: mode === 'skip' ? 'skip' : pick }),
+        }));
+        const beforeLoot = await lootEnv.hero();
+        const scanned = await lootEnv.ledger.scan();
+        const loots = scanned.entries.filter((entry) => entry.type === 'loot');
+        assert.equal(loots.length, 1, JSON.stringify(scanned.diagnostics));
+        assert.equal(loots[0].payload.added, mode === 'skip' ? undefined : true);
+        await lootEnv.ledger.append(loots);
+        const afterLoot = await lootEnv.hero();
+        const gained = mode === 'skip' || mode === 'cap' ? 0 : 1;
+        assert.equal(afterLoot.deck.length - beforeLoot.deck.length, gained, mode);
+        assert.equal(afterLoot.points - beforeLoot.points, gained * 15, `${mode} 只按真正入组结算`);
+        if (gained) assert.equal(afterLoot.deckEntries.at(-1).upgraded, true, mode);
+    }
+
+    const signature = { id: 'pc-hero-g1', name: '专属斩', type: 'attack', cost: 2, rarity: 'signature', effects: [{ op: 'damage', amount: 14 }] };
+    for (const added of [true, false]) {
+        const sigEnv = setup({ ...heroDef(), signatureCards: [signature] });
+        await sigEnv.tables.append('ledger', sigEnv.entries);
+        const beforeSignature = await sigEnv.hero();
+        sigEnv.ref.chat[3] = win(expFor(5));
+        if (added) {
+            const scanned = await sigEnv.ledger.scan();
+            assert.equal(scanned.ok, true, JSON.stringify(scanned.diagnostics));
+            assert.equal(scanned.entries.find((entry) => entry.type === 'exp').payload.added, true);
+        } else {
+            const tag = extractGrowthDirectives(sigEnv.ref.chat[3].mes, { raw: true, expCap: false }).directives.find((directive) => directive.kind === 'exp');
+            const entry = at('exp', 3, tag.occurrence, { amount: tag.amount, reason: tag.reason }, tag.tagHash);
+            assert.equal((await sigEnv.ledger.append([entry])).ok, true);
+        }
+        const afterSignature = await sigEnv.hero();
+        assert.equal(afterSignature.level, 5);
+        assert.equal(afterSignature.owned.get(signature.id), 1);
+        assert.equal(afterSignature.deck.length - beforeSignature.deck.length, 1);
+        assert.equal(afterSignature.points - beforeSignature.points, added ? 15 : 0, '历史经验记录不追溯加卡收益');
+        assert.equal(afterSignature.deckEntries.find((entry) => entry.cardId === signature.id).upgraded, false);
+        assert.deepEqual((await sigEnv.ledger.effectiveState()).diagnostics, []);
+    }
+});
+
+
 
 
 test('弱敌战（v6 G3d）：敌人全为「远逊」不计场次、不给删卡；槽位数不变、多出普通劣等杂物；经验与胜利积分 1/4、不带遗物加成；劣等杂物卖价 1/4', async () => {

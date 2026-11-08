@@ -843,6 +843,13 @@ function validateRewardSlot(slot, path, state) {
 }
 
 // 账本条目的载荷：按 type 分派。未知 type 返回 undefined。
+function addedFlag(payload, path, state, eligible = true) {
+    if (payload.added === undefined) return {};
+    if (payload.added !== true || !eligible) addIssue(state, joinPath(path, 'added'), 'invalid-value');
+    return { added: payload.added };
+}
+
+
 function validateLedgerPayload(type, payload, path, state) {
     if (!objectField(payload, path, state)) return;
     const at = (key) => joinPath(path, key);
@@ -850,11 +857,11 @@ function validateLedgerPayload(type, payload, path, state) {
         case 'profile':
             return validateProfile(payload, path, state);
         case 'exp':
-            checkKnownFields(payload, ['amount', 'reason'], path, state);
-            return { amount: intField(payload.amount, at('amount'), state, 1, 1e3), reason: textField(payload.reason, at('reason'), state, 80, '') };
+            checkKnownFields(payload, ['amount', 'reason', 'added'], path, state);
+            return { amount: intField(payload.amount, at('amount'), state, 1, 1e3), reason: textField(payload.reason, at('reason'), state, 80, ''), ...addedFlag(payload, path, state) };
         case 'learn':
         case 'upgrade': {
-            checkKnownFields(payload, type === 'learn' ? ['card', 'skill', 'merge'] : ['targetId', 'card', 'skill'], path, state);
+            checkKnownFields(payload, type === 'learn' ? ['card', 'skill', 'merge', 'added'] : ['targetId', 'card', 'skill'], path, state);
             const result = {};
             if (type === 'upgrade') result.targetId = idField(payload.targetId, at('targetId'), state);
             if (payload.card !== undefined && payload.skill !== undefined) addIssue(state, path, 'card-or-skill');
@@ -866,7 +873,7 @@ function validateLedgerPayload(type, payload, path, state) {
                 if (typeof payload.merge !== 'boolean') addIssue(state, at('merge'), 'expected-boolean');
                 else if (payload.merge) result.merge = true;
             }
-            return result;
+            return { ...result, ...(type === 'learn' ? addedFlag(payload, path, state, !!payload.card) : {}) };
         }
         case 'class':
             checkKnownFields(payload, ['classRef'], path, state);
@@ -887,7 +894,7 @@ function validateLedgerPayload(type, payload, path, state) {
             };
         }
         case 'reward': {
-            checkKnownFields(payload, ['level', 'choice'], path, state);
+            checkKnownFields(payload, ['level', 'choice', 'added'], path, state);
             const choice = objectField(payload.choice, at('choice'), state) || {};
             const choiceKind = enumField(choice.kind, at('choice.kind'), state, ['card', 'upgrade', 'skip']);
             const result = { level: intField(payload.level, at('level'), state, 2, COMBAT_RULES.maxLevel), choice: { kind: choiceKind } };
@@ -900,7 +907,7 @@ function validateLedgerPayload(type, payload, path, state) {
             } else if (choiceKind === 'skip') {
                 checkKnownFields(choice, ['kind'], at('choice'), state);
             }
-            return result;
+            return { ...result, ...addedFlag(payload, path, state, choiceKind === 'card') };
         }
         case 'rebuild': {
             checkKnownFields(payload, ['personalPool', 'starterDeck', 'cost'], path, state);
@@ -990,7 +997,7 @@ function validateLedgerPayload(type, payload, path, state) {
             };
         }
         case 'loot':
-            checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost', 'merge', 'pick'], path, state);
+            checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost', 'merge', 'pick', 'added'], path, state);
             if (payload.merge !== undefined && typeof payload.merge !== 'boolean') addIssue(state, at('merge'), 'expected-boolean');
             // 规则 v6：带 choices 的卡牌槽须写 pick（候选序号或 skip）；旧记录不带。
             if (payload.pick !== undefined && payload.pick !== 'skip' && !(Number.isInteger(payload.pick) && payload.pick >= 0 && payload.pick < REWARD_CARD_CHOICES)) addIssue(state, at('pick'), 'invalid-pick');
@@ -1002,6 +1009,7 @@ function validateLedgerPayload(type, payload, path, state) {
                 cost: intField(payload.cost, at('cost'), state, 0, 1e5, 0),
                 ...(payload.merge === true ? { merge: true } : {}),
                 ...(payload.pick !== undefined ? { pick: payload.pick } : {}),
+                ...addedFlag(payload, path, state, payload.slot?.kind === 'card' && payload.pick !== 'skip'),
             };
         case 'sell': {
             checkKnownFields(payload, ['lootId', 'gearId', 'itemId', 'rarity', 'junk', 'count'], path, state);
@@ -1017,7 +1025,7 @@ function validateLedgerPayload(type, payload, path, state) {
             return { lootId: idField(payload.lootId, at('lootId'), state, LEDGER_ID_PATTERN), ...rarity, ...count };
         }
         case 'trait': {
-            checkKnownFields(payload, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'relic', 'pickup', 'cost'], path, state);
+            checkKnownFields(payload, ['traitId', 'name', 'origin', 'rarity', 'kind', 'passive', 'skill', 'link', 'relic', 'pickup', 'added', 'cost'], path, state);
             const traitKind = payload.kind === undefined ? 'passive' : enumField(payload.kind, at('kind'), state, TRAIT_KINDS);
             const result = {
                 traitId: idField(payload.traitId, at('traitId'), state),
@@ -1041,6 +1049,7 @@ function validateLedgerPayload(type, payload, path, state) {
             return {
                 ...result, ...(payload.link === undefined ? {} : { link: enumField(payload.link, at('link'), state, TRAIT_LINKS) }),
                 ...(payload.pickup === undefined ? {} : { pickup: payload.pickup }),
+                ...addedFlag(payload, path, state, payload.pickup === true && relicById(payload.relic?.relicId)?.[payload.relic?.model]?.copy > 0),
                 ...(payload.relic === undefined ? {} : { relic: validateRelicRef(payload.relic, at('relic'), state) }), cost: intField(payload.cost, at('cost'), state, 0, 1e5),
             };
         }
@@ -1064,9 +1073,9 @@ function validateLedgerPayload(type, payload, path, state) {
             return { drawId: idField(payload.drawId, at('drawId'), state), position: intField(payload.position, at('position'), state, 0, REWARD_CARD_CHOICES - 1) };
         }
         case 'card-pick': {
-            checkKnownFields(payload, ['drawId', 'pick'], path, state);
+            checkKnownFields(payload, ['drawId', 'pick', 'added'], path, state);
             const pick = payload.pick === 'skip' ? 'skip' : intField(payload.pick, at('pick'), state, 0, REWARD_CARD_CHOICES - 1);
-            return { drawId: idField(payload.drawId, at('drawId'), state), pick };
+            return { drawId: idField(payload.drawId, at('drawId'), state), pick, ...addedFlag(payload, path, state, pick !== 'skip') };
         }
         case 'card-upgrade':
             checkKnownFields(payload, ['copyId', 'cardId', 'battle', 'reportId'], path, state);

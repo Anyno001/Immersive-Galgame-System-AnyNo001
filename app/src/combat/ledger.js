@@ -35,7 +35,7 @@ import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { isRelicPassive } from './relics/draw.js';
-import { offCombatModel, refsHeld } from './relics/off-combat.js';
+import { heldOffCombat, offCombatModel, refsHeld } from './relics/off-combat.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -427,7 +427,7 @@ function createCharacterState(index, profile, diagnostics) {
         battleGrowth: { cards: new Map(), hpMax: 0 },
         relicHpMax: 0,
         // 规则 v6 G5f-4d：按遗物 ID 记已结算的获得时效果，以及御印待刻项。
-        pickedUp: new Set(), relicInscribe: [],
+        pickedUp: new Set(), relicInscribe: [], cardAddedCounts: new Map(),
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
     const classProfile = resolveClass(index, profile.classRef);
@@ -442,11 +442,31 @@ function createCharacterState(index, profile, diagnostics) {
 }
 
 // 获得一张牌：新建一张副本（source 为获得记录的 ID，作副本 ID 前缀）并直接放进卡组（规则 v6：卡组即持有，不设张数上限）。
-function addCard(state, cardId, source) {
+function addCard(state, cardId, source, added = false, marks = {}) {
     const copyId = mintCopy(state, cardId, source);
-    syncOwned(state);
+    const copy = state.copies.get(copyId);
+    Object.assign(copy, marks);
     state.deck.push(cardId);
     state.deckCopies.push(copyId);
+    if (added) {
+        const card = state.catalog.get(cardId);
+        for (const ref of heldOffCombat(state.traits, 'card-added')) {
+            const model = offCombatModel(ref);
+            if (model.upgrade === card?.type && upgradableCard(card)) copy.upgraded = true;
+            state.points += model.points || 0;
+            if (model.every > 0) {
+                const count = (state.cardAddedCounts.get(ref.relicId) || 0) + 1;
+                state.cardAddedCounts.set(ref.relicId, count);
+                if (count % model.every === 0 && state.wound && model.heal > 0) {
+                    const wound = state.wound;
+                    const hp = Math.min(wound.maxHp, wound.hp + model.heal);
+                    state.wound = hp >= wound.maxHp ? null : { hp, maxHp: wound.maxHp, down: false };
+                }
+            }
+        }
+    }
+    syncOwned(state);
+    return copyId;
 }
 
 // 规则 v6 G5f-4d 获得时遗物效果：特性真正装上（直接装上、待选换入、解锁槽位放出待选）时由重放结算，随机结果以装上记录的 ID 作种子；
@@ -513,13 +533,9 @@ function settlePickup(state, trait, source) {
         });
         for (const copyId of seededPick(open, model.copy, seed('copy'))) {
             const row = rows.get(copyId);
-            const twinId = mintCopy(state, row.cardId, `${source || 'trait'}.mirror`);
-            const twin = state.copies.get(twinId);
-            twin.upgraded = row.upgraded === true;
-            twin.inscription = row.inscription || null;
-            twin.localGrowth = true;
-            state.deck.push(row.cardId);
-            state.deckCopies.push(twinId);
+            addCard(state, row.cardId, `${source || 'trait'}.mirror`, trait.added === true, {
+                upgraded: row.upgraded === true, inscription: row.inscription || null, localGrowth: true,
+            });
         }
         syncOwned(state);
     }
@@ -527,7 +543,7 @@ function settlePickup(state, trait, source) {
 
 // 专属卡按等级解锁（v0.39.2）：EXP 记录让卡组角色跨过某槽位的解锁等级时，档案里登记的那张计入拥有（剧情 learn 已提前解锁的不重复计）；
 // 档案还没有该槽位的卡时记下跨级的锚点（signatureDue），由成长补扫交副 LLM 生成。EXP 记录失效、等级退回时不再跨级，卡随之锁上。
-function unlockSignatures(state, levelBefore, anchor) {
+function unlockSignatures(state, levelBefore, anchor, added = false) {
     if (state.kind !== 'deck-character') return;
     const level = expProgress(state.exp).level;
     COMBAT_RULES.signatureUnlockLevels.forEach((need, index) => {
@@ -543,7 +559,7 @@ function unlockSignatures(state, levelBefore, anchor) {
         if (!/-g\d+$/.test(String(card.id || ''))) return;
         if ((state.owned.get(card.id) || 0) > 0) return;
         if (!state.catalog.has(card.id)) state.catalog.set(card.id, card);
-        addCard(state, card.id, `sig.${anchor.messageId}.${anchor.swipeId}.${slot}`);
+        addCard(state, card.id, `sig.${anchor.messageId}.${anchor.swipeId}.${slot}`, added);
     });
 }
 
@@ -568,14 +584,14 @@ function applyLootSlot(state, slot, entry, heroStockOwner = false) {
         if (pick === 'skip') return null;
         const card = slot.choices[pick];
         if (!card) return 'combat-loot-pick-invalid';
-        if (!isFixedCardId(card.id)) return handlers.learn(state, { card, merge: true }, { entry });
+        if (!isFixedCardId(card.id)) return handlers.learn(state, { card, merge: true, added: entry.payload.added }, { entry });
         // 奖励单出单后才达到同名上限（如剧情另得一张）时不再给。
         if ((state.owned.get(card.id) || 0) >= cardCopyLimit(card.rarity)) return 'combat-loot-copy-limit';
         if (!state.catalog.has(card.id)) state.catalog.set(card.id, fixedCard(card.id));
-        addCard(state, card.id, entry.id);
+        addCard(state, card.id, entry.id, entry.payload.added === true);
         return null;
     }
-    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}) }, { entry });
+    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}), added: entry?.payload?.added }, { entry });
     // 规则 v5 P5b 刻印槽：刻在奖励单定下的那张副本上（副本已不在或已刻时记诊断）。
     if (slot.kind === 'inscribe') return handlers.inscribe(state, { cardId: slot.cardId, copyId: slot.copyId, inscription: slot.inscription });
     if (heroStockOwner) {
@@ -626,13 +642,13 @@ const handlers = Object.freeze({
         if (payload.merge === true && payload.card.rarity !== 'signature') {
             const same = sameModelCard(state, payload.card);
             if (same) {
-                addCard(state, same, context.entry?.id || 'learn');
+                addCard(state, same, context.entry?.id || 'learn', payload.added === true);
                 return null;
             }
         }
         if (state.catalog.has(payload.card.id)) return 'combat-card-id-collision';
         state.catalog.set(payload.card.id, payload.card);
-        addCard(state, payload.card.id, context.entry?.id || 'learn');
+        addCard(state, payload.card.id, context.entry?.id || 'learn', payload.added === true);
         return null;
     },
     upgrade(state, payload) {
@@ -809,7 +825,7 @@ const handlers = Object.freeze({
         if (choice.kind === 'card') {
             if (!state.catalog.has(choice.cardId)) return 'combat-reward-card-unknown';
             if (state.catalog.get(choice.cardId).rarity === 'signature') return 'combat-reward-signature';
-            addCard(state, choice.cardId, context.entry?.id || 'reward');
+            addCard(state, choice.cardId, context.entry?.id || 'reward', payload.added === true);
         } else if (choice.kind === 'upgrade') {
             if (state.catalog.get(choice.targetId)?.rarity === 'signature') return 'combat-reward-signature';
             const ownedCount = state.owned.get(choice.targetId) || 0;
@@ -1115,9 +1131,9 @@ const handlers = Object.freeze({
             if (isFixedCardId(card.id)) {
                 if ((state.owned.get(card.id) || 0) >= cardCopyLimit(card.rarity)) return 'combat-card-pick-copy-limit';
                 if (!state.catalog.has(card.id)) state.catalog.set(card.id, fixedCard(card.id));
-                addCard(state, card.id, context.entry?.id || 'card-pick');
+                addCard(state, card.id, context.entry?.id || 'card-pick', payload.added === true);
             } else {
-                const failure = handlers.learn(state, { card, merge: true }, context);
+                const failure = handlers.learn(state, { card, merge: true, added: payload.added }, context);
                 if (failure) return failure;
             }
         }
@@ -1545,7 +1561,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         const failure = handlers[entry.type](state, entry.payload, { index, entry, diagnostics, offers, loots, heroId, heroStock, floorReport });
         if (failure) { pushDiagnostic(diagnostics, failure, entry); continue; }
         applied.push(entry.id);
-        if (entry.type === 'exp') unlockSignatures(state, levelBefore, entry.anchor);
+        if (entry.type === 'exp') unlockSignatures(state, levelBefore, entry.anchor, entry.payload.added === true);
         if (GROWTH_TYPES.has(entry.type)) growth.push(growthRecord(entry, state, levelBefore, index, heroId));
         if (entry.type === 'wound') {
             // 同一楼的受伤记录归到同一份「上一场队伍」
@@ -1659,6 +1675,7 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
         cost: directive.set === 'reserve' ? REROLL_COST : 0,
         ...(slot.kind === 'card' ? { merge: true } : {}),
         ...(choices ? { pick: directive.pick } : {}),
+        ...(COMBAT_RULES.version >= 6 && slot.kind === 'card' && directive.pick !== 'skip' ? { added: true } : {}),
     };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId('loot', key, anchor), type: 'loot', character: key, anchor, payload, createdAt: now });
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
@@ -1812,7 +1829,7 @@ export function scanGrowthTags(snapshot, chat, options = {}) {
                 if (report?.result === 'lose') { diagnostics.push({ code: 'combat-defeat-no-exp', messageId, character: directive.character }); continue; }
                 if (alreadyWritten(['exp'], directive.character, anchor)) continue;
                 const key = characterKeyFor(index, directive.character, userName);
-                entries.push({ id: ledgerEntryId('exp', key, anchor), type: 'exp', character: key, anchor, payload: { amount: directive.amount, reason: directive.reason }, createdAt: now });
+                entries.push({ id: ledgerEntryId('exp', key, anchor), type: 'exp', character: key, anchor, payload: { amount: directive.amount, reason: directive.reason, ...(COMBAT_RULES.version >= 6 ? { added: true } : {}) }, createdAt: now });
             } else if (directive.kind === 'unequip') {
                 if (alreadyWritten(['unequip'], directive.character, anchor)) continue;
                 const key = characterKeyFor(index, directive.character, userName);
@@ -1956,7 +1973,7 @@ export function buildRewardEntry(snapshot, chat, character, level, choice, now =
     const anchor = hasTierChange(snapshot, character, last, swipeId)
         ? { messageId: last, swipeId, tagHash: PANEL_TAG_HASH, occurrence: countPanelEntries(snapshot, character, last, swipeId) }
         : { messageId: last, swipeId, tagHash: REWARD_TAG_HASH, occurrence: rewards.filter((entry) => entry.anchor.messageId === last && entry.anchor.swipeId === swipeId).length };
-    const normalized = normalizeLedgerEntry({ id: ledgerEntryId('reward', character, anchor), type: 'reward', character, anchor, payload: { level, choice: { ...choice } }, createdAt: now });
+    const normalized = normalizeLedgerEntry({ id: ledgerEntryId('reward', character, anchor), type: 'reward', character, anchor, payload: { level, choice: { ...choice }, ...(COMBAT_RULES.version >= 6 && choice.kind === 'card' ? { added: true } : {}) }, createdAt: now });
     return normalized.ok ? { ok: true, entry: normalized.value } : invalidEntry(normalized);
 }
 
@@ -2772,6 +2789,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}),
             ...(COMBAT_RULES.version >= 6 && offCombatModel(relic)?.kind === 'pickup' ? { pickup: true } : {}),
             ...(relic ? { relic: { relicId: relic.relicId, model: relic.model } } : {}), cost: TRAIT_DRAW_COST,
+            ...(COMBAT_RULES.version >= 6 && offCombatModel(relic)?.copy > 0 ? { added: true } : {}),
         });
     }
     const pickTrait = (characterId, traitId, drop) => heroPanelAction(characterId, 'trait-pick', { traitId, drop });
@@ -2783,7 +2801,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
     const drawCard = (characterId, { drawId, choices } = {}) => heroPanelAction(characterId, 'card-draw', { drawId, choices, cost: CARD_DRAW_COST });
     const flipCard = (characterId, drawId, position) => heroPanelAction(characterId, 'card-flip', { drawId, position });
-    const pickCard = (characterId, drawId, pick) => heroPanelAction(characterId, 'card-pick', { drawId, pick });
+    const pickCard = (characterId, drawId, pick) => heroPanelAction(characterId, 'card-pick', { drawId, pick, ...(COMBAT_RULES.version >= 6 && pick !== 'skip' ? { added: true } : {}) });
 
     return {
         read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,

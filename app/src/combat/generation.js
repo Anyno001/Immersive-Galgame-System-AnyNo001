@@ -434,7 +434,7 @@ export function growthEntity(growth, character, { classes, now = 0, profileMeta 
     if (signature) {
         const owned = (character.owned?.get(signature.id) || 0) > 0;
         const type = owned ? 'upgrade' : 'learn';
-        const payload = owned ? { targetId: signature.id, card: signature } : { card: signature };
+        const payload = owned ? { targetId: signature.id, card: signature } : { card: signature, ...(COMBAT_RULES.version >= 6 ? { added: true } : {}) };
         return { entry: { id: ledgerEntryId(type, character.id, anchor), type, character: character.id, anchor, payload, createdAt: now } };
     }
     // 精进时让模型从已有卡/技能里选目标（专属卡不可选）
@@ -675,7 +675,8 @@ function settleGrowth(entity, value, state) {
         return { ok: false, errors: [errorItem('skill.effects', 'damage-cap', { cap: COMBAT_RULES.allySkillDamageCap })] };
     }
     // 规则 v5 P5a：剧情学到的卡牌带同模型并卡标记，与已持有的牌模型一致时归为那张牌的一张副本。
-    const payload = mode === 'upgrade' ? { targetId: id, [output]: normalized.value } : { [output]: normalized.value, ...(output === 'card' ? { merge: true } : {}) };
+    const payload = mode === 'upgrade' ? { targetId: id, [output]: normalized.value }
+        : { [output]: normalized.value, ...(output === 'card' ? { merge: true, ...(COMBAT_RULES.version >= 6 ? { added: true } : {}) } : {}) };
     return { ok: true, result: { entry: ledgerEntry(entity, mode, payload, state.now) }, diagnostics };
 }
 
