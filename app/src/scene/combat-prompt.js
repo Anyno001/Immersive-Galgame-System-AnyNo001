@@ -65,12 +65,16 @@ export function combatGainInCombatBlock(settings) {
     return combatExpansionEnabled(settings) && !itemFxPromptEnabled(settings);
 }
 
+// 台词行：旧默认文本留在 LEGACY_COMBAT_LINES_LINES，让已存成自定义的旧默认仍被识别为默认。
+const COMBAT_LINES_LINE = '- [igs-combat:lines|角色|开场|出招|受击|倒下]：每个有名有姓的参战角色各写一条（敌我都算，本场首次登场的具名敌人也写），写在战斗块内、awaken 行与开战标签之前；一场最多6条；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击写短促的语气词（如 唔！/呃……/啧）；无名杂兵不写';
+const LEGACY_COMBAT_LINES_LINES = Object.freeze(['- [igs-combat:lines|角色|开场|出招|受击|倒下]：只给有名有姓、已登记的参战角色写（敌我都可），写在战斗块内、awaken 行与开战标签之前；每个角色一条，一场最多6条；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击写短促的语气词（如 唔！/呃……/啧）；无名杂兵不写']);
+
 // 完整的战斗规则段；includeGain 为真时附带物品获得行。
 function buildRuleText(includeGain = false) {
     return `【战斗】战斗由数值系统的卡牌系统结算，正文只负责引出遭遇和记录成长，标签写作 [igs-combat:类型|参数]：
 - [igs-combat:start|遭遇名|敌方|友方|等级]：剧情真正进入交战的那一刻，在本层正文末尾单独写一个战斗块：第一行 <igs-combat>，中间依次是 lines 行、awaken 行（都没有就不写）和开战标签，最后一行 </igs-combat>；块写完立即结束本层，不再写任何正文；本层要写的其他标签（rel、stat 等）都写在战斗块之前；敌方写 名称 或 名称*数量，逗号分隔，合计最多50个（场上同时最多5个，其余在场外依次补上）；友方写同行参战的角色名，逗号分隔，最多3人，主角不用写；等级只写 普通/精英/首领，可省略；每层最多一个
 - [igs-combat:awaken|角色|类型|台词]：只在重大情绪节点写（同伴在眼前倒下、立誓守护、绝境不退、宿敌当前等），平常战斗不写；写在战斗块内、紧挨开战标签的上一行；角色写主角（「我」或主角名）；类型只写 怒火/守护/悲恸/决意/羁绊/极限/复仇/不屈 之一；台词是此刻喊出的一句话，不超过30字；每场最多一个
-- [igs-combat:lines|角色|开场|出招|受击|倒下]：只给有名有姓、已登记的参战角色写（敌我都可），写在战斗块内、awaken 行与开战标签之前；每个角色一条，一场最多6条；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击写短促的语气词（如 唔！/呃……/啧）；无名杂兵不写
+${COMBAT_LINES_LINE}
 - [igs-combat:exp|角色|数值|原因]：剧情中获得历练时写，每层每个角色合计不超过50
 - [igs-combat:learn|角色|技能名|简述|稀有度]：剧情中习得新技能；稀有度只写 普通/罕见/稀有/史诗/神话 之一，按这门技能在剧情中的分量写，可省略
 - [igs-combat:upgrade|角色|技能名|简述]：已有技能得到精进
@@ -120,16 +124,25 @@ export function defaultCombatRuleText(settings) {
 }
 export function isDefaultCombatRuleText(text) {
     const value = String(text ?? '').trim();
-    return value === buildRuleText(false).trim() || value === buildRuleText(true).trim();
+    const current = [buildRuleText(false).trim(), buildRuleText(true).trim()];
+    if (current.includes(value)) return true;
+    return LEGACY_COMBAT_LINES_LINES.some((legacy) => current.some((text) => value === text.replace(COMBAT_LINES_LINE, legacy)));
 }
 
 export function combatFrequencyOf(settings) {
     const value = asObject(asObject(settings).combatExpansion).frequency;
     return COMBAT_FREQUENCIES.includes(value) ? value : 'normal';
 }
+// 好战名单（主角或在场角色挂有「战斗狂」）：由调用方按数值系统算好，经 settings.combatEager.names 传入；没有则为空。
+export function combatEagerNamesOf(settings) {
+    const names = asObject(asObject(settings).combatEager).names;
+    return Array.isArray(names) ? [...new Set(names.map((name) => String(name ?? '').trim()).filter(Boolean))] : [];
+}
+// 开战冷却楼数：好战者在场时减半（向上取整，至少 1）。
 export function combatCooldownFloorsOf(settings) {
     const value = Math.floor(Number(asObject(asObject(settings).combatExpansion).cooldownFloors));
-    return Number.isFinite(value) && value > 0 ? value : 0;
+    if (!(Number.isFinite(value) && value > 0)) return 0;
+    return combatEagerNamesOf(settings).length ? Math.max(1, Math.ceil(value / 2)) : value;
 }
 
 // 从聊天末尾往前最多扫 window 层，找最近一层含开战标签的非用户楼；返回它与下一层的楼数距离，window 内没有返回 null。
@@ -157,7 +170,9 @@ export function applyCombatRuleModifiers(text, settings) {
         return `${COOLDOWN_TAG_MENTION.test(stripped) ? source : stripped}\n距离上一场战斗不足${cooldown}楼，本层不安排开战。`;
     }
     const bothOpen = combatKindOf(settings) === 'both' && asObject(settings).challengeOpen === true;
-    return [source, FREQUENCY_LINES[combatFrequencyOf(settings)], bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
+    const eager = combatEagerNamesOf(settings);
+    const frequency = eager.length ? `战斗频率：${eager.join('、')}好战，会主动挑起或卷入冲突，可以把主角卷进来；剧情中出现敌意、挑衅、拦路、切磋或危险时，积极安排交战。` : FREQUENCY_LINES[combatFrequencyOf(settings)];
+    return [source, frequency, bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
 }
 
 // 战斗规则段正文；战斗未开启返回空串。
@@ -179,7 +194,7 @@ export function resolveCombatPromptRule(settings) {
     ].join('\n');
 }
 
-const NARRATION_HEAD = '【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗。技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌、稀有度或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写任何 [igs-combat:…] 标签（开战、觉醒、exp、learn、upgrade、class、rel、stat、heal 等一律不写）。这场战斗的历练与收获已由战报结算，战后的伤势会带到之后的剧情，续写只负责叙述。战报里有「战利品：」一行时，在结尾把这件收获自然写进剧情：新招式写领悟、装备写得到或缴获、道具写拾得、零碎小物写随手拾得。';
+const NARRATION_HEAD = '【战斗续写】上一条用户消息中的 <igs-combat-report> 是刚刚结束的战斗记录。按其中的回合进程，用小说笔法完整写出这场战斗。技能名可以作为招式名出现；不得出现卡牌、手牌、费用、能量、抽牌、稀有度或具体的血量数值；不得改变胜负与击倒的先后顺序；本层不写任何 [igs-combat:…] 标签（开战、觉醒、exp、learn、upgrade、class、rel、stat、heal 等一律不写）。这场战斗的历练与收获已由战报结算，战后的伤势会带到之后的剧情，续写只负责叙述。战斗伤势已由战报结算，本层不写 [igs-stat:hurt]。战报里有「战利品：」一行时，在结尾把这件收获自然写进剧情：新招式写领悟、装备写得到或缴获、道具写拾得、零碎小物写随手拾得。';
 const NARRATION_BY_RESULT = Object.freeze({
     win: '结局是胜利：写到最后一个敌人倒下，结尾自然过渡到战后。',
     lose: '结局是战败：主角一方力竭倒下。按战报写出战败的经过，再按剧情写出战败带来的后果（被俘、被救、负伤撤离等），不要扭转为胜利。',

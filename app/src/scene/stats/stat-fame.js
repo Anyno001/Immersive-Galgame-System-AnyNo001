@@ -3,7 +3,7 @@
 // 「组合热度」性质（CP 粉）按搭档分别记热度。只对 strengthRev ≥ 2 的楼生效；没开声望的聊天不注入、不结算。
 import { clamp } from './stat-state.js';
 
-export const FAME_BAR_MAX = 3;
+export const FAME_BAR_MAX = 10;
 export const FAME_PAIR_MAX = 8;
 export const FAME_NAME_MAX = 8;
 export const FAME_STRENGTHS = Object.freeze(['小', '中', '大']);
@@ -64,7 +64,7 @@ export function validFameName(raw) {
     return text && Array.from(text).length <= FAME_NAME_MAX && !/[0-9０-９|｜:：\[\]【】{}<>]/.test(text) ? text : null;
 }
 
-// 聊天级配置：[{ name, kind }]，最多 3 条，条名不重复，性质不在表里的丢弃。
+// 聊天级配置：[{ name, kind }]，最多 FAME_BAR_MAX 条，条名不重复，性质不在表里的丢弃。
 export function sanitizeFameBars(raw) {
     const out = [];
     for (const item of Array.isArray(raw) ? raw : []) {

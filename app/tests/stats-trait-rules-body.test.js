@@ -43,7 +43,7 @@ test('强健：体力消耗 ×0.5', () => {
     assert.equal(stamina(r), 85);
 });
 
-test('魅魔体质：亲密时回复体力而非消耗', () => {
+test('天生媚骨（内部 id 魅魔体质）：亲密时回复体力而非消耗', () => {
     const r = tags(base({ stamina: 90 }), hero('魅魔体质'), { seed: [spend(100, 90, '亲密')] });
     assert.equal(stamina(r), 100);
 });

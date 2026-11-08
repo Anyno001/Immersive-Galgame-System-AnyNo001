@@ -249,6 +249,7 @@ export function createCombatServices(options = {}) {
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,
+                onReportSettled: () => { Promise.resolve(refreshGrowth()).catch(() => null); },
                 challenge: {
                     state: () => (typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null),
                     allowEscape: () => settings().daily.allowEscape,

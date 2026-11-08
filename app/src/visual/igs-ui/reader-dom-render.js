@@ -1249,6 +1249,19 @@ export function applyStatusHudToDom(root, snapshot) {
             row.appendChild(label);
             row.appendChild(track);
             row.appendChild(value);
+            // 心意槽：好感条旁五个小点，亮几个就是槽里几格。
+            if (Number.isFinite(Number(metric.heart))) {
+                const dots = doc.createElement('span');
+                dots.className = 'igs-hud-heart';
+                dots.setAttribute('role', 'img');
+                dots.setAttribute('aria-label', `心意槽 ${metric.heart} / 5`);
+                for (let i = 0; i < 5; i += 1) {
+                    const dot = doc.createElement('i');
+                    dot.className = i < Number(metric.heart) ? 'igs-hud-heart-dot is-on' : 'igs-hud-heart-dot';
+                    dots.appendChild(dot);
+                }
+                value.appendChild(dots);
+            }
             metrics.appendChild(row);
         }
     };

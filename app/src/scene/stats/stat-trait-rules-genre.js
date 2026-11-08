@@ -109,6 +109,7 @@ function staminaScale(state, api) {
     for (const name of namesOf(state)) {
         let factor = 1;
         if (api.has(state, name, '兽人')) factor *= 0.75;
+        if (api.has(state, name, '龙系')) factor *= 0.75;
         if (api.has(state, name, '哨兵')) factor *= 0.5;
         const servant = api.has(state, name, '式神') || api.has(state, name, '使魔');
         if (servant && withIds(state, api, ['契约者']).some((m) => m !== name && present(api, m))) factor *= 0.5;

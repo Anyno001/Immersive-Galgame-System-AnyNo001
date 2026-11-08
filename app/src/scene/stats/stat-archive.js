@@ -146,7 +146,7 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
             const key = String(c.key ?? '');
             const target = String(c.target ?? '');
             const hero = heroOf(target);
-            rows.push({ messageId, target: hero ? heroLabel : target, hero, key: BAR_LABEL[key] || key, from: c.from, to: c.to, note: String(c.note ?? '') });
+            rows.push({ messageId, target: hero ? heroLabel : target, hero, key: BAR_LABEL[key] || key, from: c.from, to: c.to, note: String(c.note ?? ''), ...(Array.isArray(c.calc) ? { calc: c.calc } : {}), ...(c.capped ? { capped: c.capped } : {}), ...(c.dropped ? { dropped: c.dropped } : {}), ...(Array.isArray(c.traitTags) ? { traitTags: c.traitTags } : {}) });
         }
         const ck = entry && entry.meta && entry.meta.check;
         if (ck) checks.push({ messageId, skill: ck.skill, difficulty: ck.difficulty || '普通', detail: ck.detail || (ck.die === 20 ? `d20(${ck.roll})` : `1d100=${ck.roll}`), outcome: ck.outcome || ck.tier, ruleset: ck.ruleset || 'coc7', source: ck.source || '' });

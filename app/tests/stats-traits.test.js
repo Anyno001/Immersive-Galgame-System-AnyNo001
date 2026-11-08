@@ -45,8 +45,8 @@ test('登记表：所有表项齐全，名字与键唯一，互斥对称，说�
 test('互斥：动物系每人最多一个；后挂的顶掉先挂的并给出替换通知', () => {
     let r = applyTraitChange(null, { traits: {} }, '林夏', getTraitByName('犬系').id, true, 'manual');
     r = applyTraitChange(null, r.catalog, '林夏', getTraitByName('猫系').id, true, 'manual');
-    assert.deepEqual(r.notices, [{ type: 'replace', charName: '林夏', id: '猫系', replacedId: '犬系' }]);
-    assert.deepEqual(listTraits(r.catalog, '林夏').map((t) => t.id), ['猫系']);
+    assert.deepEqual(r.notices, [{ type: 'replace', charName: '林夏', id: '猫系', replacedId: '犬系' }, { type: 'gain', charName: '林夏', id: '傲娇' }]);
+    assert.deepEqual(listTraits(r.catalog, '林夏').map((t) => t.id), ['猫系', '傲娇']);
     const w = applyTraitChange(null, { traits: {} }, '林夏', 'fragile', true, 'manual');
     const t = applyTraitChange(null, w.catalog, '林夏', getTraitByName('坚韧').id, true, 'story');
     assert.equal(t.notices[0].type, 'replace');

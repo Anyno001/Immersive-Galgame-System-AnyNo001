@@ -270,7 +270,7 @@ export function getLogFrameStyleText() {
 // 系统/任务与古代纸面共用物品小弹窗的框元素；只借视觉，不借物品点击/背包状态机。
 // 保留原卡片的尺寸、竖排、卷轴、印章、寿命与减少动态效果分支。
 const PANEL_SURFACES = [
-    '.igs-bt-panel-wrap .igs-panel', '.igs-bt-count .igs-bt-count-card', '.igs-pl-q .igs-pl-q-paper', '.igs-fx-result',
+    '.igs-bt-panel-wrap .igs-panel', '.igs-bt-count .igs-bt-count-card', '.igs-pl-q .igs-pl-q-paper', '.igs-fx-result', '.igs-fx-keyevent',
 ];
 
 export function getDialogThemePanelFrameStyleText(skin) {
@@ -296,6 +296,9 @@ export function getDialogThemePanelFrameStyleText(skin) {
         `${select(['.igs-bt-count-card.is-up .igs-bt-count-delta'])}{color:color-mix(in srgb,${f.ink} 65%,#23984e);}`,
         `${select(['.igs-bt-count-card.is-down .igs-bt-count-delta'])}{color:color-mix(in srgb,${f.ink} 65%,#d23838);}`,
         `${select(['.igs-fx-result .igs-fx-result-verdict'])}{color:${f.ink};}`,
+        // 关系突破卡片：标题用皮肤墨色，副标题用皮肤强调色。
+        `${select(['.igs-fx-keyevent .igs-fx-keyevent-title'])}{color:${f.ink};}`,
+        `${select(['.igs-fx-keyevent .igs-fx-keyevent-sub'])}{color:${f.mention};}`,
         `${select(['.igs-bt-panel .igs-panel-row.is-good .igs-panel-v', '.igs-fx-result.is-success .igs-fx-result-verdict'])}{color:color-mix(in srgb,${f.ink} 65%,#23984e);}`,
         `${select(['.igs-bt-panel .igs-panel-row.is-bad .igs-panel-v', '.igs-fx-result.is-fail .igs-fx-result-verdict', '.igs-fx-result.is-fumble .igs-fx-result-verdict'])}{color:color-mix(in srgb,${f.ink} 65%,#d23838);}`,
         getAncientPanelFrameStyleText(roots, f),

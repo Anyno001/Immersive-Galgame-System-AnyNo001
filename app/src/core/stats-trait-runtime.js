@@ -121,6 +121,8 @@ export function createTraitCodexStore(getStorage, write) {
                 return { ok: true };
             } catch (error) { return { ok: false, reason: 'trait-codex-write-failed' }; }
         },
+        // 配置文件写回本机后丢掉内存副本，下次 get 重新读。
+        reset() { cache = null; },
     };
 }
 

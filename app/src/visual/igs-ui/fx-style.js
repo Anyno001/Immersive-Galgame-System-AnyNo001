@@ -245,6 +245,13 @@ ${ANCIENT_PANEL_TEXTURE_STYLE_TEXT}
 .igs-fx-favor.is-burst{display:flex;align-items:center;gap:6px;}
 .igs-fx-favor-heart{font-size:22px;line-height:1;color:#ff8cb4;}
 .igs-fx-favor-note{font-size:11px;opacity:.85;}
+.igs-fx-favor.is-heart{padding:2px 10px;font-size:12px;}
+.igs-fx-favor.is-gate{padding:2px 10px;font-size:12px;}
+.igs-fx-favor.is-full{padding:2px 10px;font-size:12px;color:#c9c9d0;background:#2c2c34;border-color:#6b6b76;}
+.igs-fx-favor-trait{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;font-size:10px;line-height:16px;color:#1d1d24;background:#f4d6e2;}
+.igs-fx-keyevent{position:absolute;left:50%;top:30%;transform:translateX(-50%);min-width:min(60%,260px);padding:14px 22px;border-radius:14px;text-align:center;color:#fff;background:#25252d;border:1px solid #ff8cb4;box-shadow:0 8px 26px rgba(0,0,0,.4);animation:igs-fx-fade var(--igs-fx-life,3.4s) ease both;}
+.igs-fx-keyevent-title{font-size:16px;font-weight:700;letter-spacing:.08em;}
+.igs-fx-keyevent-sub{margin-top:4px;font-size:12px;color:#ffb8d0;}
 .igs-fx-notify{position:absolute;top:12px;left:50%;width:min(86%,360px);padding:10px 14px;border-radius:14px;color:#1d1d24;background:rgba(250,250,252,.94);box-shadow:0 6px 22px rgba(0,0,0,.28);animation:igs-fx-drop var(--igs-fx-life,3.3s) ease both;}
 .igs-fx-notify-sender{font-size:12px;font-weight:700;opacity:.7;margin-bottom:2px;}
 .igs-fx-notify-text{font-size:14px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

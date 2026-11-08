@@ -5,6 +5,7 @@ import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import * as registry from './stat-registry.js';
 import { sanitizeFameBars } from './stat-fame.js';
+import { sanitizeCycles, sanitizeStatuses } from './stat-status.js';
 import { LEGACY_TRAIT_KEYS, mergeLegacyForced, sanitizeAptitude, sanitizeTraits } from './stat-traits.js';
 
 const { validSkillName, canonicalSkillName, mergeLegacyValue } = registry;
@@ -86,13 +87,14 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {} };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
 export const APTITUDE_LEVELS = Object.freeze(['出众', '天纵']);
 export const TRAIT_KEYS = LEGACY_TRAIT_KEYS;
 const NOTE_MAX = 40;
+export const TRAIT_NOTE_MAX = 200;
 
 export function sanitizeCatalog(raw) {
     const out = emptyCatalog();
@@ -142,6 +144,11 @@ export function sanitizeCatalog(raw) {
         const text = typeof v === 'string' ? v.trim().slice(0, NOTE_MAX) : '';
         if (k && k.length <= 20 && text) out.heroNotes[k] = text;
     }
+    // 特质「评定注意」：{ 名: 最多 200 字 }，只用于特质评定，空串不存。
+    for (const [k, v] of Object.entries(plainObject(raw.traitNotes) ? raw.traitNotes : {}).slice(0, SHEET_MAX)) {
+        const text = typeof v === 'string' ? v.trim().slice(0, TRAIT_NOTE_MAX) : '';
+        if (k && k.length <= 20 && text) out.traitNotes[k] = text;
+    }
     // 主角的声望条：[{ name, kind }]，最多 3 条，聊天级设置，不随楼层快照。
     out.fameBars = sanitizeFameBars(raw.fameBars);
     out.romanceSeen = [...new Set((Array.isArray(raw.romanceSeen) ? raw.romanceSeen : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
@@ -151,6 +158,9 @@ export function sanitizeCatalog(raw) {
     out.notified = (Array.isArray(raw.notified) ? raw.notified : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, SHEET_MAX * 2);
     // 已做过初始特质评定的角色（含主角），每人只评一次。
     out.traitInit = [...new Set((Array.isArray(raw.traitInit) ? raw.traitInit : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX * 2);
+    // 状态与周期（B 批，结构见 stat-status-defs.js）：旧档没有字段时为 {}。
+    out.statuses = sanitizeStatuses(raw.statuses);
+    out.cycles = sanitizeCycles(raw.cycles);
     return out;
 }
 

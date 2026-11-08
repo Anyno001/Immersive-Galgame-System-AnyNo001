@@ -102,6 +102,7 @@ export const DICE = [
     ['黑客', '技术', 1],
     // 睚眦必报：对抗结怨对象。NPC 读自己档案上的结怨 / 宿仇；主角由调用方在 ctx.hates 说明对手是否结怨对象。
     ['睚眦必报', '对抗', 1, (c, ctx) => hatesCharacter(c) || Boolean(ctx && ctx.hates === true)],
+    ['逆鳞', '对抗', 1, (c, ctx) => hatesCharacter(c) || Boolean(ctx && ctx.hates === true)],
 ];
 
 // ---- 钩子内部工具 ----
@@ -170,6 +171,10 @@ function crimeHook(state, api) {
                 next = api.bump(next, n, '芥蒂', GRUDGE_UP_SMALL, '骗子');
             }
         }
+        // 鹰系：主角说谎被揭穿那一楼，其芥蒂上升加倍（本楼标签已给的量再补一份，没有就补一小档）。
+        if (ev.type === '谎言揭穿' && who === '主角') {
+            for (const n of Object.keys(next.characters)) if (holds(n, '鹰系')) next = api.bump(next, n, '芥蒂', Math.max(GRUDGE_UP_SMALL, sumTag(ctx, n, '芥蒂', 1)), '鹰系');
+        }
         // 黑客：被追查那一楼压力小升。
         if (ev.type === '被追查' && holds(who, '黑客')) next = bumpStress(next, who, STRESS_SMALL, '黑客', changes);
     }
@@ -187,6 +192,14 @@ function crimeHook(state, api) {
     if (work && work.income && holds('主角', '黑帮')) {
         const at = MONEY_ORDER.indexOf(work.income);
         if (at >= 0) next = bumpMoney(next, '主角', MONEY_TABLE[MONEY_ORDER[Math.min(at + 1, 3)]] - MONEY_TABLE[work.income], '黑帮', changes);
+    }
+    // 逆鳞：亲近者（主角）受伤那一楼，在场的其芥蒂上升一大档、压力小升。
+    if (api.heroHurt(directives)) {
+        for (const n of Object.keys(next.characters)) {
+            if (!api.here.has(n) || !holds(n, '逆鳞')) continue;
+            next = api.bump(next, n, '芥蒂', GRUDGE_UP_BIG, '逆鳞');
+            next = bumpStress(next, n, STRESS_SMALL, '逆鳞', changes);
+        }
     }
     next = accompliceHook(next, api, events);
     next = captiveHook(next, api, events);

@@ -27,6 +27,7 @@ export function traitEnvOf(text, history = []) {
     const body = String(text ?? '');
     return {
         place: scene ? scene.place : '',
+        time: scene ? scene.time : '',
         weather: scene ? scene.weather : '',
         fx: fxTagsOf(body),
     };

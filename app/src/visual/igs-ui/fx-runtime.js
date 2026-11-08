@@ -181,22 +181,42 @@ export function playStatsFeedback(root, fx, options = {}) {
     for (const t of fx.toasts || []) {
         if (!t || !text(t.target) || !markOnce(state.memory, favorFloorKey(fx.messageId, text(t.target)))) continue;
         const up = t.delta > 0;
-        lines.push({ up, burst: Boolean(t.burst), text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
+        lines.push({ up, burst: Boolean(t.burst), tags: t.tags || [], text: t.text === '♥' || t.text === '♡' ? `${t.target} ${t.text}` : `${t.target} 好感 ${up ? '↑ +' : '↓ '}${t.delta}` });
+    }
+    // 好感没动时的小提示：心意槽小心形、卡关口、今日已满。
+    for (const h of fx.hints || []) {
+        if (!h || !text(h.target) || !markOnce(state.memory, `favor-hint:${fx.messageId}:${text(h.target)}:${h.kind}`)) continue;
+        lines.push({ up: h.kind === 'heart', hint: h.kind, tags: h.tags || [], text: h.kind === 'heart' ? `${h.target} ${h.text}` : `${h.target} ${h.text}` });
+    }
+    // 关键事件：成功出突破卡片，大失败出一行飘字，失败不出。
+    const cards = [];
+    for (const k of fx.keys || []) {
+        if (!k || !text(k.target) || !markOnce(state.memory, `key-event:${fx.messageId}:${text(k.target)}:${k.event}`)) continue;
+        if (k.success) cards.push(k);
+        else if (k.grade === '大失败') lines.push({ up: false, text: `${k.target} ${k.event}搞砸了` });
     }
     for (const g of fx.growth || []) lines.push({ up: true, text: `${g.target ? `${g.target}的` : ''}${g.skill}成长 +${g.gain}` });
     for (const sh of fx.stages || []) {
         if (speaker && text(sh.target) === speaker) lines.push({ up: true, text: `${sh.target}：${sh.from} → ${sh.to}` });
     }
-    if (!lines.length) return { played: 0 };
+    if (!lines.length && !cards.length) return { played: 0 };
     const life = Math.round(FX_LIFETIME_MS.favor * (FX_HOLD_SCALE[settings.fxStyle.hold] || 1));
     const stack = persistent(layers.front, layers.doc, 'igs-fx-favor-stack');
     for (const line of lines) {
         // 心意满溢：沿用好感飘字，只把心形放大并加一行小字。
-        const el = line.burst ? burstFavorNode(layers.doc, line.text) : node(layers.doc, 'igs-fx-favor', line.text);
+        const el = line.burst ? burstFavorNode(layers.doc, line.text) : node(layers.doc, line.hint ? `igs-fx-favor is-hint is-${line.hint}` : 'igs-fx-favor', line.text);
         el.setAttribute('data-dir', line.up ? 'up' : 'down');
+        // 特质触发：飘字后带特质名小标签。
+        for (const tag of line.tags || []) el.appendChild(node(layers.doc, 'igs-fx-favor-trait', tag));
         spawn(state, stack, el, life);
     }
-    return { played: lines.length };
+    for (const k of cards) {
+        const el = node(layers.doc, 'igs-fx-keyevent');
+        el.appendChild(node(layers.doc, 'igs-fx-keyevent-title', '关系更进一步 · 新阶段'));
+        el.appendChild(node(layers.doc, 'igs-fx-keyevent-sub', `${k.target} · ${k.event}${k.grade === '大成功' ? ' · 大成功' : ''}`));
+        spawn(state, layers.front, el, Math.round(life * 1.4), false, true);
+    }
+    return { played: lines.length + cards.length };
 }
 
 // 阅读器入口：状态栏关着时数值反馈一律丢弃，什么都不显示；开着时照常播放。

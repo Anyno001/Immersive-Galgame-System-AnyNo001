@@ -307,6 +307,12 @@ export function createCombatPanelController(doc, options = {}) {
         }
         return out;
     };
+    // VS 对撞的场景图底：宿主 options.getCombatBackdrop() 给当前阅读器正在显示的场景图地址，只过滤协议；没给或取不到时对撞层保持纯色底。
+    const backdropFor = () => {
+        let url = '';
+        try { url = typeof options.getCombatBackdrop === 'function' ? options.getCombatBackdrop() : ''; } catch (error) { url = ''; }
+        return safePortraitUrl(url);
+    };
     // 缺立绘时请宿主按开战楼补发预热（options.requestPortraits(messageId)）；同一场战斗同一组缺图名字只请求一次，宿主侧另有并发与次数去重。
     let askedPortraits = '';
     const askMissingPortraits = (cur, portraits) => {
@@ -840,7 +846,7 @@ export function createCombatPanelController(doc, options = {}) {
         const layers = stage ? ensureFxLayers(stage) : null;
         if (!layers?.front) return;
         const l = view.lobby;
-        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes: introHeroes(view), foes: introFoes(view), title: l?.encounter || preview?.encounter || view.encounter || '', low: lowQuality() });
+        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes: introHeroes(view), foes: introFoes(view), title: l?.encounter || preview?.encounter || view.encounter || '', low: lowQuality(), backdrop: backdropFor() });
         layers.front.appendChild(built.root);
         cutinNodes.add(built.root);
         built.heroesSynced = Boolean(l);
@@ -905,7 +911,7 @@ export function createCombatPanelController(doc, options = {}) {
         const arts = view.enemyArt || {};
         const heroes = [...b.allies].sort((a, c) => Number(c.controlled) - Number(a.controlled)).map((u) => ({ name: u.name, url: pics[u.name] || '' }));
         const foes = b.enemies.filter((u) => u.alive !== false).map((u) => ({ name: u.name, url: pics[u.name] || '', cell: arts[u.name] || null }));
-        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes, foes, title: view.encounter || '', low: lowQuality() });
+        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes, foes, title: view.encounter || '', low: lowQuality(), backdrop: backdropFor() });
         front.appendChild(built.root);
         cutinNodes.add(built.root);
         later(() => built.clash.classList.add('hit'), COMBAT_STAGE_TIMING.hit);
@@ -1255,7 +1261,9 @@ export function createCombatPanelController(doc, options = {}) {
                 if (my !== token || stage !== host) return;
                 try {
                     markActing(seg.actor);
-                    if (seg.actor) unitSay(seg.actor, 'attack');
+                    // 己方出牌的段没有 act 事件，出招台词取该段出牌事件的出手单位。
+                    const speaker = seg.actor || seg.events.find((e) => e.type === 'card')?.unitId;
+                    if (speaker) unitSay(speaker, 'attack');
                     playCutins(cuts, host, my);
                     markCaption(host, caption ? rarity : null);
                     if (hx && seg.actor) hxActorCue(seg, cuts);

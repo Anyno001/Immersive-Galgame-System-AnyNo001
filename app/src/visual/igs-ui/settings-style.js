@@ -158,6 +158,11 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-switch[disabled]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .igs-source-filter{grid-column:1/-1;padding:14px 16px 16px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-surface);display:flex;flex-direction:column;gap:14px;min-width:0;max-width:100%;box-sizing:border-box}
 .igs-source-filter-title{font-size:13px;line-height:20px;font-weight:600;letter-spacing:.04em;color:var(--igs-settings-ink)}
+details.igs-log-calc>summary{cursor:pointer;list-style:none}
+details.igs-log-calc>summary::-webkit-details-marker{display:none}
+details.igs-log-calc>summary::after{content:" ▾"}
+details.igs-log-calc[open]>summary::after{content:" ▴"}
+details.igs-log-calc>.igs-source-filter-note{padding-left:14px}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
 .igs-tts-voice-lib{display:flex;flex-direction:column;gap:6px}
 .igs-tts-voice-lib .igs-asset-folder-bar>span:first-child{display:inline-flex;align-items:center;gap:6px}
@@ -301,10 +306,11 @@ details.igs-stats-person details.igs-edit-fold>summary{padding-left:0}
 .igs-edit-add{display:flex;align-items:center;min-height:40px;border:0;background:transparent;color:var(--igs-settings-ink-2);font:inherit;font-size:13px;cursor:pointer;text-align:left;padding:0}
 .igs-edit-add:hover{color:var(--igs-settings-ink)}
 .igs-edit-add.is-off{opacity:.45;cursor:default}
-.igs-add-toggle:checked+.igs-edit-add{color:var(--igs-settings-accent)}
+.igs-edit-row.is-off{opacity:.45}
+.igs-add-fold>summary{list-style:none}.igs-add-fold>summary::-webkit-details-marker{display:none}.igs-add-fold[open]>summary.igs-edit-add{color:var(--igs-settings-accent)}
 .igs-edit-card .igs-trait-panel{display:none;padding-bottom:6px}
 .igs-edit-row:last-of-type{border-bottom:1px solid var(--igs-settings-raised)}
-.igs-add-toggle:checked~.igs-trait-panel{display:flex}
+.igs-edit-card .igs-add-fold[open]>.igs-trait-panel{display:flex}
 .igs-edit-card .igs-trait-pick .igs-trait-chip{background:var(--igs-settings-raised)}
 .igs-trait-limits{padding:4px 0;font-size:11px;color:var(--igs-settings-ink-4)}
 details.igs-stats-person .igs-stats-hero-actions>.igs-settings-action{background:var(--igs-settings-raised)}

@@ -40,6 +40,7 @@ function reviewHook(state, api) {
         const has = (id) => api.has(next, name, id);
         if (ev.type === '夸奖' && (has('自卑') || has('自恋'))) next = api.bump(next, name, '好感', Math.max(api.SMALL.好感, gained(ctx, name, '好感')), has('自卑') ? '自卑' : '自恋');
         if (ev.type === '批评' && has('自卑')) next = npcStress(next, name, Math.max(5, gained(ctx, name, 'stress')), '自卑', ctx);
+        if (ev.type === '批评' && has('龙系')) next = api.bump(next, name, '芥蒂', Math.max(1, Math.round(gained(ctx, name, '芥蒂') * 0.5)), '龙系');
         if (ev.type === '批评' && has('自恋')) next = api.bump(next, name, '芥蒂', Math.max(api.SMALL.好感, gained(ctx, name, '芥蒂')), '自恋');
         // 背叛：被背叛方（主角对 TA）按恩仇「决裂」同档结算（信任大降、芥蒂大升，恩怨两难转回宿仇）；正义使者该楼芥蒂上升加倍。
         if (ev.type === '背叛' && ev.dir !== 'me') {

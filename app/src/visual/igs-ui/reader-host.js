@@ -5388,6 +5388,12 @@ ${row.key}`;
                 }
                 return null;
             },
+            // VS 对撞的场景图底：阅读器背景层正在显示的那张图（挂 CG 的页取本页普通场景背景）；没有时返回空串。
+            getCombatBackdrop: () => {
+                const c = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.content;
+                const url = c ? (c.sceneBackdrop || c.backgroundImage || '') : '';
+                return url ? resolveReaderAssetUrl(url, state.activeReader) : '';
+            },
             // 战斗台词开关与朗读：读当前阅读器快照的设置与素材（声线按角色取）。
             getCombatExpansion: () => {
                 const rs = state.activeReader && state.activeReader.snapshot && state.activeReader.snapshot.readerSettings;

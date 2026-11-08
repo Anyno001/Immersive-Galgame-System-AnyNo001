@@ -37,7 +37,7 @@ function outcomesOf(ctx) {
     const out = [];
     for (const e of Array.isArray(ctx.events) ? ctx.events : []) {
         if (!e) continue;
-        if (e.kind === 'battle') out.push({ win: e.outcome !== '败', fail: e.outcome === '败', great: e.outcome === '大胜' });
+        if (e.kind === 'battle') out.push({ win: e.outcome !== '败' && e.outcome !== '撤', fail: e.outcome === '败', great: e.outcome === '大胜' });
         else if (e.kind === 'challenge') out.push({ win: e.outcome === '圆满' || e.outcome === '勉强', fail: e.outcome === '失败', great: e.outcome === '圆满' });
         else if (e.kind === 'work') {
             const tier = String(e.tier || '');
@@ -122,7 +122,7 @@ export const TAG_HOOKS = [
         let next = state;
         // 讲义气的受益名单：共患难事件的对象，以及并肩取胜的战友。
         const comrades = new Set(directives.filter((d) => d.kind === 'event' && d.value === '共患难' && d.target).map((d) => d.target));
-        for (const e of Array.isArray(ctx.events) ? ctx.events : []) if (e && e.kind === 'battle' && e.ally && e.outcome !== '败') comrades.add(e.ally);
+        for (const e of Array.isArray(ctx.events) ? ctx.events : []) if (e && e.kind === 'battle' && e.outcome !== '败' && e.outcome !== '撤') for (const n of (Array.isArray(e.allies) && e.allies.length ? e.allies : e.ally ? [e.ally] : [])) comrades.add(n);
         for (const name of Object.keys(next.characters)) {
             const has = (id) => api.has(next, name, id);
             // 外向 / 内向：自身压力下降加倍（外向须与主角在一起，内向须不在场）。

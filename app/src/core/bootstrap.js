@@ -21,6 +21,7 @@ import { resolveScene } from '../scene/scene-resolver.js';
 import { LEGACY_READER_MODES, readLegacyIgsSettings, writeLegacyIgsSettings, resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { createPresetStore } from '../storage/preset-store.js';
 import { createTavernSettingsSync } from '../storage/tavern-settings-file.js';
+import { createStatsSheetsFile } from '../storage/stats-sheets-file.js';
 import { createExpressionNotesFile, fillExpressionNotes } from '../storage/expression-notes-file.js';
 import { createLayerController } from '../visual/layer-controller.js';
 import { createStageRenderer } from '../visual/stage-renderer.js';
@@ -70,6 +71,7 @@ import { isBackgroundGenerationActive } from '../host/background-generation.js';
 import { createIllustrationMessageHost } from '../host/illustration-message-host.js';
 import { createSecondaryLlm } from '../host/secondary-llm.js';
 import { createImageWorldInfoSource } from '../host/image-world-info.js';
+import { readWorldInfoByNames } from '../host/world-info-filter.js';
 import { createImagePromptLlm } from '../generated-images/image-prompt-runtime.js';
 import { createBuiltinImageTaskRuntime } from '../generated-images/builtin-image-task-runtime.js';
 import { createImageBackend, mergeLegacyNaiSettings } from '../generated-images/image-backend.js';
@@ -102,7 +104,7 @@ import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 
-const IGS_VERSION = '0.39.73';
+const IGS_VERSION = '0.39.74';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -770,9 +772,15 @@ export function bootstrapIGS(options = {}) {
                 applyFileExpressionNotes();
                 applyImageCacheLimit(state.config);
                 syncSceneAssetsInjectionWithRetry(1);
+                statsTraitCodexStore.reset();
             },
         });
         void state.settingsSync.start();
+    }
+    // 跨聊天 NPC 角色卡单独落酒馆文件 user/files/igs-stats-sheets.json：启动时与本机合并，改动防抖上传。
+    if (!options.storage && storageLike && options.tavernSettingsSync !== false) {
+        state.statsSheetsFile = createStatsSheetsFile(globalObject, { storage: storageLike });
+        void state.statsSheetsFile.load().catch(() => {});
     }
     // 立绘提示词单独落酒馆文件（localStorage 不存这段）：读回后补进运行时配置。
     if (!options.storage && storageLike && options.tavernSettingsSync !== false) {
@@ -845,7 +853,27 @@ export function bootstrapIGS(options = {}) {
     attachMetaDigestSync();
     // 数值系统：总开关关闭时 sync() 不挂任何监听；设置保存后重新同步（易错点 H1）。
     const statsWorldInfo = createImageWorldInfoSource(globalObject, { readExclude: readWorldInfoExclude });
-    // 角色资料（v2 §6.4）：主角读人设，NPC 读角色卡与按名字扫到的世界书条目；只取摘要，不带聊天正文。
+    // 角色资料（v2 §6.4）：主角读人设，NPC 读角色卡与按名字、别名扫到的世界书条目（标题或正文开头含名字的也算）；
+    // 仍为空时从最近楼层截取提到该角色的段落兜底。读取失败记在 errors 里，由数值运行时写进诊断。
+    const PERSONA_FLOORS = 20;
+    const PERSONA_FALLBACK_MAX = 1200;
+    const aliasGroupOf = (name) => {
+        const aliases = (readImageBridge().sceneAssets || {}).characterAliases || {};
+        const group = new Set([name, ...(Array.isArray(aliases[name]) ? aliases[name] : [])]);
+        for (const [key, list] of Object.entries(aliases)) if (Array.isArray(list) && list.includes(name)) [key, ...list].forEach((n) => group.add(n));
+        return [...group].map((n) => String(n || '').trim()).filter(Boolean);
+    };
+    const recentParagraphs = (c, words) => {
+        const list = (c && Array.isArray(c.chat) ? c.chat : []).filter((m) => m && !m.is_system && typeof m.mes === 'string').slice(-PERSONA_FLOORS);
+        const out = [];
+        for (const m of list) {
+            for (const para of m.mes.replace(/\[igs-[^\]]*\]/g, '').replace(/<[^>]+>/g, '').split(/\n+/)) {
+                const text = para.trim();
+                if (text && words.some((w) => w.length >= 2 && text.includes(w))) out.push(text);
+            }
+        }
+        return out.join('\n').slice(-PERSONA_FALLBACK_MAX);
+    };
     const describeStatsPeople = async (names) => {
         const c = resolveTavernContext();
         const cards = (c && Array.isArray(c.characters)) ? c.characters : [];
@@ -863,13 +891,23 @@ export function bootstrapIGS(options = {}) {
                 out.push({ name, summary });
                 continue;
             }
-            const card = cards.find((ch) => ch && ch.name === name);
+            const words = aliasGroupOf(name);
+            const card = cards.find((ch) => ch && words.includes(ch.name));
             let summary = card ? [card.description, card.personality].filter(Boolean).join(' ') : '';
+            const errors = [];
             try {
-                const wi = await statsWorldInfo({ description: name });
+                const wi = await statsWorldInfo({ description: words.join(' ') });
                 if (wi && wi.ok && wi.text) summary = `${summary} ${wi.text}`.trim();
-            } catch (error) { /* 世界书读不到时只用角色卡 */ }
-            out.push({ name, summary });
+                else if (wi && !wi.ok) errors.push(wi.reason || 'WORLDINFO_RESOLVE_FAILED');
+            } catch (error) { errors.push('WORLDINFO_RESOLVE_THREW'); }
+            try {
+                const named = await readWorldInfoByNames(globalObject, words, readWorldInfoExclude());
+                for (const part of named.entries || []) if (!summary.includes(part)) summary = `${summary} ${part}`.trim();
+                if (named.reason) errors.push(named.reason);
+            } catch (error) { errors.push('WORLDINFO_BY_NAME_THREW'); }
+            let from = summary ? 'card' : '';
+            if (!summary) { summary = recentParagraphs(c, words); from = summary ? 'floors' : ''; }
+            out.push({ name, summary, from, ...(errors.length ? { errors } : {}) });
         }
         return out;
     };
@@ -886,7 +924,7 @@ export function bootstrapIGS(options = {}) {
         }
         return '';
     };
-    const statsSheetStore = createSheetStore(() => storageLike);
+    const statsSheetStore = createSheetStore(() => storageLike, () => state.statsSheetsFile?.changed());
     // 全局特质图鉴：跨聊天、跨角色卡，存一个 localStorage 键。
     const statsTraitCodexStore = createTraitCodexStore(() => storageLike, writeCheckedStorage);
     // 世界书里有条目的角色按重要角色登记（多人世界书卡里卡名不是角色名）；读不到世界书时返回 null，不记入已查。
@@ -1264,6 +1302,11 @@ export function bootstrapIGS(options = {}) {
             } catch (error) { /* 扫描失败按没有冷却处理 */ }
         }
         if (quota && quota.ok === true) extras.challengeOpen = true;
+        // 主角或在场角色挂有「战斗狂」：开战冷却减半、频率行改为积极安排（名单由数值系统算好，没有数值系统时不传）。
+        try {
+            const eager = app.statsRuntime && typeof app.statsRuntime.combatEager === 'function' ? app.statsRuntime.combatEager() : null;
+            if (eager && Array.isArray(eager.names) && eager.names.length) extras.combatEager = { names: eager.names };
+        } catch (error) { /* 读取失败按没有好战者处理 */ }
         try { if (combatServices.intimatePrepared() === true) extras.intimateOn = true; } catch (error) { /* 判断失败按未开启处理 */ }
         return extras;
     }
@@ -1560,6 +1603,7 @@ export function bootstrapIGS(options = {}) {
         close(detachChatChangedReinjection);
         close(() => state.settingsSync?.stop());
         close(() => state.notesFile?.flush());
+        close(() => state.statsSheetsFile?.flush());
         close(() => state.metaDigestCleanup?.());
         state.metaDigestCleanup = null;
         close(() => state.combatSettingsOff?.());

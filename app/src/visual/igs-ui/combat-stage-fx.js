@@ -31,19 +31,33 @@ const WRAP_CSS = `
 #igs-overlay .igs-sfx-result.land .rs-ui{right:120px;top:560px;width:380px;}
 #igs-combat-panel:not([data-igs-combat-result-in]) .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
 #igs-combat-panel[data-igs-combat-reduced] .igs-sfx-result :is(.veil,.hband,.fig,.plate,.big,.grade,.row){animation-duration:0s;animation-delay:0s;}
-/* VS 对撞站位：两边镜像，主战者等大（3:4 框）、头顶同高，同伴在外侧身后、略小压暗；竖屏我方偏上、敌方偏下，按接缝斜向错开 */
-#igs-overlay .igs-sfx .clash .half .fig.lead{left:-24px;right:auto;top:96px;bottom:auto;width:330px;height:440px;}
-#igs-overlay .igs-sfx .clash .half .fig.mate{left:-84px;right:auto;top:40px;bottom:auto;width:250px;height:333px;}
-#igs-overlay .igs-sfx .clash .half .fig.foe1{right:-24px;left:auto;top:308px;bottom:auto;width:330px;height:440px;}
-#igs-overlay .igs-sfx .clash .half .fig.foe2{right:-84px;left:auto;top:252px;bottom:auto;width:250px;height:333px;filter:brightness(.55) saturate(.8);}
+/* VS 对撞站位：主战者放大到基本铺满自己那一半（上半身是重心，头在画内，脚可出画），同伴等比放大压在身后、在外侧；竖屏我方偏上、敌方偏下，按接缝斜向错开 */
+#igs-overlay .igs-sfx .clash .half .fig.lead{left:-36px;right:auto;top:52px;bottom:auto;width:432px;height:576px;}
+#igs-overlay .igs-sfx .clash .half .fig.mate{left:-150px;right:auto;top:24px;bottom:auto;width:330px;height:440px;}
+#igs-overlay .igs-sfx .clash .half .fig.foe1{right:-30px;left:auto;top:452px;bottom:auto;width:360px;height:480px;}
+#igs-overlay .igs-sfx .clash .half .fig.foe2{right:-150px;left:auto;top:400px;bottom:auto;width:330px;height:440px;filter:brightness(.55) saturate(.8);}
 #igs-overlay .igs-sfx .clash .name.h{left:24px;right:auto;top:auto;bottom:196px;}
 #igs-overlay .igs-sfx .clash .name.f{right:24px;left:auto;top:200px;bottom:auto;}
-#igs-overlay .igs-sfx.land .clash .half .fig.lead{left:40px;top:36px;width:510px;height:680px;}
-#igs-overlay .igs-sfx.land .clash .half .fig.mate{left:-120px;top:0;width:400px;height:533px;}
-#igs-overlay .igs-sfx.land .clash .half .fig.foe1{right:40px;top:36px;width:510px;height:680px;}
-#igs-overlay .igs-sfx.land .clash .half .fig.foe2{right:-120px;top:0;width:400px;height:533px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.lead{left:50px;top:14px;width:560px;height:747px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.mate{left:-170px;top:0;width:440px;height:587px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.foe1{right:50px;top:14px;width:560px;height:747px;}
+#igs-overlay .igs-sfx.land .clash .half .fig.foe2{right:-170px;top:0;width:440px;height:587px;}
 #igs-overlay .igs-sfx.land .clash .name.h{left:110px;bottom:150px;}
 #igs-overlay .igs-sfx.land .clash .name.f{right:110px;top:150px;}
+/* 场景图底：只铺一张、横跨两半，压暗后按皮肤乘一层实色；有底图时两半的渐变底让位，扫描线、纹理等特色层仍在其上 */
+#igs-overlay .igs-sfx .clash .backdrop{position:absolute;inset:0;background:center / cover no-repeat;filter:brightness(.4) saturate(.8);animation:sfxbd-in calc(420ms * var(--k)) ease-out both;}
+#igs-overlay .igs-sfx .clash .backdrop::after{content:"";position:absolute;inset:0;background:var(--bd-tint,#c8c8c8);mix-blend-mode:multiply;}
+#igs-overlay .igs-sfx .clash.has-bd .half{background:none !important;}
+#igs-overlay .igs-sfx .clash.out .backdrop{animation:sfxb-gone calc(200ms * var(--k)) both;}
+@keyframes sfxbd-in{from{opacity:0;}to{opacity:1;}}
+#igs-overlay .igs-sfx[data-skin="comic"] .clash .backdrop{--bd-tint:#d8a8a8;}
+#igs-overlay .igs-sfx[data-skin="veil"] .clash .backdrop{--bd-tint:#b8b8c0;}
+#igs-overlay .igs-sfx[data-skin="ink"] .clash .backdrop{--bd-tint:#cfcfcb;filter:brightness(.4) grayscale(.7);}
+#igs-overlay .igs-sfx[data-skin="tech"] .clash .backdrop{--bd-tint:#a0c8dc;}
+#igs-overlay .igs-sfx[data-skin="mystic"] .clash .backdrop{--bd-tint:#b4acd8;}
+#igs-overlay .igs-sfx[data-skin^="soft"] .clash .backdrop{--bd-tint:#dcbcc4;}
+#igs-overlay .igs-sfx[data-skin="dark-a"] .clash .backdrop{--bd-tint:#94b4a0;filter:brightness(.4) grayscale(.5);}
+#igs-overlay .igs-sfx[data-skin="dark-b"] .clash .backdrop{--bd-tint:#9cb8bc;}
 #igs-overlay .igs-sfx .fig img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:50% 0;}
 #igs-overlay .igs-sfx .fig .igs-combat-art{position:absolute;inset:0;}
 #igs-overlay .igs-sfx .fig-sil{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;color:var(--text,#fff);opacity:.14;}
@@ -243,8 +257,8 @@ export function updateClashFigures(doc, root, { heroes = [], foes = [] } = {}) {
 }
 
 // 开战黑屏对撞：我方（主战者 + 同伴）与敌方（前排 + 后排）沿锯齿接缝对撞，撞点光芒、光环、火花，名字与破框 VS 砸入。
-// heroes：[{ name, url }]（第一个是主战者）；foes：[{ name, url, cell }]；title：关卡名。low：低画质省去火花与光痕。
-export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes = [], foes = [], title = '', low = false } = {}) {
+// heroes：[{ name, url }]（第一个是主战者）；foes：[{ name, url, cell }]；title：关卡名；backdrop：场景图地址（可空）。low：低画质省去火花与光痕。
+export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes = [], foes = [], title = '', low = false, backdrop = '' } = {}) {
     const sh = buildStageShell(doc, { skin, width, height, kind: 'clash' });
     const { canvas, W, H, orient, style } = sh;
     const clash = el(doc, 'div', 'clash', canvas);
@@ -256,6 +270,12 @@ export function buildStageClash(doc, { skin = '', width = 0, height = 0, heroes 
     clash.style?.setProperty?.('--ix', `${ix}%`);
     clash.style?.setProperty?.('--iy', `${iy}%`);
     const shake = el(doc, 'div', 'shake', clash);
+    // 场景图底：取不到地址时不画，回到纯色渐变底。
+    if (backdrop) {
+        clash.classList.add('has-bd');
+        const bd = el(doc, 'div', 'backdrop', shake);
+        if (bd.style) bd.style.backgroundImage = cssUrl(backdrop);
+    }
     const heroSide = el(doc, 'div', 'half hero-side', shake);
     heroSide.style?.setProperty?.('clip-path', poly([[0, 0], ...key, [0, 100]]));
     const foeSide = el(doc, 'div', 'half foe-side', shake);

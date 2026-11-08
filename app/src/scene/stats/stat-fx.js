@@ -2,6 +2,7 @@
 // 纯函数，只产出数据；播放由 visual 层的现有演出（数值提示堆叠栏、fx-result、修罗场）负责。
 
 import { HEART_BURST_NOTE, stageOf } from './stat-favor.js';
+import { CHANGE_CAP, CHANGE_CAP_TEXT } from './stat-status-defs.js';
 
 const FAVOR_SOURCES = new Set(['tag', 'battle']);
 
@@ -9,10 +10,12 @@ const FAVOR_SOURCES = new Set(['tag', 'battle']);
 export function favorToasts(changes, { hudLabel = 'number' } = {}) {
     const byTarget = new Map();
     const bursts = new Set();
+    const tags = new Map();
     for (const c of changes || []) {
         if (!c || c.key !== '好感' || !FAVOR_SOURCES.has(c.source)) continue;
         const delta = (Number(c.to) || 0) - (Number(c.from) || 0);
         if (!delta) continue;
+        if (Array.isArray(c.traitTags) && c.traitTags.length) tags.set(c.target, [...new Set([...(tags.get(c.target) || []), ...c.traitTags])]);
         byTarget.set(c.target, (byTarget.get(c.target) || 0) + delta);
         if (String(c.note || '').startsWith(HEART_BURST_NOTE)) bursts.add(c.target);
     }
@@ -21,8 +24,29 @@ export function favorToasts(changes, { hudLabel = 'number' } = {}) {
         delta,
         up: delta > 0,
         ...(bursts.has(target) ? { burst: true } : {}),
+        ...(tags.has(target) ? { tags: tags.get(target) } : {}),
         text: hudLabel === 'stage' ? (delta > 0 ? '♥' : '♡') : `${delta > 0 ? '♥ +' : '♡ '}${delta}`,
     }));
+}
+
+// 好感没动时的小提示：心意槽涨了出小心形「♡ +N」（满溢走原飘字）、卡关口、日上限满。同一角色同一类只出一条。
+export function favorHints(changes) {
+    const out = [];
+    const seen = new Set();
+    const add = (c, kind, text) => {
+        const key = `${c.target}|${kind}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ target: c.target, kind, text, ...(Array.isArray(c.traitTags) && c.traitTags.length ? { tags: c.traitTags } : {}) });
+    };
+    for (const c of changes || []) {
+        if (!c || c.key !== '好感' || c.source !== 'tag' || (Number(c.to) || 0) !== (Number(c.from) || 0)) continue;
+        const heart = (Number(c.heartTo) || 0) - (Number(c.heartFrom) || 0);
+        if (heart > 0) add(c, 'heart', `♡ +${heart}`);
+        else if (c.capped === CHANGE_CAP.gate) add(c, 'gate', CHANGE_CAP_TEXT.gate);
+        else if (c.capped === CHANGE_CAP.daily) add(c, 'full', CHANGE_CAP_TEXT.daily);
+    }
+    return out;
 }
 
 // 成长结果：日结算里通过的技能（§6）与剧情成长标签；NPC 的成长带 target。交给 fx-result 作「成长」卡片。
@@ -56,7 +80,7 @@ export function stageShifts(changes) {
 
 // 关键事件（突破关口的魅力检定）结果。
 function keyEvents(events) {
-    return (events || []).filter((e) => e && e.event && e.gate != null).map((e) => ({ target: e.target, event: e.event, success: e.success }));
+    return (events || []).filter((e) => e && e.event && e.gate != null).map((e) => ({ target: e.target, event: e.event, success: e.success, ...(e.grade ? { grade: e.grade } : {}), ...(e.reason ? { reason: e.reason } : {}), ...(e.retry ? { retry: true } : {}) }));
 }
 
 // 一楼的演出汇总；没有任何内容时返回 null，调用方直接跳过。
@@ -69,8 +93,9 @@ export function statsFxOf(entry, opts = {}) {
     const battle = events.find((e) => e && e.kind === 'battle') || null;
     const stages = stageShifts(changes);
     const keys = keyEvents(events);
-    if (!toasts.length && !growth.length && !jealous.length && !battle && !stages.length && !keys.length) return null;
-    return { toasts, growth, jealous, battle, stages, keys };
+    const hints = favorHints(changes);
+    if (!toasts.length && !growth.length && !jealous.length && !battle && !stages.length && !keys.length && !hints.length) return null;
+    return { toasts, growth, jealous, battle, stages, keys, hints };
 }
 
 // 轻量提示文案（§10：不弹窗、不挡画面）：成长、战斗、关键事件、关系阶段变化各一行。
@@ -79,7 +104,7 @@ export function statsNoticeLines(fx) {
     const lines = [];
     for (const g of fx.growth || []) lines.push(`${g.target ? `${g.target}的` : ''}${g.skill}成长 +${g.gain}（${g.from}→${g.to}）`);
     if (fx.battle && fx.battle.outcome) lines.push(`战斗结果：${fx.battle.outcome}`);
-    for (const k of fx.keys || []) lines.push(`${k.target}·${k.event}：${k.success ? '关系更进一步' : '时机未到'}`);
+    for (const k of fx.keys || []) lines.push(`${k.target}·${k.event}：${k.success ? (k.grade === '大成功' ? '关系更进一步（大成功）' : '关系更进一步') : k.grade === '大失败' ? `${k.event}搞砸了` : '时机未到'}`);
     for (const s of fx.stages || []) lines.push(`${s.target}：${s.from} → ${s.to}`);
     return lines;
 }

@@ -6,6 +6,7 @@ import { SKILL_MAX, barsOf, clamp, isRomance, withBars, withClock, withSkills } 
 import { hasTrait, traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
 import { dailyTraitPass } from './stat-trait-hooks.js';
 import { relaxStress, shiftStress } from './stat-strain.js';
+import { advanceStatuses } from './stat-status.js';
 
 // 悟性三档（strengthRev ≥ 2）：平庸（默认）、出众、天纵。
 export const APTITUDES = Object.freeze(['平庸', '出众', '天纵']);
@@ -202,7 +203,7 @@ function pushBarChanges(from, to, changes, note, onlyBars = false) {
 // 日结算：体力恢复（熬夜后只到 70）、压力 −10、技能成长、好感冷却、每日上限清零。
 // 生命不随过夜恢复（合并计划 Q4）：只有回复标签与战斗结果改变伤势。
 // rev ≥ 2：悟性（aptitudeOf）、主角离体（体力不恢复、好感冷却暂停）、随身角色不冷却（traits）、芥蒂淡忘与欲望淡去（romanceSeen 用于判恋爱对象）。
-export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env } = {}) {
+export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox } = {}) {
     const day = state.clock.day + 1;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -219,7 +220,16 @@ export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, 
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, '日结算', { stress: true, rev2: rev2 ? { day, days: 1, present } : null }) };
     next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
+    advanceStatusBox(statusBox, day, 1, changes);
     return rev2 ? dailyTraitPass(next, { traits, nsfw, present, ...(env || {}) }, changes) : next;
+}
+
+// 状态推进（B 批）：状态存在 catalog 而非账本状态里，由调用方传入持有者 { cat }；没有时不推进。天数一次算完，到期的摘下并记变动。
+function advanceStatusBox(box, day, days, changes) {
+    if (!box || !box.cat) return;
+    const r = advanceStatuses(box.cat, day, days);
+    box.cat = r.catalog;
+    changes.push(...r.changes);
 }
 
 // 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
@@ -245,7 +255,7 @@ export function settleRest(state, { changes = [], frozen = false } = {}) {
 
 // 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 // rev ≥ 2：天数上限 3650（解析阶段决定），冷却、受伤天数、芥蒂淡忘、欲望淡去都按天数一次算完；跳跃楼在场角色（present）不冷却。
-export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env } = {}) {
+export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox } = {}) {
     const day = state.clock.day + days;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -256,6 +266,7 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf, re
     next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw));
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, days, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, days, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, `跳过${days}天`, { stress: false, rev2: rev2 ? { day, days, present } : null }) };
+    advanceStatusBox(statusBox, day, days, changes);
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
 }
 

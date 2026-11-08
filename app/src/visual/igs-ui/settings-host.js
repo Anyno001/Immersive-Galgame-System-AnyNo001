@@ -720,7 +720,7 @@ export function createSettingsHost(deps) {
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
         // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
-        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'trait' || kind === 'trait-id' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
+        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'trait' || kind === 'trait-id' || kind === 'trait-note' || kind === 'skill-attr' || kind === 'skill-tier' ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -736,6 +736,7 @@ export function createSettingsHost(deps) {
             else if (kind === 'relation-forced') result = await op('relation', 'forced', name, { forced: valuePart === '1' });
             else if (kind === 'trait') result = await op('relation', 'trait', name, { key: valuePart, on: oldPart === '1' });
             else if (kind === 'trait-id') result = await op('relation', 'trait-id', name, { id: decodeURIComponent(valuePart), on: oldPart === '1' });
+            else if (kind === 'trait-note') result = await op('relation', 'trait-note', name, { text: decodeURIComponent(valuePart) });
             else if (kind === 'fame-add') {
                 // 开一条声望：先选性质，再起条名（留空用性质名）。
                 const kindName = await settingsDialogs.choose('选择这条声望的性质：', FAME_KIND_NAMES.map((value) => ({ value, label: `${value}（${FAME_KINDS[value].zero}到${FAME_KINDS[value].full}）` })), FAME_KIND_NAMES[0], { dropdown: true });
@@ -1570,6 +1571,12 @@ export function createSettingsHost(deps) {
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
             if (heroSkill != null) {
                 controller.invoke(`stats-op:hero-set:${encodeURIComponent(heroSkill)}|${String(target.value).trim()}`);
+                return;
+            }
+            // 特质「评定注意」：失焦即写聊天存档。
+            const traitNote = target?.getAttribute?.('data-stats-trait-note');
+            if (traitNote != null) {
+                controller.invoke(`stats-op:trait-note:${encodeURIComponent(traitNote)}|${encodeURIComponent(String(target.value || ''))}`);
                 return;
             }
             // 「编辑技能」的所属属性、熟练度下拉与新增输入框：同样直接写聊天存档。

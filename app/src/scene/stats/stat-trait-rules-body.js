@@ -59,7 +59,7 @@ export function updateAchievementCounters(counters, state, ctx = {}) {
     const num = (k) => Number(next[k]) || 0;
     const flags = ctx.flags || {};
     if (flags.work && String(flags.work.tier || '').includes('成功')) next.workWins = num('workWins') + 1;
-    if (flags.battle && flags.battle.outcome && flags.battle.outcome !== '败') next.battleWins = num('battleWins') + 1;
+    if (flags.battle && flags.battle.outcome && flags.battle.outcome !== '败' && flags.battle.outcome !== '撤') next.battleWins = num('battleWins') + 1;
     const values = Object.values((state && state.protagonist && state.protagonist.skills) || {}).map((s) => Number(s && s.value) || 0);
     next.skillMax = Math.max(num('skillMax'), ...values, 0);
     next.skill60 = Math.max(num('skill60'), values.filter((v) => v >= 60).length);
@@ -101,10 +101,12 @@ function moveStress(state, name, delta, note, changes) {
 const textOf = (ctx, ...keys) => keys.map((k) => (ctx && typeof ctx[k] === 'string' ? ctx[k] : '')).join(' ');
 const weatherOf = (ctx) => textOf(ctx, 'weather');
 const placeOf = (ctx) => textOf(ctx, 'place', 'location', 'scene');
+const timeOf = (ctx) => textOf(ctx, 'time');
 const COLD = /寒|冷|雪|冰|霜/;
 const HOT = /炎|酷暑|烈日|高温|沙漠|火山|蒸笼|闷热/;
 const HEIGHT = /高处|楼顶|屋顶|天台|悬崖|峭壁|塔顶|山顶|高空|高楼/;
 const DARK = /夜|黑暗|漆黑|地下|山洞|洞穴/;
+const BRIGHT = /白天|白日|白昼|清晨|早晨|上午|中午|正午|午后|下午|晴|阳光|烈日|日光|骄阳/;
 const TIGHT = /狭窄|密闭|电梯|衣柜|地窖|地牢|储藏室|管道/;
 const WILD = /野外|荒野|森林|山林|露营|丛林|荒岛|野营/;
 const RAINY = /雨|阴|潮/;
@@ -130,7 +132,7 @@ export const DAILY = [];
 
 // ---- 每楼钩子 ----
 
-// 体力消耗与回复：病秧子、强健（含铁打的身体）、魅魔体质、不眠、耐寒、耐热、耐痛（重伤）、大胃王（进食加倍）、早起鸟、夜猫子。
+// 体力消耗与回复：病秧子、强健（含铁打的身体）、天生媚骨、不眠、耐寒、耐热、耐痛（重伤）、大胃王（进食加倍）、早起鸟、夜猫子。
 function staminaHook(state, api) {
     const { ctx, directives } = api;
     const seen = ctx.changes.slice();
@@ -148,8 +150,8 @@ function staminaHook(state, api) {
             continue;
         }
         const drop = -delta;
-        // 魅魔体质：亲密时回复体力而非消耗（撤销消耗后再回复同等数量）。
-        if (note === '亲密' && has('魅魔体质')) { next = moveBar(next, name, 'stamina', drop * 2, '魅魔体质', ctx.changes); continue; }
+        // 天生媚骨：亲密时回复体力而非消耗（撤销消耗后再回复同等数量）。
+        if (note === '亲密' && has('魅魔体质')) { next = moveBar(next, name, 'stamina', drop * 2, '天生媚骨', ctx.changes); continue; }
         // 不眠：熬夜没有体力代价。
         if (lateNote(note) && has('不眠')) { next = moveBar(next, name, 'stamina', drop, '不眠', ctx.changes); continue; }
         let factor = 1;
@@ -219,6 +221,14 @@ function painEnvHook(state, api) {
         const marked = onceToday(next, id);
         if (marked) next = moveStress(marked, HERO, PHOBIA_STRESS, id, ctx.changes);
     }
+    // 怕光：白天、明亮地点压力缓升（主角与在场角色，每人每天一次）。
+    if (BRIGHT.test(`${timeOf(ctx)} ${weatherOf(ctx)} ${place}`)) {
+        for (const name of [HERO, ...Object.keys(next.characters).filter((n) => api.here.has(n))]) {
+            if (!api.has(next, name, '怕光')) continue;
+            const marked = onceToday(next, `怕光:${name}`);
+            if (marked) next = moveStress(marked, name, PHOBIA_STRESS, '怕光', ctx.changes);
+        }
+    }
     if (api.has(next, HERO, '旧伤')) {
         if (RAINY.test(`${weatherOf(ctx)}`)) {
             const marked = onceToday(next, '旧伤');
@@ -255,6 +265,17 @@ function relationHook(state, api) {
             const refund = rise - Math.max(1, Math.round(rise / 2));
             if (refund > 0) next = api.bump(next, c.target, c.key, -refund, '社恐');
         }
+    }
+    return next;
+}
+
+// 天生媚骨（内部 id 魅魔体质）招人觊觎：主角挂时，在场角色对其欲望上升略快（本楼标签已涨的量再补一半）。
+function alluringHook(state, api) {
+    if (!api.has(state, HERO, '魅魔体质')) return state;
+    let next = state;
+    for (const c of api.ctx.changes.slice()) {
+        if (c.source !== 'tag' || c.key !== '欲望' || c.target === HERO || !(c.to > c.from) || !api.here.has(c.target) || !next.characters[c.target]) continue;
+        next = api.bump(next, c.target, '欲望', Math.max(1, Math.round((c.to - c.from) * 0.5)), '天生媚骨');
     }
     return next;
 }
@@ -301,7 +322,7 @@ function trackHook(state, api) {
     return next;
 }
 
-export const TAG_HOOKS = [staminaHook, moneyHook, painEnvHook, relationHook, allRounderHook, gamblerHook, trackHook];
+export const TAG_HOOKS = [staminaHook, moneyHook, painEnvHook, relationHook, allRounderHook, alluringHook, gamblerHook, trackHook];
 
 // ---- 日结算钩子（rev ≥ 2；时间跳跃不走这里）----
 

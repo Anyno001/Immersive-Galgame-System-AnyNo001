@@ -80,23 +80,30 @@ const stressUpOf = (directives, name) => directives.filter((d) => d.kind === 'st
 const forTarget = (d, name) => (isHero(name) ? !d.target : d.target === name);
 
 export const TAG_HOOKS = [
-    // 战斗狂、厌战：只读战斗胜负，改压力。
+    // 战斗狂、厌战：只读战斗胜负与撤退，改压力。
     (state, api) => {
         const { ctx, directives } = api;
         const battle = ctx.flags && ctx.flags.battle;
         if (!battle) return state;
+        const retreat = battle.outcome === '撤';
+        const won = battle.outcome !== '败' && !retreat;
         let next = state;
         const people = [HERO, ...(battle.ally && next.characters[battle.ally] ? [battle.ally] : [])];
         for (const name of people) {
-            // 战斗狂：取胜压力下降一大档；记下战斗日，供日结算判断多日无战斗。
+            // 战斗狂：取胜压力下降一大档，撤退压力小升；打过仗就记下战斗日，供日结算判断多日无战斗。
             if (api.has(next, name, '战斗狂')) {
-                if (battle.outcome !== '败') next = moveBar(next, name, 'stress', STRESS_STRENGTH_DELTA.下降.大, '战斗狂', ctx.changes);
+                if (won) next = moveBar(next, name, 'stress', STRESS_STRENGTH_DELTA.下降.大, '战斗狂', ctx.changes);
+                else if (retreat) next = moveBar(next, name, 'stress', STRESS_STRENGTH_DELTA.上升.小, '战斗狂·撤退', ctx.changes);
                 next = setMarks(next, name, { lastBattleDay: next.clock.day });
             }
+            // 魔族：战斗胜利那一楼压力下降一档。
+            if (api.has(next, name, '魔族') && won) next = moveBar(next, name, 'stress', STRESS_STRENGTH_DELTA.下降.中, '魔族', ctx.changes);
             // 厌战：战斗那一楼其压力上升再来一遍（共 ×2）。
             if (api.has(next, name, '厌战')) {
                 const extra = stressUpOf(directives, name).reduce((s, d) => s + (STRESS_STRENGTH_DELTA.上升[d.strength || '中'] || 10), 0);
                 next = moveBar(next, name, 'stress', extra, '厌战', ctx.changes);
+                // 厌战：撤退压力下降一小档。
+                if (retreat) next = moveBar(next, name, 'stress', STRESS_STRENGTH_DELTA.下降.小, '厌战·撤退', ctx.changes);
             }
         }
         return next;

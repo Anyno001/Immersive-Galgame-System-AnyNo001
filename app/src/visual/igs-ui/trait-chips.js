@@ -2,7 +2,7 @@
 // 数据来自 statsArchiveModel 的 traitList / traitNsfw / aptitude；按钮直接写聊天存档：
 //   特质 stats-op:trait-id:<编码名>|<编码键>|<1挂上 0摘下>；悟性 stats-op:aptitude:<编码名>:<编码档>（摘下即回平庸）。
 // 悟性在界面上并入「天资」组的两个互斥胶囊，仍读写 catalog.aptitude，不占格位。
-import { TRAIT_DEFS, TRAIT_GROUPS, TRAIT_LIMITS, PROTAGONIST_NAME, getTraitDef, isComboKey, slotUsage } from '../../scene/stats/stat-traits.js';
+import { TRAIT_DEFS, TRAIT_GROUPS, TRAIT_LIMITS, PROTAGONIST_NAME, getTraitDef, isComboKey, slotUsage, traitReqStatus } from '../../scene/stats/stat-traits.js';
 import { TRAIT_RECIPES } from '../../scene/stats/stat-trait-recipes.js';
 import { esc } from './reader-value-utils.js';
 
@@ -51,11 +51,11 @@ function usageOf(model, name, items) {
 
 export const dropButton = (href, label = '摘下') => `<button type="button" class="igs-settings-action is-small" data-action="${esc(href)}">${esc(label)}</button>`;
 
-const tag = (text, attr = '') => '<span class="igs-mood-review-chip igs-trait-chip is-tag"' + attr + '><b>' + esc(text) + '</b></span>';
+const tag = (text, off = false) => '<span class="igs-mood-review-chip igs-trait-chip is-tag' + (off ? ' is-off' : '') + '"><b>' + esc(text) + '</b></span>';
 
 // 编辑列表的一行：左名字（加粗）与浅色说明，右小号操作按钮。
-export function editRow(title, desc, buttonsHtml = '') {
-    return '<div class="igs-edit-row"><div class="igs-edit-main"><b>' + esc(title) + '</b>' + (desc ? '<span>' + esc(desc) + '</span>' : '') + '</div>' + (buttonsHtml ? '<div class="igs-edit-ops">' + buttonsHtml + '</div>' : '') + '</div>';
+export function editRow(title, desc, buttonsHtml = '', off = false) {
+    return '<div class="igs-edit-row' + (off ? ' is-off' : '') + '"><div class="igs-edit-main"><b>' + esc(title) + '</b>' + (desc ? '<span>' + esc(desc) + '</span>' : '') + '</div>' + (buttonsHtml ? '<div class="igs-edit-ops">' + buttonsHtml + '</div>' : '') + '</div>';
 }
 
 // 观赏区：标题行（左标题，右计数）与一排只读小标签；没有项时显示「未设置」。不放任何按钮。
@@ -78,11 +78,11 @@ const pickChip = (href, label, swap, title) => '<button type="button" class="igs
 
 // 「＋ 添加特质」：点开分组面板，顶部一行格位上限；分组默认折叠，标题行右侧计数；NSFW 关时不列 nsfw 项，主角只列主角可用项；
 // 已挂项不再列出，与已挂项互斥的注明「替换」。
-function addPanel(name, hungIds, nsfwOn, usage, level) {
+function addPanel(name, hungIds, nsfwOn, usage, level, attrs, advancedOpen = () => '') {
     const hero = name === PROTAGONIST_NAME;
     const hung = new Set(hungIds);
     const groups = TRAIT_GROUPS.map((group) => {
-        const defs = TRAIT_DEFS.filter((d) => d.group === group && !hung.has(d.id) && (nsfwOn || !d.nsfw) && (!hero || d.protagonist));
+        const defs = TRAIT_DEFS.filter((d) => d.group === group && !d.boundOnly && !hung.has(d.id) && (nsfwOn || !d.nsfw) && (!hero || d.protagonist) && traitReqStatus(d, attrs).ok);
         const chips = defs.map((d) => {
             const swap = d.exclusive.filter((id) => hung.has(id)).map((id) => (getTraitDef(id) || {}).name).filter(Boolean);
             return pickChip(action(name, d.id, true), d.name, swap.join('、'), d.desc || '');
@@ -91,11 +91,13 @@ function addPanel(name, hungIds, nsfwOn, usage, level) {
             for (const x of APTITUDE_DEFS) if (x.level !== level) chips.push(pickChip(aptAction(name, x.level), x.level, level || '', x.desc));
         }
         if (!chips.length) return '';
-        return '<details class="igs-trait-group"><summary><b>' + esc(group) + '</b><span>' + chips.length + '</span></summary><div class="igs-trait-pick">' + chips.join('') + '</div></details>';
+        const key = 'trait-group:' + name + ':' + group;
+        return '<details class="igs-trait-group" data-advanced="' + esc(key) + '"' + advancedOpen(key) + '><summary><b>' + esc(group) + '</b><span>' + chips.length + '</span></summary><div class="igs-trait-pick">' + chips.join('') + '</div></details>';
     }).join('');
     const limits = '<div class="igs-trait-limits">同挂' + usage.slots + '/' + TRAIT_LIMITS.total + ' · 自动' + usage.auto + '/' + TRAIT_LIMITS.auto + ' · 成就' + usage.achieve + '/' + TRAIT_LIMITS.achieve + '</div>';
-    const id = 'igs-edit-a' + (++toggleSeq);
-    return '<input type="checkbox" class="igs-edit-toggle igs-add-toggle" id="' + id + '"><label for="' + id + '" class="igs-edit-add">＋ 添加特质</label><div class="igs-trait-panel">' + limits + groups + '</div>';
+    // 展开状态按角色记在 advancedOpen 里：挂上一项后整页重绘，面板与分组保持展开，页面不跳。
+    const key = 'trait-add:' + name;
+    return '<details class="igs-add-fold" data-advanced="' + esc(key) + '"' + advancedOpen(key) + '><summary class="igs-edit-add">＋ 添加特质</summary><div class="igs-trait-panel">' + limits + groups + '</div></details>';
 }
 
 // 角色当前显示的特质条目：合成整体一条（组成项并入），NSFW 关时不显示 nsfw 项，悟性（出众、天纵）作为一条。
@@ -106,6 +108,7 @@ function shownTraits(name, model) {
     const own = model.aptitude && model.aptitude[name];
     const level = own === '出众' || own === '天纵' ? own : '';
     const folded = new Set(items.filter((t) => isComboKey(t.id)).flatMap((t) => t.parts || []));
+    const attrs = (model.traitAttrs && model.traitAttrs[name]) || null;
     const shown = [];
     for (const t of items) {
         if (isComboKey(t.id)) {
@@ -117,31 +120,47 @@ function shownTraits(name, model) {
         }
         const def = getTraitDef(t.id);
         if (!def || folded.has(t.id) || (def.nsfw && !nsfwOn)) continue;
-        shown.push({ id: t.id, title: def.name, desc: def.desc || '', buttons: t.src === 'achieve' ? '<span class="igs-edit-note">成就</span>' : dropButton(action(name, t.id, false)) });
+        const bound = t.src === 'bound';
+        const lack = bound ? [] : traitReqStatus(def, attrs).lacks;
+        const note = lack.length ? lack.map((x) => x.属性 + ' ' + x.现值 + ' / 需 ' + x.需).join('、') + '，暂不生效' : '';
+        const extra = [bound ? '随' + ((getTraitDef(t.by) || {}).name || t.by) + '附带，不能单独摘下' : '', note].filter(Boolean).join('；');
+        const buttons = t.src === 'achieve' ? '<span class="igs-edit-note">成就</span>' : bound ? '' : dropButton(action(name, t.id, false));
+        shown.push({ id: t.id, title: def.name, off: lack.length > 0, desc: extra ? (def.desc ? def.desc + '（' + extra + '）' : extra) : def.desc || '', buttons });
+        for (const w of t.waived || []) {
+            const wd = getTraitDef(w);
+            if (wd) shown.push({ id: 'waived:' + w, title: wd.name, waived: true, desc: '随' + def.name + '附带，因人设已豁免', buttons: '' });
+        }
     }
     if (level) shown.push({ id: 'apt:' + level, title: level, desc: APTITUDE_DEFS.find((d) => d.level === level).desc, buttons: dropButton(aptAction(name, '平庸')) });
-    return { shown, items, usage, level, nsfwOn };
+    return { shown, items, usage, level, nsfwOn, attrs };
 }
 
 // 观赏区：特质只读小标签（我的角色页用）。
 export function renderTraitView(name, model) {
     const { shown, usage } = shownTraits(name, model);
-    return viewBlock('data-traits-of="' + esc(name) + '"', '特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => tag(x.title)).join(''));
+    return viewBlock('data-traits-of="' + esc(name) + '"', '特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.filter((x) => !x.waived).map((x) => tag(x.title, x.off)).join(''));
 }
 
 // 编辑区：特质编辑列表（每行 名字 + 说明 + 摘下，末行「＋ 添加特质」）。
-export function renderTraitEdit(name, model) {
-    const { shown, items, usage, level, nsfwOn } = shownTraits(name, model);
+export function renderTraitEdit(name, model, advancedOpen = () => '') {
+    const { shown, items, usage, level, nsfwOn, attrs } = shownTraits(name, model);
     const full = usage.slots >= TRAIT_LIMITS.total;
-    const add = full ? '<span class="igs-edit-add is-off" title="已满格，请先摘下一项">＋ 添加特质</span>' : addPanel(name, items.map((t) => t.id), nsfwOn, usage, level);
-    return editCard('特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => editRow(x.title, x.desc, x.buttons)).join(''), add);
+    const add = full ? '<span class="igs-edit-add is-off" title="已满格，请先摘下一项">＋ 添加特质</span>' : addPanel(name, items.map((t) => t.id), nsfwOn, usage, level, attrs, advancedOpen);
+    return editCard('特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => editRow(x.title, x.desc, x.buttons, x.waived)).join(''), add) + traitNoteField(name, model);
+}
+
+// 「评定注意」：用户写给特质评定的说明，失焦即写进聊天存档；只用于特质评定，不进正文提示词。
+export const TRAIT_NOTE_MAX = 200;
+function traitNoteField(name, model) {
+    const value = (model.traitNotes && model.traitNotes[name]) || '';
+    return '<label class="igs-settings-field"><span>评定注意</span><textarea data-stats-trait-note="' + esc(name) + '" maxlength="' + TRAIT_NOTE_MAX + '" rows="3" placeholder="例如：懦弱胆小，不记仇；虽然是蛇妖，但性格温顺" aria-label="评定注意">' + esc(value) + '</textarea></label>';
 }
 
 // 「其他角色」折叠头里的只读小胶囊：最多 2 个，其余收成「+N」；按名字与阶段的字数给预算，窄屏单行放不下时少显示几个。
 const CHIP_MAX = 2;
 const CHIP_BUDGET = 22;
 export function renderPersonChips(name, stage, model) {
-    const { shown } = shownTraits(name, model);
+    const shown = shownTraits(name, model).shown.filter((x) => !x.waived);
     if (!shown.length) return '';
     let used = Array.from(name).length + Array.from(stage || '').length + 2;
     const keep = [];
@@ -152,5 +171,5 @@ export function renderPersonChips(name, stage, model) {
         used += cost;
     }
     const rest = shown.length - keep.length;
-    return '<span class="igs-person-chips">' + keep.map((x) => tag(x.title)).join('') + (rest > 0 ? '<span class="igs-person-more">+' + rest + '</span>' : '') + '</span>';
+    return '<span class="igs-person-chips">' + keep.map((x) => tag(x.title, x.off)).join('') + (rest > 0 ? '<span class="igs-person-more">+' + rest + '</span>' : '') + '</span>';
 }

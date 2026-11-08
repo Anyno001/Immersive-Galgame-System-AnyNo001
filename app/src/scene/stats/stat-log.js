@@ -13,7 +13,7 @@ export const STAT_LOG_CHARACTER = '主角';
 // 正文里与数值相关的标签（igs-stat 与 igs-check）。标签变了，对应楼层记录就不再适用。
 const TAG_PATTERN = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]|\[igs-check:[^\]\n]*\]/gi;
 const META_KEYS = Object.freeze(['check', 'checks', 'preroll', 'note', 'flags', 'pendingRoll', 'favorMode', 'favorTier', 'strengthRev', 'intimateCost', 'manual', 'bondEvents', 'reviewEvents']);
-const TYPE_OF_PREFIX = Object.freeze({ chat: 'chat', skill: 'skill-def', merge: 'skill-merge', sheet: 'sheet', base: 'base', edit: 'base', hero: 'base', queue: 'queue', notified: 'notified', learned: 'learned', force: 'force', aptitude: 'aptitude', trait: 'trait', counter: 'counter', heronote: 'heronote', romance: 'romance', fame: 'fame', traitinit: 'trait' });
+const TYPE_OF_PREFIX = Object.freeze({ chat: 'chat', skill: 'skill-def', merge: 'skill-merge', sheet: 'sheet', base: 'base', edit: 'base', hero: 'base', queue: 'queue', notified: 'notified', learned: 'learned', force: 'force', aptitude: 'aptitude', trait: 'trait', counter: 'counter', heronote: 'heronote', romance: 'romance', fame: 'fame', traitinit: 'trait', traitnote: 'trait', status: 'status', cycle: 'status' });
 export const STAT_CHAT_RECORD_TYPES = Object.freeze(Object.values(TYPE_OF_PREFIX));
 // 旧存档的六个属性名 → 战斗六维名（含原样保留的三项），用来从旧百分制属性反推六维倾向。
 const LEGACY_SCORE_NAMES = Object.freeze({ 健康: '体质', 力量: '力量', 敏捷: '敏捷', 理智: '智力', 观察: '感知', 魅力: '魅力' });
@@ -142,6 +142,9 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     for (const [name, marks] of Object.entries(clean.traits)) map.set(`trait:${name}`, marks);
     for (const [name, n] of Object.entries(clean.counters)) map.set(`counter:${name}`, n);
     for (const [name, text] of Object.entries(clean.heroNotes)) map.set(`heronote:${name}`, text);
+    for (const [name, text] of Object.entries(clean.traitNotes)) map.set(`traitnote:${name}`, text);
+    for (const [name, list] of Object.entries(clean.statuses)) map.set(`status:${name}`, list);
+    for (const [name, list] of Object.entries(clean.cycles)) map.set(`cycle:${name}`, list);
     for (const name of clean.romanceSeen) map.set(`romance:${name}`, true);
     if (clean.fameBars.length) map.set('fame:bars', clean.fameBars);
     map.set('queue:skills', clean.queue.skills);
@@ -171,7 +174,7 @@ export function diffChatRecords(baseline, entries, { tag = '', createdAt = 0 } =
 
 // 键值表 → 聊天级设置对象（diffChatRecords 的逆过程）。
 export function restoreChat(map) {
-    const raw = { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [] };
+    const raw = { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {} };
     const learned = {};
     let chatEnabled = false;
     let buildMode = null;
@@ -197,6 +200,9 @@ export function restoreChat(map) {
         else if (prefix === 'aptitude') raw.aptitude[name] = value;
         else if (prefix === 'trait') raw.traits[name] = value;
         else if (prefix === 'heronote') raw.heroNotes[name] = value;
+        else if (prefix === 'traitnote') raw.traitNotes[name] = value;
+        else if (prefix === 'status') raw.statuses[name] = value;
+        else if (prefix === 'cycle') raw.cycles[name] = value;
         else if (prefix === 'counter') raw.counters[name] = value;
         else if (prefix === 'romance' && value === true) raw.romanceSeen.push(name);
         else if (prefix === 'fame' && name === 'bars') raw.fameBars = value;

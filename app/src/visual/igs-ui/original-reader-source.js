@@ -193,6 +193,9 @@ const ORIGINAL_READER_STYLE_TEXT = `
 .igs-hud-track{position:relative;min-width:calc(72px * var(--igs-hud-scale,1));height:calc(5px * var(--igs-hud-scale,1));border-radius:999px;background:rgba(255,255,255,.14);overflow:hidden;}
 .igs-hud-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;}
 .igs-hud-metric-value{min-width:7ch;white-space:nowrap;font-size:calc(10px * var(--igs-hud-scale,1));font-weight:600;color:rgba(255,255,255,.72);text-align:left;font-variant-numeric:tabular-nums;}
+.igs-hud-heart{display:inline-flex;gap:calc(2px * var(--igs-hud-scale,1));margin-left:calc(4px * var(--igs-hud-scale,1));vertical-align:middle;}
+.igs-hud-heart-dot{display:block;width:calc(4px * var(--igs-hud-scale,1));height:calc(4px * var(--igs-hud-scale,1));border-radius:50%;background:#5a5a64;}
+.igs-hud-heart-dot.is-on{background:#ff8cb4;}
 .igs-hud-overflow{grid-column:2;justify-self:end;font-size:calc(10px * var(--igs-hud-scale,1));color:rgba(255,255,255,.55);}
 #igs-option-bubbles{position:absolute;z-index:6;display:flex;flex-direction:column;gap:8px;max-height:60%;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;pointer-events:auto;}
 #igs-option-bubbles::-webkit-scrollbar{display:none;}

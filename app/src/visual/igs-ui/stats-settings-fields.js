@@ -6,6 +6,7 @@ import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abiliti
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
+import { CHANGE_CAP_TEXT } from '../../scene/stats/stat-status-defs.js';
 import { BASE_ATTRIBUTES, grudgeTier } from '../../scene/stats/stat-state.js';
 import { FAME_BAR_MAX } from '../../scene/stats/stat-fame.js';
 import { compileCaptureRegex } from '../../scene/stats/stat-date.js';
@@ -300,7 +301,7 @@ export function renderStatsHeroTail(model, advancedOpen = () => '') {
     const attrEdit = model.heroAttrs ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button></div>' : '';
     return renderTraitView(PROTAGONIST_KEY, model)
         + viewBlock('data-stats-fame', '声望', `${fame.length}/${FAME_BAR_MAX}`, fame.map((r) => `<span class="igs-mood-review-chip igs-trait-chip is-tag" data-stats-fame-row="${esc(r.name)}"><b>${esc(r.name)} · ${esc(r.tier || r.kind)}</b></span>`).join(''))
-        + editFold('stats-hero-edit', advancedOpen, advancedOpen('stats-hero-edit') ? renderTraitEdit(PROTAGONIST_KEY, model) + renderFameEdit(fame) + attrEdit : '');
+        + editFold('stats-hero-edit', advancedOpen, advancedOpen('stats-hero-edit') ? renderTraitEdit(PROTAGONIST_KEY, model, advancedOpen) + renderFameEdit(fame) + attrEdit : '');
 }
 
 // 声望编辑列表：每行名字 + 性质·档位 + 「关闭」，末行「＋ 新增声望」（最多三条）。按钮直接写聊天存档。
@@ -309,7 +310,7 @@ function renderFameEdit(list) {
         const pairs = r.pairs ? (r.pairs.length ? r.pairs.map((p) => `与${p.partner}的组合：${p.tier}`).join(' · ') : '暂无搭档') : '';
         return editRow(r.name, [r.kind, r.tier, pairs].filter(Boolean).join(' · '), dropButton(`stats-op:fame-remove:${encodeURIComponent(r.name)}`, '关闭'));
     }).join('');
-    const add = list.length < FAME_BAR_MAX ? '<button type="button" class="igs-edit-add" data-action="stats-op:fame-add" title="记录群体对主角的看法，如粉丝、信众、路人；开条后写进提示词并参与结算，最多三条">＋ 新增声望</button>' : '';
+    const add = list.length < FAME_BAR_MAX ? '<button type="button" class="igs-edit-add" data-action="stats-op:fame-add" title="记录群体对主角的看法，如粉丝、信众、路人；开条后写进提示词并参与结算，最多十条">＋ 新增声望</button>' : '';
     return editCard('声望', `${list.length}/${FAME_BAR_MAX}`, rows, add);
 }
 
@@ -402,8 +403,8 @@ function heroNoteField(name, notes, drafts) {
 const HERO_NOTE_MAX = 40;
 
 // 「编辑」折叠里的内容：特质编辑列表，之后是备注。数值与角色卡按钮由调用方放在前面。
-function personEdit(name, model, drafts, lead = '') {
-    return lead + renderTraitEdit(name, model) + heroNoteField(name, model.heroNotes, drafts);
+function personEdit(name, model, drafts, lead = '', advancedOpen = () => '') {
+    return lead + renderTraitEdit(name, model, advancedOpen) + heroNoteField(name, model.heroNotes, drafts);
 }
 
 // 「其他角色」：每人一张卡，人际数值在上，角色卡折叠在下。
@@ -425,14 +426,14 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
             + (sheet ? renderSheetPart(sheet) : '')
             + editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(c.name, model, noteDrafts, `<div class="igs-stats-hero-actions">`
                 + `<button class="igs-settings-action" data-action="stats-op:relation-set:${id}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改数值</button>`
-                + sheetOps(c.name, Boolean(sheet)) + '</div>') : '')
+                + sheetOps(c.name, Boolean(sheet)) + '</div>', advancedOpen) : '')
             + '</details>';
     });
     const sheetOnly = [...sheetOf.values()].map((s) => {
         const key = `stats-person-${s.name}`;
         const editKey = `stats-edit-${s.name}`;
         return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(s.name)}</b>${renderPersonChips(s.name, '', model)}</summary>${renderSheetPart(s)}`
-            + `${editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(s.name, model, noteDrafts, `<div class="igs-stats-hero-actions">${sheetOps(s.name, true)}</div>`) : '')}</details>`;
+            + `${editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(s.name, model, noteDrafts, `<div class="igs-stats-hero-actions">${sheetOps(s.name, true)}</div>`, advancedOpen) : '')}</details>`;
     });
     const list = [...people, ...sheetOnly].join('') || '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成角色卡：${model.pendingPeople.map(esc).join('、')}</div>` : '';
@@ -455,7 +456,18 @@ export function renderStatsHeroRecords(model, advancedOpen = () => '') {
 export function renderStatsArchive(model, advancedOpen = () => '', { logByRole = false } = {}) {
     if (!model) return NO_ARCHIVE;
     const n = roundText;
-    const logLine = (r, withTarget) => `<div class="igs-source-filter-note">#${n(r.messageId)} ${withTarget ? `${esc(r.target)} ` : ''}${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}</div>`;
+    const head = (r, withTarget) => `#${n(r.messageId)} ${withTarget ? `${esc(r.target)} ` : ''}${esc(r.key)} ${n(r.from)}→${n(r.to)}${r.note ? `（${esc(r.note)}）` : ''}`;
+    // 带明细的记录可展开：完整公式、被截原因、同楼丢弃的那条、参与的特质。
+    const logLine = (r, withTarget) => {
+        const rows = Array.isArray(r.calc) ? r.calc : [];
+        const extra = [];
+        if (r.capped && CHANGE_CAP_TEXT[r.capped]) extra.push(`被截住：${CHANGE_CAP_TEXT[r.capped]}`);
+        if (r.dropped) extra.push(`同楼丢弃：${esc(r.dropped)}`);
+        if (Array.isArray(r.traitTags) && r.traitTags.length) extra.push(`特质：${r.traitTags.map(esc).join('、')}`);
+        if (!rows.length && !extra.length) return `<div class="igs-source-filter-note">${head(r, withTarget)}</div>`;
+        const lines = [...rows.map((c) => `${esc(c.label)}：${esc(c.value)}`), ...extra];
+        return `<details class="igs-log-calc"><summary class="igs-source-filter-note">${head(r, withTarget)}</summary>${lines.map((t) => `<div class="igs-source-filter-note">${t}</div>`).join('')}</details>`;
+    };
     const groups = model.logGroups || [];
     const logView = segmentedInput('', logByRole ? 'role' : 'time', [['time', '按时间'], ['role', '按角色']], '变动记录排列', { action: 'stats-log-view' });
     let log;

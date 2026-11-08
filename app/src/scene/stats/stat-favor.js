@@ -3,6 +3,7 @@ import { FAVOR_DELTA, FAVOR_INFERRED, FAVOR_NEG_BASE, FAVOR_POS_BASE, FAVOR_POS_
 import { rollOver } from './stat-rng.js';
 import { DIM_MAX, DIM_MIN, clamp, dimMin } from './stat-state.js';
 import { amplifyLimit, guardDrop, scaleAmount } from './stat-traits.js';
+import { CHANGE_CAP, calcRow } from './stat-status-defs.js';
 
 // 特质倍率（只在 strengthRev ≥ 2 由结算传入）：scale = { up, down, jealous, noGrudge }，缺省全为 1，与旧结果一致。
 const unit = (scale, key) => (scale && Number.isFinite(scale[key]) ? scale[key] : 1);
@@ -164,21 +165,42 @@ export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, fl
     let roll = null;
     let burst = false;
     let note = null;
+    let capped = null;
+    const rows = [];
+    const rowTag = (lv) => `${d.value}·${lv}`;
     if (!positive) {
         delta = FAVOR_NEG_BASE[level];
-        if (unit(scale, 'down') !== 1) delta = -guardDrop('好感', scaleAmount(-delta, unit(scale, 'down')));
+        rows.push(calcRow(`${rowTag(level)} 基础`, delta));
+        if (unit(scale, 'down') !== 1) { delta = -guardDrop('好感', scaleAmount(-delta, unit(scale, 'down'))); rows.push(calcRow('特质倍率', unit(scale, 'down'))); }
         if (vivid) heart = level === '小' ? Math.max(0, heart0 - 2) : 0;
     } else {
         const daily = character.daily;
+        const asked = level;
         if (vivid && level === '大') level = daily.bigUsed ? '中' : level;
+        if (asked !== level) capped = CHANGE_CAP.bigUsed;
         const base = posBaseOf(tier, rev)[level];
+        rows.push(calcRow(`${rowTag(level)} 基础`, base));
+        if (asked !== level) rows.push(calcRow('今日大档已用', '大降为中'));
         const gained = daily.gained.好感 || 0;
         const cap = vivid ? amplifyLimit(vividDailyMax(from), unit(scale, 'up')) : dailyMax;
-        const room = (amount) => Math.max(0, Math.min(amount, floorRoom, cap - gained));
+        const room = (amount) => {
+            const left = cap - gained;
+            const out = Math.max(0, Math.min(amount, floorRoom, left));
+            if (out < amount) {
+                if (left <= floorRoom) { capped = CHANGE_CAP.daily; rows.push(calcRow('今日剩余额度', Math.max(0, left))); } else rows.push(calcRow('单楼剩余额度', Math.max(0, floorRoom)));
+            }
+            return out;
+        };
+        const traitRow = () => { if (unit(scale, 'up') !== 1) rows.push(calcRow('特质倍率', unit(scale, 'up'))); };
+        const rollRow = (check, fail) => rows.push(calcRow(`掷骰 ${check.roll}（需大于好感 ${Math.max(0, from)}）`, check.passed ? '通过' : fail));
         if (vivid) {
-            const amount = Math.max(1, Math.round(base * (from > 0 ? vividCoef(from) : 1) * coef));
+            const stageCoef = from > 0 ? vividCoef(from) : 1;
+            const amount = Math.max(1, Math.round(base * stageCoef * coef));
+            if (from > 0) rows.push(calcRow(`阶段倍率 ${stageOf(from).name}`, stageCoef));
+            traitRow();
             if (level === '小') {
                 const total = heart0 + amount;
+                rows.push(calcRow('心意槽', `${heart0} + ${amount} = ${total} / ${HEART_FULL}`));
                 if (total >= HEART_FULL) {
                     delta = room(HEART_BURST_GAIN);
                     if (delta > 0) { heart = total - HEART_FULL; burst = true; note = HEART_BURST_NOTE; } else { heart = HEART_FULL - 1; delta = 0; }
@@ -188,21 +210,28 @@ export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, fl
             const check = rollOver(from, random);
             roll = check.roll;
             const full = Math.max(1, Math.round(base * coef));
+            rollRow(check, '未通过，减半');
+            traitRow();
             delta = room(check.passed ? full : Math.max(1, Math.floor(full / 2)));
         } else if (rev >= 1) {
             // 困难档读强度：失败只给 1。
             const check = rollOver(from, random);
             roll = check.roll;
+            rollRow(check, '未通过，只给 1');
+            traitRow();
             delta = room(check.passed ? Math.max(1, Math.round(base * coef)) : 1);
         } else {
             const check = rollOver(from, random);
             roll = check.roll;
             const scaled = check.passed ? Math.max(1, Math.round(FAVOR_DELTA[d.value] * coef)) : 1;
+            rollRow(check, '未通过，只给 1');
             delta = room(scaled);
         }
     }
     let to = clamp(from + delta, DIM_MIN, DIM_MAX);
+    const open = to;
     to = gateCap(from, to, character.unlocked);
+    if (to < open) { capped = CHANGE_CAP.gate; rows.push(calcRow('关口封顶', to)); }
     // 满溢被关口封顶压成 0 时不扣槽，处理与每日上限满时一致。
     if (burst && to === from) { heart = HEART_FULL - 1; burst = false; note = null; }
     const gain = Math.max(0, to - from);
@@ -211,7 +240,10 @@ export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, fl
     if (gain || bigUsed) daily = { ...daily, ...(bigUsed ? { bigUsed: true } : {}), gained: gain ? { ...daily.gained, 好感: (daily.gained.好感 || 0) + gain } : daily.gained };
     const next = { ...character, dims: to === from ? character.dims : { ...character.dims, 好感: to }, daily };
     if (vivid) next.heart = heart;
-    return { character: next, change: { dim: '好感', value: note || d.value, from, to, roll }, burst };
+    rows.push(calcRow('结果', to - from));
+    const change = { dim: '好感', value: note || d.value, from, to, roll, calc: rows, capped };
+    if (vivid) { change.heartFrom = heart0; change.heartTo = heart; }
+    return { character: next, change, burst };
 }
 
 // ---- 吃醋分两路（第八节）：芥蒂低时好感不降，芥蒂高时才扣好感；旧楼不走这里 ----

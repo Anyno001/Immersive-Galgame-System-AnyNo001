@@ -7,12 +7,15 @@
 // 只对 strengthRev ≥ 2 的楼生效：调用方在 rev ≥ 2 的分支里才调用这里的读取接口。
 
 import { TRAIT_RECIPES } from './stat-trait-recipes.js';
+import { TRAIT_MIGRATION } from './stat-status-defs.js';
 
 const NSFW_COMBO_NAMES = new Set(TRAIT_RECIPES.filter((r) => r.nsfw).map((r) => r.name));
 
-export const TRAIT_SRC = Object.freeze(['auto', 'manual', 'story', 'achieve']);
-// 数量上限：自动评定 3、同挂 5（自动 + 剧情 + 手动，合成按 1 格）、成就另计 2。
-export const TRAIT_LIMITS = Object.freeze({ auto: 3, total: 5, achieve: 2 });
+export const TRAIT_SRC = Object.freeze(['auto', 'manual', 'story', 'achieve', 'bound']);
+// 数量上限（C 批）：特质 5（自动评定最多 3）、出身 2、成就 2。
+// 占特质格：普通特质（含隐藏特质 entry.hidden）、合成的各组成项；合成占位本身不额外占格。
+// 不占特质格：捆绑项（src 'bound'，显示为本体附注）、出身分组、成就、迁出项（def.moveTo）。
+export const TRAIT_LIMITS = Object.freeze({ auto: 3, total: 5, origin: 2, achieve: 2 });
 // 倍率叠加范围。
 export const SCALE_MIN = 0.5;
 export const SCALE_MAX = 2;
@@ -20,10 +23,10 @@ export const SCALE_MAX = 2;
 export const LIKE_FROM = 26;
 export const HEARTBEAT_FROM = 51;
 
-export const TRAIT_GROUPS = Object.freeze(['存在', '心性', '体质', '天资', '剧情', '性格', '生存', '养成', '极端性格', '罪犯', '资源互换', '床上专属', '恋爱人设', '动物系', '题材设定', '恩情', '仇怨']);
+export const TRAIT_GROUPS = Object.freeze(['存在', '心性', '体质', '天资', '剧情', '性格', '生存', '养成', '极端性格', '罪犯', '资源互换', '床上专属', '恋爱人设', '动物系', '出身', '题材设定', '恩情', '仇怨']);
 
 // 旧存档键（随身、无实体、亲人、脆弱）与豁免亲密门槛沿用英文键；其余特质以显示名为键。
-const LEGACY_ID = Object.freeze({ 随身: 'companion', 无实体: 'bodiless', 亲人: 'kin', 脆弱: 'fragile', 豁免亲密门槛: 'forced' });
+const LEGACY_ID = Object.freeze({ 随身: 'companion', 无实体: 'bodiless', 亲人: 'kin', 脆弱: 'fragile', 豁免亲密门槛: 'forced', 天生媚骨: '魅魔体质' });
 // 角色档案里的旧标记字段（起始关系标签写在角色上），与聊天级勾选任一为真即生效。
 const CHARACTER_FLAG = Object.freeze({ companion: 'companion', bodiless: 'bodiless', kin: 'kin' });
 export const LEGACY_TRAIT_KEYS = Object.freeze(['companion', 'bodiless', 'kin', 'fragile']);
@@ -58,11 +61,70 @@ const JUDGE = Object.freeze({
     失忆: '人设或剧情写明失去了与主角有关的记忆',
     不眠: '人设写明不需要睡眠',
     附身: '人设写明附在他人身上',
+    蛇系: '人设或言行体现出「蛇系」的特点（含蛇妖）',
+    猫系: '人设或言行体现出「猫系」的特点（含猫妖）',
+    狐系: '人设或言行体现出「狐系」的特点（含狐妖、狐仙）',
+    龙系: '人设或言行体现出「龙系」的特点（傲气、护短；龙族是出身，另挂）',
+    鬼: '人设写明是鬼（幽灵、亡魂、鬼魂）',
+    魔族: '人设写明是魔族（魔界出身）',
+    妖王: '人设写明是妖王（统御群妖的大妖）',
+    龙族: '人设写明是龙族（龙的血脉或龙形）',
+    狐妖: '人设写明是狐妖或狐仙',
+    蛇妖: '人设写明是蛇妖',
 });
 
-const SRC_RANK = Object.freeze({ auto: 0, achieve: 1, story: 2, manual: 3 });
+// 旧名、别名：解析评定结果时一并认。别名合并 13 组：并入主特质，存档条目带 label 记录角色卡里的原叫法。
+const ALIASES = Object.freeze({
+    犬系: ['忠犬'], 蛇系: ['蛇妖系'], 猫系: ['猫妖系'], 狐系: ['狐妖系'],
+    鬼: ['鬼魅系'], 魔族: ['魔族系'], 妖王: ['妖王系'],
+    学霸: ['学者', '书生'], 野外生存: ['猎人', '拾荒者'], 讲义气: ['侠客'], 富二代: ['世家子弟'], 贤惠: ['厨艺好', '女仆', '执事'],
+    坚韧: ['道心坚定'], 混混: ['不良'], 内向: ['宅'], 病娇: ['地雷系'], 自恋: ['王子病'], 傻白甜: ['乖宝宝'], 傲娇: ['嘴硬心软'], 运动解压: ['运动系'],
+});
+// 旧存档键改名：键直接换成新名，不带 label（鬼魅系→鬼、魔族系→魔族、妖王系→妖王）。
+export const LEGACY_RENAME = Object.freeze({ 鬼魅系: '鬼', 魔族系: '魔族', 妖王系: '妖王' });
+// 删除表：读旧档时静默忽略。心魔改为状态（走火入魔），其余交给种族或技能。
+export const DELETED_TRAITS = Object.freeze(['商人', '囤积癖', '护卫', '天才', '剑修', '体修', '魔法师', '异能者', '精灵血统', '仿生人', '基因改造', '招鬼体质', '学生会长', '废柴', '电波系', '文学少女', '心魔']);
+const ALIAS_TO = new Map();
+for (const [main, list] of Object.entries(ALIASES)) for (const a of list) if (!LEGACY_RENAME[a]) ALIAS_TO.set(a, main);
+// 旧键 → { key: 新键, label?: 原叫法 }；已是新键或表外键原样返回。
+const canonKey = (key) => {
+    if (LEGACY_RENAME[key]) return { key: LEGACY_RENAME[key] };
+    if (ALIAS_TO.has(key)) return { key: ALIAS_TO.get(key), label: key };
+    return { key };
+};
 
-// 行：[显示名, 分组, 题材子类, 互斥（逗号分隔显示名）, 主角可用, 仅 NSFW, 双向, 效果说明]
+// 捆绑特质：本体 → { id: 捆绑项, waivable: 人设写明相反性格时可否豁免 }。捆绑项占格、不受六维门槛限制、不能单独摘下。
+export const BUNDLES = Object.freeze({
+    龙族: { id: '逆鳞', waivable: false },
+    妖王: { id: '控制狂', waivable: true },
+    魔族: { id: '睚眦必报', waivable: true },
+    鬼: { id: '怕光', waivable: false },
+    狼系: { id: '占有欲强', waivable: true },
+    犬系: { id: '醋坛子', waivable: true },
+    猫系: { id: '傲娇', waivable: true },
+    狐系: { id: '腹黑', waivable: true },
+    蛇系: { id: '记仇', waivable: true },
+    兔系: { id: '敏感', waivable: true },
+    熊系: { id: '瞌睡虫', waivable: true },
+    鹰系: { id: '好胜', waivable: true },
+    鹿系: { id: '害羞', waivable: true },
+    病娇: { id: '黏人', waivable: true },
+    战斗狂: { id: '好胜', waivable: false },
+    狂信徒: { id: '偏执狂', waivable: true },
+    吝啬鬼: { id: '精打细算', waivable: false },
+    杀手: { id: '浅眠', waivable: true },
+    海王: { id: '花心', waivable: false },
+    富二代: { id: '败家子', waivable: true },
+    贪吃鬼: { id: '大胃王', waivable: true },
+    哨兵: { id: '浅眠', waivable: false },
+    吸血鬼: { id: '怕光', waivable: false },
+});
+// 只作捆绑项、不单独挂（不进手动添加列表，也不让副模型单独挑）。
+const BOUND_ONLY = new Set(['逆鳞']);
+
+const SRC_RANK = Object.freeze({ auto: 0, achieve: 1, story: 2, manual: 3, bound: 4 });
+
+// 行：[显示名, 分组, 题材子类, 互斥（逗号分隔显示名）, 主角可用, 仅 NSFW, 双向, 效果说明, 六维门槛（可省，建卡分数 3–18，全部满足才合格）]
 const TRAIT_ROWS = [
     ["随身", "存在", "", "已故", 0, 0, 0, "不做好感冷却；在场名单默认在场"],
     ["无实体", "存在", "", "附身", 0, 0, 0, "不结算体力、亲密、伤势；相关标签丢弃"],
@@ -84,10 +146,10 @@ const TRAIT_ROWS = [
     ["抖M", "心性", "", "", 0, 0, 0, "压力上升时欲望同步 +小"],
     ["抖S", "心性", "", "", 0, 0, 0, "主角压力上升或在亲密对决中处于下风的那一楼，其欲望小升；亲密那一楼其欲望额外小升"],
     ["病秧子", "体质", "", "强健", 1, 0, 0, "体力消耗略快"],
-    ["强健", "体质", "", "病秧子", 1, 0, 0, "体力消耗减半"],
-    ["魅魔体质", "体质", "", "", 1, 0, 0, "亲密时回复体力而非消耗"],
+    ["强健", "体质", "", "病秧子", 1, 0, 0, "体力消耗减半", { 体质: 13 }],
+    ["天生媚骨", "体质", "", "", 1, 0, 0, "亲密时回复体力而非消耗（魅魔、合欢宗、狐媚一类）；招人觊觎：在场的其他角色对其欲望上升略快", { 体质: 14 }],
     ["不眠", "体质", "", "", 1, 0, 0, "不需要入睡；兜底不补入睡"],
-    ["过目不忘", "天资", "", "", 1, 0, 0, "了解不下降（失忆除外）"],
+    ["过目不忘", "天资", "", "", 1, 0, 0, "了解不下降（失忆除外）", { 智力: 14 }],
     ["幸运儿", "天资", "", "倒霉蛋", 1, 0, 0, "检定多一个奖励骰"],
     ["倒霉蛋", "天资", "", "幸运儿", 1, 0, 0, "检定多一个惩罚骰"],
     ["豁免亲密门槛", "剧情", "", "", 0, 0, 0, "见现有 intimacyForced"],
@@ -116,42 +178,43 @@ const TRAIT_ROWS = [
     ["冒失鬼", "性格", "", "", 1, 0, 0, "敏捷、手工类检定多一个惩罚骰"],
     ["老好人", "性格", "", "", 1, 0, 0, "求助类事件必然答应，容易结下或欠下人情；芥蒂上升减半"],
     ["务实", "性格", "", "浪漫", 0, 0, 0, "送礼、帮忙类好感上升略快；约会类略慢"],
-    ["耐饿", "生存", "", "易饿", 1, 0, 0, "漏餐不扣体力"],
+    ["耐饿", "生存", "", "易饿", 1, 0, 0, "漏餐不扣体力", { 体质: 12 }],
     ["易饿", "生存", "", "耐饿", 1, 0, 0, "漏餐体力加倍下降；兜底进食提醒提前"],
     ["浅眠", "生存", "", "瞌睡虫", 1, 0, 0, "入睡回复体力减半；夜间被打扰压力上升"],
     ["瞌睡虫", "生存", "", "浅眠", 1, 0, 0, "入睡回复体力加倍；体力低于一半时更容易被判昏睡"],
-    ["自愈", "生存", "", "伤口难愈", 1, 0, 0, "伤势恢复天数减半"],
+    ["自愈", "生存", "", "伤口难愈", 1, 0, 0, "伤势恢复天数减半", { 体质: 13 }],
     ["伤口难愈", "生存", "", "自愈", 1, 0, 0, "伤势恢复天数加倍"],
-    ["耐痛", "生存", "", "怕痛", 1, 0, 0, "受伤时压力不上升；重伤体力扣减减半"],
+    ["耐痛", "生存", "", "怕痛", 1, 0, 0, "受伤时压力不上升；重伤体力扣减减半", { 体质: 13, 感知: 11 }],
     ["怕痛", "生存", "", "耐痛", 1, 0, 0, "受伤时压力额外上升"],
-    ["百毒不侵", "生存", "", "", 1, 0, 0, "中毒、醉酒类体力扣减无效（若有对应标签）"],
-    ["耐寒", "生存", "", "", 1, 0, 0, "寒冷天气、环境类体力扣减减半（读天气与地点标签，读不到则不生效）"],
-    ["耐热", "生存", "", "", 1, 0, 0, "炎热天气、环境类体力扣减减半（读天气与地点标签，读不到则不生效）"],
+    ["百毒不侵", "生存", "", "", 1, 0, 0, "中毒、醉酒类体力扣减无效（若有对应标签）", { 体质: 15 }],
+    ["耐寒", "生存", "", "", 1, 0, 0, "寒冷天气、环境类体力扣减减半（读天气与地点标签，读不到则不生效）", { 体质: 12 }],
+    ["耐热", "生存", "", "", 1, 0, 0, "炎热天气、环境类体力扣减减半（读天气与地点标签，读不到则不生效）", { 体质: 12 }],
     ["恐高", "生存", "", "", 1, 0, 0, "高处地点压力缓升（读地点关键词，读不到则不生效）"],
     ["怕黑", "生存", "", "", 1, 0, 0, "夜晚、黑暗地点压力缓升（读地点关键词，读不到则不生效）"],
+    ["怕光", "生存", "", "", 1, 0, 0, "白天、明亮地点压力缓升（读时段与地点关键词，读不到则不生效）"],
     ["幽闭", "生存", "", "", 1, 0, 0, "狭窄密闭地点压力缓升（读地点关键词，读不到则不生效）"],
-    ["野外生存", "生存", "", "", 1, 0, 0, "野外地点进食、入睡兜底照常回复，不因缺食缺眠额外扣体力"],
+    ["野外生存", "生存", "", "", 1, 0, 0, "野外地点进食、入睡兜底照常回复，不因缺食缺眠额外扣体力", { 感知: 12, 体质: 11, 智力: 10 }],
     ["旧伤", "生存", "", "", 1, 0, 0, "阴雨天或剧烈运动时体力额外下降；可经剧情（副模型判定）治愈失去"],
-    ["生财有道", "养成", "", "不善营生", 1, 0, 0, "打工收入高一档"],
+    ["生财有道", "养成", "", "不善营生", 1, 0, 0, "打工收入高一档", { 智力: 12, 感知: 11 }],
     ["不善营生", "养成", "", "生财有道", 1, 0, 0, "打工收入低一档"],
     ["精打细算", "养成", "", "败家子,赌徒", 1, 0, 0, "花钱略慢"],
     ["败家子", "养成", "", "精打细算,吝啬鬼", 1, 0, 0, "花钱略快；金钱每天自动小减（乱花）"],
     ["勤奋", "养成", "", "懒虫", 1, 0, 0, "技能成长检定多掷一次取好"],
     ["懒虫", "养成", "", "勤奋,工作狂", 1, 0, 0, "技能成长每两天才可一次"],
-    ["学霸", "养成", "", "", 1, 0, 0, "学习、阅读类技能成长涨幅加一"],
-    ["话痨", "养成", "", "嘴笨", 1, 0, 0, "社交类检定多一个奖励骰"],
+    ["学霸", "养成", "", "", 1, 0, 0, "学习、阅读类技能成长涨幅加一", { 智力: 13 }],
+    ["话痨", "养成", "", "嘴笨", 1, 0, 0, "社交类检定多一个奖励骰", { 魅力: 12 }],
     ["嘴笨", "养成", "", "话痨", 1, 0, 0, "社交类检定多一个惩罚骰"],
-    ["人见人爱", "养成", "", "不讨喜", 1, 0, 0, "所有角色对其好感上升略快（只主角可挂）"],
+    ["人见人爱", "养成", "", "不讨喜", 1, 0, 0, "所有角色对其好感上升略快（只主角可挂）", { 魅力: 14 }],
     ["不讨喜", "养成", "", "人见人爱", 1, 0, 0, "所有角色对其好感上升略慢（只主角可挂）"],
     ["社恐", "养成", "", "社牛", 1, 0, 0, "对方好感在「无感」以下时，好感、信任上升减半"],
     ["社牛", "养成", "", "社恐", 1, 0, 0, "起始关系「陌生」按「熟人」计"],
     ["大胃王", "养成", "", "", 1, 0, 0, "进食回复体力加倍；漏餐时体力额外下降"],
     ["早起鸟", "养成", "", "夜猫子", 1, 0, 0, "入睡回复体力略多；熬夜体力消耗加倍"],
     ["夜猫子", "养成", "", "早起鸟", 1, 0, 0, "夜间体力消耗减半；早起体力消耗加倍"],
-    ["千杯不醉", "养成", "", "", 1, 0, 0, "饮酒不扣体力、不触发醉酒（若有醉酒结算）"],
+    ["千杯不醉", "养成", "", "", 1, 0, 0, "饮酒不扣体力、不触发醉酒（若有醉酒结算）", { 体质: 13 }],
     ["贵人相助", "养成", "", "", 1, 0, 0, "每天第一次失败的检定可重掷一次"],
-    ["战斗狂", "极端性格", "", "厌战", 1, 0, 0, "战斗胜利压力下降一大档；多日无战斗每天压力缓升；战斗类检定多一个奖励骰"],
-    ["厌战", "极端性格", "", "战斗狂,杀手", 1, 0, 0, "战斗那一楼压力上升加倍；和平解决冲突时压力下降一大档"],
+    ["战斗狂", "极端性格", "", "厌战", 1, 0, 0, "战斗胜利压力下降一大档，撤退压力小升；多日无战斗每天压力缓升；战斗类检定多一个奖励骰；开战冷却楼数减半", { 力量: 13, 体质: 11 }],
+    ["厌战", "极端性格", "", "战斗狂,杀手", 1, 0, 0, "战斗那一楼压力上升加倍，撤退压力下降一小档；和平解决冲突时压力下降一大档"],
     ["狂信徒", "极端性格", "", "无神论者", 1, 0, 0, "对信仰对象（角色卡指定）信任不下降、芥蒂不上升；有人质疑信仰时其芥蒂上升加倍"],
     ["无神论者", "极端性格", "", "狂信徒", 1, 0, 0, "不受信仰、宗教、神迹类事件影响；神秘学类压力上升减半"],
     ["花痴", "极端性格", "", "无欲无求", 1, 0, 0, "对所有颜值高的角色（人设写明）好感、欲望上升加倍；冷却加倍"],
@@ -165,14 +228,14 @@ const TRAIT_ROWS = [
     ["赌徒", "极端性格", "", "精打细算", 1, 0, 0, "检定可押上金钱：成功收入翻倍，失败金钱扣减翻倍；不赌的日子压力缓升"],
     ["疯批", "极端性格", "", "", 1, 0, 0, "压力不影响行动；压力越高，其欲望与好感上升越快（压力过半起略快）"],
     ["通缉犯", "罪犯", "", "", 1, 0, 0, "人多的公共地点每楼压力小升；其身份被揭开那一楼，在场角色对其信任下降一档"],
-    ["惯偷", "罪犯", "", "", 1, 0, 0, "偷窃类事件成功那一楼金钱小增；被发现那一楼在场角色对其信任下降一大档"],
-    ["骗子", "罪犯", "", "", 1, 0, 0, "他人对其了解上升减半；谎言被揭穿那一楼，对方信任下降一大档、芥蒂上升一档"],
-    ["杀手", "罪犯", "", "厌战", 1, 0, 0, "战斗类检定多一个奖励骰；杀伤事件后其压力不上升"],
+    ["惯偷", "罪犯", "", "", 1, 0, 0, "偷窃类事件成功那一楼金钱小增；被发现那一楼在场角色对其信任下降一大档", { 敏捷: 13, 感知: 11 }],
+    ["骗子", "罪犯", "", "", 1, 0, 0, "他人对其了解上升减半；谎言被揭穿那一楼，对方信任下降一大档、芥蒂上升一档", { 魅力: 13, 智力: 11 }],
+    ["杀手", "罪犯", "", "厌战", 1, 0, 0, "战斗类检定多一个奖励骰；杀伤事件后其压力不上升", { 敏捷: 13, 力量: 11 }],
     ["黑帮", "罪犯", "", "", 1, 0, 0, "灰色收入：打工收入高一档；每天压力缓升"],
-    ["混混", "罪犯", "", "大佬", 1, 0, 0, "街头冲突类检定多一个奖励骰；他人对其信任上升略慢"],
-    ["大佬", "罪犯", "", "混混", 1, 0, 0, "开局金钱高一档；手下（同组织角色）对其信任不下降；每天压力缓升"],
+    ["混混", "罪犯", "", "大佬", 1, 0, 0, "街头冲突类检定多一个奖励骰；他人对其信任上升略慢", { 力量: 12, 体质: 10 }],
+    ["大佬", "罪犯", "", "混混", 1, 0, 0, "开局金钱高一档；手下（同组织角色）对其信任不下降；每天压力缓升", { 魅力: 13, 智力: 11 }],
     ["地头蛇", "罪犯", "", "", 1, 0, 0, "在其常驻地点，其压力不上升、他人对其芥蒂上升减半；离开常驻地点那一楼压力小升"],
-    ["黑客", "罪犯", "", "", 1, 0, 0, "技术类检定多一个奖励骰；被追查那一楼压力小升"],
+    ["黑客", "罪犯", "", "", 1, 0, 0, "技术类检定多一个奖励骰；被追查那一楼压力小升", { 智力: 14, 感知: 10 }],
     ["前科犯", "罪犯", "", "", 1, 0, 0, "他人对其信任上升减半；信任过半后改为略快（改过自新被认可）"],
     ["斯德哥尔摩", "罪犯", "", "", 1, 0, 0, "被挟持、关押期间，对挟持者不记芥蒂，好感上升略快"],
     ["共犯", "罪犯", "", "", 1, 0, 1, "两人一起做过坏事：彼此信任不下降；一方被抓那一楼，另一方压力上升一大档"],
@@ -182,9 +245,9 @@ const TRAIT_ROWS = [
     ["存款即安全感", "资源互换", "", "败家子", 1, 0, 0, "金钱在「富裕」档及以上时，每天压力额外下降一小档；跌出「富裕」那一楼压力小升"],
     ["运动解压", "资源互换", "", "", 1, 0, 0, "体力消耗「中」及以上那一楼，压力下降一小档"],
     ["睡一觉就好", "资源互换", "", "浅眠", 1, 0, 0, "入睡时压力下降加倍"],
-    ["拼命三郎", "资源互换", "", "", 1, 0, 0, "可透支体力：体力为零仍能行动，但次日体力上限减一档，持续一天"],
+    ["拼命三郎", "资源互换", "", "", 1, 0, 0, "可透支体力：体力为零仍能行动，但次日体力上限减一档，持续一天", { 体质: 12, 感知: 11 }],
     ["压力变动力", "资源互换", "", "情绪稳定", 1, 0, 0, "压力过半时，打工收入高一档、技能成长检定多一个奖励骰"],
-    ["体力怪物", "床上专属", "", "一碰就软", 1, 1, 0, "亲密时体力消耗减半"],
+    ["体力怪物", "床上专属", "", "一碰就软", 1, 1, 0, "亲密时体力消耗减半", { 体质: 14 }],
     ["一碰就软", "床上专属", "", "体力怪物", 1, 1, 0, "亲密时体力消耗略快、欲望上升略快"],
     ["敏感体质", "床上专属", "", "", 1, 1, 0, "亲密时欲望上升加倍"],
     ["反差萌", "床上专属", "", "花痴", 0, 1, 0, "平时欲望上升减半；当天发生亲密后，至当天结束欲望上升加倍"],
@@ -194,7 +257,7 @@ const TRAIT_ROWS = [
     ["夜夜笙歌", "床上专属", "", "无欲无求", 1, 1, 0, "欲望每天自然回升一档；连续两天未亲密，压力小升"],
     ["初体验", "床上专属", "", "", 1, 1, 0, "第一次亲密那一楼好感上升一大档、压力小升；之后自动摘下"],
     ["调教中", "床上专属", "", "", 0, 1, 0, "每次亲密后，其对主角欲望的自然消退下限提高一小档（最高到一半）；摘下即恢复"],
-    ["秒回血", "床上专属", "", "", 1, 1, 0, "亲密结束后体力回复一档"],
+    ["秒回血", "床上专属", "", "", 1, 1, 0, "亲密结束后体力回复一档", { 体质: 13 }],
     ["声控", "床上专属", "", "", 1, 1, 0, "正文出现低语、耳语、在耳边说话类描写的那一楼，其欲望上升加倍"],
     ["强势", "恋爱人设", "", "犬系", 0, 0, 0, "欲望上升略快；信任上升减半；芥蒂消退加倍"],
     ["护短", "恋爱人设", "", "", 0, 0, 0, "主角受伤、受委屈或压力上升「大」及以上的那一楼，对主角好感、信任额外上升一小档"],
@@ -218,8 +281,8 @@ const TRAIT_ROWS = [
     ["富二代", "恋爱人设", "", "社畜", 1, 0, 0, "开局金钱高一档；打工收入低一档"],
     ["电子宠物", "恋爱人设", "", "", 0, 0, 0, "主角多日不与其互动，其好感不降但压力上升加倍；主角一互动压力清回原值"],
     ["嘴替", "恋爱人设", "", "", 0, 0, 0, "主角压力上升「大」及以上那一楼，其在场替主角出头，引发冲突方对其芥蒂小升、主角压力小降"],
-    ["恋爱军师", "恋爱人设", "", "", 0, 0, 0, "主角对他人示好类检定在其在场时多一个奖励骰；其对主角欲望不上升"],
-    ["键盘侠", "恋爱人设", "", "", 1, 0, 0, "社交检定（言语对抗）多一个奖励骰；面对面冲突那一楼其压力小升"],
+    ["恋爱军师", "恋爱人设", "", "", 0, 0, 0, "主角对他人示好类检定在其在场时多一个奖励骰；其对主角欲望不上升", { 感知: 12, 智力: 11 }],
+    ["键盘侠", "恋爱人设", "", "", 1, 0, 0, "社交检定（言语对抗）多一个奖励骰；面对面冲突那一楼其压力小升", { 智力: 12, 魅力: 10 }],
     ["情绪稳定", "恋爱人设", "", "破碎感", 1, 0, 0, "压力单楼上升最多一档「中」"],
     ["占有欲强", "恋爱人设", "", "", 0, 0, 0, "主角与他人亲近的那一楼，不加芥蒂，改为欲望、压力各上升一小档；主角在场时好感不冷却"],
     ["傲娇", "恋爱人设", "", "", 0, 0, 0, "好感在「喜欢」以下时上升减半，过「喜欢」后上升加倍"],
@@ -237,34 +300,45 @@ const TRAIT_ROWS = [
     ["贪吃鬼", "恋爱人设", "", "", 0, 0, 0, "请客、送吃的、一起吃饭类事件好感上升加倍；饿着（漏餐）的那一楼其好感上升减半"],
     ["犬系", "动物系", "", "", 0, 0, 0, "信任上升加倍；芥蒂上升减半；主角多日不与其互动时其压力缓升（原「忠犬」并入）；与恋爱人设「强势」互斥"],
     ["猫系", "动物系", "", "", 0, 0, 0, "好感上升略慢、冷却减半；主角压力达七成以上时，其在场的那一楼主角压力额外下降"],
-    ["狐系", "动物系", "", "", 0, 0, 0, "了解上升减半；欲望上升略快；其对主角的社交检定多一个奖励骰"],
+    ["狐系", "动物系", "", "", 0, 0, 0, "了解上升减半；欲望上升略快；其对主角的社交检定多一个奖励骰", { 魅力: 12 }],
     ["兔系", "动物系", "", "", 0, 0, 0, "其压力上升略快；信任上升略快；主角在场时其压力额外下降"],
     ["狼系", "动物系", "", "", 0, 0, 0, "信任未过半时芥蒂上升略快；过半后好感不冷却；欲望上升略快"],
     ["熊系", "动物系", "", "", 0, 0, 0, "主角受伤那一楼，其对主角好感上升一大档；芥蒂上升减半"],
     ["蛇系", "动物系", "", "", 0, 0, 0, "好感上升减半、下降减半（难以打动，也难以失去）"],
-    ["Alpha", "题材设定", "ABO", "", 1, 0, 0, "信息素压制那一楼，被压制的 Omega 压力上升；易感期期间欲望、芥蒂上升略快"],
-    ["Beta", "题材设定", "ABO", "", 1, 0, 0, "不受信息素压制与安抚影响；无发情期、易感期"],
-    ["Omega", "题材设定", "ABO", "", 1, 0, 0, "发情期期间欲望上升加倍、体力消耗略快；被 Alpha 安抚那一楼压力下降一大档；被压制时压力上升"],
+    ["鹰系", "动物系", "", "", 0, 0, 0, "了解上升略快；信任上升减半；主角说谎被揭穿那一楼其芥蒂上升加倍"],
+    ["鹿系", "动物系", "", "", 0, 0, 0, "压力上升略快；主角在场时压力额外下降；芥蒂上升减半"],
+    ["鸟系", "动物系", "", "", 0, 0, 0, "主角多日不与其互动时好感冷却加倍；重逢那一楼好感上升一档"],
+    ["龙系", "动物系", "", "", 0, 0, 0, "体力消耗略慢、压力上升减半；被轻视或受辱的那一楼芥蒂上升略快"],
+    ["鬼", "出身", "妖异", "", 0, 0, 0, "了解上升减半；其在场时他人压力小升"],
+    ["魔族", "出身", "妖异", "", 0, 0, 0, "欲望上升略快；信任上升减半；战斗胜利那一楼压力下降一档"],
+    ["妖王", "出身", "妖异", "", 0, 0, 0, "他人对其芥蒂上升减半；其对弱于自己者好感上升减半（强者为尊）"],
+    ["龙族", "出身", "妖异", "", 0, 0, 0, "出身：龙族，捆绑逆鳞；可配合龙系性格，不强制"],
+    ["狐妖", "出身", "妖异", "", 0, 0, 0, "出身：狐妖，无数值效果；可配合狐系性格，不强制"],
+    ["蛇妖", "出身", "妖异", "", 0, 0, 0, "出身：蛇妖，无数值效果；可配合蛇系性格，不强制"],
+    ["逆鳞", "动物系", "", "", 0, 0, 0, "亲近者被伤害的那一楼，其芥蒂上升一大档、压力小升；对结怨对象的检定多一个奖励骰"],
+    ["Alpha", "出身", "ABO", "", 1, 0, 0, "信息素压制那一楼，被压制的 Omega 压力上升；易感期期间欲望、芥蒂上升略快"],
+    ["Beta", "出身", "ABO", "", 1, 0, 0, "不受信息素压制与安抚影响；无发情期、易感期"],
+    ["Omega", "出身", "ABO", "", 1, 0, 0, "发情期期间欲望上升加倍、体力消耗略快；被 Alpha 安抚那一楼压力下降一大档；被压制时压力上升"],
     ["已标记", "题材设定", "ABO", "", 1, 0, 1, "彼此好感不冷却；任一方与他人亲近，另一方压力上升一大档；被标记的 Omega 不再受其他 Alpha 压制"],
     ["信息素契合", "题材设定", "ABO", "", 1, 0, 1, "信息素安抚效果加倍；彼此欲望上升略快"],
-    ["哨兵", "题材设定", "哨向", "", 1, 0, 0, "嘈杂、战斗场景压力上升略快；结合向导在场时压力不上升；体力消耗减半"],
-    ["向导", "题材设定", "哨向", "", 1, 0, 0, "在场那一楼，哨兵压力下降一大档；进行疏导时自身体力小降"],
+    ["哨兵", "出身", "哨向", "", 1, 0, 0, "嘈杂、战斗场景压力上升略快；结合向导在场时压力不上升；体力消耗减半", { 感知: 14, 体质: 11 }],
+    ["向导", "出身", "哨向", "", 1, 0, 0, "在场那一楼，哨兵压力下降一大档；进行疏导时自身体力小降"],
     ["精神结合", "题材设定", "哨向", "", 1, 0, 1, "彼此好感不冷却、信任上升加倍；一方压力上升「大」及以上时另一方压力小升"],
     ["精神图景崩溃", "题材设定", "哨向", "", 1, 0, 0, "哨兵压力满时自动挂上，效果同压力转换「崩溃」；向导疏导后摘下"],
     ["精神体", "题材设定", "哨向", "", 1, 0, 0, "角色卡备注一行（动物名），不影响数值；可与动物系对应"],
-    ["蛋糕", "题材设定", "蛋糕叉", "", 1, 0, 0, "叉子在场时，叉子对其欲望上升加倍"],
-    ["叉子", "题材设定", "蛋糕叉", "", 1, 0, 0, "进食回复体力减半（尝不出味道）；与蛋糕亲密时体力回复一大档、压力下降"],
+    ["蛋糕", "出身", "蛋糕叉", "", 1, 0, 0, "叉子在场时，叉子对其欲望上升加倍"],
+    ["叉子", "出身", "蛋糕叉", "", 1, 0, 0, "进食回复体力减半（尝不出味道）；与蛋糕亲密时体力回复一大档、压力下降"],
     ["认出蛋糕", "题材设定", "蛋糕叉", "", 1, 0, 1, "叉子认出对方后挂上：叉子在场时蛋糕压力缓升；叉子对蛋糕好感过「喜欢」后转为「守护」——蛋糕不再紧张、叉子对蛋糕信任上升加倍。好感始终不到「喜欢」就一直停在危险的一侧，甜虐由剧情自然决定"],
-    ["兽人", "题材设定", "兽人", "", 1, 0, 0, "体力消耗略慢；发情季（关键词触发）欲望上升略快；可配合动物系表示兽种"],
+    ["兽人", "出身", "兽人", "", 1, 0, 0, "体力消耗略慢；发情季（关键词触发）欲望上升略快；可配合动物系表示兽种"],
     ["伴侣印记", "题材设定", "兽人", "", 1, 0, 1, "认定伴侣后彼此好感不冷却；任一方与他人亲近，另一方芥蒂上升一大档"],
-    ["吸血鬼", "题材设定", "吸血鬼", "", 1, 0, 0, "白天体力消耗略快、夜晚减半；多日未吸血每天压力缓升；吸血那一楼体力回复一大档"],
+    ["吸血鬼", "出身", "吸血鬼", "", 1, 0, 0, "白天体力消耗略快、夜晚减半；多日未吸血每天压力缓升；吸血那一楼体力回复一大档"],
     ["血仆", "题材设定", "吸血鬼", "", 1, 0, 0, "被吸血那一楼体力下降、对主人欲望小升；主人在场时压力下降"],
     ["血契", "题材设定", "吸血鬼", "", 1, 0, 1, "主从结契：彼此不冷却；主人只吸契约者的血时，吸血回复加倍"],
-    ["人鱼", "题材设定", "人鱼", "", 1, 0, 0, "水边、水下地点压力下降、体力回复加快；长时间离水每天体力额外下降"],
+    ["人鱼", "出身", "人鱼", "", 1, 0, 0, "水边、水下地点压力下降、体力回复加快；长时间离水每天体力额外下降"],
     ["人鱼之歌", "题材设定", "人鱼", "", 1, 0, 0, "其歌唱那一楼，听者对其欲望小升、压力下降"],
     ["契约者", "题材设定", "契约", "", 1, 0, 0, "身负契约一方（召唤师、阴阳师、魔法使）"],
-    ["式神", "题材设定", "契约", "", 1, 0, 0, "主人在场时体力消耗减半；主人压力上升「大」及以上时其压力同步小升"],
-    ["使魔", "题材设定", "契约", "", 1, 0, 0, "主人在场时体力消耗减半；主人压力上升「大」及以上时其压力同步小升"],
+    ["式神", "出身", "契约", "", 1, 0, 0, "主人在场时体力消耗减半；主人压力上升「大」及以上时其压力同步小升"],
+    ["使魔", "出身", "契约", "", 1, 0, 0, "主人在场时体力消耗减半；主人压力上升「大」及以上时其压力同步小升"],
     ["主从契约", "题材设定", "契约", "", 1, 0, 1, "彼此信任不下降；从者对主人芥蒂上升减半；违约（剧情判定）时自动解除并芥蒂上升一大档"],
     ["知恩图报", "恩情", "", "忘恩负义", 1, 0, 0, "恩情类状态效果加倍，且不会淡化"],
     ["忘恩负义", "恩情", "", "知恩图报", 0, 0, 0, "救命之恩过 7 天自动淡化为「欠你人情」"],
@@ -308,13 +382,15 @@ function buildDefs() {
     const idOf = (name) => LEGACY_ID[name] || name;
     const byName = new Map();
     const rows = [...TRAIT_ROWS, ['亲人', '存在', '', '', 0, 0, 0, '']];
-    for (const [name, group, sub, excl, protagonist, nsfw, bidir, desc] of rows) {
-        byName.set(name, { id: idOf(name), name, group, sub, exclusive: new Set(excl ? excl.split(',').map(idOf) : []), protagonist: protagonist === 1, nsfw: nsfw === 1, bidirectional: bidir === 1, desc: tidy(DESC_FIX[name] || desc), judge: JUDGE[name] || `人设写明其「${name}」的特点`, inject: INJECT[name] || null });
+    for (const [name, group, sub, excl, protagonist, nsfw, bidir, desc, req] of rows) {
+        const bundle = BUNDLES[name] ? Object.freeze({ id: idOf(BUNDLES[name].id), name: BUNDLES[name].id, waivable: BUNDLES[name].waivable }) : null;
+        byName.set(name, { id: idOf(name), name, group, sub, exclusive: new Set(excl ? excl.split(',').map(idOf) : []), protagonist: protagonist === 1, nsfw: nsfw === 1, bidirectional: bidir === 1, desc: tidy(DESC_FIX[name] || desc), judge: JUDGE[name] || `人设或言行体现出「${name}」`, inject: INJECT[name] || null, moveTo: TRAIT_MIGRATION[name] ? TRAIT_MIGRATION[name].to : null, candidate: !TRAIT_MIGRATION[name], req: req ? Object.freeze({ ...req }) : null, aliases: Object.freeze([...(ALIASES[name] || [])]), bundle, boundOnly: BOUND_ONLY.has(name) });
     }
     const list = [...byName.values()];
     // 组内互斥：动物系每人最多一个；ABO 三选一。
     for (const a of list) for (const b of list) {
         if (a === b) continue;
+        if (a.boundOnly || b.boundOnly) continue;
         if ((a.group === '动物系' && b.group === '动物系') || (a.sub === 'ABO' && b.sub === 'ABO' && a.group === '题材设定' && b.group === '题材设定')) a.exclusive.add(b.id);
     }
     // 互斥对称化。
@@ -328,6 +404,7 @@ export const RELATION_STATE_DEFS = Object.freeze(STATE_ROWS.map(([name, group, d
 
 const DEF_BY_ID = new Map([...TRAIT_DEFS, ...ACHIEVEMENT_DEFS].map((d) => [d.id, d]));
 const DEF_BY_NAME = new Map([...TRAIT_DEFS, ...ACHIEVEMENT_DEFS].map((d) => [d.name, d]));
+DEF_BY_NAME.set('魅魔体质', DEF_BY_ID.get('魅魔体质'));
 
 export const getTraitDef = (id) => DEF_BY_ID.get(id) || null;
 export const getTraitByName = (name) => DEF_BY_NAME.get(name) || null;
@@ -346,12 +423,16 @@ function cleanEntry(raw, key) {
     if (raw === true) return { on: true, src: 'manual' };
     if (!plain(raw) || raw.on !== true) return null;
     const src = TRAIT_SRC.includes(raw.src) ? raw.src : 'manual';
+    // 附加字段：label 为角色卡里写的原叫法（别名合并后显示用），hidden 为隐藏特质（占格，显示「？」由界面做）。
+    const extra = { ...(typeof raw.label === 'string' && raw.label && raw.label.length <= 12 ? { label: raw.label } : {}), ...(raw.hidden === true ? { hidden: true } : {}) };
+    if (src === 'bound') return typeof raw.by === 'string' && getTraitDef(canonKey(raw.by).key) ? { on: true, src, by: canonKey(raw.by).key } : null;
     if (isComboKey(key)) {
         // 组成项可以是特质键，也可以是关系状态名（救命之恩、已标记等，不占格）。
-        const parts = Array.isArray(raw.parts) ? raw.parts.filter((p) => typeof p === 'string' && (getTraitDef(p) || RELATION_STATE_DEFS.some((d) => d.name === p))).slice(0, 5) : [];
-        return parts.length >= 2 ? { on: true, src, parts } : null;
+        const parts = Array.isArray(raw.parts) ? raw.parts.map((p) => (typeof p === 'string' ? canonKey(p).key : p)).filter((p) => typeof p === 'string' && (getTraitDef(p) || RELATION_STATE_DEFS.some((d) => d.name === p))).slice(0, 5) : [];
+        return parts.length >= 2 ? { on: true, src, parts, ...extra } : null;
     }
-    return { on: true, src };
+    const waived = Array.isArray(raw.waived) ? raw.waived.map((w) => (typeof w === 'string' ? canonKey(w).key : w)).filter((w) => typeof w === 'string' && getTraitDef(w)).slice(0, 3) : [];
+    return waived.length ? { on: true, src, waived, ...extra } : { on: true, src, ...extra };
 }
 
 // 读档规整：旧布尔式迁移为 { on, src: 'manual' }；表外键丢弃；写档只写新格式。
@@ -360,14 +441,27 @@ export function sanitizeTraits(raw) {
     for (const [name, marks] of Object.entries(plain(raw) ? raw : {}).slice(0, NAMES_MAX)) {
         if (!name || name.length > NAME_MAX || !plain(marks)) continue;
         const own = {};
-        for (const [key, value] of Object.entries(marks)) {
+        for (const [rawKey, value] of Object.entries(marks)) {
+            // 旧键改名 / 别名并入：键换成新名，别名带 label；删除表与表外键静默丢弃；同一主特质已有正名条目时别名条目不覆盖。
+            const { key, label } = isComboKey(rawKey) ? { key: rawKey } : canonKey(rawKey);
             if (!isComboKey(key) && !getTraitDef(key)) continue;
             const entry = cleanEntry(value, key);
-            if (entry) own[key] = entry;
+            if (!entry) continue;
+            if (label && !entry.label) entry.label = label;
+            if (own[key] && label) continue;
+            own[key] = entry;
         }
         if (Object.keys(own).length) out[name] = own;
     }
     return out;
+}
+
+// 特质表迁移（幂等）：旧键改名、别名并入（带 label）、删除表丢弃；intimacyForced 由 forced 条目推出。
+// 迁出项（def.moveTo：status / relation / setting / note）的存档键与条目原样保留，hasTrait 照旧可读，只是不再占格、不进评定候选。
+export function migrateTraitCatalog(catalog) {
+    const base = plain(catalog) ? catalog : {};
+    const traits = sanitizeTraits(base.traits);
+    return { ...base, traits, intimacyForced: Object.keys(traits).filter((n) => traits[n].forced && traits[n].forced.on === true) };
 }
 
 export const APTITUDE_TIERS = Object.freeze(['平庸', '出众', '天纵']);
@@ -407,21 +501,40 @@ export function withAptitude(catalog, name, level, src = 'manual') {
     return { ...catalog, aptitude: next };
 }
 
-// 已挂条目：[{ id, src, parts? }]（含合成占位）。
+// 已挂条目：[{ id, src, parts?, by?, waived? }]（含合成占位）。
 export function listTraits(catalog, charName) {
     const own = catalog && catalog.traits && catalog.traits[charName];
     if (!plain(own)) return [];
-    return Object.entries(own).filter(([, entry]) => traitOn(entry)).map(([id, entry]) => ({ id, src: entry === true ? 'manual' : entry.src || 'manual', ...(entry && entry.parts ? { parts: [...entry.parts] } : {}) }));
+    return Object.entries(own).filter(([, entry]) => traitOn(entry)).map(([id, entry]) => ({ id, src: entry === true ? 'manual' : entry.src || 'manual', ...(entry && entry.parts ? { parts: [...entry.parts] } : {}), ...(entry && entry.by ? { by: entry.by } : {}), ...(entry && entry.waived ? { waived: [...entry.waived] } : {}), ...(entry && entry.label ? { label: entry.label } : {}), ...(entry && entry.hidden ? { hidden: true } : {}) }));
 }
 
-// 格位计数：合成整体占 1 格、其组成项不再单独计数；成就另计。
+// 格位计数：特质格 = 普通特质（含隐藏特质）；合成占位不额外占格（组成项各占 1 格）；捆绑项、出身、迁出项、成就不占特质格。出身、成就另计。
+const isOriginId = (id) => { const d = getTraitDef(id); return Boolean(d && d.group === '出身'); };
+const countsSlot = (t) => {
+    if (t.src === 'achieve' || t.src === 'bound' || isComboKey(t.id)) return false;
+    const d = getTraitDef(t.id);
+    return Boolean(d) && d.group !== '出身' && !d.moveTo;
+};
 export function slotUsage(catalog, charName) {
     const list = listTraits(catalog, charName);
-    const folded = new Set(list.filter((t) => isComboKey(t.id)).flatMap((t) => t.parts || []));
-    const regular = list.filter((t) => t.src !== 'achieve');
-    const slots = regular.filter((t) => isComboKey(t.id) || !folded.has(t.id)).length;
-    return { slots, auto: regular.filter((t) => t.src === 'auto' && !isComboKey(t.id)).length, achieve: list.filter((t) => t.src === 'achieve').length };
+    const regular = list.filter(countsSlot);
+    return { slots: regular.length, auto: regular.filter((t) => t.src === 'auto').length, origin: list.filter((t) => t.src !== 'bound' && !isComboKey(t.id) && isOriginId(t.id)).length, achieve: list.filter((t) => t.src === 'achieve').length };
 }
+
+// 六维门槛：attrs 为 { 体质: 分数 … }，null 表示只有推测值、不拦。lacks 按门槛书写顺序（主属性在前）。
+export function traitReqStatus(def, attrs) {
+    if (!def || !def.req || !attrs) return { ok: true, lacks: [] };
+    const lacks = Object.entries(def.req).filter(([key, need]) => !(Number(attrs[key]) >= need)).map(([key, need]) => ({ 属性: key, 现值: Math.round(Number(attrs[key]) || 0), 需: need }));
+    return { ok: !lacks.length, lacks };
+}
+
+let attrReader = null;
+// 运行时登记六维读取（按名字返回生效六维分数，推测值返回 null）；catalog.attrsOf 优先。
+export const setTraitAttrReader = (fn) => { attrReader = typeof fn === 'function' ? fn : null; };
+export const traitAttrsOf = (catalog, charName) => {
+    const read = (catalog && typeof catalog.attrsOf === 'function' && catalog.attrsOf) || attrReader;
+    return read ? read(charName) : null;
+};
 
 // 谁有这项特质：聊天级勾选或角色档案里的旧标记字段任一为真；仅 NSFW 的项在 NSFW 关闭时视为未挂。
 export function hasTrait(state, catalog, charName, id) {
@@ -434,7 +547,7 @@ export function hasTrait(state, catalog, charName, id) {
     if (!def) return false;
     if (def.nsfw && !(catalog && catalog.nsfw === true)) return false;
     const own = catalog && catalog.traits && catalog.traits[charName];
-    if (own && traitOn(own[id])) return true;
+    if (own && traitOn(own[id])) return own[id].src === 'bound' || !def.req || traitReqStatus(def, traitAttrsOf(catalog, charName)).ok;
     const character = state && state.characters && state.characters[charName];
     const field = CHARACTER_FLAG[id];
     return Boolean(field && character && character[field] === true);
@@ -445,6 +558,9 @@ export function hasTrait(state, catalog, charName, id) {
 // 条件读该角色当前数值（dims）；读不到的环境一律不生效。
 const dimOf = (character, dim) => Number(character && character.dims && character.dims[dim]) || 0;
 const favorOf = (c) => dimOf(c, '好感');
+// 主角六维总和低于该角色（两边都读得到真实六维时才算）。
+const attrSum = (name) => { const a = traitAttrsOf(null, name); return a ? Object.values(a).reduce((s, v) => s + (Number(v) || 0), 0) : null; };
+const heroWeaker = (name) => { const mine = attrSum(name); const hero = attrSum(PROTAGONIST_NAME); return mine !== null && hero !== null && hero < mine; };
 import { EXT_DAILY, EXT_DICE, EXT_FLAG, EXT_SCALE } from './stat-trait-rules.js';
 const SCALE_RULES = [
     // 心性
@@ -477,6 +593,13 @@ const SCALE_RULES = [
     ['狼系', '芥蒂', 'up', 1.5, (c) => dimOf(c, '信任') <= 50], ['狼系', '欲望', 'up', 1.5],
     ['熊系', '芥蒂', 'up', 0.5],
     ['蛇系', '好感', 'up', 0.6], ['蛇系', '好感', 'down', 0.5],
+    ['鹰系', '了解', 'up', 1.5], ['鹰系', '信任', 'up', 0.5],
+    ['鹿系', '压力', 'up', 1.5], ['鹿系', '芥蒂', 'up', 0.5],
+    ['鸟系', '好感', 'cool', 2],
+    ['龙系', '压力', 'up', 0.5],
+    ['鬼', '了解', 'up', 0.5],
+    ['魔族', '欲望', 'up', 1.5], ['魔族', '信任', 'up', 0.5],
+    ['妖王', '芥蒂', 'up', 0.5], ['妖王', '好感', 'up', 0.5, (c, ctx, name) => heroWeaker(name)],
     ...EXT_SCALE,
 ];
 
@@ -494,6 +617,7 @@ const FLAG_RULES = [
     ['absentStress', '犬系'],
     ['hereRelief', '爱撒娇'],
     ['hereRelief', '兔系'],
+    ['hereRelief', '鹿系'],
     ['noCool', '黏人', (c, ctx) => ctx && ctx.here === true],
     ['noCool', '狼系', (c) => dimOf(c, '信任') > 50],
     ...EXT_FLAG,
@@ -524,7 +648,7 @@ export function traitScale(state, catalog, charName, dim, dir, ctx = null) {
     for (const [id, d, direction, factor, cond] of SCALE_RULES) {
         if (d !== dim || direction !== dir) continue;
         if (!hasTrait(state, catalog, charName, id)) continue;
-        if (cond && !cond(character, ctx)) continue;
+        if (cond && !cond(character, ctx, charName)) continue;
         scale *= factor;
         hit = true;
     }
@@ -573,51 +697,104 @@ const refuse = (catalog, reason) => ({ catalog, notices: [], reason });
 // 返回 { catalog, notices: [{ type: 'gain'|'lose'|'replace', charName, id, replacedId? }], reason? }。不原地修改传入的 catalog。
 // 规则：手动 > 剧情（含成就授予的替换）> 自动；自动评定不覆盖手动与剧情；互斥时后挂的顶掉先挂的；
 // 同挂满 5 项时：剧情先顶掉互斥项，再顶掉最早一项自动评定，再没有就不挂；手动挂满时拒绝；自动评定最多 3 项；成就另计最多 2 项。
-export function applyTraitChange(state, catalog, charName, id, on, src = 'manual') {
+// 捆绑：挂本体时连带挂上捆绑项（src 'bound'，占格、不查门槛）；捆绑项不能单独摘下，摘本体一并摘下；
+//   捆绑项与另一本体或其捆绑项互斥时拒绝（bound-conflict），与其他已挂特质互斥时顶掉旧的；opts.waive 只对可豁免的捆绑生效，手动添加不豁免。
+const isBody = (id) => Boolean(getTraitDef(id) && getTraitDef(id).bundle);
+export function applyTraitChange(state, catalog, charName, id, on, src = 'manual', attrs = undefined, opts = {}) {
     const def = getTraitDef(id);
-    if (!def || !TRAIT_SRC.includes(src)) return refuse(catalog, 'unknown');
+    if (!def || !TRAIT_SRC.includes(src) || src === 'bound') return refuse(catalog, 'unknown');
+    if (def.boundOnly && on) return refuse(catalog, 'bound-only');
     if (charName === PROTAGONIST_NAME && !def.protagonist) return refuse(catalog, 'not-protagonist');
     const listed = listTraits(catalog, charName);
     const current = listed.find((t) => t.id === id);
     if (!on) {
         if (!current) return refuse(catalog, 'absent');
+        if (current.src === 'bound') return refuse(catalog, 'bound');
         if (SRC_RANK[src] < SRC_RANK[current.src] && src === 'auto') return refuse(catalog, 'protected');
         let next = setEntry(catalog, charName, id, null);
         // 组成项被摘下，含它的合成自动拆掉。
         for (const t of listed) if (isComboKey(t.id) && (t.parts || []).includes(id)) next = setEntry(next, charName, t.id, null);
+        // 随本体附带的捆绑项一并摘下；另一已挂本体也捆绑同一项时改记在那个本体上。
+        for (const t of listed) {
+            if (t.src !== 'bound' || t.by !== id) continue;
+            const keeper = listed.find((x) => x.id !== id && x.src !== 'bound' && getTraitDef(x.id) && getTraitDef(x.id).bundle && getTraitDef(x.id).bundle.id === t.id);
+            next = setEntry(next, charName, t.id, keeper ? { on: true, src: 'bound', by: keeper.id } : null);
+            if (!keeper) for (const c of listed) if (isComboKey(c.id) && (c.parts || []).includes(t.id)) next = setEntry(next, charName, c.id, null);
+        }
         return { catalog: next, notices: [{ type: 'lose', charName, id }] };
     }
     if (current) {
         if (SRC_RANK[src] <= SRC_RANK[current.src] || src === 'achieve') return { catalog, notices: [] };
-        return { catalog: setEntry(catalog, charName, id, { on: true, src }), notices: [] };
+        const raw = catalog.traits[charName][id];
+        return { catalog: setEntry(catalog, charName, id, { ...(plain(raw) ? raw : {}), on: true, src }), notices: [] };
     }
+    if (def.req && (src === 'auto' || src === 'manual') && !traitReqStatus(def, attrs === undefined ? traitAttrsOf(catalog, charName) : attrs).ok) return refuse(catalog, 'attr-low');
     const usage = slotUsage(catalog, charName);
     if (src === 'achieve') {
         if (usage.achieve >= TRAIT_LIMITS.achieve) return refuse(catalog, 'achieve-full');
         const next = setEntry(catalog, charName, id, { on: true, src });
         return { catalog: next, notices: [{ type: 'gain', charName, id }] };
     }
+    // 捆绑项：已挂或被豁免时不再附带；仅 NSFW 的捆绑项在 NSFW 关闭时不附带。
+    const bundle = def.bundle;
+    const waive = Array.isArray(opts && opts.waive) ? opts.waive : [];
+    const asked = Boolean(bundle && (waive.includes(bundle.id) || waive.includes(bundle.name)));
+    const boundOrBody = (t) => t.src === 'bound' || isBody(t.id);
+    const replaced = (t) => def.exclusive.includes(t.id) || (t.src === 'bound' && def.exclusive.includes(t.by));
+    // 评选模型挂本体时，可豁免的捆绑项与人设已有的特质相反，按人设豁免，不顶掉已挂特质。
+    const clash = bundle ? (getTraitDef(bundle.id) || { exclusive: [] }).exclusive.some((ex) => listed.some((t) => t.id === ex && !boundOrBody(t) && !replaced(t))) : false;
+    const waived = bundle && bundle.waivable && src !== 'manual' && (asked || clash) ? [bundle.id] : [];
+    const waiveDropped = asked && !waived.length ? [bundle.name] : [];
+    const bundleDef = bundle && !waived.length ? getTraitDef(bundle.id) : null;
+    const withBundle = Boolean(bundleDef && !listed.some((t) => t.id === bundleDef.id) && (!bundleDef.nsfw || (catalog && catalog.nsfw === true)));
+    for (const ex of def.exclusive) {
+        const old = listed.find((t) => t.id === ex);
+        if (old && old.src === 'bound' && !def.exclusive.includes(old.by)) return refuse(catalog, 'bound-conflict');
+    }
+    if (withBundle) {
+        for (const ex of bundleDef.exclusive) {
+            const old = listed.find((t) => t.id === ex);
+            if (old && boundOrBody(old) && !replaced(old)) return refuse(catalog, 'bound-conflict');
+        }
+    }
     let next = catalog;
     const notices = [];
     let replacedId;
     for (const ex of def.exclusive) {
         const old = listTraits(next, charName).find((t) => t.id === ex);
-        if (!old) continue;
+        if (!old || old.src === 'bound') continue;
         if (src === 'auto' && old.src !== 'auto') return refuse(catalog, 'conflict');
         next = applyTraitChange(state, next, charName, ex, false, 'story').catalog;
         replacedId = replacedId || ex;
     }
-    if (src === 'auto' && slotUsage(next, charName).auto >= TRAIT_LIMITS.auto) return refuse(catalog, 'auto-full');
-    if (slotUsage(next, charName).slots >= TRAIT_LIMITS.total) {
+    if (withBundle) {
+        for (const ex of bundleDef.exclusive) {
+            if (!listTraits(next, charName).some((t) => t.id === ex)) continue;
+            next = applyTraitChange(state, next, charName, ex, false, 'story').catalog;
+            replacedId = replacedId || ex;
+        }
+    }
+    const origin = isOriginId(id);
+    if (origin && slotUsage(next, charName).origin >= TRAIT_LIMITS.origin) return refuse(catalog, 'origin-full');
+    const takesSlot = countsSlot({ id, src });
+    if (takesSlot && src === 'auto' && slotUsage(next, charName).auto >= TRAIT_LIMITS.auto) return refuse(catalog, 'auto-full');
+    // 捆绑项不占格，只有本体占格（出身本体与迁出项也不占）。
+    const need = takesSlot ? 1 : 0;
+    while (need && slotUsage(next, charName).slots + need > TRAIT_LIMITS.total) {
         if (src !== 'story') return refuse(catalog, 'full');
-        const oldest = listTraits(next, charName).find((t) => t.src === 'auto' && !isComboKey(t.id));
+        const oldest = listTraits(next, charName).find((t) => t.src === 'auto' && countsSlot(t));
         if (!oldest) return refuse(catalog, 'full');
-        next = applyTraitChange(state, next, charName, oldest.id, false, 'story').catalog;
+        const dropped = applyTraitChange(state, next, charName, oldest.id, false, 'story').catalog;
+        if (dropped === next) return refuse(catalog, 'full');
+        next = dropped;
         replacedId = replacedId || oldest.id;
     }
-    next = setEntry(next, charName, id, { on: true, src });
+    const label = typeof (opts && opts.label) === 'string' && opts.label && opts.label.length <= 12 ? { label: opts.label } : {};
+    next = setEntry(next, charName, id, waived.length ? { on: true, src, waived, ...label } : { on: true, src, ...label });
+    if (withBundle) next = setEntry(next, charName, bundleDef.id, { on: true, src: 'bound', by: id });
     notices.push(replacedId ? { type: 'replace', charName, id, replacedId } : { type: 'gain', charName, id });
-    return { catalog: next, notices };
+    if (withBundle) notices.push({ type: 'gain', charName, id: bundleDef.id });
+    return waiveDropped.length ? { catalog: next, notices, waiveDropped } : { catalog: next, notices };
 }
 
 // 检定奖惩骰：命中特质的骰数相加（正为奖励骰、负为惩罚骰），夹在 -2 到 +2。category 为 '全部' 的规则对任何检定生效。

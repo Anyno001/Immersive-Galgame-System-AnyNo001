@@ -12,6 +12,7 @@ import {
 } from '../scene/stats/stat-log.js';
 import { hash32 } from '../combat/random.js';
 import { challengeDirectiveOf, parseChallengeReport } from '../combat/challenge-report.js';
+import { battleDirectiveOf, parseBattleReport } from '../combat/battle-report.js';
 import { BUILD_MODES } from '../combat/abilities.js';
 import { checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, mergeCheckInputs, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe, checkCorrections } from '../scene/check-rolls.js';
 import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene/stats/stat-coc-checks.js';
@@ -19,7 +20,7 @@ import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState, grudgeOfCharacter, isRomance } from '../scene/stats/stat-state.js';
-import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, listTraits, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
+import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, listTraits, setTraitAttrReader, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { statsPushActive } from '../data/shujuku/igs-managed.js';
@@ -38,7 +39,7 @@ import { applyTidy, buildTidyPrompt, parseTidyReply } from '../scene/stats/stat-
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
 import {
     PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
-    isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
+    gateAttributes, isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
 } from '../scene/stats/stat-engine.js';
 import {
     PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, abilityLine, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
@@ -50,7 +51,9 @@ import { traitEnvOf } from '../scene/stats/stat-trait-env.js';
 import { luckyReroll, traitEdgeOf } from '../scene/stats/stat-trait-dice.js';
 import { EVENT_TYPES as BOND_EVENT_TYPES } from '../scene/stats/stat-trait-rules-bond.js';
 import { TRAIT_DEFS } from '../scene/stats/stat-traits.js';
-import { applyReview, buildReviewPayload, reviewMemoryOf, reviewMemoryWrite, buildReviewPrompt, parseReviewEvents, parseReviewReply, scanFloorForReview } from './trait-review.js';
+import { applyReview, buildReviewPayload, judgedNames, reviewMemoryOf, reviewMemoryWrite, buildReviewPrompt, parseReviewEvents, parseReviewReply, scanFloorForReview, parseReviewStatuses, applyReviewStatuses } from './trait-review.js';
+import { STATUS_DEFS } from '../scene/stats/stat-status-defs.js';
+import { applyStatusChange } from '../scene/stats/stat-status.js';
 import { achievementPass, lightCodex, refreshCombos, comboNotices, traitNoticeText } from './stats-trait-runtime.js';
 
 export const STATS_PROMPT_KEY = 'igs-stats-state';
@@ -270,6 +273,16 @@ export function createStatsRuntime({
     const engineOf = (ruleset) => engineFor(catalog, settings(), ruleset === undefined ? settings().ruleset : ruleset, readers);
     // 一次注入或结算内用：读数按名字记忆化，避免同一名字反复折叠战斗账本。
     const memoEngineOf = (ruleset) => withAbilityMemo(engineOf(ruleset));
+    // 特质门槛读六维：同一同步段内按名字记忆化，下一个微任务清空，hasTrait 高频调用不重算。
+    let gateMemo = null;
+    let gateCatalog = null;
+    const gateAttrsOf = (name) => {
+        if (!ledger) return null;
+        if (!gateMemo || gateCatalog !== catalog) { gateMemo = new Map(); gateCatalog = catalog; queueMicrotask(() => { gateMemo = null; }); }
+        if (!gateMemo.has(name)) gateMemo.set(name, gateAttributes(engineOf(), currentStatsState(ledger), name));
+        return gateMemo.get(name);
+    };
+    setTraitAttrReader(gateAttrsOf);
     const background = () => { try { return Boolean(isBackground()); } catch (error) { return false; } };
     // 界面开关沿用旧布尔式（键 → true）；新格式只在存档与结算里使用，界面改版后换读 listTraits。
     const traitSwitchModel = (traits) => Object.fromEntries(Object.entries(traits).map(([n, marks]) => [n, Object.fromEntries(Object.entries(marks).filter(([, e]) => e && e.on === true).map(([k]) => [k, true]))]));
@@ -947,7 +960,7 @@ export function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, dateRegex: s.dateRegex, mandates: mandatesFromFlags(flags, state.protagonist.bars, { fame: catalog.fameBars.length > 0 }), vitals, fameBars: catalog.fameBars,
+            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, dateRegex: s.dateRegex, mandates: mandatesFromFlags(flags, state.protagonist.bars, { fame: catalog.fameBars.length > 0 }), vitals, fameBars: catalog.fameBars, statusCat: { statuses: catalog.statuses },
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, intimateCost: s.intimateCost, forcedNames: catalog.intimacyForced, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText, stageTextPlatonic: s.stageTextPlatonic, traits: catalog.traits, romanceSeen: catalog.romanceSeen,
             heroNotes: s.heroNotePrompt ? catalog.heroNotes : null,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
@@ -972,11 +985,13 @@ export function createStatsRuntime({
         try { onCheck({ detail, check, messageId }); } catch (error) { /* 演出出错不影响结算 */ }
     }
 
-    // 日常挑战战报是用户楼：由紧随其后的 AI 楼结算，回退或重新生成该楼时一并撤销。
+    // 日常挑战战报与卡牌战斗战报都是用户楼：由紧随其后的 AI 楼结算，回退或重新生成该楼时一并撤销。
+    // 卡牌战报只合成战斗事件与伤势（经验、战利品、生命已由战斗账本结算），不受 noBattle 影响。
     function challengeDirectivesBefore(list, messageId) {
         const found = [];
         for (let index = messageId - 1; index >= 0 && list[index] && list[index].is_user; index -= 1) {
-            const directive = challengeDirectiveOf(parseChallengeReport(String(list[index].mes ?? '')), index);
+            const text = String(list[index].mes ?? '');
+            const directive = challengeDirectiveOf(parseChallengeReport(text), index) || battleDirectiveOf(parseBattleReport(text), { isHero, floor: index });
             if (directive) found.unshift(directive);
         }
         return found;
@@ -1064,6 +1079,16 @@ export function createStatsRuntime({
         persist();
         runTraitReview(scan.chars, messageId);
     }
+    // 评定诊断：每个角色送去的人设字数、对不上的特质名、标签与依据、被跳过的结果。
+    const personaReport = new Map();
+    const logReviewParse = (dropped, tags) => {
+        if (dropped.length) diag('stats-trait-review-dropped', { words: dropped.map((d) => `${d.charName}:${d.word}`) });
+        for (const [name, t] of Object.entries(tags)) if (t.tags.length) diag('stats-trait-review-tags', { name, tags: t.tags, basis: t.basis });
+    };
+    const logReviewSkipped = (skipped) => {
+        const kept = (skipped || []).filter((s) => s.why !== 'no-change');
+        if (kept.length) diag('stats-trait-review-skipped', { items: kept.map((s) => `${s.charName}:${s.id}:${s.why}`) });
+    };
     // 初始特质：主角与已建档角色各评一次（每人最多 3 项，src=auto），按 SHEET_BATCH_MAX 人一批依次发给备用模型。
     // 只有拿到回复的批次才记为已评；失败的 10 分钟内不重发。
     let initialJob = null;
@@ -1096,10 +1121,15 @@ export function createStatsRuntime({
                 let people;
                 try { people = await describeWithHero(batch); } catch (error) { people = batch.map((name) => ({ name, summary: '' })); }
                 const persona = new Map((Array.isArray(people) ? people : []).filter(Boolean).map((p) => [p.name, String(p.summary || '')]));
+                for (const p of Array.isArray(people) ? people : []) {
+                    if (!p) continue;
+                    personaReport.set(p.name, { len: String(p.summary || '').length, from: p.from || '' });
+                    if (Array.isArray(p.errors) && p.errors.length) diag('stats-trait-persona-read-failed', { name: p.name, reasons: p.errors });
+                }
                 const c = ctx();
                 const state = currentStatsState(ledger);
                 const nsfw = isNsfw();
-                const defs = TRAIT_DEFS.filter((d) => nsfw || !d.nsfw);
+                const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw));
                 const floors = messages(c).filter((m) => m && !m.is_system).slice(-6)
                     .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
                 let client = null;
@@ -1107,9 +1137,10 @@ export function createStatsRuntime({
                 let aliases = {};
                 try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
                 const chars = batch.map((n) => ({
-                    name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST, persona: persona.get(n) || '',
+                    name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST, persona: persona.get(n) || '', note: catalog.traitNotes[n] || '',
                     relation: state.characters[n] ? stageLabel(Number(state.characters[n].dims.好感) || 0, isRomance(state.characters[n], n, catalog.romanceSeen)) : '',
                     traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
+                    attrs: gateAttrsOf(n),
                 }));
                 const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
                 const prompt = { system: '你是角色设定评定助手，只依据人设与正文作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'initial') };
@@ -1125,9 +1156,15 @@ export function createStatsRuntime({
                 if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
                 const now = currentStatsState(ledger);
                 const prevCatalog = catalog;
-                const results = parseReviewReply(text, defs, { chars: batch }).filter((r) => r.on);
+                const dropped = [];
+                const tags = {};
+                const results = parseReviewReply(text, defs, { chars: batch, dropped, tags }).filter((r) => r.on);
+                logReviewParse(dropped, tags);
                 const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'initial' });
-                applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...batch])] });
+                logReviewSkipped(applied.skipped);
+                // 人设为空且本批没有结果的角色不记已评，下次自动重评。
+                const judged = judgedNames(batch, persona, results);
+                applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...judged])] });
                 if (applied.applied.length) {
                     total += applied.applied.length;
                     for (const r of applied.applied) if (!filled.includes(r.charName)) filled.push(r.charName);
@@ -1177,7 +1214,7 @@ export function createStatsRuntime({
         const chatId = chatIdOf(c);
         const state = currentStatsState(ledger);
         const nsfw = isNsfw();
-        const defs = TRAIT_DEFS.filter((d) => nsfw || !d.nsfw);
+        const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw));
         const floors = messages(c).slice(0, messageId + 1).filter((m) => m && !m.is_system).slice(-6)
             .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
         let client = null;
@@ -1190,23 +1227,32 @@ export function createStatsRuntime({
                 name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST,
                 relation: own ? stageLabel(Number(own.dims.好感) || 0, isRomance(own, n, catalog.romanceSeen)) : '',
                 traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
+                attrs: gateAttrsOf(n),
+                note: catalog.traitNotes[n] || '',
                 recent: reviewMemoryOf(catalog.counters, [], [n], TRAIT_IDS, state.clock.day).recent[n] || [],
             };
         });
         if (!chars.length) return Promise.resolve({ ok: false });
         const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
-        const prompt = { system: '你是剧情评定助手，只依据正文与资料作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'story', TRAIT_REVIEW_PROMPT_EVENTS) };
+        const prompt = { system: '你是剧情评定助手，只依据正文与资料作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'story', TRAIT_REVIEW_PROMPT_EVENTS, STATUS_DEFS) };
         reviewing = true;
         return ask(request, prompt).then((reply) => {
             if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
             const text = reply && typeof reply === 'object' ? reply.text : reply;
             const only = chars.map((x) => x.name);
-            const results = parseReviewReply(text, defs, { chars: only });
+            const dropped = [];
+            const tags = {};
+            const results = parseReviewReply(text, defs, { chars: only, dropped, tags });
+            logReviewParse(dropped, tags);
             const events = parseReviewEvents(text, { bondTypes: BOND_EVENT_TYPES, chars: only });
             const now = currentStatsState(ledger);
             const prevCatalog = catalog;
             const memory = reviewMemoryOf(catalog.counters, results, [...new Set(results.map((r) => r.charName))], TRAIT_IDS, now.clock.day);
             const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: memory.changeLog, recent: memory.recent });
+            logReviewSkipped(applied.skipped);
+            // 状态补漏：副模型给出的状态挂摘，来源只升不降。
+            const statusRes = applyReviewStatuses(parseReviewStatuses(text, STATUS_DEFS, { chars: only }), { statuses: catalog.statuses }, applyStatusChange, { day: now.clock.day });
+            if (statusRes.applied.length) { catalog = sanitizeCatalog({ ...catalog, statuses: statusRes.catalog.statuses }); persist(); push(); }
             pendingEvents = { bond: events.bond, review: events.review };
             if (applied.applied.length) {
                 applyCatalog({ ...applied.catalog, counters: reviewMemoryWrite(applied.catalog.counters, applied.applied, TRAIT_IDS, now.clock.day) });
@@ -1278,6 +1324,8 @@ export function createStatsRuntime({
         if (r.reused) return r;
         const meta = r.entry.meta || {};
         if (meta.note && meta.note.reason === 'stats-roll-skipped') diag('stats-roll-skipped', { messageId });
+        // 状态（B 批）：本楼标签与日推进改动经 meta.statuses 带回，写回聊天级目录。
+        if (meta.statuses && typeof meta.statuses === 'object') catalog = sanitizeCatalog({ ...catalog, statuses: meta.statuses });
         for (const entry of meta.newSkills || []) commitSkill(entry.name, { attribute: entry.attribute, floor: messageId });
         // 楼层记录接在上一条存活记录之后；重算同一楼时沿用原来的上游。
         const before = activeEntryBefore(ledger, messageId);
@@ -2131,7 +2179,8 @@ export function createStatsRuntime({
     function diagnose(messageId) {
         const text = diagnoseFloor(messageId);
         const trail = ledger && chatEnabled && settings().enabled ? describeClockTrail(statsClockTrail(ledger)) : '';
-        return trail ? `${text}\n${trail}` : text;
+        const persona = personaReport.size ? `特质评定人设字数：${[...personaReport].map(([n, r]) => `${n} ${r.len}${r.from === 'floors' ? '（取自正文）' : ''}`).join('、')}` : '';
+        return [text, trail, persona].filter(Boolean).join('\n');
     }
 
     function diagnoseFloor(messageId) {
@@ -2177,6 +2226,7 @@ export function createStatsRuntime({
         if (op === 'aptitude') return setAptitude(name, payload && payload.level);
         if (op === 'note') return setHeroNote(name, payload && payload.text);
         if (op === 'note-prompt') return heroNotePrompt(name);
+        if (op === 'trait-note') return setTraitNote(name, payload && payload.text);
         if (op === 'fame-add') return addFameBar(payload && payload.name, payload && payload.kind);
         if (op === 'fame-remove') return removeFameBar(name);
         if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
@@ -2251,6 +2301,14 @@ export function createStatsRuntime({
         catalog = sanitizeCatalog({ ...catalog, heroNotes: next });
         persist();
         return { ok: true, text: catalog.heroNotes[name] || '' };
+    }
+
+    // 特质「评定注意」：用户自写，只用于特质评定，不进正文提示词。
+    function setTraitNote(name, text) {
+        if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        catalog = sanitizeCatalog({ ...catalog, traitNotes: { ...catalog.traitNotes, [name]: String(text || '').trim() } });
+        persist();
+        return { ok: true, text: catalog.traitNotes[name] || '' };
     }
 
     // 主角的声望条（聊天级，最多 3 条）：开条选性质、起条名；关条只从目录移除，已记的数值留在存档里，重开同名条时接着用。
@@ -2601,7 +2659,7 @@ export function createStatsRuntime({
         archive: ev(() => {
             ensureLoaded();
             const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
-            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars) } : null;
+            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, traitNotes: { ...catalog.traitNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars) } : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {
@@ -2646,6 +2704,16 @@ export function createStatsRuntime({
             const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() }).concat(heroFameMetrics(s));
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
+        // 好战者名单：主角与在场角色里挂有「战斗狂」的名字；没有启用数值系统或没有人时为 null。
+        combatEager: () => {
+            if (!active()) return null;
+            const state = currentStatsState(ledger);
+            const cat = traitCatalogOf(catalog.traits, isNsfw());
+            const names = [];
+            if (hasTrait(state, cat, '主角', '战斗狂')) names.push(userName() || '主角');
+            for (const name of present(state)) if (hasTrait(state, cat, name, '战斗狂')) names.push(name);
+            return names.length ? { names } : null;
+        },
         // 日常挑战建局与额度门禁用的只读快照：生活条、技能值与时钟；没有启用时为 null。
         challengeSnapshot: () => {
             if (!active()) return null;

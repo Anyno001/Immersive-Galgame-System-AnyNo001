@@ -32,11 +32,11 @@ test('多个标签只认末行最后一个，其余记不在末尾', () => {
 
 test('未知难度、未知代价、字段过多、事件名缺失或超长一律拒收', () => {
     const cases = [
-        ['[igs-challenge:终面|话术|地狱]', 'challenge-tier-unknown'],
+        ['[igs-challenge:终面|话术|随缘]', 'challenge-tier-unknown'],
         ['[igs-challenge:终面|话术|普通|积分]', 'challenge-stake-unknown'],
         ['[igs-challenge:终面|话术|普通|压力|林总|多余]', 'challenge-too-many-fields'],
         ['[igs-challenge:|话术]', 'challenge-event-invalid'],
-        [`[igs-challenge:${'长'.repeat(21)}]`, 'challenge-event-invalid'],
+        [`[igs-challenge:${'长'.repeat(51)}]`, 'challenge-event-invalid'],
     ];
     for (const [text, code] of cases) {
         const result = parseChallengeStart(`正文\n${text}`);

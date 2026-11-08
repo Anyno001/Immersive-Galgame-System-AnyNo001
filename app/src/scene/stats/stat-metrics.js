@@ -91,6 +91,8 @@ export function characterStatMetrics(character, { hudLabel = 'number', nsfw = fa
             statValue: Math.round(Number(value) || 0),
             // 好感条显示阶段名时，飘字只出心形、不出数字（§10）。
             quiet: dim === '好感' && hudLabel === 'stage',
+            // 心意槽（鲜明档读写，其余档位恒为 0）：好感条旁显示五个小点。
+            ...(dim === '好感' && !negativeFavor ? { heart: Math.max(0, Math.min(4, Math.round(Number(character.heart) || 0))) } : {}),
         });
     }
     if (stamina) {

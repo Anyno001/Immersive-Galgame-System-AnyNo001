@@ -13,6 +13,7 @@ const DESIRE_STEP = 4;
 const STRESS_BIG = 20;
 const STRESS_SMALL = 5;
 const FAVOR_BIG = 6;
+const FAVOR_STEP = 4;
 const GRUDGE_BIG = 10;
 const WORK_STAMINA = 15;
 const DEFAULT_MONEY = Object.freeze({ 少量: 20, 普通: 100, 昂贵: 500, 巨额: 3000 });
@@ -161,6 +162,19 @@ export const TAG_HOOKS = [
             const long = Number.isFinite(seen) && api.here.has(name) && day - seen >= 7;
             if (long || reunion.includes(name)) next = api.bump(next, name, '好感', api.BIG.好感, '白月光');
             if (long) next = putField(next, name, { lastSeenDay: day });
+        }
+        return next;
+    },
+    // 鸟系：距上次在场 ≥ 7 天后再次在场（或本楼写了「重逢」事件）那一楼，对主角好感上升一档。
+    (state, api) => {
+        let next = state;
+        const day = num(next.clock && next.clock.day);
+        const reunion = (api.ctx.reviewEvents || []).filter((e) => e.type === '重逢').map((e) => e.name);
+        for (const name of traitHolders(api, next, '鸟系')) {
+            if (name === '主角' || !next.characters[name]) continue;
+            const seen = api.ctx.lastSeen && api.ctx.lastSeen[name];
+            const long = Number.isFinite(seen) && api.here.has(name) && day - seen >= 7;
+            if (long || reunion.includes(name)) next = api.bump(next, name, '好感', FAVOR_STEP, '鸟系');
         }
         return next;
     },
@@ -439,6 +453,15 @@ export const DAILY_HOOKS = [
     (state, api) => {
         let next = state;
         for (const name of traitHolders(api, next, '显眼包')) if (api.present.has(name)) next = api.shiftStress('主角', -api.TRAIT_STRESS_DAILY, '显眼包');
+        return next;
+    },
+    // 鬼：其在场的日子，主角与其他在场角色压力每天小升。
+    (state, api) => {
+        let next = state;
+        for (const name of traitHolders(api, next, '鬼')) {
+            if (name !== '主角' && !api.present.has(name)) continue;
+            for (const who of ['主角', ...api.present]) if (who !== name && (who === '主角' || next.characters[who])) next = api.shiftStress(who, api.TRAIT_STRESS_DAILY, '鬼');
+        }
         return next;
     },
     // 电子宠物：主角多日不在，压力上升 ×2（基础缓升之外再补一份），并记下缺席前的压力原值，互动时清回。

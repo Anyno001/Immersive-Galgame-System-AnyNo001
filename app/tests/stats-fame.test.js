@@ -55,9 +55,10 @@ test('未开声望的聊天不注入、不结算；旧楼（rev < 2）同样不�
     assert.match(on.content, /\[igs-stat:fame\|名气\|上升\/下降\|小\/中\/大\]/);
 });
 
-test('声望最多 3 条：多余的丢弃，条名不重复，性质不在表里的丢弃', () => {
-    const bars = sanitizeFameBars([{ name: '唯粉', kind: '名气' }, { name: '唯粉', kind: '名誉' }, { name: '路人缘', kind: '名誉' }, { name: '怪', kind: '无此性质' }, { name: 'CP粉', kind: '组合热度' }, { name: '黑粉', kind: '恶名' }]);
-    assert.deepEqual(bars.map((b) => b.name), ['唯粉', '路人缘', 'CP粉']);
+test('声望最多 10 条：多余的丢弃，条名不重复，性质不在表里的丢弃', () => {
+    const extra = '甲乙丙丁戊己庚辛壬'.split('').map((c) => ({ name: c + '团', kind: '名气' }));
+    const bars = sanitizeFameBars([{ name: '唯粉', kind: '名气' }, { name: '唯粉', kind: '名誉' }, { name: '路人缘', kind: '名誉' }, { name: '怪', kind: '无此性质' }, { name: 'CP粉', kind: '组合热度' }, ...extra]);
+    assert.deepEqual(bars.map((b) => b.name), ['唯粉', '路人缘', 'CP粉', '甲团', '乙团', '丙团', '丁团', '戊团', '己团', '庚团']);
     assert.deepEqual(sanitizeCatalog({ fameBars: bars }).fameBars, bars);
     const restored = restoreChat(chatEntries({ catalog: { fameBars: bars } }));
     assert.deepEqual(restored.catalog.fameBars, bars);

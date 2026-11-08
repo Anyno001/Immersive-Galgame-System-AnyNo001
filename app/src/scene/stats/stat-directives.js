@@ -2,6 +2,7 @@
 // 容错（易错点 C1）：[] 或 【】 包裹、半角或全角冒号与竖线、字段两侧多空格与换行。
 import { FAVOR_STRENGTHS, INTIMATE_LEVELS, DIM_DIRECTIONS, DIM_KINDS, ENEMY_TIERS, FAVOR_DIRECTIONS_LEGACY, HERO_STATES, HURT_TIERS, KEY_EVENTS, KEY_EVENTS_LEGACY, TRAIT_EVENTS, MONEY_FLOWS, MONEY_TIERS, ROLL_DIFFICULTIES, STAMINA_EVENTS, START_FIX_DIMS, START_FIX_LEVELS, STRESS_STRENGTHS, normalizeTier, parseStartRelation, resolveFavorWord } from './stat-vocab.js';
 import { SKIP_DAYS_MAX, SKIP_DAYS_MAX_LEGACY, parseSkipDays } from './stat-duration.js';
+import { STATUS_TAG_OFF, STATUS_TAG_ON, getStatusDef } from './stat-status-defs.js';
 import { STRAIN_NAMES, normalizeStressSource } from './stat-strain.js';
 
 const tagPattern = () => /[\[【]\s*igs-stat\s*[:：]([^\]】]*)[\]】]/gi;
@@ -139,6 +140,14 @@ function parseFields([kindRaw, a, b, c, d], ctx = {}) {
     case 'romance': { const end = rev2 && String(b ?? '').trim() === '结束'; return end && target ? { kind, target, value: '结束' } : null; }
     // 声望（rev≥2）：fame|条名|方向|强度 或 fame|方向|强度（只开一条时）；组合热度 fame|条名|搭档|方向|强度。
     case 'fame': case '声望': return rev2 ? parseFame([a, b, c, d]) : null;
+    // 状态（rev ≥ 2）：status|角色名|状态名|开始/结束，关系状态第五段为对象名；状态名须在定义表里，开始/结束词认不出整条丢弃。
+    case 'status': case '状态': {
+        const def = rev2 ? getStatusDef(String(b ?? '').trim()) : null;
+        const word = String(c ?? '').trim();
+        const on = STATUS_TAG_ON.includes(word) ? true : STATUS_TAG_OFF.includes(word) ? false : null;
+        const toward = def && def.relation ? freeText(d) : null;
+        return target && def && on !== null && (!def.relation || toward) ? { kind: 'status', target, status: def.name, on, ...(toward ? { toward } : {}) } : null;
+    }
     case 'skip': { const skip = parseSkipDays(a, rev2 ? SKIP_DAYS_MAX : SKIP_DAYS_MAX_LEGACY); return skip ? { kind, ...skip } : null; }
     default: return null;
     }

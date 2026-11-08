@@ -189,6 +189,27 @@ function safeRead(fn, name) {
     }
 }
 
+// 特质门槛用的六维分数（建卡分数，含随身系统加成）；只按名字推导出来的返回 null。
+export function gateAttributes(engine, state, actor) {
+    let percent = null;
+    if (isProtagonist(actor)) {
+        const read = safeRead(engine.readAbilities, engine.userName || PROTAGONIST);
+        const prefs = (state && state.protagonist && state.protagonist.prefs) || null;
+        if (read && read.scores && (read.initialized === true || prefs)) percent = percentOf(read.scores);
+        else if (prefs) percent = percentOf(deriveAbilities({ prefs, name: engine.userName || PROTAGONIST, protagonist: true }).scores);
+        if (percent) percent = withAttributeBonus(engine, percent);
+    } else {
+        const sheet = engine.sheets[actor] || null;
+        const own = sheet && sheet.scale === 'score' && sheet.attributes;
+        if (own && BASE_ATTRIBUTES.every((name) => Number(own[name]) > 0)) percent = Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(own[name]) * 5]));
+        else {
+            const read = safeRead(engine.readAbilities, actor);
+            if (read && read.scores && read.initialized === true) percent = percentOf(read.scores);
+        }
+    }
+    return percent ? Object.fromEntries(Object.entries(percent).map(([name, value]) => [name, value / 5])) : null;
+}
+
 // 战斗六维（分数）折成百分制：分数 × 5。缺项按 10 分（普通）。
 function percentOf(scores) {
     return Object.fromEntries(ABILITY_KEYS.map((key) => [ABILITY_LABELS[key], (Number(scores && scores[key]) || 10) * 5]));
