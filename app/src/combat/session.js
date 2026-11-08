@@ -245,11 +245,9 @@ function bossPhases(template, difficulty) {
 }
 
 // 敌方单位：按名字取模板，缩放数值，同名多只加编号后缀
-function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map()) {
+function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map(), crowd = 1) {
     const units = [];
     const tiers = [];
-    // 多敌折算：按本场在场敌人数折算单只生命与伤害；1 只时系数为 1，字段不变。
-    const crowd = crowdScaleFor(start.enemies.reduce((sum, enemy) => sum + (Number(enemy.count) || 0), 0));
     for (const { name, count } of start.enemies) {
         const template = templates.get(name);
         const attributes = enemyAttributes.get(name) || null;
@@ -329,7 +327,7 @@ function skillFillEntities(ledgerState, start, userName, filledIds) {
 }
 
 // 组装备战大厅：主角、在场盟友、缺席盟友、倒下盟友、敌人模板及可控角色
-function buildLobby(ledgerState, start, userName, fallbackTemplates, weakFoes) {
+function buildLobby(ledgerState, start, userName, fallbackTemplates, weakFoes, battleWins) {
     const hero = findCharacter(ledgerState, userName);
     if (!hero || hero.kind !== 'deck-character') return { ok: false, reason: 'combat-protagonist-missing' };
     const allies = [hero];
@@ -366,7 +364,7 @@ function buildLobby(ledgerState, start, userName, fallbackTemplates, weakFoes) {
         const view = attributeViewFor(ledgerState, name);
         if (view) enemyAttributes.set(name, view);
     }
-    return { ok: true, heroId: hero.id, allies, absent, downed, enemies, templated, controllable, enemyAttributes, ...(weakFoes === true ? { weakFoes: true } : {}) };
+    return { ok: true, heroId: hero.id, allies, absent, downed, enemies, templated, controllable, enemyAttributes, battleWins, ...(weakFoes === true ? { weakFoes: true } : {}) };
 }
 
 // 规则 v6 G3d 弱敌战：开战标签里的敌人全部相对主角「远逊」时为真（防刷场次）；没有关系档的敌人按默认档「相当」计（D-23）。
@@ -492,7 +490,10 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     const controlled = controlledId ?? lobby.heroId;
     if (!lobby.controllable.includes(controlled)) return { ok: false, reason: 'combat-controlled-invalid' };
     const partyLevel = averageLevel(lobby.allies);
-    const { units: enemies, tiers } = enemyUnits(start, lobby.enemies, partyLevel, difficulty, lobby.enemyAttributes);
+    const battleWins = lobby.battleWins ?? lobby.allies.find((ally) => ally.id === lobby.heroId)?.purge?.battle ?? 0;
+    const totalFoes = start.enemies.reduce((sum, enemy) => sum + (Number(enemy.count) || 0), 0);
+    const crowd = crowdScaleFor(totalFoes, battleWins);
+    const { units: enemies, tiers } = enemyUnits(start, lobby.enemies, partyLevel, difficulty, lobby.enemyAttributes, crowd);
     const allies = allyUnits(lobby, difficulty);
     const curse = difficultyRule(difficulty).curse;
     const hero = curse > 0 ? allies.find((unit) => unit.id === lobby.heroId && unit.kind === 'deck') : null;
@@ -505,7 +506,7 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     // foeCap（规则 v6 敌方编制）：场上普通敌人最多 maxFoesOnField，空出的总位置只给爪牙；只写进新建 setup。
     const setup = {
         rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
-        openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, units: [...allies, ...enemies],
+        openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, crowd, units: [...allies, ...enemies],
     };
     // 规则 v6 G3d：弱敌战标记只在为真时写进新建 setup，战报、奖励与账本重放只认已存值。
     if (lobby.weakFoes === true) setup.weakFoes = true;
@@ -1058,6 +1059,8 @@ export function createCombatSession(options = {}) {
         // 账本状态：只在本函数确实写过表之后才重新读取，其余步骤传递同一份
         let ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId });
         if (!ledgerState.ok) return blocked(session, ledgerState.reason, ledgerState.detail ? { detail: ledgerState.detail } : {});
+        // 与删卡共用普通胜场；准备期间的生成与重读不能把开战楼之后的胜利算进本场。
+        session.battleWins = findCharacter(ledgerState, userName)?.purge?.battle ?? 0;
         const alreadyPrepared = !!chatRecord.value?.prepared;
         session.weakFoes = COMBAT_RULES.version >= 6 && (alreadyPrepared
             ? chatRecord.value.prepared.weakFoes === true
@@ -1166,7 +1169,7 @@ export function createCombatSession(options = {}) {
             }
         }
         if (!stillWanted()) { setState({ status: 'idle' }); return fail('request-stale'); }
-        const lobby = buildLobby(ledgerState, located.start, userName, fallbackTemplates, session.weakFoes);
+        const lobby = buildLobby(ledgerState, located.start, userName, fallbackTemplates, session.weakFoes, session.battleWins);
         if (!lobby.ok) return blocked(session, lobby.reason);
         lobby.vitals = lobbyVitals(lobby, difficultyOf());
         const skipped = (generated?.rejected || []).filter((item) => item.fallback?.kind === 'skip').map((item) => item.owner);

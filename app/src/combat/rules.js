@@ -38,7 +38,7 @@ export const COMBAT_RULES = Object.freeze({
     storyExpCapPerFloor: 50,
     maxLevel: 20,
     maxEnemies: 50,
-    // 场上敌人总位置（含爪牙）。新建 setup 写 foeCap = maxFoesOnField：普通敌人（不含爪牙）另限 3 名，空出的位置只给爪牙；不带 foeCap 的旧 setup 只按总位置算。
+    // 场上敌人总位置（含爪牙）；显式 v6 的普通敌人另限 3 名，旧版本与未标版本的 setup 保留旧上限。
     maxEnemiesOnField: 5,
     maxFoesOnField: 3,
     maxAllies: 3,
@@ -51,9 +51,13 @@ export const COMBAT_RULES = Object.freeze({
     }),
     tierScalePerLevel: 0.05,
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
-    // 多敌折算：单只敌人生命与伤害 × 1 / (1 + perExtra × (在场人数 − 1))，不低于 floor；在场人数受 maxFoesOnField 限制，预备队不计。
-    // 规则 v6 下限 0.75（2、3 只按公式都低于下限，多敌一律 ×0.75；perExtra 待 G9 平衡复核）。只写进新建 setup，旧战斗按已存数值重放。
-    crowd: Object.freeze({ perExtra: 0.43, floor: 0.75 }),
+    // 规则 v6 多敌折算：按开战前普通胜场取档，仅新建 setup 使用；旧战斗的单位数值不重算。
+    crowd: Object.freeze([
+        Object.freeze({ wins: 0, scale: 0.65 }),
+        Object.freeze({ wins: 10, scale: 0.75 }),
+        Object.freeze({ wins: 15, scale: 0.85 }),
+        Object.freeze({ wins: 20, scale: 1 }),
+    ]),
     // 生成敌人档位校准：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；首领按 scripts/combat-balance.mjs --generated 校准。
     generatedScale: Object.freeze({ boss: 0.9 }),
     difficulty: Object.freeze({
@@ -387,12 +391,12 @@ export function scaleEnemyStats(template, level = 1, difficulty = 'normal', { ga
     return { hp, damageScale: Math.min(5, Math.round(damage * 100) / 100) };
 }
 
-// 多敌折算系数：total 为本场敌人总数，按普通敌人在场上限截断；1 只时为 1，setup 与旧版一致。
-export function crowdScaleFor(total) {
+// 新建战斗的多敌折算：1 名不削弱；2、3 名普通敌人使用同一胜场档位，后备不增加削弱。
+export function crowdScaleFor(total, battleWins = 0) {
     const n = Math.min(COMBAT_RULES.maxFoesOnField, Math.max(1, Math.floor(Number(total) || 1)));
     if (n <= 1) return 1;
-    const { perExtra, floor } = COMBAT_RULES.crowd;
-    return Math.max(floor, 1 / (1 + perExtra * (n - 1)));
+    const wins = Number.isSafeInteger(battleWins) && battleWins >= 0 ? battleWins : 0;
+    return COMBAT_RULES.crowd.filter((tier) => wins >= tier.wins).at(-1).scale;
 }
 
 // 一组敌人的战斗经验合计。

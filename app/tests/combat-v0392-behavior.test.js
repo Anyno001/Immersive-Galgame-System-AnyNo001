@@ -2,7 +2,7 @@
 // 群体折算下限、助战绝招取自身技能、初始装备由程序定加成、主角至少 1 件、专属卡 Lv5 / Lv10 解锁、开战标签后的纯标记行、重新开始。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyAction, createBattle, seedFor, upcomingActors } from '../src/combat/engine.js';
+import { applyAction, createBattle, legalActions, replayBattle, seedFor, upcomingActors } from '../src/combat/engine.js';
 import { chooseSkillIntent } from '../src/combat/policy.js';
 import { BASIC_CARDS, COMBAT_RULES, crowdScaleFor, expProgress, signatureCardAt, signatureSlotOf, signatureUnlockLevel } from '../src/combat/rules.js';
 import { createCombatLedger, signaturePending } from '../src/combat/ledger.js';
@@ -65,30 +65,60 @@ test('敌人随机选攻击对象（setup.randomTargets）：开启时按种子�
     assert.equal(createBattle({ controlledId: 'hero', randomTargets: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
 });
 
-test('多敌折算（规则 v6 编制）：1 只为 1；2 只起封底 0.75；在场人数按普通敌人上限 3 截断', () => {
-    assert.equal(crowdScaleFor(1), 1);
-    assert.equal(COMBAT_RULES.crowd.floor, 0.75);
+test('多敌折算（规则 v6 G3b）：2、3 名普通敌人共用胜场阶梯，单敌不削弱，后备不增加削弱', () => {
     assert.equal(COMBAT_RULES.maxFoesOnField, 3);
-    for (const n of [2, 3, 5, 8, 50]) assert.equal(crowdScaleFor(n), 0.75, `n=${n}`);
+    for (const [wins, scale] of [[0, 0.65], [9, 0.65], [10, 0.75], [14, 0.75], [15, 0.85], [19, 0.85], [20, 1], [50, 1]]) {
+        assert.equal(crowdScaleFor(1, wins), 1);
+        for (const n of [2, 3, 5, 8, 50]) assert.equal(crowdScaleFor(n, wins), scale, `n=${n}, wins=${wins}`);
+    }
+    assert.equal(crowdScaleFor(2), 0.65, '零胜时使用初始档');
 });
 
 test('敌方编制（规则 v6）：新建 setup 写 foeCap 3；场上普通敌人超过 foeCap 时 too-many-enemies；爪牙占剩余 2 位，普通敌人位与爪牙位互不挤占', () => {
     const skill = { id: 'hit', name: '打', intent: 'attack', effects: [{ op: 'damage', amount: 1, target: 'enemy' }] };
     const call = { id: 'call', name: '唤', intent: 'special', effects: [{ op: 'summon-minion', amount: 2, hp: 5, damage: 1 }] };
     const foe = (id, skills = [skill]) => ({ id, name: id, side: 'enemy', kind: 'skill', maxHp: 30, skills });
-    const heroUnit = { id: 'hero', name: '我', side: 'ally', kind: 'deck', maxHp: 60, deck: Array(10).fill('k'), catalog: { k: { id: 'k', name: '守', type: 'skill', cost: 1, effects: [{ op: 'block', amount: 1 }] } } };
+    const heroUnit = { id: 'hero', name: '我', side: 'ally', kind: 'deck', maxHp: 600, deck: Array(10).fill('k'), catalog: { k: { id: 'k', name: '斩', type: 'attack', cost: 0, effects: [{ op: 'damage', amount: 40, target: 'enemy' }] } } };
     const four = [heroUnit, foe('a'), foe('b'), foe('c'), foe('d')];
     assert.equal(createBattle({ controlledId: 'hero', foeCap: 3, units: four }, 1).error?.reason, 'too-many-enemies');
     assert.equal(createBattle({ controlledId: 'hero', foeCap: 3, reserve: ['d'], units: four }, 1).ok, true);
     assert.equal(createBattle({ controlledId: 'hero', units: four }, 1).ok, true, '不带 foeCap 的旧 setup 仍按总位置 5');
+    for (const rulesVersion of [3, 4, 5]) {
+        assert.equal(createBattle({ controlledId: 'hero', rulesVersion, units: [...four, foe('e')] }, 1).ok, true, `v${rulesVersion} 保留五名普通敌人`);
+    }
+    assert.equal(createBattle({ controlledId: 'hero', rulesVersion: 6, units: four }, 1).error?.reason, 'too-many-enemies');
+    assert.equal(createBattle({ controlledId: 'hero', rulesVersion: 6, foeCap: 5, units: four }, 1).error?.reason, 'invalid-setup');
+    const defaults = createBattle({ controlledId: 'hero', rulesVersion: 6, reserve: ['d'], units: four }, 1);
+    assert.equal(defaults.ok, true);
+    assert.equal(defaults.state.foeCap, 3, '显式 v6 缺 foeCap 时运行时同样限三名');
+    for (const crowd of [0, -1, 1.1, NaN, '0.65']) {
+        assert.equal(createBattle({ controlledId: 'hero', crowd, units: [heroUnit, foe('a')] }, 1).error?.reason, 'invalid-setup');
+    }
     assert.equal(createBattle({ controlledId: 'hero', foeCap: 0, units: four }, 1).error?.reason, 'invalid-setup');
-    const created = createBattle({ controlledId: 'hero', rulesVersion: 6, foeCap: 3, reserve: ['d'], units: [heroUnit, foe('a', [call]), foe('b'), foe('c'), foe('d')] }, 1);
+    const created = createBattle({ controlledId: 'hero', rulesVersion: 6, reserve: ['d', 'e'], units: [heroUnit, foe('a', [call]), foe('b'), foe('c'), foe('d'), foe('e')] }, 1);
     assert.equal(created.ok, true, JSON.stringify(created.error));
     let state = created.state;
     for (let i = 0; i < 3 && !state.outcome; i += 1) state = applyAction(state, { type: 'end-turn' }).state;
     const living = state.order.filter((id) => state.units[id].side === 'enemy' && state.units[id].alive);
     assert.deepEqual([living.filter((id) => !state.units[id].minion).length, living.filter((id) => state.units[id].minion).length], [3, 2]);
-    assert.deepEqual(state.reserve, ['d'], '爪牙入场不消耗后备');
+    assert.deepEqual(state.reserve, ['d', 'e'], '爪牙入场不消耗后备');
+    const strike = targetId => {
+        const action = legalActions(state).find(action => action.type === 'play' && action.targetId === targetId);
+        assert.ok(action, `可以攻击 ${targetId}`);
+        const result = applyAction(state, action);
+        assert.equal(result.ok, true, JSON.stringify(result.error));
+        state = result.state;
+        return result.events;
+    };
+    assert.equal(strike('a-m1').some(event => event.type === 'reinforce'), false);
+    assert.deepEqual(state.reserve, ['d', 'e'], '爪牙死亡不由后备补位');
+    assert.deepEqual(strike('b').filter(event => event.type === 'reinforce').map(event => [event.replaced, event.unitId]), [['b', 'd']]);
+    assert.deepEqual(state.reserve, ['e']);
+    assert.equal(state.units['a-m2'].alive, true, '普通敌人补位不挤走存活爪牙');
+    const departed = strike('a');
+    assert.equal(state.units['a-m2'].left, true, '召唤者倒下后爪牙退场');
+    assert.deepEqual(departed.filter(event => event.type === 'reinforce').map(event => [event.replaced, event.unitId]), [['a', 'e']]);
+    assert.equal(state.reserve, undefined, '仅两名普通敌人的倒下消耗两名后备');
 });
 
 test('专属卡槽位：ID 带 -g<n> 按槽位，否则按档案位置；Lv5 / Lv10 解锁', () => {
@@ -416,7 +446,7 @@ test('助战绝招（ace / legend）取角色自己伤害最高的技能强化�
     assert.equal(chooseSkillIntent(battle.state, 'sc-ace', 0.9).skillId, 'sc-ace-u1');
 });
 
-test('场外排位（v0.39.3，规则 v6 场上普通敌人 3 名）：首领 → 精英 → 普通，精英先于普通怪上场与补位；同一 combatId 结果不变', async () => {
+test('场外排位（v6 G3b，场上普通敌人 3 名）：首领 → 精英 → 普通，精英先于普通怪上场与补位；同一 combatId 结果不变', async () => {
     const { templateEnemy } = await import('../src/combat/generation.js');
     const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [user('出发')]);
     const state = await ledger.effectiveState();
@@ -427,9 +457,112 @@ test('场外排位（v0.39.3，规则 v6 场上普通敌人 3 名）：首领 �
     assert.equal(built.ok, true, JSON.stringify(built));
     const tierOf = (id) => (built.setup.units.find((u) => u.id === id)?.name.startsWith('头狼') ? 'elite' : 'normal');
     assert.equal(built.setup.foeCap, 3);
+    assert.equal(built.setup.crowd, 0.65);
     assert.equal(built.setup.reserve.length, 5);
     assert.deepEqual(built.setup.reserve.map(tierOf), ['normal', 'normal', 'normal', 'normal', 'normal']);
     assert.deepEqual(buildSetup(lobby, start, { combatId: 'c-elite' }).setup.reserve, built.setup.reserve);
+});
+
+test('多敌建局（v6 G3b）：胜场阶梯烘焙生命与伤害并保存 crowd，旧 setup 重放不再次缩放', async () => {
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [user('出发')]);
+    const me = heroOf(await ledger.effectiveState());
+    const lobby = { heroId: me.id, controllable: [me.id], allies: [me], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) };
+    const make = (count, wins) => buildSetup({ ...lobby, battleWins: wins }, { enemies: [{ name: '狼', count }], tier: 'normal' }, { combatId: 'g3b-scale' }).setup;
+    const single = make(1, 0).units.find(unit => unit.side === 'enemy');
+    for (const [wins, scale] of [[0, 0.65], [9, 0.65], [10, 0.75], [14, 0.75], [15, 0.85], [19, 0.85], [20, 1]]) {
+        for (const count of [2, 3, 8]) {
+            const setup = make(count, wins);
+            assert.equal(setup.crowd, scale);
+            for (const enemy of setup.units.filter(unit => unit.side === 'enemy')) {
+                assert.equal(enemy.maxHp, Math.max(1, Math.round(single.maxHp * scale)));
+                assert.equal(enemy.damageScale, Math.round(single.damageScale * scale * 100) / 100);
+            }
+            const created = createBattle(setup, 1);
+            assert.equal(created.ok, true, JSON.stringify(created.error));
+            assert.equal(created.state.crowd, scale);
+            assert.deepEqual(replayBattle(setup, 1, []).state, created.state);
+        }
+        assert.equal(make(1, wins).crowd, 1);
+    }
+    for (const rulesVersion of [3, 4, 5, 6]) {
+        const saved = { ...make(2, 10), rulesVersion };
+        delete saved.crowd;
+        delete saved.foeCap;
+        const replayed = replayBattle(saved, 1, []);
+        assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+        assert.equal(replayed.state.crowd, undefined);
+        for (const enemy of saved.units.filter(unit => unit.side === 'enemy')) {
+            assert.equal(replayed.state.units[enemy.id].maxHp, enemy.maxHp);
+            assert.equal(replayed.state.units[enemy.id].damageScale, enemy.damageScale);
+        }
+    }
+});
+
+test('多敌会话（v6 G3b）：按开战楼冻结普通胜场，保存后重放不漂移，弱敌不推进阶梯，回退后新局降档', async t => {
+    const { createCombatSession, sessionKeyFor } = await import('../src/combat/session.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { createCombatChatRecord } = await import('../src/host/combat-chat-record.js');
+    const { createCountingStorage } = await import('./helpers/combat-mock-host-services.js');
+    const { reportIdFor } = await import('../src/combat/report.js');
+    const db = createLedgerMockHost({ supportCallbacks: true });
+    db.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: db.api });
+    assert.equal((await tables.ensure()).ok, true);
+    const enemy = { ...templateEnemy('狼', 'normal'), skills: [{ ...idle, id: 'wait-a' }, { ...idle, id: 'wait-b' }] };
+    assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2), row(enemy, 3)])).ok, true);
+    const victory = (i, weak = false) => {
+        const rid = reportIdFor(`g3b-win-${i}`);
+        return user(`<igs-combat-report id="${rid}" result="win"${weak ? ' weak="1"' : ''}>胜利</igs-combat-report>\n[igs-combat:exp|主角|1|战斗:${rid}]`);
+    };
+    const chat = [ai('序章'), ...Array.from({ length: 9 }, (_, i) => victory(i))];
+    const anchor = chat.length;
+    chat.push(ai('[igs-combat:start|林间交战|狼*4]'), victory(9));
+    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7 });
+    assert.equal((await ledger.scan()).ok, true);
+    assert.equal(heroOf(await ledger.effectiveState()).purge.battle, 10);
+    const storage = createCountingStorage();
+    const chatRecord = createCombatChatRecord({ SillyTavern: { getContext: () => ({ chat, saveChat: async () => {} }) } });
+    const session = createCombatSession({ ledger, tables, storage, chatRecord, chat: () => chat,
+        getChatId: () => 'g3b-count', userName: '主角', now: () => 7, retryDelays: [], llm: { source: 'tavern' },
+        request: async prompt => JSON.stringify({ entities: JSON.parse(prompt.user).entities.map(entity => ({ key: entity.key,
+            value: entity.kind === 'encounter-theme' ? { theme: 'western' }
+                : Object.fromEntries(['slots', 'reserve'].map(set => [set, (entity.input[set] || []).map((slot, i) => [
+                    `林间旧物${set}${i}`, slot.kind === 'item' ? 'potion' : slot.kind === 'card' ? (slot.cost === 0 ? 'jab' : 'strike')
+                        : slot.kind === 'gear' ? (slot.templates?.[0] || 'opening-guard') : null, '林间战利品',
+                ])])),
+        })) }),
+    });
+    t.after(() => { session.dispose(); tables.client.dispose(); });
+    assert.equal((await session.prepare(anchor)).ok, true);
+    assert.equal(session.state().lobby.battleWins, 9, '准备写入奖励并重读后，仍只取开战楼之前胜场');
+    assert.equal(session.start().ok, true);
+    session.flushPersist();
+    const saved = JSON.parse(storage.data.get(sessionKeyFor('g3b-count')));
+    assert.equal(saved.setup.crowd, 0.65);
+    const firstUnits = clone(saved.setup.units);
+    session.reset();
+    assert.equal(session.resume().ok, true);
+    assert.equal(session.state().record.setup.crowd, 0.65, '全账本已十胜，恢复仍沿用本场保存档位');
+    assert.deepEqual(session.state().record.setup.units, firstUnits);
+    session.reset();
+    chat.push(victory('weak', true));
+    assert.equal((await ledger.scan()).ok, true);
+    assert.equal(heroOf(await ledger.effectiveState()).purge.battle, 10, '弱敌胜利不推进普通胜场');
+    const next = chat.length;
+    chat.push(ai('[igs-combat:start|下一场交战|狼*4]'));
+    assert.equal((await session.prepare(next)).ok, true);
+    assert.equal(session.state().lobby.battleWins, 10);
+    assert.equal(session.start().ok, true);
+    assert.equal(session.state().record.setup.crowd, 0.75, '第十胜后的下一场提升一档');
+    session.reset();
+    chat.splice(anchor);
+    chat.push(ai('[igs-combat:start|回退后交战|狼*4]'));
+    assert.equal(heroOf(await ledger.effectiveState()).purge.battle, 9);
+    assert.equal((await session.prepare(anchor)).ok, true);
+    assert.equal(session.state().lobby.battleWins, 9);
+    assert.equal(session.start().ok, true);
+    assert.equal(session.state().record.setup.crowd, 0.65, '回退后新建战斗按九胜降档');
 });
 
 test('统一失去物：数量省略为1、全角数量、全部与角色默认值；非法标签只记诊断，获得与失去锚点不相撞', () => {

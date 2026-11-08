@@ -213,8 +213,11 @@ function validateSetup(setup) {
     // openingCharged（v0.39.2）：开局先手计入操控角色的行动条；randomTargets（v0.39.2）：敌人随机选攻击对象。旧 setup 不带时规则不变。
     if (setup.openingCharged !== undefined && typeof setup.openingCharged !== 'boolean') return { reason: 'invalid-setup' };
     if (setup.randomTargets !== undefined && typeof setup.randomTargets !== 'boolean') return { reason: 'invalid-setup' };
-    // foeCap（规则 v6 敌方编制）：场上普通敌人（不含爪牙）上限，空出的总位置只给爪牙；旧 setup 不带时只按总位置算。
-    if (setup.foeCap !== undefined && !(Number.isInteger(setup.foeCap) && setup.foeCap >= 1 && setup.foeCap <= COMBAT_RULES.maxEnemiesOnField)) return { reason: 'invalid-setup' };
+    // 显式 v6 默认限制 3 名普通敌人；旧版本及未标版本的历史 setup 沿用原 foeCap 语义。
+    const foeMax = setup.rulesVersion >= 6 ? COMBAT_RULES.maxFoesOnField : COMBAT_RULES.maxEnemiesOnField;
+    if (setup.foeCap !== undefined && !(Number.isInteger(setup.foeCap) && setup.foeCap >= 1 && setup.foeCap <= foeMax)) return { reason: 'invalid-setup' };
+    // crowd 已烘焙进单位数值，只校验保存值，不在恢复时再次缩放。
+    if (setup.crowd !== undefined && !(typeof setup.crowd === 'number' && setup.crowd > 0 && setup.crowd <= 1)) return { reason: 'invalid-setup' };
     // weakFoes（规则 v6 G3d）：弱敌战标记，只影响奖励、积分与场次，不进战斗状态；只在为真时写。
     if (setup.weakFoes !== undefined && setup.weakFoes !== true) return { reason: 'invalid-setup' };
     const ids = new Set();
@@ -232,7 +235,8 @@ function validateSetup(setup) {
     const isEnemy = (id) => setup.units.some((unit) => unit.id === id && unit.side === 'enemy');
     if (!Array.isArray(reserve) || reserve.length >= enemyCount || reserve.some((id, index) => typeof id !== 'string' || reserve.indexOf(id) !== index || !isEnemy(id))) return { reason: 'invalid-reserve' };
     if (enemyCount - reserve.length > COMBAT_RULES.maxEnemiesOnField) return { reason: 'too-many-enemies', detail: { max: COMBAT_RULES.maxEnemiesOnField } };
-    if (setup.foeCap !== undefined && enemyCount - reserve.length > setup.foeCap) return { reason: 'too-many-enemies', detail: { max: setup.foeCap } };
+    const foeCap = setup.foeCap ?? (setup.rulesVersion >= 6 ? COMBAT_RULES.maxFoesOnField : undefined);
+    if (foeCap !== undefined && enemyCount - reserve.length > foeCap) return { reason: 'too-many-enemies', detail: { max: foeCap } };
     const hero = setup.units.find((unit) => unit.id === setup.controlledId);
     return !hero || hero.side !== 'ally' || hero.kind !== 'deck' ? { reason: 'invalid-controlled' } : null;
 }
@@ -1798,7 +1802,8 @@ export function createBattle(setup, seed) {
         ...(setup.wipe === true ? { wipe: true } : {}),
         ...(setup.openingCharged === true ? { openingDebt: true } : {}),
         ...(setup.randomTargets === true ? { randomTargets: true } : {}),
-        ...(setup.foeCap !== undefined ? { foeCap: setup.foeCap } : {}),
+        ...(setup.foeCap !== undefined || setup.rulesVersion >= 6 ? { foeCap: setup.foeCap ?? COMBAT_RULES.maxFoesOnField } : {}),
+        ...(setup.crowd !== undefined ? { crowd: setup.crowd } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),
         ...(reserve.size ? { reserve: [...setup.reserve] } : {}),
