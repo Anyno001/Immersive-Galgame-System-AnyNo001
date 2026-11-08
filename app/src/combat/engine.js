@@ -220,6 +220,8 @@ function validateSetup(setup) {
     if (setup.crowd !== undefined && !(typeof setup.crowd === 'number' && setup.crowd > 0 && setup.crowd <= 1)) return { reason: 'invalid-setup' };
     // weakFoes（规则 v6 G3d）：弱敌战标记，只影响奖励、积分与场次，不进战斗状态；只在为真时写。
     if (setup.weakFoes !== undefined && setup.weakFoes !== true) return { reason: 'invalid-setup' };
+    if (setup.trackHpLoss !== undefined && (setup.trackHpLoss !== true || !(setup.rulesVersion >= 6))) return { reason: 'invalid-setup' };
+    if (setup.rewardOwner !== undefined && (setup.trackHpLoss !== true || !setup.units.some((unit) => unit.id === setup.rewardOwner && unit.side === 'ally'))) return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [index, unit] of setup.units.entries()) {
         const path = `units[${index}]`;
@@ -312,6 +314,7 @@ function forkState(source) {
     work.history = lazyMap(source.history, (list) => list.slice());
     work.order = source.order.slice();
     work.intents = { ...source.intents };
+    if (source.hpLost) work.hpLost = { ...source.hpLost };
     if (source.reserve) work.reserve = source.reserve.slice();
     if (source.awaken) work.awaken = { ...source.awaken };
     if (source.items) work.items = { ...source.items, list: source.items.list.map((item) => ({ ...item })) };
@@ -585,6 +588,7 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
         setStatus(target, 'endure', 0);
     }
     target.hp -= hpLoss;
+    if (ctx.state.hpLost) ctx.state.hpLost[target.id] = (ctx.state.hpLost[target.id] || 0) + hpLoss;
     const event = { type: 'damage', kind, source, target: target.id, amount, blocked, hpLoss };
     if (strike) event.strike = strike;
     if (loss) event.loss = true;
@@ -1804,6 +1808,7 @@ export function createBattle(setup, seed) {
         ...(setup.randomTargets === true ? { randomTargets: true } : {}),
         ...(setup.foeCap !== undefined || setup.rulesVersion >= 6 ? { foeCap: setup.foeCap ?? COMBAT_RULES.maxFoesOnField } : {}),
         ...(setup.crowd !== undefined ? { crowd: setup.crowd } : {}),
+        ...(setup.trackHpLoss === true ? { hpLost: {}, ...(setup.rewardOwner ? { rewardOwner: setup.rewardOwner } : {}) } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),
         ...(reserve.size ? { reserve: [...setup.reserve] } : {}),

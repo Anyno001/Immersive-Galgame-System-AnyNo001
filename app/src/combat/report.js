@@ -315,21 +315,28 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     const expEach = weak === true ? weakShare(fullExp) : fullExp;
     const exp = expEach > 0 ? [...new Set(expTargets.map(sanitize).filter(Boolean))].map((name) => ({ name, amount: expEach })) : [];
     const expMarks = exp.map((item) => `[igs-combat:exp|${item.name}|${item.amount}|战斗:${reportId}]`);
+    const hpLost = state.hpLost ? (state.hpLost[state.rewardOwner || state.controlledId] || 0) : null;
     const text = [
         '（战斗结束）',
-        `<igs-combat-report id="${reportId}" result="${result}" encounter="${sanitize(encounter)}"${weak === true ? ' weak="1"' : ''}>`,
+        `<igs-combat-report id="${reportId}" result="${result}" encounter="${sanitize(encounter)}"${weak === true ? ' weak="1"' : ''}${hpLost === null ? '' : ` hp-lost="${hpLost}"`}>`,
         ...lines.filter(Boolean),
         '</igs-combat-report>',
         ...expMarks,
     ].join('\n');
     // 规则 v5 E17 / D11：有敌人限时撤离的胜利不给战利品，标记随战报条目保存。
-    return { ok: true, text, result, reportId, exp, ...(result === 'win' && state.noLoot === true ? { noLoot: true } : {}) };
+    return { ok: true, text, result, reportId, exp, ...(hpLost === null ? {} : { hpLost }), ...(result === 'win' && state.noLoot === true ? { noLoot: true } : {}) };
 }
 
 const REPORT_ID_PATTERN = /<igs-combat-report\b[^>]*\bid\s*=\s*"([^"]+)"/i;
 export const reportIdOf = (text) => String(text || '').match(REPORT_ID_PATTERN)?.[1] ?? null;
 // 规则 v6 G3d：战报块带 weak="1" 即为弱敌战。
 export const reportWeakOf = (text) => /<igs-combat-report\b[^>]*\bweak\s*=\s*"1"/i.test(String(text || ''));
+
+export function reportHpLostOf(text) {
+    const value = String(text || '').match(/<igs-combat-report\b[^>]*\shp-lost\s*=\s*"(\d+)"/i)?.[1];
+    const amount = value === undefined ? null : Number(value);
+    return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+}
 
 export const COMBAT_SKIP_TEXT = '（本场战斗不使用卡牌结算，请直接用文字描写这场战斗的经过与结果。）';
 export const COMBAT_RULES_VERSION = COMBAT_RULES.version;

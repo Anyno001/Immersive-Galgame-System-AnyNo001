@@ -41,3 +41,24 @@ export function winPointsBonus(refs, amount) {
 
 // 引用列表是否都在持有特性里（账本重放按当时持有核对，防止伪造）。
 export const refsHeld = (refs, traits) => (Array.isArray(refs) ? refs : []).every((ref) => (Array.isArray(traits) ? traits : []).some((trait) => sameRef(trait?.relic, ref)));
+
+export const relicRefKey = (ref) => `${ref.relicId}:${ref.model}`;
+
+export function flipRewardBonus(refs, { tier, wins = {}, weak = false } = {}) {
+    const bonus = { extra: 0, choices: 0, inscribe: 0, upgradeNoDamage: false };
+    for (const ref of Array.isArray(refs) ? refs : []) {
+        const model = offCombatModel(ref);
+        if (model?.kind !== 'flip' || (model.battle && model.battle !== tier)) continue;
+        const key = relicRefKey(ref);
+        const count = wins instanceof Map ? wins.get(key) || 0 : wins[key] || 0;
+        if (model.every > 0 && (weak || (count + 1) % model.every !== 0)) continue;
+        bonus.extra += model.extra || 0;
+        bonus.choices += model.choices || 0;
+        bonus.inscribe += model.inscribe || 0;
+        if (model.rarity) bonus.rarity = model.rarity;
+        if (model.upgrade === true && model.noDamage === true) bonus.upgradeNoDamage = true;
+    }
+    bonus.extra = Math.min(1, bonus.extra);
+    bonus.choices = Math.min(1, bonus.choices);
+    return bonus;
+}

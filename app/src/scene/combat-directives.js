@@ -216,7 +216,7 @@ function parseGrowthFields(kind, fields) {
         const pickWord = String(fields[4] ?? '').trim().toLowerCase();
         if (!pickWord) return { ok: true, value: { ...base, reportId, slot, set } };
         if (pickWord === 'skip') return { ok: true, value: { ...base, reportId, slot, set, pick: 'skip' } };
-        const pick = parseIntInRange(pickWord, 0, 2);
+        const pick = parseIntInRange(pickWord, 0, 3);
         return pick === null ? fail('pick', 'invalid-pick') : { ok: true, value: { ...base, reportId, slot, set, pick } };
     }
     if (kind === 'purge' || kind === 'card-upgrade') {

@@ -1,11 +1,12 @@
 // 战斗奖励规划：按敌人档位、难度、特性关联，用固定种子生成翻牌奖励槽位（主组 + 备选组）。纯函数。
 import { cardCopyLimit, combatExpReward, difficultyRule } from './rules.js';
-import { GEAR_SLOTS, REWARD_CARD_CHOICES, REWARD_SLOT_COUNT } from './schema.js';
+import { CARD_DRAW_CHOICES, GEAR_SLOTS, REWARD_CARD_CHOICES, REWARD_CARD_CHOICES_MAX, REWARD_SLOT_COUNT, REWARD_SLOT_MAX } from './schema.js';
 import { hash32, hashString, nextRandom } from './random.js';
 import { weakShare } from './points.js';
 import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from './fixed-cards/index.js';
 import { drawRelic } from './relics/draw.js';
+import { flipRewardBonus, heldOffCombat } from './relics/off-combat.js';
 
 const RARITY_ORDER = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 const rarityIndex = (rarity) => RARITY_ORDER.indexOf(rarity);
@@ -193,18 +194,21 @@ function fixedCandidates(seed, rarity, pool, owned, count, taken = [], floor = '
 // 规则 v6：卡牌槽展开为 REWARD_CARD_CHOICES 张候选，本职业固定卡与随机卡 2:1，随机卡的位置由种子定；
 // 每槽以 REWARD_GENERAL_SHARE 的概率把最后一张固定候选换成无色固定卡。
 // 程序在槽位上记 fixedIds / randomAt / archetype，随机卡由副 LLM 按本职业模板命名。本职业固定池凑不齐时该槽照旧只出一张随机卡。
-function withCardCandidates(slots, seed, pool, owned, archetype, general = []) {
-    if (!pool.length) return slots;
+function withCardCandidates(slots, seed, pool, owned, archetype, general = [], bonus = {}) {
     return slots.map((slot) => {
         if (slot.kind !== 'card') return slot;
-        const fixedIds = fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, REWARD_CARD_CHOICES - 1);
-        if (fixedIds.length < REWARD_CARD_CHOICES - 1) return slot;
+        const marked = { ...slot, ...(bonus.inscribe > 0 ? { inscribe: bonus.inscribe } : {}), ...(bonus.upgradeNoDamage ? { upgradeNoDamage: true } : {}) };
+        if (!pool.length) return marked;
+        const count = Math.min(REWARD_CARD_CHOICES_MAX, REWARD_CARD_CHOICES + (bonus.choices || 0));
+        const fixedIds = fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, count - 1);
+        if (fixedIds.length < REWARD_CARD_CHOICES - 1) return marked;
+        const size = fixedIds.length + 1;
         if (general.length && randomFrom(`${seed}|cand-general|${slot.index}`)() < REWARD_GENERAL_SHARE) {
             const [colorless] = fixedCandidates(`${seed}|cand-general-pick|${slot.index}`, slot.rarity, general, owned, 1, fixedIds, 'uncommon');
             if (colorless) fixedIds[fixedIds.length - 1] = colorless;
         }
-        const randomAt = pickIndex(randomFrom(`${seed}|cand-at|${slot.index}`), REWARD_CARD_CHOICES);
-        return { ...slot, archetype, fixedIds, randomAt };
+        const randomAt = pickIndex(randomFrom(`${seed}|cand-at|${slot.index}`), size);
+        return { ...marked, archetype, fixedIds, randomAt };
     });
 }
 
@@ -239,9 +243,9 @@ export function planCardDraw(character) {
     const random = randomFrom(seed);
     const rarity = pickWeighted(random, CARD_DRAW_RARITY);
     const cost = pickWeighted(random, CARD_COST_WEIGHTS);
-    const fixedIds = fixedCandidates(`${seed}|cand`, rarity, pool, owned, REWARD_CARD_CHOICES - 1);
-    if (fixedIds.length < REWARD_CARD_CHOICES - 1) return null;
-    const randomAt = pickIndex(randomFrom(`${seed}|cand-at`), REWARD_CARD_CHOICES);
+    const fixedIds = fixedCandidates(`${seed}|cand`, rarity, pool, owned, CARD_DRAW_CHOICES - 1);
+    if (fixedIds.length < CARD_DRAW_CHOICES - 1) return null;
+    const randomAt = pickIndex(randomFrom(`${seed}|cand-at`), CARD_DRAW_CHOICES);
     const mark = hashString(seed);
     return { seed, drawId: `cd-${mark}`, cardId: `dc-${mark}`, archetype: character.classProfile.archetype, rarity, cost, fixedIds, randomAt };
 }
@@ -260,7 +264,10 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     const kinds = rule.kinds.filter(([kind]) => (kind === 'inscribe' ? deck && inscribe === true : kind !== 'card' || deck));
     const targets = deck && inscribe === true ? inscribeTargets(character) : null;
     // 「再翻」关联多给一个槽位。
-    const count = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
+    const flipRelics = deck && candidates === true ? heldOffCombat(character?.traits, 'flip') : [];
+    const bonus = flipRewardBonus(flipRelics, { tier: tierKey, wins: character?.flipWins, weak });
+    const baseCount = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
+    const count = Math.min(REWARD_SLOT_MAX, baseCount + bonus.extra);
     const lootChance = difficultyRule(difficulty).loot;
     const lootFor = (key) => (lootChance > 0 ? { chance: lootChance, seed: `${key}|loot` } : null);
     const archetype = character?.classProfile?.archetype;
@@ -271,10 +278,20 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     const taken = deck && candidates === true ? ownedRelicIds(character) : null;
     const relics = (list, key) => (taken ? withRelics(list, key, archetype, taken) : list);
     const weakOn = weak === true && candidates === true;
-    const base = (key) => (weakOn ? buildWeakSlots(key, kinds, count, targets) : buildSlots(key, rule, kinds, count, normalLinks.fortune, lootFor(key), targets));
-    const slots = relics(withCardCandidates(base(seed), seed, pool, owned, archetype, general), seed);
+    const base = (key) => {
+        const list = weakOn ? buildWeakSlots(key, kinds, count, targets) : buildSlots(key, rule, kinds, baseCount, normalLinks.fortune, lootFor(key), targets);
+        if (!weakOn && bonus.extra) {
+            const random = randomFrom(`${key}|extra-card`);
+            const rarity = bonus.rarity || pickWeighted(random, rule.rarity);
+            const slot = { index: REWARD_SLOT_MAX - 1, kind: 'card', rarity: rule.cardCap && rarityIndex(rarity) > rarityIndex(rule.cardCap) ? rule.cardCap : rarity, cost: pickWeighted(random, CARD_COST_WEIGHTS) };
+            if (list.length < REWARD_SLOT_MAX) list.push(slot);
+            else list[REWARD_SLOT_MAX - 1] = slot;
+        }
+        return list;
+    };
+    const slots = relics(withCardCandidates(base(seed), seed, pool, owned, archetype, general, bonus), seed);
     const reserveSeed = `${seed}|reserve`;
-    const reserve = relics(withCardCandidates(base(reserveSeed), reserveSeed, pool, owned, archetype, general), reserveSeed);
+    const reserve = relics(withCardCandidates(base(reserveSeed), reserveSeed, pool, owned, archetype, general, bonus), reserveSeed);
     const exp = weakOn ? weakShare(victoryExpFor(enemyTiers)) : victoryExpFor(enemyTiers);
-    return { seed, tier: tierKey, exp, links: normalLinks, slots, reserve, ...(weakOn ? { weak: true } : {}) };
+    return { seed, tier: tierKey, exp, links: normalLinks, slots, reserve, ...(flipRelics.length ? { flipRelics } : {}), ...(weakOn ? { weak: true } : {}) };
 }

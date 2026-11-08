@@ -489,6 +489,8 @@ test('多敌建局（v6 G3b）：胜场阶梯烘焙生命与伤害并保存 crow
         const saved = { ...make(2, 10), rulesVersion };
         delete saved.crowd;
         delete saved.foeCap;
+        delete saved.trackHpLoss;
+        delete saved.rewardOwner;
         const replayed = replayBattle(saved, 1, []);
         assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
         assert.equal(replayed.state.crowd, undefined);
@@ -2553,4 +2555,368 @@ test('劣等杂物（v6 G3d）库存往返：同名不同品质分开、同品�
         assert.equal(inventory.read().inventory.items.some(item => item.name === normal.name), false);
         assert.equal(inventory.read().gear.rows.some(item => item.name === normal.name), false);
     }
+});
+
+test('奖励失血事实（v6 G5f-4f）：实际扣血累计、回血不抵销、写时复制与重放隔离；旧 setup 保持未知', async () => {
+    const { buildCombatReport, reportHpLostOf } = await import('../src/combat/report.js');
+    const card = { id: 'loss-probe', name: '浴血归元', type: 'attack', rarity: 'common', cost: 0,
+        effects: [{ op: 'self-damage', amount: 3 }, { op: 'heal', amount: 3, target: 'self' }, dmg(6)] };
+    const setup = { rulesVersion: 6, trackHpLoss: true, controlledId: 'hero', rewardOwner: 'hero',
+        units: [hero(Array(5).fill(card.id), { speed: 100, catalog: { [card.id]: card } }), foe()] };
+    const created = createBattle(setup, SEED);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const before = clone(created.state);
+    const action = legalActions(created.state).find(item => item.type === 'play');
+    assert.ok(action);
+    const played = applyAction(created.state, action);
+    assert.equal(played.ok, true, JSON.stringify(played.error));
+    assert.equal(played.state.hpLost.hero, 3, '回血不能把本场失血抹掉');
+    assert.equal(played.state.hpLost.foe, 6);
+    assert.equal(played.state.units.hero.hp, 50);
+    assert.deepEqual(created.state, before, '新动作不能改动之前的状态');
+    assert.deepEqual(replayBattle(setup, SEED, [action]).state, played.state);
+    const finished = { ...played.state, outcome: 'victory' };
+    const report = buildCombatReport({ combatId: 'loss-fact', state: finished, events: [...created.events, ...played.events] });
+    assert.equal(report.hpLost, 3);
+    assert.equal(reportHpLostOf(report.text), 3);
+    assert.equal(reportHpLostOf('<igs-combat-report hp-lost="0" result="win">'), 0);
+    for (const value of ['-1', 'NaN', '1.5', '9007199254740992']) assert.equal(reportHpLostOf(`<igs-combat-report hp-lost="${value}">`), null);
+    for (const rulesVersion of [3, 4, 5, 6]) {
+        const oldSetup = { ...setup, rulesVersion };
+        delete oldSetup.trackHpLoss;
+        delete oldSetup.rewardOwner;
+        const old = createBattle(oldSetup, SEED);
+        assert.equal(old.ok, true);
+        assert.equal(Object.hasOwn(old.state, 'hpLost'), false);
+        const oldReport = buildCombatReport({ combatId: 'old-loss', state: { ...old.state, outcome: 'victory' }, events: old.events });
+        assert.equal(Object.hasOwn(oldReport, 'hpLost'), false);
+        assert.equal(reportHpLostOf(oldReport.text), null);
+    }
+    const blocked = createBattle({ rulesVersion: 6, trackHpLoss: true, controlledId: 'hero',
+        units: [hero(filler, { speed: 100, passives: [{ id: 'shield', name: '护盾', trigger: 'battle-start', effects: [{ op: 'block', amount: 50 }] }] }), foe({ skills: [claw(6)] })] }, SEED);
+    assert.equal(blocked.ok, true, JSON.stringify(blocked.error));
+    const ended = applyAction(blocked.state, { type: 'end-turn' });
+    assert.equal(ended.ok, true);
+    assert.equal(ended.state.hpLost.hero || 0, 0, '被格挡的伤害不算失血');
+});
+
+
+test('奖励遗物（v6 G5f-4f）：加槽封顶四、四候选带合法刻印、无伤升级按战报兑现到新副本，积分抽卡仍为三候选', async () => {
+    const { assembleReward } = await import('../src/combat/generation-assembly.js');
+    const { templatesFor } = await import('../src/combat/card-templates.js');
+    const { planCardDraw } = await import('../src/combat/rewards.js');
+    const { fixedCard } = await import('../src/combat/fixed-cards/index.js');
+    const { attachLoot, reportIdFor } = await import('../src/combat/report.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const { settleRewardOffer, rewardCardMarks } = await import('../src/combat/reward-cards.js');
+    const { inscribable } = await import('../src/combat/mechanics/inscription.js');
+    const { emptyPick, flipCard, chooseCard, pickCardChoice, normalizePick, lootOf } = await import('../src/combat/flip.js');
+    const refs = ['rl-r-20', 'rl-s-06', 'rl-s-12', 'rl-s-23'].map(relicId => ({ relicId, model: 'original' }));
+    const character = { kind: 'deck-character', id: 'pc-hero', classProfile: { archetype: 'warrior' }, owned: new Map(), traits: refs.map(relic => ({ relic })) };
+    const plan = planRewardSlots({ combatId: 'g5f-reward', tier: 'normal', character, candidates: true });
+    assert.deepEqual(planRewardSlots({ combatId: 'g5f-reward', tier: 'normal', character, candidates: true }), plan);
+    assert.equal(plan.slots.length, 4);
+    assert.equal(plan.reserve.length, 4);
+    assert.equal(plan.slots[3].kind, 'card');
+    assert.equal(plan.slots[3].fixedIds.length, 3);
+    assert.equal(planRewardSlots({ combatId: 'g5f-reward', tier: 'normal', character, candidates: true, links: { reflip: true } }).slots.length, 4);
+    assert.equal(planRewardSlots({ combatId: 'g5f-reward', tier: 'elite', character, candidates: true }).slots.length, 3, '普通战限定的加槽不应用于精英');
+    const morning = { ...character, traits: [{ relic: { relicId: 'rl-r-32', model: 'original' } }] };
+    const elite = planRewardSlots({ combatId: 'g5f-morning', tier: 'elite', character: morning, candidates: true });
+    assert.deepEqual([elite.slots.length, elite.slots[3].kind, elite.slots[3].rarity], [4, 'card', 'rare']);
+    assert.equal(planRewardSlots({ combatId: 'g5f-morning', tier: 'boss', character: morning, candidates: true }).slots.length, 3);
+    const draw = planCardDraw(character);
+    assert.equal(draw.fixedIds.length, 2, '奖励遗物不改变积分抽卡协议');
+    let slot;
+    for (const key of Object.keys(templatesFor('warrior'))) {
+        const built = assembleReward({ slots: [['裂空斩', key, '历练所得']] }, { key: 'reward-probe', input: { seed: plan.seed, slots: [plan.slots[3]] } });
+        if (!built.errors) { slot = built.value.slots[0]; break; }
+    }
+    assert.ok(slot, '奖励槽可由本职业模板装配');
+    assert.equal(slot.choices.length, 4);
+    assert.equal(slot.choices[plan.slots[3].randomAt].id, slot.card.id);
+    assert.equal(slot.marks.filter(mark => mark.inscription).length, 1);
+    for (const [i, mark] of slot.marks.entries()) if (mark.inscription) assert.equal(inscribable(slot.choices[i], mark.inscription), true);
+    const fillerSlot = index => ({ index, kind: 'keepsake', rarity: 'common', name: `杂物${index}`, origin: '' });
+    const slots = [0, 1, 2].map(fillerSlot).concat(slot);
+    const offer = { combatId: 'g5f-reward', tier: 'normal', exp: 10, reveal: 0, slots, reserve: clone(slots), flipRelics: refs };
+    const snapshot = clone(offer);
+    const settled = settleRewardOffer(offer, 0);
+    assert.ok(settled.slots[3].marks.every((mark, i) => mark.upgraded === !!slot.choices[i].upgraded));
+    assert.deepEqual(offer, snapshot, '结算不改动预生成奖励单');
+    for (const hpLost of [null, 1]) assert.equal(settleRewardOffer(offer, hpLost).slots[3].marks.some(mark => mark.upgraded), false);
+    const position = flipOrder(offer, 'main').indexOf(3);
+    let pick = flipCard(offer, emptyPick(), position).pick;
+    pick = flipCard(offer, pick, (position + 1) % 4).pick;
+    pick = chooseCard(offer, pick, position).pick;
+    pick = pickCardChoice(offer, pick, 3).pick;
+    assert.deepEqual(normalizePick(pick, offer), pick);
+    assert.equal(lootOf(offer, pick).pick, 3);
+    assert.equal(pickCardChoice(offer, pick, 4).ok, false);
+    const oldOffer = { ...offer, slots: slots.map(item => item.kind === 'card' ? { ...item, choices: item.choices.slice(0, 3), marks: item.marks.slice(0, 3) } : item) };
+    assert.equal(normalizePick(pick, oldOffer), null, '旧三候选仍拒绝越界位置');
+
+    const at = (type, messageId, occurrence, payload, tagHash = 'trait') => {
+        const anchor = { messageId, swipeId: 0, occurrence, tagHash };
+        return { id: ledgerEntryId(type, 'pc-hero', anchor), type, character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    for (const hpLost of [0, 3, null]) for (const index of [plan.slots[3].randomAt, ...slot.choices.map((_, i) => i).filter(i => i !== plan.slots[3].randomAt).slice(0, 1), slot.marks.findIndex(mark => mark.inscription)]) {
+        const env = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('特性'), ai('备战'), user('待发战报')]);
+        const traits = refs.map((relic, i) => at('trait', 0, i * 3, { traitId: `reward-tr-${i}`, name: '奖励特性', kind: 'passive', rarity: 'rare', relic, cost: 100 }));
+        await env.tables.append('ledger', [traits[0], at('trait-pick', 0, 1, { traitId: 'reward-tr-0', drop: 'pp-pc-hero' }), traits[1], at('trait-pick', 0, 4, { traitId: 'reward-tr-1', drop: 'pc-hero-h0' }), at('trait-slot', 0, 5, { slot: 3, cost: 500 }), traits[2], at('trait-slot', 0, 8, { slot: 4, cost: 1000 }), traits[3]]);
+        const before = heroOf(await env.ledger.effectiveState());
+        assert.equal(before.traits.length, 4);
+        const offered = await env.ledger.append([at('offer', 1, 0, offer, 'offer')]);
+        assert.equal(offered.ok, true, JSON.stringify(offered));
+        const reportId = reportIdFor(offer.combatId);
+        env.ref.chat[2] = user(attachLoot(`<igs-combat-report id="${reportId}" result="win"${hpLost === null ? '' : ` hp-lost="${hpLost}"`}>获胜</igs-combat-report>`, { character: '主角', reportId, index: 3, set: 'main', slot: settled.slots[3], pick: index }));
+        const scanned = await env.ledger.scan();
+        assert.equal(scanned.ok, true, JSON.stringify(scanned));
+        assert.equal(scanned.entries.filter(entry => entry.type === 'loot').length, 1, JSON.stringify(scanned.diagnostics));
+        let state = await env.ledger.effectiveState();
+        assert.deepEqual(state.diagnostics, []);
+        const after = heroOf(state);
+        const gained = after.deckEntries.find(entry => entry.copyId.startsWith('loot|'));
+        assert.ok(gained);
+        const expected = rewardCardMarks(slot, index, hpLost);
+        assert.equal(gained.upgraded, expected.upgraded === true);
+        assert.equal(gained.inscription || null, expected.inscription || null);
+        assert.equal(after.deck.length, before.deck.length + 1);
+        assert.deepEqual(heroOf(await env.ledger.effectiveState()), after, '重复读取不重复发放');
+        env.ref.chat[2].swipe_id = 1;
+        assert.equal(heroOf(await env.ledger.effectiveState()).deck.length, before.deck.length);
+        env.ref.chat[2].swipe_id = 0;
+        assert.equal(heroOf(await env.ledger.effectiveState()).deck.length, before.deck.length + 1);
+    }
+    const invalid = at('offer', 0, 0, { ...offer, slots: [...slots.slice(0, 3), { ...slot, marks: [{ inscription: 'not-a-key' }, {}, {}, {}] }] }, 'offer');
+    assert.equal(normalizeLedgerEntry(invalid).ok, false);
+    assert.ok(fixedCard(draw.fixedIds[0]));
+});
+
+test('奖励周期（v6 G5f-4f）：只累计持有期间的新普通胜利，弱敌和历史未知不推进，换下保留余数，回退重算', async () => {
+    const relic = { relicId: 'rl-u-08', model: 'original' };
+    const key = 'rl-u-08:original';
+    const battle = (id, known = true, weak = false) => user(`<igs-combat-report id="${id}" result="win"${known ? ' hp-lost="0"' : ''}${weak ? ' weak="1"' : ''}>胜利</igs-combat-report>\n[igs-combat:exp|主角|10|战斗:${id}]`);
+    const env = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [
+        battle('before-held'), ai('装上糖果'), battle('candy-first'), battle('weak-candy', true, true),
+        battle('candy-first'), battle('old-candy', false), ai('换下糖果'), battle('without-candy'), ai('装回糖果'), battle('candy-second'),
+    ]);
+    const at = (type, messageId, occurrence, payload) => {
+        const anchor = { messageId, swipeId: 0, tagHash: 'trait', occurrence };
+        return { id: ledgerEntryId(type, 'pc-hero', anchor), type, character: 'pc-hero', anchor, payload, createdAt: 7 };
+    };
+    const trait = (id, ref) => ({ traitId: id, name: id, kind: 'passive', rarity: 'rare', relic: ref, cost: 100 });
+    await env.tables.append('ledger', [at('trait', 1, 0, trait('candy', relic)), at('trait-pick', 1, 1, { traitId: 'candy', drop: 'pp-pc-hero' })]);
+    const read = async () => heroOf(await env.ledger.effectiveState());
+    const candidateCount = me => {
+        for (let i = 0; i < 100; i += 1) {
+            const slot = planRewardSlots({ combatId: `candy-count-${i}`, tier: 'normal', character: me, candidates: true }).slots.find(item => item.kind === 'card' && item.fixedIds);
+            if (slot) return slot.fixedIds.length + 1;
+        }
+        assert.fail('应有可检查的卡牌奖励槽');
+    };
+    assert.equal(candidateCount(await read()), 3, '首次胜利前不加候选');
+    assert.equal((await env.ledger.scan({ messageIds: [0, 2, 3, 4, 5] })).ok, true);
+    assert.equal((await read()).flipWins[key], 1, '持有前、弱敌、重复战报与缺失血事实都不推进');
+    assert.equal(candidateCount(await read()), 4, '第二场普通胜利的预生成候选加一');
+    assert.equal((await env.ledger.scan({ messageIds: [0, 2, 3, 4, 5] })).ok, true);
+    assert.equal((await read()).flipWins[key], 1, '补扫不重复累计');
+    await env.tables.append('ledger', [
+        at('trait', 6, 0, trait('other-flip', { relicId: 'rl-s-12', model: 'original' })),
+        at('trait-pick', 6, 1, { traitId: 'other-flip', drop: 'candy' }),
+    ]);
+    assert.equal((await env.ledger.scan({ messageIds: [7] })).ok, true);
+    assert.equal((await read()).flipWins[key], 1);
+    assert.equal(candidateCount(await read()), 3, '没有装上时不增加候选');
+    await env.tables.append('ledger', [at('trait', 8, 0, trait('candy-again', relic)), at('trait-pick', 8, 1, { traitId: 'candy-again', drop: 'other-flip' })]);
+    assert.equal(candidateCount(await read()), 4, '重新装上继承此前余数');
+    assert.equal((await env.ledger.scan({ messageIds: [9] })).ok, true);
+    assert.equal((await read()).flipWins[key], 2);
+    assert.equal(candidateCount(await read()), 3);
+    env.ref.chat[9].swipe_id = 1;
+    assert.equal((await read()).flipWins[key], 1);
+    assert.equal(candidateCount(await read()), 4);
+    env.ref.chat[9].swipe_id = 0;
+    assert.equal((await read()).flipWins[key], 2);
+    assert.deepEqual((await env.ledger.effectiveState()).diagnostics, []);
+});
+
+test('奖励恢复（v6 G5f-4f）：刷新重放、聊天结果与发件箱恢复都保留失血事实及四候选标记', async t => {
+    const { createCombatSession, locateCombatStart, sessionKeyFor, outboxKeyFor } = await import('../src/combat/session.js');
+    const { createCountingStorage } = await import('./helpers/combat-mock-host-services.js');
+    const { reportHpLostOf } = await import('../src/combat/report.js');
+    const chat = [user('出发'), ai('前方出现敌人。\n[igs-combat:start|史莱姆|草原]')];
+    const located = locateCombatStart(chat, 1);
+    assert.equal(located.ok, true);
+    const probe = { id: 'restore-probe', name: '归元斩', type: 'attack', rarity: 'common', cost: 0,
+        effects: [{ op: 'self-damage', amount: 3 }, { op: 'heal', amount: 3, target: 'self' }, dmg(6)] };
+    const setup = { rulesVersion: 6, trackHpLoss: true, controlledId: 'hero', rewardOwner: 'hero',
+        units: [hero(Array(5).fill(probe.id), { speed: 100, catalog: { [probe.id]: probe } }), foe({ maxHp: 7 })] };
+    const record = { v: 1, combatId: located.combatId, anchor: located.anchor, seed: seedFor(located.combatId), setup, actions: [], encounter: '草原', tiers: ['normal'], expTargets: ['我'] };
+    const candidates = [0, 1, 2, 3].map(i => ({ id: `restore-${i}`, name: `候选${i}`, type: 'attack', rarity: 'common', cost: 1,
+        effects: [dmg(6)], upgraded: { effects: [dmg(8)] } }));
+    const slot = { index: 0, kind: 'card', rarity: 'common', name: '领悟', origin: '', card: candidates[0], choices: candidates, upgradeNoDamage: true, marks: [{ inscription: 'sharp' }, {}, {}, {}] };
+    const offer = { combatId: located.combatId, character: 'hero', slots: [slot, ...[1, 2].map(index => ({ index, kind: 'keepsake', rarity: 'common', name: `杂物${index}`, origin: '' }))], reveal: 0 };
+    const ledger = { effectiveState: async () => ({ ok: true, offers: new Map([[located.combatId, offer]]), attributes: {}, characters: new Map(), classes: new Map() }),
+        append: async () => ({ ok: true }), scan: async () => ({ ok: true }) };
+    const results = new Map();
+    const chatRecord = { read: () => ({ ok: true, value: clone(results.get(located.combatId) || null) }),
+        write: async (_anchor, combatId, patch) => { results.set(combatId, { ...(results.get(combatId) || {}), ...clone(patch) }); return { ok: true }; } };
+    const storage = createCountingStorage({ [sessionKeyFor('restore')]: JSON.stringify(record) });
+    const open = (recordStore = chatRecord, targetStorage = storage) => {
+        const session = createCombatSession({ ledger, tables: {}, storage: targetStorage, chat, chatRecord: recordStore,
+            getChatId: () => 'restore', userName: '我', send: async () => ({ ok: false, reason: 'offline' }), now: () => 7 });
+        t.after(() => session.dispose());
+        assert.equal(session.resume().ok, true);
+        return session;
+    };
+    const session = open();
+    assert.equal(session.act(session.state().legal.find(action => action.type === 'play')).ok, true);
+    session.flushPersist();
+    const mid = open();
+    assert.equal(mid.state().battle.hpLost.hero, 3);
+    assert.equal(mid.state().battle.units.hero.hp, 50);
+    assert.equal(mid.act(mid.state().legal.find(action => action.type === 'play')).ok, true);
+    assert.equal(mid.state().battle.outcome, 'victory');
+    assert.equal((await mid.loadFlip()).ok, true);
+    const pos = flipOrder(offer, 'main').indexOf(0);
+    assert.equal((await mid.flip(pos)).ok, true);
+    assert.equal((await mid.pickCard(3)).ok, true);
+    const chosen = mid.state().flip.cards.find(item => item.chosen).slot;
+    assert.equal(chosen.choices.length, 4);
+    assert.equal(chosen.marks.some(mark => mark.upgraded), false, '回血后的失血仍阻止无伤升级');
+    const failed = await mid.finish();
+    assert.equal(failed.reason, 'combat-report-send-failed');
+    const outbox = JSON.parse(storage.getItem(outboxKeyFor('restore')))[located.combatId];
+    assert.equal(outbox.hpLost, 6);
+    assert.equal(reportHpLostOf(outbox.text), 6);
+    assert.ok(outbox.text.includes('|0|main|3]'));
+    const fromChat = open();
+    assert.equal(fromChat.state().status, 'send-failed');
+    assert.equal(fromChat.state().report.hpLost, 6);
+    assert.equal((await fromChat.loadFlip()).ok, true);
+    assert.equal(fromChat.state().flip.card, 3);
+    assert.deepEqual(fromChat.state().flip.cards.find(item => item.chosen).slot, chosen);
+    const withoutResult = { read: () => ({ ok: true, value: { flip: results.get(located.combatId).flip } }), write: async () => ({ ok: true }) };
+    const fromOutbox = open(withoutResult);
+    assert.equal(fromOutbox.state().report.hpLost, 6);
+    assert.equal((await fromOutbox.loadFlip()).ok, true);
+    assert.equal(fromOutbox.state().flip.card, 3);
+    assert.deepEqual(fromOutbox.state().flip.cards.find(item => item.chosen).slot, chosen);
+    for (const hpLost of [0, null]) {
+        const text = `<igs-combat-report id="${outbox.reportId}" result="win"${hpLost === null ? '' : ' hp-lost="0"'}>获胜</igs-combat-report>`;
+        const persisted = { ...outbox, text };
+        delete persisted.hpLost;
+        const restoredStorage = createCountingStorage({ [sessionKeyFor('restore')]: JSON.stringify(record), [outboxKeyFor('restore')]: JSON.stringify({ [located.combatId]: persisted }) });
+        const restored = open(withoutResult, restoredStorage);
+        assert.equal((await restored.loadFlip()).ok, true);
+        const restoredSlot = restored.state().flip.cards.find(item => item.chosen).slot;
+        assert.equal(restoredSlot.marks.every(mark => mark.upgraded === true), hpLost === 0, '旧战报未知失血不当作零');
+        assert.equal(restoredSlot.marks[0].inscription, 'sharp');
+    }
+});
+
+test('奖励快照（v6 G5f-4f）：公开装上特性后同楼备战，出单后换下不改原奖励，回退安装则奖励失效', async t => {
+    const { createCombatSession, locateCombatStart } = await import('../src/combat/session.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { createCombatChatRecord } = await import('../src/host/combat-chat-record.js');
+    const { createCountingStorage } = await import('./helpers/combat-mock-host-services.js');
+    const db = createLedgerMockHost({ supportCallbacks: true });
+    db.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: db.api });
+    assert.equal((await tables.ensure()).ok, true);
+    const enemy = { ...templateEnemy('狼', 'normal'), skills: [{ ...idle, id: 'wait-a' }, { ...idle, id: 'wait-b' }] };
+    assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2), row(enemy, 3)])).ok, true);
+    const chat = [ai('[igs-combat:start|林间交战|狼]')];
+    const ledger = createCombatLedger({ tables, chat: () => chat, userName: '主角', wallet: () => 10000, now: () => 7 });
+    const trait = (id, relicId) => ({ traitId: id, name: id, kind: 'passive', rarity: 'rare', relic: { relicId, model: 'original' } });
+    assert.equal((await ledger.drawTrait('pc-hero', trait('same-floor-extra', 'rl-r-20'))).ok, true);
+    assert.equal((await ledger.pickTrait('pc-hero', 'same-floor-extra', 'pp-pc-hero')).ok, true);
+    const chatRecord = createCombatChatRecord({ SillyTavern: { getContext: () => ({ chat, saveChat: async () => {} }) } });
+    const session = createCombatSession({ ledger, tables, storage: createCountingStorage(), chatRecord, chat: () => chat,
+        getChatId: () => 'g5f-same-floor', userName: '主角', now: () => 7, retryDelays: [], llm: { source: 'tavern' },
+        request: async prompt => JSON.stringify({ entities: JSON.parse(prompt.user).entities.map(entity => ({ key: entity.key,
+            value: entity.kind === 'encounter-theme' ? { theme: 'western' }
+                : Object.fromEntries(['slots', 'reserve'].map(set => [set, (entity.input[set] || []).map((slot, i) => [
+                    `旧物${set}${i}`, slot.kind === 'item' ? 'potion' : slot.kind === 'card' ? (slot.cost === 0 ? 'jab' : 'strike')
+                        : slot.kind === 'gear' ? (slot.templates?.[0] || 'opening-guard') : null, '林间所得',
+                ])])),
+        })) }),
+    });
+    t.after(() => { session.dispose(); tables.client.dispose(); });
+    assert.equal((await session.prepare(0)).ok, true);
+    const combatId = locateCombatStart(chat, 0).combatId;
+    let state = await ledger.effectiveState();
+    const offer = clone(state.offers.get(combatId));
+    assert.ok(offer, JSON.stringify(state.diagnostics));
+    assert.equal(offer.afterPanel, 2);
+    assert.equal(offer.slots.length, 4);
+    assert.equal(offer.slots[3].kind, 'card');
+    assert.deepEqual(offer.flipRelics, [{ relicId: 'rl-r-20', model: 'original' }]);
+    assert.equal((await ledger.drawTrait('pc-hero', trait('same-floor-other', 'rl-s-12'))).ok, true);
+    assert.equal((await ledger.pickTrait('pc-hero', 'same-floor-other', 'same-floor-extra')).ok, true);
+    state = await ledger.effectiveState();
+    assert.equal(heroOf(state).traits.some(item => item.traitId === 'same-floor-extra'), false);
+    assert.deepEqual(state.offers.get(combatId), offer, '出单后的面板记录不能穿越快照边界');
+    assert.deepEqual(state.diagnostics, []);
+    const snapshot = await ledger.read();
+    const installed = [...snapshot.entries].find(entry => entry.type === 'trait-pick' && entry.payload.traitId === 'same-floor-extra');
+    const revoke = { id: `revoke|${installed.id}`, type: 'revoke', character: 'pc-hero', anchor: installed.anchor,
+        payload: { targetEntryId: installed.id }, createdAt: 8 };
+    assert.equal((await ledger.append([revoke])).ok, true);
+    state = await ledger.effectiveState();
+    assert.equal(state.offers.has(combatId), false, '原安装失效时快照校验仍拒绝奖励');
+    assert.ok(state.diagnostics.some(item => item.code === 'combat-offer-relic-not-held'));
+});
+
+test('奖励候选耗尽（v6 G5f-4f）：回退单随机卡仍保留无伤升级与刻印并落到新增副本', async () => {
+    const { fixedClassPool } = await import('../src/combat/fixed-cards/index.js');
+    const { cardCopyLimit } = await import('../src/combat/rules.js');
+    const { assembleReward } = await import('../src/combat/generation-assembly.js');
+    const { templatesFor } = await import('../src/combat/card-templates.js');
+    const { attachLoot, reportIdFor } = await import('../src/combat/report.js');
+    const { inscribable } = await import('../src/combat/mechanics/inscription.js');
+    const refs = ['rl-r-20', 'rl-s-12', 'rl-s-23'].map(relicId => ({ relicId, model: 'original' }));
+    const env = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai('持有特性')]);
+    const ledger = createCombatLedger({ tables: env.tables, chat: () => env.ref.chat, userName: '主角', wallet: () => 10000, now: () => 7 });
+    for (const [i, relic] of refs.entries()) {
+        if (i === 2) assert.equal((await ledger.unlockTraitSlot('pc-hero', 3)).ok, true);
+        const traitId = `exhausted-${i}`;
+        assert.equal((await ledger.drawTrait('pc-hero', { traitId, name: '奖励特性', kind: 'passive', rarity: 'rare', relic })).ok, true);
+        if (i < 2) assert.equal((await ledger.pickTrait('pc-hero', traitId, i === 0 ? 'pp-pc-hero' : 'pc-hero-h0')).ok, true);
+    }
+    const before = heroOf(await ledger.effectiveState());
+    env.ref.chat.push(ai('备战'), user('待发战报'));
+    const character = { ...before, owned: new Map(fixedClassPool('warrior').map(card => [card.id, cardCopyLimit(card.rarity)])) };
+    const plan = planRewardSlots({ combatId: 'exhausted-reward', tier: 'normal', character, candidates: true });
+    const planned = plan.slots[3];
+    assert.equal(planned.fixedIds, undefined, '固定池耗尽按既有契约回退单卡');
+    assert.equal(planned.upgradeNoDamage, true);
+    assert.equal(planned.inscribe, 1);
+    let slot;
+    for (const key of Object.keys(templatesFor('warrior'))) {
+        const built = assembleReward({ slots: [['余烬斩', key, '战后领悟']] }, { key: 'exhausted', input: { seed: plan.seed, slots: [planned] } });
+        if (!built.errors && built.value.slots[0].card.upgraded) { slot = built.value.slots[0]; break; }
+    }
+    assert.ok(slot, '单随机卡具有升级形态');
+    assert.equal(slot.choices, undefined);
+    assert.equal(slot.marks.length, 1);
+    assert.ok(inscribable(slot.card, slot.marks[0].inscription));
+    const slots = [0, 1, 2].map(index => ({ index, kind: 'keepsake', rarity: 'common', name: `杂物${index}`, origin: '' })).concat(slot);
+    const anchor = { messageId: 1, swipeId: 0, tagHash: 'offer', occurrence: 0 };
+    assert.equal((await ledger.append([{ id: ledgerEntryId('offer', 'pc-hero', anchor), type: 'offer', character: 'pc-hero', anchor,
+        payload: { combatId: plan.seed, tier: 'normal', exp: 10, reveal: 0, slots, flipRelics: refs }, createdAt: 7 }])).ok, true);
+    const reportId = reportIdFor(plan.seed);
+    env.ref.chat[2] = user(attachLoot(`<igs-combat-report id="${reportId}" result="win" hp-lost="0">胜利</igs-combat-report>`, {
+        character: '主角', reportId, index: 3, set: 'main', slot,
+    }));
+    const scanned = await ledger.scan();
+    assert.equal(scanned.ok, true, JSON.stringify(scanned));
+    const state = await ledger.effectiveState();
+    assert.deepEqual(state.diagnostics, []);
+    const copy = heroOf(state).deckEntries.find(entry => entry.copyId.startsWith('loot|'));
+    assert.ok(copy, JSON.stringify(scanned.diagnostics));
+    assert.equal(copy.upgraded, true);
+    assert.equal(copy.inscription, slot.marks[0].inscription);
+    assert.equal(heroOf(state).deck.length, before.deck.length + 1);
 });

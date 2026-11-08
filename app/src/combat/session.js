@@ -11,7 +11,7 @@ import {
     templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization, encounterThemeEntity, profileGearEntity,
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
-import { attachCardUpgrade, attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportIdFor, reportIdOf } from './report.js';
+import { attachCardUpgrade, attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportHpLostOf, reportIdFor, reportIdOf } from './report.js';
 import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance, upgradableRows, upgradeChance } from './ledger.js';
 import { battlePoints, battleTierOf, weakBattlePoints } from './points.js';
 import { heldOffCombat, winPointsBonus } from './relics/off-combat.js';
@@ -40,6 +40,7 @@ import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from
 import { chooseCard, emptyPick, flipCard, flipView, hasCardChoices, laterPick, lootOf, normalizePick, pickCardChoice, pickPurgeChoice, pickUpgradeChoice, rerollPick } from './flip.js';
 import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
+import { settleRewardOffer } from './reward-cards.js';
 import { equippedGear } from './gear-slots.js';
 
 export const SESSION_VERSION = 1;
@@ -397,6 +398,8 @@ function planReward(ledgerState, session, userName, difficulty) {
         combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
         encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
         inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6, weak,
+        afterPanel: rulesVersion >= 6 && ledgerState.panelBoundary?.messageId === session.anchor.messageId && ledgerState.panelBoundary?.swipeId === session.anchor.swipeId
+            ? ledgerState.panelBoundary.counts[character.id] ?? 0 : undefined,
     });
 }
 
@@ -514,7 +517,7 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     // foeCap（规则 v6 敌方编制）：场上普通敌人最多 maxFoesOnField，空出的总位置只给爪牙；只写进新建 setup。
     const setup = {
         rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
-        openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, crowd, units: [...allies, ...enemies],
+        openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, crowd, trackHpLoss: true, rewardOwner: lobby.heroId, units: [...allies, ...enemies],
     };
     // 规则 v6 G3d：弱敌战标记只在为真时写进新建 setup，战报、奖励与账本重放只认已存值。
     if (lobby.weakFoes === true) setup.weakFoes = true;
@@ -634,6 +637,7 @@ const reportItemOf = (report) => ({
     reportId: report.reportId, text: report.text, result: report.result, kind: 'report',
     // 规则 v5 E17 / D11：敌人限时撤离的胜利不给战利品。
     ...(report.noLoot === true ? { noLoot: true } : {}),
+    ...(reportHpLostOf(report.text) === null ? {} : { hpLost: reportHpLostOf(report.text) }),
     ...(Array.isArray(report.used) && report.used.length && typeof report.character === 'string' && report.character
         ? { used: report.used.map((item) => ({ itemId: item.itemId, count: item.count })), character: report.character } : {}),
     ...(Array.isArray(report.wounds) && report.wounds.length
@@ -926,8 +930,11 @@ export function createCombatSession(options = {}) {
             return flip.status === 'error' ? fail(flip.reason) : ok();
         };
         if (ledgerState?.ok !== true) return finishWith({ status: 'error', reason: ledgerState?.reason || 'combat-ledger-read-failed' });
-        const offer = ledgerState.offers?.get(identity.combatId);
-        if (!offer) return finishWith({ status: 'none' });
+        const original = ledgerState.offers?.get(identity.combatId);
+        if (!original) return finishWith({ status: 'none' });
+        const battle = current.battle;
+        const hpLost = battle?.hpLost ? (battle.hpLost[original.character] || 0) : reportHpLostOf(currentReport()?.text);
+        const offer = settleRewardOffer(original, hpLost);
         const chatRecord = readChatRecord(identity);
         if (!chatRecord.ok) return finishWith({ status: 'error', reason: chatRecord.reason });
         const saved = readSession();
@@ -1094,7 +1101,7 @@ export function createCombatSession(options = {}) {
             if (signal?.aborted || !isCurrent(session)) { setState({ status: 'idle' }); return fail('request-stale'); }
         }
         // 账本状态：只在本函数确实写过表之后才重新读取，其余步骤传递同一份
-        let ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId });
+        let ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId, includePanelBoundary: true });
         if (!ledgerState.ok) return blocked(session, ledgerState.reason, ledgerState.detail ? { detail: ledgerState.detail } : {});
         // 与删卡共用普通胜场；准备期间的生成与重读不能把开战楼之后的胜利算进本场。
         session.battleWins = findCharacter(ledgerState, userName)?.purge?.battle ?? 0;
@@ -1323,7 +1330,7 @@ export function createCombatSession(options = {}) {
         };
         setState({ ...current, reward: { ...previous, status: 'pending' } });
         notify();
-        let ledgerState = await ledger.effectiveState();
+        let ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId, includePanelBoundary: true });
         if (!ledgerState.ok) return applyReward({ ...previous, reason: ledgerState.reason });
         const userName = getUserName();
         const rewardPlan = ledgerState.offers?.has(session.combatId) ? null : planReward(ledgerState, session, userName, difficultyOf());

@@ -17,6 +17,7 @@ import { isEnemyArtKey } from './enemy-art.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool } from './fixed-cards/index.js';
 import { resolveRelic } from './relics/draw.js';
+import { planRewardMarks } from './reward-cards.js';
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const indexPath = (path, index) => `${path}[${index}]`;
@@ -658,12 +659,15 @@ function buildRewardEntry(value, path, collector, slot, seed) {
         const table = fixedIds ? archetypeTable(slot.archetype) : CARD_TEMPLATES;
         const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost, table });
         if (!card) return undefined;
-        if (!fixedIds) return { ...base, name: card.name, card };
-        const fixed = fixedIds.map((id) => fixedCard(id));
+        const fixed = (fixedIds || []).map((id) => fixedCard(id));
         if (fixed.some((item) => !item)) return collector.fail(path, 'reward-choice-invalid');
         const choices = fixed.map((item) => JSON.parse(JSON.stringify(item)));
         choices.splice(Math.max(0, Math.min(choices.length, Number(slot.randomAt) || 0)), 0, card);
-        return { ...base, name: card.name, card, choices };
+        return {
+            ...base, name: card.name, card, ...(fixedIds ? { choices } : {}),
+            ...(slot.inscribe > 0 ? { marks: planRewardMarks(choices, `${seed}|${slot.index}`, slot.inscribe) } : {}),
+            ...(slot.upgradeNoDamage === true ? { upgradeNoDamage: true } : {}),
+        };
     }
     // 规则 v5 P5b 刻印槽：刻印种类、目标副本与名称都由程序定，模型只写来历。
     if (slot.kind === 'inscribe') {

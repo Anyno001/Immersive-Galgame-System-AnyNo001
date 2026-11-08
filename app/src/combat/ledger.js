@@ -21,7 +21,7 @@ import {
 } from './schema.js';
 import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extractLossDirectives, scanCombatTags, scanGainTags, scanLossTags } from '../scene/combat-directives.js';
 import { combatReportResult } from '../scene/combat-prompt.js';
-import { reportIdFor, reportIdOf, reportWeakOf } from './report.js';
+import { reportHpLostOf, reportIdFor, reportIdOf, reportWeakOf } from './report.js';
 import { parseChallengeReport } from './challenge-report.js';
 import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
@@ -35,7 +35,8 @@ import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { isRelicPassive } from './relics/draw.js';
-import { heldOffCombat, offCombatModel, refsHeld } from './relics/off-combat.js';
+import { heldOffCombat, offCombatModel, refsHeld, relicRefKey } from './relics/off-combat.js';
+import { rewardCardMarks } from './reward-cards.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -81,6 +82,8 @@ const TYPE_ORDER = Object.freeze({
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
 const typeRank = (entry) => (PANEL_TAG_HASHES.has(entry.anchor?.tagHash) ? 20 : TYPE_ORDER[entry.type]);
+const replayRank = (entry) => entry.type === 'offer' && entry.payload.afterPanel !== undefined ? 20 : typeRank(entry);
+const replayOrder = (entry) => entry.type === 'offer' && entry.payload.afterPanel !== undefined ? entry.payload.afterPanel - 0.5 : entry.anchor.occurrence;
 
 // 同一楼同一 swipe 上，某角色已有多少条面板记录（新面板记录的 occurrence 取这个数）。
 const countPanelEntries = (snapshot, character, messageId, swipeId) => snapshot.entries
@@ -95,8 +98,8 @@ const hasTierChange = (snapshot, character, messageId, swipeId) => snapshot.entr
 
 // 重放顺序：楼层 -> 类型 -> 同标签出现序号 -> 记录 ID。
 const compareEntries = (a, b) => a.anchor.messageId - b.anchor.messageId
-    || typeRank(a) - typeRank(b)
-    || a.anchor.occurrence - b.anchor.occurrence
+    || replayRank(a) - replayRank(b)
+    || replayOrder(a) - replayOrder(b)
     || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 // 角色名 -> 稳定的角色键（档案里没有该角色时用它当 ID）。
@@ -255,7 +258,8 @@ function createFloorScanner(chat, sourceFilter) {
             const isUser = floor.is_user === true;
             const parsedReport = isUser ? combatReportResult(text) : null;
             // 规则 v6 G3d：战报块带 weak="1" 为弱敌战，不计胜场、不给删卡。
-            const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text), ...(reportWeakOf(text) ? { weak: true } : {}) } : null;
+            const hpLost = reportHpLostOf(text);
+            const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text), ...(reportWeakOf(text) ? { weak: true } : {}), ...(hpLost === null ? {} : { hpLost }) } : null;
             const challenge = isUser && !report ? parseChallengeReport(text) : null;
             const body = isUser ? text : combatBodyText(text, { sourceFilter });
             // 用户楼只有战报才有标签；AI 楼的标签 + 受伤等生活标签
@@ -427,7 +431,7 @@ function createCharacterState(index, profile, diagnostics) {
         battleGrowth: { cards: new Map(), hpMax: 0 },
         relicHpMax: 0,
         // 规则 v6 G5f-4d：按遗物 ID 记已结算的获得时效果，以及御印待刻项。
-        pickedUp: new Set(), relicInscribe: [], cardAddedCounts: new Map(),
+        pickedUp: new Set(), relicInscribe: [], cardAddedCounts: new Map(), flipWins: new Map(),
     };
     if (profile.kind === 'skill-character') return { ...base, className: profile.className, skills: [...profile.skills], passives: profile.passives };
     const classProfile = resolveClass(index, profile.classRef);
@@ -576,7 +580,7 @@ const isHeroStock = (state, context) => context?.heroStock === true && !!context
 const overCap = (holder) => !isRelicPassive(holder) && effectsDamage(holder?.passive?.effects) > COMBAT_RULES.allySkillDamageCap;
 
 // 战利品入账。reserveOnly 为 true 表示只验证、不重复入库（库存由背包表管理）。
-function applyLootSlot(state, slot, entry, heroStockOwner = false) {
+function applyLootSlot(state, slot, entry, heroStockOwner = false, hpLost = null) {
     // 规则 v6 三选一卡牌槽：按 pick 取候选（skip 不入账）；固定卡按 ID 进目录并直接加一张副本，随机卡照旧走 learn 并卡。
     if (slot.kind === 'card' && Array.isArray(slot.choices)) {
         const pick = entry?.payload?.pick;
@@ -584,14 +588,15 @@ function applyLootSlot(state, slot, entry, heroStockOwner = false) {
         if (pick === 'skip') return null;
         const card = slot.choices[pick];
         if (!card) return 'combat-loot-pick-invalid';
-        if (!isFixedCardId(card.id)) return handlers.learn(state, { card, merge: true, added: entry.payload.added }, { entry });
+        const marks = rewardCardMarks(slot, pick, hpLost);
+        if (!isFixedCardId(card.id)) return handlers.learn(state, { card, merge: true, added: entry.payload.added }, { entry, marks });
         // 奖励单出单后才达到同名上限（如剧情另得一张）时不再给。
         if ((state.owned.get(card.id) || 0) >= cardCopyLimit(card.rarity)) return 'combat-loot-copy-limit';
         if (!state.catalog.has(card.id)) state.catalog.set(card.id, fixedCard(card.id));
-        addCard(state, card.id, entry.id, entry.payload.added === true);
+        addCard(state, card.id, entry.id, entry.payload.added === true, marks);
         return null;
     }
-    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}), added: entry?.payload?.added }, { entry });
+    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}), added: entry?.payload?.added }, { entry, marks: rewardCardMarks(slot, 0, hpLost) });
     // 规则 v5 P5b 刻印槽：刻在奖励单定下的那张副本上（副本已不在或已刻时记诊断）。
     if (slot.kind === 'inscribe') return handlers.inscribe(state, { cardId: slot.cardId, copyId: slot.copyId, inscription: slot.inscription });
     if (heroStockOwner) {
@@ -616,7 +621,16 @@ const handlers = Object.freeze({
         // 普通战斗胜利只按战报楼里本场战报的经验计一次（同一战报多条、剧情经验、日常挑战与亲密对决都不计）。
         const report = context.floorReport;
         // 规则 v6 G3d：弱敌战胜利不计胜场。
-        if (state.battleWins && report?.result === 'win' && report.weak !== true && report.reportId && payload.reason === `战斗:${report.reportId}`) state.battleWins.add(report.reportId);
+        if (state.battleWins && report?.result === 'win' && report.weak !== true && report.reportId && payload.reason === `战斗:${report.reportId}` && !state.battleWins.has(report.reportId)) {
+            state.battleWins.add(report.reportId);
+            if (Number.isSafeInteger(report.hpLost)) {
+                for (const ref of heldOffCombat(state.traits, 'flip')) {
+                    if (!(offCombatModel(ref).every > 0)) continue;
+                    const key = relicRefKey(ref);
+                    state.flipWins.set(key, (state.flipWins.get(key) || 0) + 1);
+                }
+            }
+        }
         return null;
     },
     class(state, payload, { index }) {
@@ -642,13 +656,13 @@ const handlers = Object.freeze({
         if (payload.merge === true && payload.card.rarity !== 'signature') {
             const same = sameModelCard(state, payload.card);
             if (same) {
-                addCard(state, same, context.entry?.id || 'learn', payload.added === true);
+                addCard(state, same, context.entry?.id || 'learn', payload.added === true, context.marks);
                 return null;
             }
         }
         if (state.catalog.has(payload.card.id)) return 'combat-card-id-collision';
         state.catalog.set(payload.card.id, payload.card);
-        addCard(state, payload.card.id, context.entry?.id || 'learn', payload.added === true);
+        addCard(state, payload.card.id, context.entry?.id || 'learn', payload.added === true, context.marks);
         return null;
     },
     upgrade(state, payload) {
@@ -872,10 +886,11 @@ const handlers = Object.freeze({
     },
     offer(state, payload, { entry, offers }) {
         if (offers.has(payload.combatId)) return 'combat-offer-duplicate';
+        if (payload.flipRelics && !refsHeld(payload.flipRelics, state.traits)) return 'combat-offer-relic-not-held';
         offers.set(payload.combatId, { entryId: entry.id, character: state.id, anchor: { ...entry.anchor }, ...payload });
         return null;
     },
-    loot(state, payload, { entry, offers, loots, heroId, heroStock }) {
+    loot(state, payload, { entry, offers, loots, heroId, heroStock, floorReport }) {
         if (loots.has(payload.combatId)) return 'combat-loot-duplicate';
         const offer = offers.get(payload.combatId);
         if (!offer) return 'combat-loot-offer-missing';
@@ -886,7 +901,7 @@ const handlers = Object.freeze({
         if ((slot.junk === true) !== (payload.slot.junk === true)) return 'combat-loot-slot-mismatch';
         if ((payload.set === 'reserve') !== (payload.cost > 0)) return 'combat-loot-cost-invalid';
         if (payload.cost > 0 && heroId && state.id !== heroId) return 'combat-points-not-protagonist';
-        const failure = applyLootSlot(state, slot, entry, heroStock === true && state.id === heroId);
+        const failure = applyLootSlot(state, slot, entry, heroStock === true && state.id === heroId, floorReport?.hpLost ?? null);
         if (failure) return failure;
         state.points -= payload.cost;
         loots.set(payload.combatId, { entryId: entry.id, character: state.id, set: payload.set, index: payload.slot.index });
@@ -1334,6 +1349,7 @@ function presentCharacter(state, options = {}) {
         ...(state.battleWins?.size || state.purges ? { purge: purgeOpportunity(state) } : {}),
         // 规则 v6 G3c：有普通战斗胜场或用过升级机会时给出升级机会视图；没有时不写字段，旧视图形状不变。
         ...(state.battleWins?.size || state.upgradedAt?.size ? { upgrade: upgradeOpportunity(state) } : {}),
+        ...(state.flipWins.size ? { flipWins: Object.fromEntries(state.flipWins) } : {}),
         ...(hasGrowth ? { battleGrowth: { cards: Object.fromEntries([...growth.cards].map(([cardId, value]) => [cardId, { ...value }])), hpMax: growth.hpMax } } : {}),
         // 规则 v6 G5f-4c：遗物来源的最大生命（不占战斗成长上限）；没有时不写字段，旧视图形状不变。
         ...(state.relicHpMax > 0 ? { relicHpMax: state.relicHpMax } : {}),
@@ -1557,7 +1573,7 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         const state = states.get(characterId);
         const levelBefore = expProgress(state.exp).level;
         // floorReport：记录所在楼的战报（只有战报用户楼有），exp 据此计普通战斗胜场。
-        const floorReport = entry.type === 'exp' ? scanFloor(entry.anchor.messageId)?.report ?? null : null;
+        const floorReport = entry.type === 'exp' || entry.type === 'loot' ? scanFloor(entry.anchor.messageId)?.report ?? null : null;
         const failure = handlers[entry.type](state, entry.payload, { index, entry, diagnostics, offers, loots, heroId, heroStock, floorReport });
         if (failure) { pushDiagnostic(diagnostics, failure, entry); continue; }
         applied.push(entry.id);
@@ -2305,13 +2321,20 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
 
     // raw：只要战斗侧自己的流水（缓存用，避免把会变的数值侧金钱缓存进去）。
-    async function effectiveState({ raw = false, throughMessageId } = {}) {
+    async function effectiveState({ raw = false, throughMessageId, includePanelBoundary = false } = {}) {
         const floors = getChat();
         if (throughMessageId !== undefined && (!Number.isInteger(throughMessageId) || throughMessageId < 0 || throughMessageId >= floors.length)) return { ok: false, reason: 'combat-floor-invalid' };
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return computeEffectiveState(snapshot, []);
         const state = resolveState(snapshot, throughMessageId === undefined ? floors : floors.slice(0, throughMessageId + 1), true).state;
-        return raw ? state : withWallet(state);
+        const view = raw ? state : withWallet(state);
+        if (!includePanelBoundary || !state.ok) return view;
+        const messageId = throughMessageId ?? floors.length - 1;
+        const swipeId = swipeOf(floors[messageId]);
+        return { ...view, panelBoundary: {
+            messageId, swipeId,
+            counts: Object.fromEntries([...state.characters.keys()].map(id => [id, countPanelEntries(snapshot, id, messageId, swipeId)])),
+        } };
     }
 
     // 只读统计（测试用）：读表次数、快照缓存命中、重放次数、重放缓存命中。

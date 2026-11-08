@@ -11,7 +11,8 @@ import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { DEFEAT_CAUSES, ORB_FILTER_KINDS, opHandler, reserveBuiltins } from './mechanics/registry.js';
-import { INSCRIPTION_KEYS } from './mechanics/inscription.js';
+import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
+import { rewardUpgradable } from './reward-cards.js';
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TREASURE_SLOT_MAX } from './gear-slots.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
@@ -67,8 +68,11 @@ export const HURT_TIER_KEYS = Object.freeze(['轻伤', '中伤', '重伤']);
 // inscribe：规则 v5 P5b 刻印奖励槽（刻印种类与目标副本由程序按种子定）。
 export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake', 'inscribe']);
 export const REWARD_SLOT_COUNT = 3;
-// 规则 v6 卡牌槽的候选张数（固定卡与随机卡 2:1）。
+export const REWARD_SLOT_MAX = 4;
+// 基础奖励三候选；积分抽卡独立固定为三候选。
 export const REWARD_CARD_CHOICES = 3;
+export const REWARD_CARD_CHOICES_MAX = 4;
+export const CARD_DRAW_CHOICES = 3;
 export const REWARD_ORIGIN_MAX = 30;
 export const BUFF_TRIGGERS = Object.freeze(['card-played', 'discard', 'exhaust', 'kill', 'hp-loss', 'block-gain', 'turn-start', 'turn-end']);
 export const GEAR_BONUS_BY_RARITY = Object.freeze({ common: 1, uncommon: 2, rare: 3, epic: 4, mythic: 5 });
@@ -800,7 +804,7 @@ function validateItem(item, path, state) {
 // 战利品槽位里除公共字段外允许的载荷字段。
 // 卡牌槽的 choices（规则 v6）：REWARD_CARD_CHOICES 张候选（固定卡与随机卡 2:1），card 为其中的随机卡；旧槽位不带。
 // 杂物槽的 junk（规则 v6 G3d 弱敌战）：劣等杂物，卖价按 1/4；只在为真时写。
-const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card', 'choices'], gear: ['gear'], item: ['item'], keepsake: ['junk'], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
+const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card', 'choices', 'marks', 'upgradeNoDamage'], gear: ['gear'], item: ['item'], keepsake: ['junk'], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
 
 // 战利品槽位（offer / loot 用）。
 function validateRewardSlot(slot, path, state) {
@@ -810,7 +814,7 @@ function validateRewardSlot(slot, path, state) {
     if (kind === undefined) return;
     checkKnownFields(slot, ['index', 'kind', 'rarity', 'name', 'origin', ...REWARD_PAYLOAD_FIELDS[kind]], path, state);
     const result = {
-        index: intField(slot.index, at('index'), state, 0, REWARD_SLOT_COUNT),
+        index: intField(slot.index, at('index'), state, 0, REWARD_SLOT_MAX - 1),
         kind,
         rarity: enumField(slot.rarity, at('rarity'), state, LOOT_RARITIES),
     };
@@ -820,12 +824,32 @@ function validateRewardSlot(slot, path, state) {
         result.card = validateCardEntry(slot.card, at('card'), state, LOOT_RARITIES);
         if (result.card?.rarity && result.rarity && result.card.rarity !== result.rarity) addIssue(state, at('card.rarity'), 'rarity-mismatch');
         if (slot.choices !== undefined) {
-            result.choices = arrayField(slot.choices, at('choices'), state, REWARD_CARD_CHOICES, REWARD_CARD_CHOICES, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
+            result.choices = arrayField(slot.choices, at('choices'), state, REWARD_CARD_CHOICES, REWARD_CARD_CHOICES_MAX, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
             if (Array.isArray(result.choices)) {
                 checkDuplicateIds(result.choices, at('choices'), state);
                 if (result.card && !result.choices.some((card) => card?.id === result.card.id)) addIssue(state, at('choices'), 'choice-card-missing');
             }
         }
+        const cards = result.choices || [result.card];
+        if (slot.upgradeNoDamage !== undefined) {
+            if (slot.upgradeNoDamage !== true) addIssue(state, at('upgradeNoDamage'), 'expected-true');
+            else result.upgradeNoDamage = true;
+        }
+        if (slot.marks !== undefined) result.marks = arrayField(slot.marks, at('marks'), state, cards.length, cards.length, (mark, markPath, st) => {
+            if (!objectField(mark, markPath, st)) return;
+            checkKnownFields(mark, ['upgraded', 'inscription'], markPath, st);
+            const card = cards[Number(markPath.match(/\[(\d+)\]$/)?.[1])];
+            const value = {};
+            if (mark.upgraded !== undefined) {
+                if (mark.upgraded !== true || !rewardUpgradable(card)) addIssue(st, `${markPath}.upgraded`, 'invalid-value');
+                else value.upgraded = true;
+            }
+            if (mark.inscription !== undefined) {
+                value.inscription = enumField(mark.inscription, `${markPath}.inscription`, st, INSCRIPTION_KEYS);
+                if (!inscribable(card, value.inscription) || !inscribable(card?.upgraded ? { ...card, ...card.upgraded } : card, value.inscription)) addIssue(st, `${markPath}.inscription`, 'inscription-inapplicable');
+            }
+            return value;
+        });
     } else if (kind === 'gear') {
         result.gear = validateGear(slot.gear, at('gear'), state);
     } else if (kind === 'item') {
@@ -973,10 +997,10 @@ function validateLedgerPayload(type, payload, path, state) {
                 reportId: textField(payload.reportId, at('reportId'), state, 40, ''),
             };
         case 'offer': {
-            checkKnownFields(payload, ['combatId', 'tier', 'exp', 'reveal', 'slots', 'reserve'], path, state);
+            checkKnownFields(payload, ['combatId', 'tier', 'exp', 'reveal', 'slots', 'reserve', 'flipRelics', 'weak', 'afterPanel'], path, state);
             // 槽位数组：长度 3 或 4，每项的 index 必须等于其下标。
             const slotList = (key) => {
-                const list = arrayField(payload[key], at(key), state, REWARD_SLOT_COUNT, REWARD_SLOT_COUNT + 1, validateRewardSlot);
+                const list = arrayField(payload[key], at(key), state, REWARD_SLOT_COUNT, REWARD_SLOT_MAX, validateRewardSlot);
                 if (Array.isArray(list)) {
                     list.forEach((slot, index) => {
                         if (slot && slot.index !== index) addIssue(state, `${at(key)}[${index}].index`, 'slot-index-mismatch');
@@ -987,6 +1011,17 @@ function validateLedgerPayload(type, payload, path, state) {
             const slots = slotList('slots');
             const reserve = payload.reserve === undefined ? undefined : slotList('reserve');
             if (Array.isArray(slots) && Array.isArray(reserve) && reserve.length !== slots.length) addIssue(state, at('reserve'), 'reserve-length-mismatch');
+            const flipRelics = payload.flipRelics === undefined ? undefined : arrayField(payload.flipRelics, at('flipRelics'), state, 1, TRAIT_SLOT_MAX, validateRelicRef);
+            if (flipRelics) {
+                const seen = new Set();
+                for (const ref of flipRelics) {
+                    if (!ref) continue;
+                    const key = `${ref.relicId}:${ref.model}`;
+                    if (seen.has(key) || relicById(ref.relicId)?.[ref.model]?.kind !== 'flip') addIssue(state, at('flipRelics'), 'invalid-flip-relic');
+                    seen.add(key);
+                }
+            }
+            if (payload.weak !== undefined && payload.weak !== true) addIssue(state, at('weak'), 'expected-true');
             return {
                 combatId: textField(payload.combatId, at('combatId'), state, 120),
                 tier: enumField(payload.tier, at('tier'), state, Object.keys(COMBAT_RULES.tiers)),
@@ -994,13 +1029,16 @@ function validateLedgerPayload(type, payload, path, state) {
                 reveal: intField(payload.reveal, at('reveal'), state, 0, 2, 0),
                 slots,
                 ...(reserve === undefined ? {} : { reserve }),
+                ...(flipRelics === undefined ? {} : { flipRelics }),
+                ...(payload.weak === true ? { weak: true } : {}),
+                ...(payload.afterPanel === undefined ? {} : { afterPanel: intField(payload.afterPanel, at('afterPanel'), state, 0, Number.MAX_SAFE_INTEGER) }),
             };
         }
         case 'loot':
             checkKnownFields(payload, ['combatId', 'reportId', 'set', 'slot', 'cost', 'merge', 'pick', 'added'], path, state);
             if (payload.merge !== undefined && typeof payload.merge !== 'boolean') addIssue(state, at('merge'), 'expected-boolean');
             // 规则 v6：带 choices 的卡牌槽须写 pick（候选序号或 skip）；旧记录不带。
-            if (payload.pick !== undefined && payload.pick !== 'skip' && !(Number.isInteger(payload.pick) && payload.pick >= 0 && payload.pick < REWARD_CARD_CHOICES)) addIssue(state, at('pick'), 'invalid-pick');
+            if (payload.pick !== undefined && payload.pick !== 'skip' && !(Number.isInteger(payload.pick) && payload.pick >= 0 && payload.pick < (payload.slot?.choices?.length || REWARD_CARD_CHOICES))) addIssue(state, at('pick'), 'invalid-pick');
             return {
                 combatId: textField(payload.combatId, at('combatId'), state, 120),
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
@@ -1064,17 +1102,17 @@ function validateLedgerPayload(type, payload, path, state) {
         // card-pick 把翻开的那张加入卡组（pick 为翻开的位置）或 skip 放弃（翻前翻后都可，不退款）。
         case 'card-draw': {
             checkKnownFields(payload, ['drawId', 'choices', 'cost'], path, state);
-            const choices = arrayField(payload.choices, at('choices'), state, REWARD_CARD_CHOICES, REWARD_CARD_CHOICES, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
+            const choices = arrayField(payload.choices, at('choices'), state, CARD_DRAW_CHOICES, CARD_DRAW_CHOICES, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
             if (Array.isArray(choices)) checkDuplicateIds(choices, at('choices'), state);
             return { drawId: idField(payload.drawId, at('drawId'), state), choices, cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
         }
         case 'card-flip': {
             checkKnownFields(payload, ['drawId', 'position'], path, state);
-            return { drawId: idField(payload.drawId, at('drawId'), state), position: intField(payload.position, at('position'), state, 0, REWARD_CARD_CHOICES - 1) };
+            return { drawId: idField(payload.drawId, at('drawId'), state), position: intField(payload.position, at('position'), state, 0, CARD_DRAW_CHOICES - 1) };
         }
         case 'card-pick': {
             checkKnownFields(payload, ['drawId', 'pick', 'added'], path, state);
-            const pick = payload.pick === 'skip' ? 'skip' : intField(payload.pick, at('pick'), state, 0, REWARD_CARD_CHOICES - 1);
+            const pick = payload.pick === 'skip' ? 'skip' : intField(payload.pick, at('pick'), state, 0, CARD_DRAW_CHOICES - 1);
             return { drawId: idField(payload.drawId, at('drawId'), state), pick, ...addedFlag(payload, path, state, pick !== 'skip') };
         }
         case 'card-upgrade':

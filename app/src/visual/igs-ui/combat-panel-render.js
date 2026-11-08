@@ -11,6 +11,7 @@ import { INTIMATE_ENDING_LINE } from '../../scene/intimate-duel.js';
 import { resultStageHtml, stageFxStyle } from './combat-stage-fx.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
+import { rewardCardMarks, rewardCardView } from '../../combat/reward-cards.js';
 
 // 战斗面板的 HTML 片段：只输出字段、状态、错误与操作确认；动作统一走 data-combat-act / data-combat-id。
 const REASON_TEXT = Object.freeze({
@@ -548,11 +549,14 @@ function lootChoicesHtml(f, pending) {
     const slot = f.done ? f.cards.find((c) => c.chosen)?.slot : null;
     if (!slot || slot.kind !== 'card' || !Array.isArray(slot.choices) || !slot.choices.length) return '';
     const cards = slot.choices.map((card, i) => {
-        const tag = [LOOT_RARITY_LABELS[card.rarity], card.cost === undefined ? '' : `${card.cost}费`].filter(Boolean).join('·');
-        const text = describeEffects(card.effects);
+        const marks = rewardCardMarks(slot, i);
+        const view = rewardCardView(slot, i);
+        const name = `${card.name}${marks.upgraded ? '+' : ''}`;
+        const tag = [LOOT_RARITY_LABELS[card.rarity], view.cost === undefined ? '' : `${view.cost}费`, INSCRIPTION_LABELS[marks.inscription]].filter(Boolean).join('·');
+        const text = [describeKeywords(view), describeEffects(view.effects)].filter(Boolean).join('；');
         const chosen = f.card === i;
         const cls = `igs-combat-loot-card is-face${chosen ? ' is-chosen' : ''}${f.card === 'skip' ? ' is-dim' : ''}`;
-        const face = `<span class="igs-combat-loot-face"><span class="igs-combat-loot-tag">${esc(tag)}</span><span class="igs-combat-loot-name">${esc(card.name)}</span>${text ? `<span class="igs-combat-loot-origin">${esc(text)}</span>` : ''}</span>`;
+        const face = `<span class="igs-combat-loot-face"><span class="igs-combat-loot-tag">${esc(tag)}</span><span class="igs-combat-loot-name">${esc(name)}</span>${text ? `<span class="igs-combat-loot-origin">${esc(text)}</span>` : ''}</span>`;
         return `<button type="button" class="${cls}"${card.rarity ? ` data-rarity="${esc(card.rarity)}"` : ''} data-combat-act="pick-card" data-combat-id="${i}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(`选择 ${card.name}${chosen ? '（已选定）' : ''}`)}">${face}</button>`;
     }).join('');
     return `<div class="igs-combat-loot-row igs-combat-loot-choices" style="--n:${slot.choices.length}">${cards}</div>`;

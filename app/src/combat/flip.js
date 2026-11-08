@@ -3,7 +3,7 @@
 // purge（规则 v6 删卡）：本场胜利正好满 5 场普通胜利时，要删的卡组副本 ID 或 'skip' 不删；没有删卡机会时不带。
 // upgrade（规则 v6 G3c）：同场的升级机会，要升级的卡组副本 ID 或 'skip' 不升；与 purge 互不占用，但不能选同一张副本。没有升级机会时不带。
 import { hash32, randomInt } from './random.js';
-import { REWARD_CARD_CHOICES, REWARD_SLOT_COUNT } from './schema.js';
+import { REWARD_SLOT_COUNT } from './schema.js';
 import { REROLL_COST } from './points.js';
 
 // 奖励组：main 主组，reserve 重抽后的备选组。
@@ -38,7 +38,7 @@ export const revealedOf = (reward, set) => shuffledIndexes(slotsOf(reward, set).
 const chosenSlot = (reward, set, choice) => (choice === null ? null : slotsOf(reward, set)[flipOrder(reward, set)[choice]] || null);
 // 槽位是否要再三选一（规则 v6 卡牌槽）。
 export const hasCardChoices = (slot) => slot?.kind === 'card' && Array.isArray(slot.choices) && slot.choices.length > 0;
-const validCardPick = (value) => value === 'skip' || (Number.isInteger(value) && value >= 0 && value < REWARD_CARD_CHOICES);
+const validCardPick = (value, slot) => value === 'skip' || (Number.isInteger(value) && value >= 0 && value < (slot?.choices?.length || 0));
 // 删卡 / 升级选择：卡组副本 ID（与账本副本 ID 同字符集）或 'skip'。
 const validCopyPick = (value) => typeof value === 'string' && (value === 'skip' || /^[A-Za-z0-9_:.-]{1,200}$/.test(value));
 
@@ -61,7 +61,8 @@ export function normalizePick(pick, reward) {
     if (pick.purge !== undefined && pick.purge !== 'skip' && pick.purge === pick.upgrade) return null;
     const extra = { ...(pick.purge === undefined ? {} : { purge: pick.purge }), ...(pick.upgrade === undefined ? {} : { upgrade: pick.upgrade }) };
     if (pick.card === undefined) return { set, flipped: [...flipped], choice, ...extra };
-    if (!validCardPick(pick.card) || !hasCardChoices(chosenSlot(reward, set, choice))) return null;
+    const slot = chosenSlot(reward, set, choice);
+    if (!hasCardChoices(slot) || !validCardPick(pick.card, slot)) return null;
     return { set, flipped: [...flipped], choice, card: pick.card, ...extra };
 }
 
@@ -92,8 +93,9 @@ export function chooseCard(reward, pick, position) {
 // 规则 v6：选定卡牌槽后在候选里取一张（value 为 0 起的序号）或放弃（'skip'）；可在发送前改选。
 export function pickCardChoice(reward, pick, value) {
     if (pick.choice === null) return { ok: false, reason: 'combat-flip-not-ready' };
-    if (!hasCardChoices(chosenSlot(reward, pick.set, pick.choice))) return { ok: false, reason: 'combat-flip-card-unavailable' };
-    if (!validCardPick(value)) return { ok: false, reason: 'combat-flip-position-invalid' };
+    const slot = chosenSlot(reward, pick.set, pick.choice);
+    if (!hasCardChoices(slot)) return { ok: false, reason: 'combat-flip-card-unavailable' };
+    if (!validCardPick(value, slot)) return { ok: false, reason: 'combat-flip-position-invalid' };
     return { ok: true, pick: { ...pick, card: value } };
 }
 
