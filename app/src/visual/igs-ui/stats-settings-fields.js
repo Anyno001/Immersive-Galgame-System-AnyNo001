@@ -364,7 +364,7 @@ function renderSkillEditor(model, advancedOpen) {
 export function renderStatsHeroActions(model) {
     const assign = model && Array.isArray(model.heroSkills) && model.heroSkills.length
         ? '<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button>' : '';
-    return `<div class="igs-stats-hero-actions">${assign}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button></div>`;
+    return `<div class="igs-stats-hero-actions">${assign}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button><button class="igs-settings-action" data-action="stats-storage-report" type="button">复制数值诊断</button></div>`;
 }
 
 
@@ -521,7 +521,7 @@ function renderWorldsField(model) {
 
 // 数值页的模板变量（settings-tabs.js 的 STATS_TEMPLATE）。版面自上而下：我的角色、玩法、其他角色、高级。
 // chat：statsChat() 的结果（可为 null）；archive：statsArchiveModel 的结果；mappings：推送映射的描述（可为 null）。
-export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, mappings = null, advancedOpen = () => '', worldview = 'modern', noteDrafts = null } = {}) {
+export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, archiveError = '', mappings = null, advancedOpen = () => '', worldview = 'modern', noteDrafts = null } = {}) {
     const statsOn = Boolean(stats.enabled || combatOn);
     const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
     const started = Boolean(chatReady && chat.enabled);
@@ -529,6 +529,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
     const manual = chatReady && !started && mode === 'manual';
     const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里开始。'
         : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
+            : chat.enabled && archiveError ? `本聊天的数值存档读取出错，存档未被改动。错误信息：${archiveError}`
             : chat.enabled ? '本聊天已开始。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未开始，可直接快速开始，或自己建卡。';
     const buildOpen = (key) => (key === 'stats-build' && manual ? ' open' : advancedOpen(key));
     const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode, ruleset: stats.ruleset });

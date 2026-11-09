@@ -2189,6 +2189,69 @@ export function createStatsRuntime({
         return [text, trail, persona].filter(Boolean).join('\n');
     }
 
+    // 数值存档诊断：直接读一次数据库原表（不走缓存），列出表里实际存了什么、合并结果、内存状态与 archive 是否抛错。只读，不写。
+    function storageReport() {
+        const lines = [];
+        const add = (k, v) => lines.push(`${k}：${v}`);
+        const safe = (fn) => { try { return fn(); } catch (error) { return `抛错 ${String((error && (error.stack || error.message)) || error).split('\n').slice(0, 4).join(' | ')}`; } };
+        const c = ctx();
+        const chatId = chatIdOf(c);
+        add('时间', new Date().toISOString());
+        add('聊天ID', chatId || '（无）');
+        add('楼层数', messages(c).length);
+        const s = settings();
+        add('总开关', `${s.enabled}（战斗开启 ${safe(() => combatOn())}）`);
+        add('内存', `loadedChat=${loadedChat} loadedKey=${loadedKey} chatEnabled=${chatEnabled} ledger=${ledger ? `有（楼层记录 ${ledger.entries.size}，生效 ${ledger.active.size}）` : '无'} blocked=${blocked || '-'} unavailable=${unavailable || '-'} declined=${declined} buildMode=${buildMode || '-'} inflight=${inflight}`);
+        const read = safe(() => store.read());
+        add('聊天元数据', typeof read === 'string' ? read : `ok=${read.ok} 旧整体存档igs_stats=${read.raw ? '有' : '无'} declined=${read.declined === true} 旧备份=${read.hasBackup === true}`);
+        const t = tables();
+        add('数据库接口', t.ok ? `可用 version=${safe(() => t.version)}` : `不可用 ${t.reason}`);
+        if (t.ok) {
+            const rows = safe(() => t.read({ kinds: ['stats'] }));
+            if (typeof rows === 'string') add('读表', rows);
+            else if (!rows || rows.ok !== true) add('读表', `失败 ${(rows && rows.reason) || '?'}`);
+            else {
+                add('缺表', `${(rows.missing || []).join('、') || '无'}；可选缺 ${(rows.optionalMissing || []).join('、') || '无'}`);
+                if (!Array.isArray(rows.stats)) add('数值日志表', '不存在（IGS数值·日志 表没有）');
+                else {
+                    const list = rows.stats;
+                    const byType = {};
+                    for (const r of list) byType[(r && r.type) || '?'] = (byType[(r && r.type) || '?'] || 0) + 1;
+                    add('数值日志表记录数', `${list.length}（${Object.entries(byType).map(([k, n]) => `${k} ${n}`).join('，')}）`);
+                    const inits = list.filter((r) => r && r.type === 'init');
+                    add('建档记录', inits.length ? inits.map((r) => `${r.id} 有state=${Boolean(r.payload && r.payload.state)} 时间=${r.createdAt}`).join('；') : '无');
+                    const floors = list.filter((r) => r && r.type === 'floor');
+                    if (floors.length) {
+                        const ids = floors.map((r) => r.anchor && r.anchor.messageId).filter(Number.isInteger);
+                        add('楼层记录楼号范围', `${Math.min(...ids)}–${Math.max(...ids)}`);
+                        let matched = 0, missing = 0, mismatch = 0;
+                        for (const r of floors) {
+                            const a = r.anchor || {};
+                            const m = messages(c)[a.messageId];
+                            if (!m) { missing += 1; continue; }
+                            const text = Array.isArray(m.swipes) && m.swipes[a.swipeId] !== undefined ? m.swipes[a.swipeId] : (Number(m.swipe_id) || 0) === a.swipeId ? m.mes : null;
+                            if (text === null || text === undefined) { missing += 1; continue; }
+                            if (statTagHash(String(text)) === a.tagHash) matched += 1; else mismatch += 1;
+                        }
+                        add('楼层记录与正文核对', `标签相符 ${matched}，楼/swipe 不存在 ${missing}，正文标签已变 ${mismatch}`);
+                    }
+                    const keys = list.filter((r) => r && r.payload && typeof r.payload.key === 'string').map((r) => r.payload.key.split(':')[0]);
+                    const kc = {};
+                    for (const k of keys) kc[k] = (kc[k] || 0) + 1;
+                    add('聊天级记录键', Object.entries(kc).map(([k, n]) => `${k} ${n}`).join('，') || '无');
+                    const merged = safe(() => mergeStatLog(list, { chatId, chat: messages(c) }));
+                    if (typeof merged === 'string') add('合并', merged);
+                    else add('合并结果', `ledger=${merged.ledger ? `有（楼层 ${merged.ledger.entries.size}）` : '无'} chatEnabled=${merged.chatEnabled} 角色卡 ${Object.keys(merged.catalog.sheets || {}).length} 特质 ${Object.keys(merged.catalog.traits || {}).length} 诊断 ${merged.diagnostics.map((d) => d.code).join('、') || '无'}`);
+                    if (rows.diagnostics && rows.diagnostics.length) add('解码诊断', rows.diagnostics.slice(0, 10).map((d) => `${d.code}${d.key ? `(${String(d.key).slice(0, 30)})` : ''}`).join('、'));
+                }
+            }
+        }
+        const arch = safe(() => { ensureLoaded(true); const a = archiveModel(); return a ? `正常（角色 ${a.characters.length}，角色卡 ${a.sheets.length}，变动 ${a.total}）` : '返回空'; });
+        add('存档区模型', arch);
+        add('最近诊断', diagnostics.slice(-8).map((d) => d.code || d).join('、') || '无');
+        return `IGS 数值诊断\n${lines.join('\n')}`;
+    }
+
     function diagnoseFloor(messageId) {
         const s = settings();
         if (!s.enabled) return '数值 总开关关闭';
@@ -2704,6 +2767,12 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
+    function archiveModel() {
+        ensureLoaded();
+        const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
+        return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, traitNotes: { ...catalog.traitNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+    }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;
     return {
@@ -2742,11 +2811,8 @@ export function createStatsRuntime({
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。
         dropBackup: () => store.dropBackup(),
         // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
-        archive: ev(() => {
-            ensureLoaded();
-            const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
-            return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, traitNotes: { ...catalog.traitNotes }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
-        }),
+        archive: ev(() => archiveModel()),
+        storageReport: ev(storageReport),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {
             ensureLoaded();

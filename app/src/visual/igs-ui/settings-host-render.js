@@ -297,15 +297,20 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const stats = normalizeStatsSettings(bridge.stats);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
+            let archiveError = '';
             const archive = (() => {
-                try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) { return null; }
+                try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) {
+                    archiveError = String((error && (error.stack || error.message)) || error).split('\n').slice(0, 3).join(' | ').slice(0, 300);
+                    try { console.error('[IGS] 数值存档读取出错', error); } catch (e) { /* 无控制台 */ }
+                    return null;
+                }
             })();
             const mappings = (() => {
                 if (!stats.push.enabled || idx || typeof options.statsMappings !== 'function') return null;
                 try { return options.statsMappings(stats.push.mappings); } catch (error) { return { ok: false, reason: 'stats-push-read-failed', detail: String(error && error.message || error) }; }
             })();
             return buildStatsPageValues({
-                stats, chat, archive, mappings, advancedOpen, noteDrafts: asyncState.statsNoteDrafts || null,
+                stats, chat, archive, archiveError, mappings, advancedOpen, noteDrafts: asyncState.statsNoteDrafts || null,
                 combatOn: Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true),
                 worldview: resolveWorldview(worldviewAssets),
             });

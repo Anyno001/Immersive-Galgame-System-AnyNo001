@@ -1093,6 +1093,18 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    // 数值存档诊断：直接读一次数据库原表，列出表里实际存了什么与读档各步结果，只读。
+    if (normalizedAction === 'stats-storage-report') {
+        let text = '';
+        try { text = typeof options.statsStorageReport === 'function' ? options.statsStorageReport() : '数值系统未加载'; } catch (error) { text = `诊断本身出错：${String((error && (error.stack || error.message)) || error)}`; }
+        const nav = (options.global || globalThis).navigator;
+        const copied = nav && nav.clipboard && typeof nav.clipboard.writeText === 'function'
+            ? await Promise.resolve(nav.clipboard.writeText(text)).then(() => true, () => false)
+            : false;
+        if (typeof dialogs.edit === 'function') await dialogs.edit(copied ? '已复制到剪贴板。' : '复制失败，请手动全选下方内容后复制。', text, { okLabel: '关闭' });
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'fx-prompts-copy-all') {
         const text = fxPromptsCopyText((settingsState.draft && settingsState.draft.readerSettings) || {});
         if (!text) {
