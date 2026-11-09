@@ -567,6 +567,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
             + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
             + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
+        traitReviewField: field('bridge.stats.traitReviewN', '特质评定间隔', segmentedInput('bridge.stats.traitReviewN', stats.traitReviewN, [[0, '关闭'], [10, '10楼'], [20, '20楼'], [30, '30楼'], [50, '50楼']], '特质评定间隔'), '每隔这么多楼按最近出场的角色评定一次特质；重伤、背叛、恋情结束等大事件随时评定。'),
         sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', segmentedInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成'], ['prompt', '提醒'], ['off', '不生成']], '新角色出场时')),
         statsMoreOpen: advancedOpen('stats-more'),
         dateRegexField: captureRegexField('bridge.stats.dateRegex', '日期标签', stats.dateRegex, 'date', '填写后按日期变化过天。'),
