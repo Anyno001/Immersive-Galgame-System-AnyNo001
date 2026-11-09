@@ -2,7 +2,7 @@
 // 由 stat-trait-rules.js 汇总，排在其他规则文件之后，所以可以读它们已经写进 ctx.changes 的变动并抵消或补差额。
 // 本文件不得 import stat-traits.js（避免循环），只改数值，不碰战斗与亲密对决的牌组、主导权、回合与牌效。
 // 合成读 api.has(state, 名, 'combo:合成名')；读不到的环境（地点、时间、声望条）一律静默不生效。
-import { FAVOR_GATES, gateKey } from './stat-favor.js';
+import { FAVOR_GATES, gateKey } from './stat-vocab.js';
 import { fameValue } from './stat-fame.js';
 import { barsOf, clamp, withBars, withCharacter, withClock } from './stat-state.js';
 import { calcRow, getStatusDef, withCalc } from './stat-status-defs.js';

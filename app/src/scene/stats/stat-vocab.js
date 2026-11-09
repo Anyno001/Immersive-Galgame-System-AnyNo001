@@ -217,3 +217,8 @@ export function resolveFavorWord(raw, moodGroups, rev = 0) {
     }
     return null;
 }
+
+// 放在叶子模块：stat-favor ↔ 特质规则、stat-battle ↔ stat-challenge 原本互相导入成环，打包后求值顺序会出错（v0.39.79 同类事故）。
+export const FAVOR_GATES = Object.freeze([25, 50, 75]);
+export const gateKey = (gate) => `gate-${gate}`;
+export const DEFEAT_MONEY_LOSS = 0.2;

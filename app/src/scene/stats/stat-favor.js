@@ -8,7 +8,8 @@ import { CHANGE_CAP, calcRow } from './stat-status-defs.js';
 // 特质倍率（只在 strengthRev ≥ 2 由结算传入）：scale = { up, down, jealous, noGrudge }，缺省全为 1，与旧结果一致。
 const unit = (scale, key) => (scale && Number.isFinite(scale[key]) ? scale[key] : 1);
 
-export const FAVOR_GATES = Object.freeze([25, 50, 75]);
+import { FAVOR_GATES, gateKey } from './stat-vocab.js';
+export { FAVOR_GATES, gateKey };
 export const FLOOR_GAIN_MAX = 3;
 export const DAILY_GAIN_MAX = 8;
 // 好感成长档：普通为单楼 +3、每日 +8；困难为单楼 +1、每日 +4。大成功加成、关口封顶、越高越难涨与负向不设上限两档相同。
@@ -68,10 +69,6 @@ export function baseDelta(dim, value) {
     if (!Number.isFinite(delta)) return 0;
     if (dim !== '信任') return delta;
     return delta > 0 ? Math.max(1, Math.floor(delta / 2)) : delta * 2;
-}
-
-export function gateKey(gate) {
-    return `gate-${gate}`;
 }
 
 // 跨越未解锁的关口时停在关口值；负向区间往回涨不设关口。

@@ -16,7 +16,8 @@ export const ENEMY_TABLE = Object.freeze({
     精英: Object.freeze({ value: 55, rounds: 2, hurt: '中伤', loot: '普通', attack: 5, ac: 14, save: 14 }),
     头目: Object.freeze({ value: 75, rounds: 3, hurt: '重伤', loot: '昂贵', attack: 7, ac: 16, save: 16 }),
 });
-export const DEFEAT_MONEY_LOSS = 0.2;
+import { DEFEAT_MONEY_LOSS } from './stat-vocab.js';
+export { DEFEAT_MONEY_LOSS };
 const WIN_STAMINA = Object.freeze({ 大胜: -5, 胜: -10, 险胜: -15 });
 const DEFEAT_STAMINA = -30;
 const WORK_STAMINA = -15;

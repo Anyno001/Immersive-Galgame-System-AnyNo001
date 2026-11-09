@@ -6,7 +6,7 @@ import { FLOOR_GAIN_MAX, applyDim } from './stat-favor.js';
 import { applyKeyEvent } from './stat-favor-events.js';
 import { extraGatesOf } from './stat-traits.js';
 import { PROTAGONIST, createEngine, resolveCheck } from './stat-engine.js';
-import { DEFEAT_MONEY_LOSS } from './stat-battle.js';
+import { DEFEAT_MONEY_LOSS } from './stat-vocab.js';
 import { CHALLENGE_ENABLED_STAKES } from '../challenge-directives.js';
 import { INTIMATE_STOP, INTIMATE_TENSION_START, isRapportWin, markForEnding } from '../intimate-duel.js';
 
