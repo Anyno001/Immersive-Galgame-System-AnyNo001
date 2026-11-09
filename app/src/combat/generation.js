@@ -318,9 +318,9 @@ export function enemyEntities({ enemies, tier = 'normal', existing, partyLevel =
 }
 
 // 战斗奖励请求：先规划奖励槽位（plan），再生成 entity；参数缺失返回 error
-export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty } = {}) {
+export function rewardEntity({ combatId, randomKey, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
-    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty });
+    const plan = planRewardSlots({ combatId, randomKey, tier, enemyTiers, character, links, difficulty });
     // 给模型的槽位信息去掉 index 与 count（由程序掌握）
     const visibleSlots = (slots) => slots.map(({ index, count, ...rest }) => rest);
     const enemyNames = [...new Set((Array.isArray(enemies) ? enemies : []).map((enemy) => String(enemy?.name || '').trim()).filter(Boolean))];
@@ -333,7 +333,7 @@ export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies 
             owner: character.id,
             anchor: { ...anchor },
             input: { characterName: character.name, tier: plan.tier, enemies: enemyNames, ...(encounter ? { encounter: String(encounter).slice(0, 40) } : {}), slots: visibleSlots(plan.slots), reserve: visibleSlots(plan.reserve) },
-            fixed: { combatId, tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots: plan.slots, reserve: plan.reserve },
+            fixed: { combatId, ...(randomKey === undefined ? {} : { randomKey }), tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots: plan.slots, reserve: plan.reserve },
         },
     };
 }
@@ -587,10 +587,10 @@ function settleEntity(entity, value, state) {
 
 // 战斗奖励：装配后做 offer 账本规范化，并检查装备槽被动的伤害上限
 function settleReward(entity, value, state) {
-    const { combatId, tier, exp, reveal, seed, slots, reserve } = entity.fixed;
+    const { combatId, randomKey, tier, exp, reveal, seed, slots, reserve } = entity.fixed;
     const assembled = assembleReward(value, { key: entity.key, input: { seed, slots, reserve } });
     if (assembled.errors) return { ok: false, errors: assembled.errors };
-    const payload = { combatId, tier, exp, reveal, slots: assembled.value.slots, ...(assembled.value.reserve ? { reserve: assembled.value.reserve } : {}) };
+    const payload = { combatId, ...(randomKey === undefined ? {} : { randomKey }), tier, exp, reveal, slots: assembled.value.slots, ...(assembled.value.reserve ? { reserve: assembled.value.reserve } : {}) };
     const entry = normalizeLedgerEntry(ledgerEntry(entity, 'offer', payload, state.now));
     if (!entry.ok) return { ok: false, errors: entry.errors.map(stripPayloadPath) };
     for (const field of ['slots', 'reserve']) {

@@ -2058,12 +2058,13 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
 
     // 主角面板操作：先算出记录，再把它加进去试重放，没有被判失效或产生诊断才写入。
-    function heroPanelAction(characterId, action, payload) {
+    function heroPanelAction(characterId, action, payload, { expectedDraws } = {}) {
         return queueAction(async () => {
             const snapshot = await readSnapshot();
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
+            if (action === 'trait' && expectedDraws !== undefined && state.characters.get(characterId)?.traitDraws !== expectedDraws) return { ok: false, reason: 'combat-trait-stale' };
             const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet());
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
@@ -2081,11 +2082,12 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             ? heroPanelAction(characterId, 'ascend', { classRef, tier, tierName, cards, cost: rule.cost })
             : Promise.resolve({ ok: false, reason: 'combat-ascend-tier-invalid' });
     }
-    function drawTrait(characterId, trait = {}) {
+    function drawTrait(characterId, trait = {}, options = {}) {
         const { traitId, name, origin = '', rarity, kind, passive, skill, link } = trait;
         return heroPanelAction(characterId, 'trait', {
-            traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}), cost: TRAIT_DRAW_COST,
-        });
+            traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}),
+            cost: TRAIT_DRAW_COST,
+        }, options);
     }
     const pickTrait = (characterId, traitId, drop) => heroPanelAction(characterId, 'trait-pick', { traitId, drop });
     function unlockTraitSlot(characterId, slot) {

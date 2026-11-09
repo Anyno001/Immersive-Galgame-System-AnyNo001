@@ -159,9 +159,10 @@ test('圆满且难关登记了经验时，战报发出后把经验牌写成挂�
         request: async () => { throw new Error('no llm'); }, tables: {},
         ledger: { append: async (entries) => { appended.push(...entries); return { ok: true }; } },
         send: async (text) => { chat.push({ is_user: true, mes: text }); return { ok: true, messageId: chat.length - 1 }; },
-        challenge: { state: () => ({ bars: { stamina: 100, stress: 0 }, skills: { 学习: { value: 60 } } }), allowEscape: true, stake: 'normal' },
+        challenge: { state: () => ({ bars: { stamina: 100, stress: 0 }, skills: { 学习: { value: 100 } }, present: ['学姐', '老师'], favors: { 学姐: 100, 老师: 100 } }), allowEscape: true, stake: 'normal' },
     });
     await session.prepare(0);
+    assert.ok(session.pickChallengeAllies(['学姐', '老师']).ok);
     assert.ok(session.autoPlay().ok);
     assert.equal(session.state().challengeSummary.outcome, '圆满');
     assert.ok((await session.finish()).ok);

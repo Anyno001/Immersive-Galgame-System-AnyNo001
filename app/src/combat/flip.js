@@ -27,9 +27,9 @@ function shuffledIndexes(count, seed) {
 }
 
 // 展示位置到槽位下标的映射（洗牌后的顺序）。
-export const flipOrder = (reward, set) => shuffledIndexes(slotsOf(reward, set).length, `flip|${reward.combatId}|${set}`);
+export const flipOrder = (reward, set) => shuffledIndexes(slotsOf(reward, set).length, `flip|${reward.randomKey ?? reward.combatId}|${set}`);
 // 透视：开局即可见的展示位置，最多 2 个。
-export const revealedOf = (reward, set) => shuffledIndexes(slotsOf(reward, set).length, `reveal|${reward.combatId}|${set}`).slice(0, Math.min(Number(reward.reveal) || 0, 2));
+export const revealedOf = (reward, set) => shuffledIndexes(slotsOf(reward, set).length, `reveal|${reward.randomKey ?? reward.combatId}|${set}`).slice(0, Math.min(Number(reward.reveal) || 0, 2));
 
 // 校验并规范化存档里的选择状态；非法返回 null。
 export function normalizePick(pick, reward) {

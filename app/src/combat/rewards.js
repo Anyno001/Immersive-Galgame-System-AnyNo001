@@ -111,11 +111,11 @@ function buildSlots(seed, rule, kinds, count, fortune, loot = null) {
 }
 
 // 规划一场战斗的奖励。返回 { seed, tier, exp, links, slots, reserve }。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty } = {}) {
+export function planRewardSlots({ combatId, randomKey, tier, enemyTiers = [], character = null, links, difficulty } = {}) {
     const tierKey = Object.hasOwn(TIER_LOOT, tier) ? tier : 'normal';
     const rule = TIER_LOOT[tierKey];
     const normalLinks = normalizeLinks(links);
-    const seed = `reward|${combatId ?? ''}|${character?.id ?? ''}`;
+    const seed = `reward|${randomKey ?? combatId ?? ''}|${character?.id ?? ''}`;
     // 只有牌组角色才掉卡牌。
     const kinds = rule.kinds.filter(([kind]) => kind !== 'card' || character?.kind === 'deck-character');
     // 「再翻」关联多给一个槽位。

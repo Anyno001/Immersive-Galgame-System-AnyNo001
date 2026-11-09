@@ -7,6 +7,7 @@ import { planTraitShape } from '../src/combat/trait-pool.js';
 import { deckDetailView } from '../src/visual/igs-ui/combat-deck-panel-model.js';
 import { createCombatDeckPanelController } from '../src/visual/igs-ui/combat-deck-panel.js';
 import { createGenerationFixture } from './helpers/combat-generation-fixture.js';
+import { passiveAtRarity, gearPassiveFromTemplate } from '../src/combat/card-templates.js';
 
 const settle = async () => { for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r)); };
 const shapeOf = (trait) => trait.kind === 'active' ? trait.skill.effects : trait.passive.effects;
@@ -204,4 +205,74 @@ test('揭晓蓄力与最终特性使用服务层同一稀有度，界面不再�
     assert.equal(result.rarity, expected);
     assert.ok(dom.window.document.querySelector('[data-phase="open"]'));
     if (result.passive) assert.match(dom.window.document.querySelector('.igs-deck-reveal-text').textContent, /时|后/);
+});
+
+test('重叠抽取只发起一次生成、只扣一次费用，完成后下一抽继续', async (t) => {
+    const f = await createGenerationFixture();
+    t.after(f.dispose);
+    await f.services.unlockTraitSlot();
+    await f.services.unlockTraitSlot();
+    const before = await f.hero();
+    let finish;
+    f.setCallback(() => new Promise((resolve) => { finish = resolve; }));
+    const first = f.services.drawTrait();
+    await settle();
+    assert.equal((await f.services.drawTrait()).reason, 'combat-trait-busy');
+    assert.equal(f.requests.length, 1);
+    finish();
+    assert.equal((await first).ok, true);
+    assert.equal((await f.hero()).traitDraws, before.traitDraws + 1);
+    assert.equal((await f.hero()).points, before.points - 100);
+    f.setCallback(null);
+    assert.equal((await f.services.drawTrait()).ok, true);
+    assert.equal((await f.hero()).traitDraws, before.traitDraws + 2);
+});
+
+test('其他调用方生成的过期抽取在账本入口被拒收，不扣费', async (t) => {
+    const f = await createGenerationFixture();
+    t.after(f.dispose);
+    await f.services.unlockTraitSlot();
+    const result = await f.services.drawTrait();
+    assert.equal(result.ok, true);
+    const before = await f.hero();
+    const stale = await f.services.getLedger().drawTrait(result.id, { ...result.trait, traitId: 'other-request' }, { expectedDraws: 0 });
+    assert.equal(stale.reason, 'combat-trait-stale');
+    assert.equal((await f.hero()).points, before.points);
+    assert.equal((await f.hero()).traitDraws, before.traitDraws);
+});
+
+test('写入序号只作当时预检，早期楼层换分支不抹掉后来已抽的特性', async (t) => {
+    const f = await createGenerationFixture();
+    t.after(f.dispose);
+    await f.services.unlockTraitSlot();
+    await f.services.unlockTraitSlot();
+    const first = await f.services.drawTrait();
+    assert.equal(first.ok, true);
+    const chat = f.host.SillyTavern.getContext().chat;
+    const previousFloor = chat.at(-1);
+    chat.push({ is_user: false, mes: '继续前行。', swipe_id: 0 });
+    const second = await f.services.drawTrait();
+    assert.equal(second.ok, true);
+    previousFloor.swipe_id = 1;
+    f.services.resetChat();
+    const hero = await f.hero();
+    const kept = [...hero.traits, hero.pendingTrait].filter(Boolean);
+    assert.equal(hero.traitDraws, 1);
+    assert.equal(kept.some((x) => x.traitId === first.trait.traitId), false);
+    assert.deepEqual(shapeOf(kept.find((x) => x.traitId === second.trait.traitId)), shapeOf(second.trait));
+});
+
+test('职业与非主角个人被动显示触发条件，装备读取加强后的实际效果', async (t) => {
+    const f = await createGenerationFixture();
+    t.after(f.dispose);
+    const hero = await f.hero();
+    const classPassive = { name: '守势', trigger: 'turn-start', effects: [{ op: 'block', amount: 3, target: 'self' }] };
+    for (const passive of [passiveAtRarity('opening-guard', 'rare'), gearPassiveFromTemplate('opening-guard', 'treasure')]) {
+        const view = deckDetailView({ ...hero, attributes: { ...hero.attributes, protagonist: false },
+            classProfile: { ...hero.classProfile, classPassive }, gear: { slots: { armor: { gearId: 'g', name: '护甲', passive } }, bag: [{ gearId: 'g2', name: '旧护甲', passive }] } });
+        assert.equal(view.classPassive.text, '回合开始时：获得 3 点格挡');
+        assert.match(view.personalPassive.text, /^开战时：/);
+        assert.equal(view.gear.slots[1].item.text, '开战时：获得 10 点格挡');
+        assert.equal(view.gear.bag[0].text, view.gear.slots[1].item.text);
+    }
 });

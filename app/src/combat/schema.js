@@ -806,7 +806,7 @@ function validateLedgerPayload(type, payload, path, state) {
                 reportId: textField(payload.reportId, at('reportId'), state, 40, ''),
             };
         case 'offer': {
-            checkKnownFields(payload, ['combatId', 'tier', 'exp', 'reveal', 'slots', 'reserve'], path, state);
+            checkKnownFields(payload, ['combatId', 'randomKey', 'tier', 'exp', 'reveal', 'slots', 'reserve'], path, state);
             // 槽位数组：长度 3 或 4，每项的 index 必须等于其下标。
             const slotList = (key) => {
                 const list = arrayField(payload[key], at(key), state, REWARD_SLOT_COUNT, REWARD_SLOT_COUNT + 1, validateRewardSlot);
@@ -822,6 +822,7 @@ function validateLedgerPayload(type, payload, path, state) {
             if (Array.isArray(slots) && Array.isArray(reserve) && reserve.length !== slots.length) addIssue(state, at('reserve'), 'reserve-length-mismatch');
             return {
                 combatId: textField(payload.combatId, at('combatId'), state, 120),
+                ...(payload.randomKey === undefined ? {} : { randomKey: textField(payload.randomKey, at('randomKey'), state, 120) }),
                 tier: enumField(payload.tier, at('tier'), state, Object.keys(COMBAT_RULES.tiers)),
                 exp: intField(payload.exp, at('exp'), state, 0, 1e3),
                 reveal: intField(payload.reveal, at('reveal'), state, 0, 2, 0),

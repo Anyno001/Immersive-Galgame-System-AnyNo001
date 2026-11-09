@@ -11,11 +11,11 @@ export const CHALLENGE_REWARD_RARITIES = Object.freeze(['common', 'uncommon', 'r
 const HERO = Object.freeze({ id: 'hero', kind: 'deck-character' });
 
 // 只有圆满且该难关登记了「经验」才出奖励；返回 { ok:true, seed, slot, card } 或 { ok:false, reason }。
-export function planChallengeReward({ combatId, outcome, tier = '普通', foe = '', domain = '' } = {}) {
+export function planChallengeReward({ combatId, randomKey, outcome, tier = '普通', foe = '', domain = '' } = {}) {
     if (!combatId) return { ok: false, reason: 'challenge-reward-invalid' };
     if (!challengeHarvest(foe, outcome, tier).card) return { ok: false, reason: 'challenge-reward-none' };
     const engineTier = (CHALLENGE_TIER_RULES[tier] || CHALLENGE_TIER_RULES.普通).engineTier;
-    const plan = planRewardSlots({ combatId, tier: engineTier, enemyTiers: [engineTier], character: HERO });
+    const plan = planRewardSlots({ combatId, randomKey, tier: engineTier, enemyTiers: [engineTier], character: HERO });
     const picked = plan.slots.find((slot) => slot.kind === 'card');
     const slot = {
         rarity: CHALLENGE_REWARD_RARITIES.includes(picked?.rarity) ? picked.rarity : picked ? CHALLENGE_REWARD_RARITIES.at(-1) : CHALLENGE_REWARD_RARITIES[0],
