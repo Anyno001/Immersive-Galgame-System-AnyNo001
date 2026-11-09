@@ -1,6 +1,6 @@
 // 战斗整场速算（§6A、v2 §7.3）与打工检定（§4.2 work）。胜负、伤势、战利品由脚本决定；逐招动作由 AI 正文决定。
 // 掷骰走检定引擎：CoC 为对抗（主角反击时同级攻击方胜），D&D 为攻击检定对 AC、闪避为敏捷豁免。
-import { applyBarDirective, walletBalance, workIncomeTier } from './stat-bars.js';
+import { applyBarDirective, applyCurrencyDirective, shiftCurrency, walletBalance, workIncomeTier } from './stat-bars.js';
 import { applyKeyEvent } from './stat-favor-events.js';
 import { matchSkill } from './stat-skill-match.js';
 import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withSkills } from './stat-state.js';
@@ -91,6 +91,10 @@ function shiftBar(bars, key, delta, changes, note) {
 
 // 伤势不再扣主角生命条：只把伤势档记进 flags.battleHurt，交战斗侧写入生命账本。
 function applyBar(bars, directive, ctx, note) {
+    if (directive.kind === 'money' && ctx.currency) {
+        applyCurrencyDirective(ctx, directive, { source: 'battle', note });
+        return bars;
+    }
     const r = applyBarDirective(bars, directive, ctx.moneyTable, ctx.walletExtra);
     if (r.hurt) ctx.flags.battleHurt = r.hurt;
     if (r.change) ctx.changes.push({ source: 'battle', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note });
@@ -112,8 +116,9 @@ export function applyBattle(state, directive, ctx) {
     if (result.outcome === '败') {
         bars = applyBar(bars, { kind: 'hurt', value: enemy.hurt }, ctx, note);
         bars = shiftBar(bars, 'stamina', DEFEAT_STAMINA, ctx.changes, note);
-        // 两成按合并余额算（金钱 + 战斗积分），扣在数值侧金钱上。
-        bars = shiftBar(bars, 'money', -Math.floor(Math.max(0, walletBalance(bars, ctx.walletExtra)) * DEFEAT_MONEY_LOSS), ctx.changes, note);
+        // 两成：有剧情货币时按物品表余额扣；否则按旧合并余额扣在数值侧金钱上。
+        if (ctx.currency) shiftCurrency(ctx, -Math.floor(ctx.currency.balance * DEFEAT_MONEY_LOSS), { source: 'battle', note });
+        else bars = shiftBar(bars, 'money', -Math.floor(Math.max(0, walletBalance(bars, ctx.walletExtra)) * DEFEAT_MONEY_LOSS), ctx.changes, note);
     } else {
         bars = shiftBar(bars, 'stamina', WIN_STAMINA[result.outcome], ctx.changes, note);
         if (result.outcome === '险胜') bars = applyBar(bars, { kind: 'hurt', value: '轻伤' }, ctx, note);

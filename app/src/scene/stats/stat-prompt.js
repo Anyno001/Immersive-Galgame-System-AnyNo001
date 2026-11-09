@@ -7,18 +7,18 @@ import { FAVOR_DIRECTIONS, HURT_TIERS, MONEY_TIERS, STAMINA_EVENTS } from './sta
 import { CHECK_ROLLS_TEMPLATE, checkRollsVars, fillCheckRolls } from '../check-rolls.js';
 import { COC_CHECK_ROLLS_TEMPLATE, cocRollsVars } from './stat-coc-checks.js';
 import { applyCombatRuleModifiers, COMBAT_GROWTH_LINES, COMBAT_RULE_HEAD, COMBAT_STORY_LINES, COMBAT_SYNTAX_LINES } from '../combat-prompt.js';
+import { DEFAULT_CURRENCY_PROMPT } from './stat-currency.js';
 
 export const STAT_PROMPT_SEGMENTS = Object.freeze(['source', 'protagonist', 'skills', 'perception', 'present', 'sheets', 'check', 'dice', 'tags', 'combat', 'party', 'mandates']);
 // 后台请求的提示词（角色卡生成、批量补全）：可编辑，不参与注入开关。
-export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill', 'heroSkills', 'startRelations']);
-// 用户提示词版本：3 起 roll、rollManual、protagonist 的旧覆盖移进 stalePrompts（模板已改名或改格式）；
-// sheets、sheetGen 在本工作区仍是有效模板（NPC 属性档保留），不在失效清单里。
-export const STAT_PROMPTS_VERSION = 3;
+export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill', 'heroSkills', 'startRelations', 'currency']);
+// v4 的主角模板分别展示积分与剧情货币，旧格式覆盖保存在 stalePrompts。
+export const STAT_PROMPTS_VERSION = 4;
 export const STAT_STALE_PROMPT_KEYS = Object.freeze(['roll', 'rollManual', 'protagonist']);
 
 const BASE_PROMPTS = {
-    source: '【数值来源】角色关系与主角状态以本段为准；表格里的数值仅作展示，与本段不一致时以本段为准。',
-    protagonist: '【主角状态】生命{{生命}}，体力{{体力}}/100，压力{{压力}}/100，金钱{{金钱}}。{{状态描述}}',
+    source: '【数值来源】角色关系、生命、体力、压力与积分以本段为准；剧情货币以物品表固定货币行的数量为准，收入与花费用 money 标签结算。',
+    protagonist: '【主角状态】生命{{生命}}，体力{{体力}}/100，压力{{压力}}/100，积分{{积分}}，剧情货币{{剧情货币}}。{{状态描述}}',
     skills: '【主角技能】{{技能档位}}。未列出的技能按未学。',
     perception: '【主角感知】{{感知档位}}：据此决定主角能注意到什么，不需要检定。',
     present: '【{{角色}}】关系阶段：{{阶段}}（由前端数值决定，本轮不得改变）。{{阶段文案}}{{组合描述}}{{突破提示}}{{亲密约束}}',
@@ -39,6 +39,7 @@ const BASE_PROMPTS = {
 // dice 段默认就是正文检定模板（骰序、优劣势、在场加值、更正）；combat、party 只在战斗扩展开启时出现。
 export const DEFAULT_STAT_PROMPTS = Object.freeze({
     ...BASE_PROMPTS,
+    currency: DEFAULT_CURRENCY_PROMPT,
     tags: [BASE_PROMPTS.tags, '成长与生命标签（只开数值系统时同样结算）：', ...COMBAT_GROWTH_LINES].join('\n'),
     dice: CHECK_ROLLS_TEMPLATE,
     combat: [COMBAT_RULE_HEAD, ...COMBAT_STORY_LINES, '', '语法要求：', ...COMBAT_SYNTAX_LINES].join('\n'),
@@ -129,7 +130,7 @@ function combatSegmentText(prompts, opts, diagnostics) {
 }
 
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate, vitals,
-//         walletExtra（战斗侧积分，与金钱合并显示）, skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
+//         walletExtra（战斗侧积分净流水）, currency（物品表货币快照）, skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
 //         dice: D&D 正文检定输入（check-rolls 的 checkRollsVars 入参），cocDice: CoC 正文检定输入（cocRollsVars 入参）,
 //         combatOn, partyLines }
 export function buildStatsPrompt(state, opts = {}) {
@@ -142,7 +143,9 @@ export function buildStatsPrompt(state, opts = {}) {
     const push = (id, text) => { if (!disabled.has(id) && text) parts.push({ id, text }); };
     push('source', fillTemplate(prompts.source, {}, diagnostics));
     push('protagonist', fillTemplate(prompts.protagonist, {
-        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 金钱: walletBalance(bars, opts.walletExtra),
+        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 积分: walletBalance(bars, opts.walletExtra),
+        金钱: opts.currency?.ready ? opts.currency.balance : '未知',
+        剧情货币: opts.currency?.ready ? `${opts.currency.balance}${opts.currency.name}` : opts.currency?.name ? `未知（${opts.currency.name}）` : '未定',
         状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals }),
     }, diagnostics));
     if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));

@@ -68,6 +68,7 @@ import { isSettingsPage } from '../../src/visual/igs-ui/settings-pages.js';
 import { chooseCard, emptyPick, flipCard, flipView, pickCardChoice, pickPurgeChoice, pickUpgradeChoice } from '../../src/combat/flip.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from '../../src/combat/fixed-cards/index.js';
 import { openWaitStagePreview } from './fixtures/wait-stage.fixture.js';
+import { createStatsPreview } from './fixtures/stats.fixture.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -204,6 +205,7 @@ let current = null;
 let settingsVn = null;
 function openSettingsScene() {
   const q = new URLSearchParams(location.search);
+  const statsPreview = q.get('page') === 'stats' ? createStatsPreview({ retry: q.get('currency') === 'retry' }) : null;
   const img = new URL('./assets/scene-demo-clean-night.png', location.href).href;
   const mem = createMemoryStorage();
   // ?card=卡名：模拟打开了一张角色卡，小雪和睡衣提示词放在这张卡里，其余在全局。
@@ -213,7 +215,7 @@ function openSettingsScene() {
     characterOutfits: { 小雪: { 校服: { moods: { 微笑: img }, words: ['制服'], scenes: [], note: '' }, 睡衣: { moods: {}, words: [], scenes: ['卧室'], note: '晚上在家' } } },
     wardrobe: { 睡衣: { prompt: 'pink pajamas' } },
   };
-  mem.setItem('igs_bridge_config', JSON.stringify({ ...(q.get('nai') ? { imageApi: { mode: 'nai' } } : {}), sceneAssets: {
+  mem.setItem('igs_bridge_config', JSON.stringify({ ...statsPreview?.bridge, ...(q.get('nai') ? { imageApi: { mode: 'nai' } } : {}), sceneAssets: {
     enabled: true, promptRule: '规则', characterAliases: {}, moodGroups: [],
     // 带时间行和长名字，看窄屏挤不挤。
     scenes: { 教室: { url: img, times: { '14:50': { url: img } } }, 走廊: { url: img, times: {} }, 海边: { url: img, times: { '黄昏': { url: img } } }, 天台: { url: '', times: {} }, 伦敦国王十字车站: { url: 'https://example.com/london.png', times: {} } },
@@ -239,6 +241,8 @@ function openSettingsScene() {
   // 设置预览使用内存存储和空表情备注，其余能力沿用真实 window。
   const globalProxy = new Proxy(window, { get(target, key) {
     if (key === 'localStorage') return mem;
+    if (statsPreview && key === 'AutoCardUpdaterAPI') return statsPreview.api;
+    if (statsPreview && key === 'SillyTavern') return { getContext: () => statsPreview.context };
     if (key === 'fetch') return (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
       if (url.origin === location.origin && url.pathname === '/user/files/igs-expression-notes.json') return Promise.resolve(new Response('{"version":1,"notes":{}}', { headers: { 'content-type': 'application/json' } }));
@@ -259,6 +263,7 @@ function openSettingsScene() {
   }, { get: (target, key) => (key in target ? target[key] : (typeof key === 'string' ? () => undefined : undefined)) }) : undefined;
   settingsVn = settingsVn || bootstrapIGS({
     global: globalProxy,
+    ...(statsPreview ? { secondaryLlm: statsPreview.secondaryLlm } : {}),
     ...(fakeGen ? { assetGenerationService: fakeGen } : {}),
     autoAttachMagicWand: false,
     hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '素材设置预览。' }), typeAndSend: async () => ({ ok: true }) },

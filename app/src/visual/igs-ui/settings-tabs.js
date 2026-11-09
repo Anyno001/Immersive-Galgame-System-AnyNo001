@@ -450,13 +450,11 @@ const STATS_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">数值系统</div>
     <div class="igs-settings-row">{{statsToggle}}</div>
-    <div class="igs-source-filter-note">好感、技能、体力和金钱由脚本掷骰决定，AI只负责把结果写进剧情。</div>
-    <div class="igs-source-filter-note"{{statsCombatNoteHidden}}>卡牌战斗开启中，数值系统随之启用，不能单独关闭。</div>
   </div>
-  <div class="igs-settings-sub"{{statsHidden}}>
-    <div class="igs-source-filter">
-      <div class="igs-source-filter-title">我的角色（本聊天）</div>
-      <div class="igs-source-filter-note" data-result="stats-chat">{{statsChatNote}}</div>
+  <div class="igs-stats-content"{{statsHidden}}>
+    <div class="igs-source-filter igs-stats-hero-section">
+      <div class="igs-source-filter-title">我的角色</div>
+      <div class="igs-source-filter-note" data-result="stats-chat"{{statsChatNoteHidden}}>{{statsChatNote}}</div>
       <div class="igs-settings-row"{{statsStartHidden}}>
         <button class="igs-settings-action" data-action="stats-chat-enable" type="button">快速开始</button>
         <button class="igs-settings-action" data-action="stats-build-mode:manual" type="button">自己建卡</button>
@@ -474,13 +472,12 @@ const STATS_TEMPLATE = `
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
       <div class="igs-settings-section">{{optionChanceField}}{{checkFxField}}{{intimacyField}}</div>
       <div class="igs-source-filter-grid">{{favorModeField}}</div>
-      <div class="igs-source-filter-note">状态栏主角区显示</div>
+      <div class="igs-settings-subhead">状态栏</div>
       <div class="igs-settings-section">{{barsFields}}</div>
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">其他角色</div>
       <div class="igs-source-filter-grid">{{sheetGenField}}</div>
-      <div class="igs-source-filter-note">新角色的数值与新技能的补全由辅助模型给出档位，脚本换算成数值；需要在自动插图设置里接好写词模型。</div>
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="stats-op:generate" type="button">为缺数值的角色生成</button>
         <button class="igs-settings-action" data-action="stats-op:backfill" type="button">补全新技能</button>
@@ -492,8 +489,6 @@ const STATS_TEMPLATE = `
         <div class="igs-source-filter-title">同步到数据库表格</div>
         <div class="igs-settings-section">{{pushField}}</div>
         {{statsMappingFields}}
-        <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
-        <div class="igs-source-filter-note">推荐导入「IGS数值系统适配版」表格模板：填表AI不再改好感与属性，导入后无需配置。</div>
         <div class="igs-settings-row">
           <button class="igs-settings-action" data-action="stats-template-import" type="button">存为模板预设</button>
           <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">用于本聊天</button>
@@ -509,7 +504,6 @@ const STATS_TEMPLATE = `
         <div class="igs-source-filter-title">其他选项</div>
         <div class="igs-source-filter-grid">{{newChatField}}{{hudLabelField}}{{registerField}}{{backfillField}}</div>
         <div class="igs-settings-section">{{autoSkillField}}</div>
-        <div class="igs-source-filter-note">骰子手感中，百分骰对应CoC第七版，二十面骰对应D&D第五版；切换后从下一次检定起生效，已有数值按新规则换算显示，存档不变。</div>
       </div>
       <div class="igs-source-filter"{{statsBuildAdvancedHidden}}>
         <div class="igs-source-filter-title">建档方式</div>

@@ -42,7 +42,7 @@ function heroSkillRows(engine, state, names) {
     });
 }
 
-export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [] } = {}) {
+export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = null, engine = null, hasBackup = false, walletExtra = 0, heroSkills = [], currency = null } = {}) {
     if (!ledger) return null;
     const state = currentStatsState(ledger);
     const rows = [];
@@ -72,10 +72,14 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     return {
         day: state.clock ? state.clock.day : null,
         bars: { ...((state.protagonist && state.protagonist.bars) || {}) },
-        // 金钱显示合并余额（数值侧金钱 + 战斗侧积分），bars.money 仍是数值侧原值。
+        // 积分保留原合并余额；剧情货币只投影物品表快照。
         wallet: walletBalance(state.protagonist && state.protagonist.bars, walletExtra),
+        currency,
         vitals: vitalsOf(engine),
-        attributes: engine ? BASE_ATTRIBUTES.map((name) => ({ name, display: displaySkill(engine, profileOf(engine, state, PROTAGONIST, name)) })) : [],
+        attributes: engine ? BASE_ATTRIBUTES.map((name) => {
+            const profile = profileOf(engine, state, PROTAGONIST, name);
+            return { name, value: profile.value, display: displaySkill(engine, profile) };
+        }) : [],
         skills,
         characters,
         log: rows.slice(-logMax).reverse(),

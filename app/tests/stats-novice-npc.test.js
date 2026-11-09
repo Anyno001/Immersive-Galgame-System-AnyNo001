@@ -221,8 +221,9 @@ test('我的角色：未开始显示快速开始与自己建卡，已开始显�
     const archive = { day: 3, bars: { stamina: 70, stress: 10, money: 20 }, wallet: 20, vitals: null, attributes: [{ name: '力量', display: '10' }], skills: [{ name: '话术', value: 50, display: '50', marked: true }], characters: [], log: [], total: 0, checks: [], story: [], sheets: [], pendingPeople: [], pendingSkills: [] };
     const started = page({ chat: { hasChat: true, enabled: true }, archive });
     assert.match(started, /力量 10/);
-    assert.match(started, /话术 50✓/);
+    assert.match(started, /话术<\/span><b>50<i[^>]*aria-label="今日可成长"[^>]*>✓/);
     assert.match(started, /data-action="stats-chat-disable"/);
+    assert.doesNotMatch(started, /本聊天已开始|暂停后数值冻结|AI只负责|由脚本结算/);
     const startRow = idle.match(/<div class="igs-settings-row"( hidden[^>]*)?>\s*<button class="igs-settings-action" data-action="stats-chat-enable"/);
     assert.ok(startRow && !startRow[1]);
     const startedRow = started.match(/<div class="igs-settings-row"( hidden[^>]*)?>\s*<button class="igs-settings-action" data-action="stats-chat-enable"/);
@@ -243,7 +244,7 @@ test('自己建卡：选了手动建档后，职业与六维加点直接出现�
 test('数值系统关闭时下方整块隐藏', () => {
     const stats = normalizeStatsSettings({ enabled: false });
     const html = renderTemplate(getPageTemplate('stats'), buildStatsPageValues({ stats, chat: null, combatOn: false }));
-    assert.match(html, /<div class="igs-settings-sub" hidden>/);
+    assert.match(html, /<div class="igs-stats-content" hidden>/);
 });
 
 // ---------- 状态栏渲染：主角区常驻 ----------

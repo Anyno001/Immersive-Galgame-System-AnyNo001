@@ -4,6 +4,7 @@ import { OUTFIT_SETTINGS_STYLE_TEXT } from './settings-outfit-fields.js';
 import { SETTINGS_NOTICE_STYLE_TEXT } from './settings-notice.js';
 import { SETTINGS_DIALOG_STYLE_TEXT } from './settings-dialog.js';
 import { STATUS_HUD_POSITION_STYLE_TEXT } from './status-hud-position-fields.js';
+import { STATS_HERO_CARD_STYLE_TEXT } from './stats-hero-card-style.js';
 
 
 const BASE = getSettingsThemePalette(SETTINGS_THEME_BASE);
@@ -604,5 +605,5 @@ ${GUARDED_FIELD}:focus{background-color:var(--igs-settings-highlight)!important}
 `;
 
 export function getSettingsStyleText() {
-    return `${SETTINGS_HOST_GUARD_STYLE_TEXT}\n${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}`;
+    return `${SETTINGS_HOST_GUARD_STYLE_TEXT}\n${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}\n${STATS_HERO_CARD_STYLE_TEXT}`;
 }

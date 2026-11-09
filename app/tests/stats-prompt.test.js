@@ -85,7 +85,7 @@ test('生命显示：当前/最大，无数据显示未知，倒下记 0', () =>
 });
 
 test('版本与失效键：失效的是 roll、rollManual、protagonist；sheets、sheetGen 保留有效', () => {
-    assert.equal(STAT_PROMPTS_VERSION, 3);
+    assert.equal(STAT_PROMPTS_VERSION, 4);
     assert.deepEqual([...STAT_STALE_PROMPT_KEYS], ['roll', 'rollManual', 'protagonist']);
     assert.match(DEFAULT_STAT_PROMPTS.sheets, /六维加值：\{\{六维加值\}\}/);
     assert.match(DEFAULT_STAT_PROMPTS.sheetGen, /属性档：很弱、偏弱、普通、出众、顶尖/);

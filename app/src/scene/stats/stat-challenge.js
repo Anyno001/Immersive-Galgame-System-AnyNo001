@@ -1,6 +1,6 @@
 // 日常挑战数值结算（设计稿 §3.4）：结局与代价类别查表，压力、体力、金钱、好感按难度档增减，胜利压力下降并标记领域技能成长。
-// 由战报楼合成的 challenge 指令驱动，不读 AI 标签里的数；金钱按合并余额判断，关系走好感维度并受单楼上限约束。
-import { DEFAULT_MONEY_TABLE, STAMINA_DELTA, STRESS_DELTA, walletBalance } from './stat-bars.js';
+// 由战报楼合成的 challenge 指令驱动，不读 AI 标签里的数；金钱取剧情货币余额（未传货币上下文时兼容旧钱包），关系受单楼上限约束。
+import { DEFAULT_MONEY_TABLE, STAMINA_DELTA, STRESS_DELTA, currencyTable, shiftCurrency, walletBalance } from './stat-bars.js';
 import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withClock, withSkills } from './stat-state.js';
 import { FLOOR_GAIN_MAX, applyDim } from './stat-favor.js';
 import { applyKeyEvent } from './stat-favor-events.js';
@@ -45,11 +45,12 @@ export function challengeCost(tier, stake) {
     return { stress: STRESS_DELTA.上升 * CHALLENGE_STRESS_STEPS[steps], stamina: 0 };
 }
 
-// 失败扣钱：按难度档查金钱表，放弃减半，且不超过合并余额的两成。
-export function challengeMoneyLoss(bars, tier, outcome, { moneyTable = DEFAULT_MONEY_TABLE, walletExtra = 0 } = {}) {
+// 失败扣钱：按难度档查金钱表，放弃减半，且不超过余额的两成（有剧情货币时取物品表余额 balance，否则取旧合并余额）。
+export function challengeMoneyLoss(bars, tier, outcome, { moneyTable = DEFAULT_MONEY_TABLE, walletExtra = 0, balance } = {}) {
     const amount = Number(moneyTable[CHALLENGE_MONEY_TIERS[tierOf(tier)]]) || 0;
     const owed = outcome === '放弃' ? Math.ceil(amount / 2) : amount;
-    const cap = Math.floor(Math.max(0, walletBalance(bars, walletExtra)) * DEFEAT_MONEY_LOSS);
+    const held = balance === undefined ? walletBalance(bars, walletExtra) : Number(balance) || 0;
+    const cap = Math.floor(Math.max(0, held) * DEFEAT_MONEY_LOSS);
     return Math.min(owed, cap);
 }
 
@@ -132,14 +133,22 @@ export function applyChallenge(state, directive, ctx) {
     let next = state;
     if (won) {
         bars = shiftBar(bars, 'stress', STRESS_DELTA.下降, ctx.changes, note);
-        const table = ctx.moneyTable || DEFAULT_MONEY_TABLE;
-        if (directive.outcome === '圆满' && directive.prize && Object.hasOwn(table, directive.prize)) bars = shiftMoney(bars, Number(table[directive.prize]) || 0, ctx.changes, `${note}奖金`);
+        const table = currencyTable(ctx);
+        if (directive.outcome === '圆满' && directive.prize && Object.hasOwn(table, directive.prize)) {
+            const prize = Number(table[directive.prize]) || 0;
+            if (ctx.currency) shiftCurrency(ctx, prize, { source: 'challenge', note: `${note}奖金` });
+            else bars = shiftMoney(bars, prize, ctx.changes, `${note}奖金`);
+        }
     } else {
         const cost = challengeCost(directive.tier, stake);
         const scale = directive.outcome === '放弃' ? half : (delta) => delta;
         bars = shiftBar(bars, 'stress', scale(cost.stress), ctx.changes, note);
         bars = shiftBar(bars, 'stamina', scale(cost.stamina), ctx.changes, note);
-        if (stake === '金钱') bars = shiftMoney(bars, -challengeMoneyLoss(bars, directive.tier, directive.outcome, { moneyTable: ctx.moneyTable, walletExtra: ctx.walletExtra }), ctx.changes, note);
+        if (stake === '金钱') {
+            const loss = challengeMoneyLoss(bars, directive.tier, directive.outcome, { moneyTable: currencyTable(ctx), walletExtra: ctx.walletExtra, balance: ctx.currency ? ctx.currency.balance : undefined });
+            if (ctx.currency) shiftCurrency(ctx, -loss, { source: 'challenge', note });
+            else bars = shiftMoney(bars, -loss, ctx.changes, note);
+        }
         if (stake === '关系') next = loseFavor(next, counterpart, directive.outcome === '放弃' ? Math.ceil(cost.favor / 2) : cost.favor, ctx, note);
     }
     next = withBars(next, bars);

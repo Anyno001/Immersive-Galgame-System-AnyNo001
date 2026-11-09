@@ -693,6 +693,7 @@ export function createSettingsHost(deps) {
         let result;
         try {
             if (kind === 'generate' || kind === 'backfill' || kind === 'backup') result = await op(kind);
+            else if (kind === 'currency-retry') result = await op('currency', 'retry');
             else if (kind === 'hero-set') result = await op('hero', 'set', name, { value: valuePart });
             else if (kind === 'hero-assign') {
                 result = await op('hero', 'assign', '', {});

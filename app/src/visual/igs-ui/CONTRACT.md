@@ -266,6 +266,9 @@
 
 - 人物状态面板 · 抽特性揭晓（P-f）：`trait-confirm` 后主区换成揭晓舞台（`.igs-deck-reveal`），标题栏与关闭保留，关闭面板中止生成。蓄力（`data-phase="charge"`）：背面卡居中呼吸、光圈旋转、粒子向中心聚拢，颜色取 `planTrait(traitSeed(id, traitDraws))` 预定的稀有度（与服务层同一函数）；写入成功并重读账本后翻开（`data-phase="open"`）：第一次画出（`data-fresh`）翻面爆光与火花，神话另加舞台震屏与整面板闪白（`.igs-deck-reveal-flash`，挂在主区之外），之后重绘为静止终态；卡面写稀有度与名称，下方写效果、联动与来历。未满时给「确定」（`trait-done` 关闭揭晓）；新特性待定（已满）时下方并排已装的两个特性各带「替换」，另给「放弃」（`trait-drop` 转发 `pickTrait({ drop })`，成功后关闭揭晓）。生成失败或取消不翻开，原因在提示条；换角色、换页与开关面板清空揭晓，重读账本保留。降级：注入的 `reducedMotion()`（缺省读系统偏好）为真时写 `data-still`，不出光圈、粒子、翻面、闪白与震屏，直接显示结果，另有 `prefers-reduced-motion` 媒体查询兜底；`#igs-overlay[data-igs-quality="low"]` 去掉粒子、火花与闪白。
 - 人物状态面板 · 建档页（P8c）：例外于上文「只在 `combatExpansion.enabled` 时显示」——注入的 `buildEntry()` 为真（数值系统本聊天启用且为手动建档）时，工具栏「人物状态」按钮也显示、`combat-status` 也可打开，此时不注入战斗账本也能打开，面板只有建档页。本聊天为手动建档时，面板经注入的 `getBuildCandidates()` 另读待建档名单，名单里已有卡组 / 技能档案的按档案列出，其余以「待建档」列在角色列表末尾（`select-build`，与 `select` 互斥）；选中待建档角色时详情只有建档页（无分页），读名单失败而战斗账本可读时原因写在提示条。`open(overlay, { build })` 打开后直接定位到这位角色（提示条「填写」经 reader-host 转来，已有面板打开时不叠开）。建档页逐项加点（`manual-add / manual-remove`，底分 8、总分不超过 72、单项 3–18）、定位（`manual-role`）、职业名（输入只改草稿不重绘）与按分值推导的擅长项，「确认建档」（`manual-confirm`）转发 `writeManualInit(name, { className, role, scores })` 成功后重读。设置页「本聊天」区块在打开的聊天上显示建档方式分段按钮（`stats-build-mode:<方式>`，转发 `statsChatAction('mode')`，不写 `bridge.stats`）；手动建档时建卡区改为职业名、定位与六维数字框，剩余点数与「按分配启用」就地刷新；`stats-chat-enable-build` 返回 Promise 时完成后再重绘一次。
+- 数值设置页（规则 v6 G8）：`stats-hero-card.js` 只读 `statsArchiveModel` 投影，六维 SVG 雷达按力量／敏捷／体质／智力／感知／魅力排列，几何取引擎百分制 `value`，标签使用当前骰制 `display`，不解析显示文本或修改账本。状态区使用生命红条、体力绿条、压力紫条；生命缺数据不造零值，倒地显示 0。积分与动态剧情货币分栏；未就绪货币保留重试动作，进行中禁用。技能列表与技能管理分别默认折叠，原 `data-stats-hero-skill`、分配、暂停与快速开始动作不变。
+- 数值页使用四主题语义色与扁平分区，不显示操作教程或解释性段落，保留空态、错误与必要确认。桌面雷达和状态／余额并列；窄屏先状态与余额，再雷达，可在设置面板内滚动。样式独立于 COC 演出包，不引入图表依赖；桌面 1440×900、390×500、四主题及货币重试态已获助手确认。
+
 
 
 

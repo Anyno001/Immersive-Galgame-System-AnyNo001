@@ -36,6 +36,8 @@ import {
     buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
+import { CURRENCY_ATTEMPTS, CURRENCY_CATEGORY, buildCurrencyRequest, currencyBalanceOf, normalizeCurrencyRecord, normalizeCurrencySettlement, parseCurrencyReply } from '../scene/stats/stat-currency.js';
+import { WORLDVIEWS } from '../scene/worldview.js';
 
 export const STATS_PROMPT_KEY = 'igs-stats-state';
 const IN_CHAT = 1;
@@ -131,6 +133,8 @@ export function createStatsRuntime({
     describePeople = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
     // v0.39 注入点：战斗侧生命/六维来源、数据库表读写通道、战斗提示词输入、战斗扩展是否开启。
     combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
+    // 剧情货币所在的物品表读写口（createInventoryTables 的产物：read / changeQuantities）。
+    currencyInventory = () => null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -152,6 +156,9 @@ export function createStatsRuntime({
     let backfillJob = null;
     let heroJob = null;
     let startJob = null;
+    let currency = null;
+    let currencyJob = null;
+    const currencyAsked = new Set();
     let tail = Promise.resolve();
     let writes = 0;
     let writeSeq = 0;
@@ -208,6 +215,236 @@ export function createStatsRuntime({
         const s = life();
         try { return s && typeof s.readPoints === 'function' ? Number(s.readPoints()) || 0 : 0; } catch (error) { return 0; }
     };
+
+    // ---- 剧情货币：物品表固定一行（数量即余额），按数据库写法每楼写本楼增量 ----
+    const inventoryOf = () => {
+        let inv = null;
+        try { inv = currencyInventory(); } catch (error) { inv = null; }
+        return inv && typeof inv.read === 'function' && typeof inv.changeQuantities === 'function' ? inv : null;
+    };
+    let currencyTail = Promise.resolve();
+    let currencyEpoch = 0;
+    let currencyBusy = 0;
+
+    function readCurrency(config = currency) {
+        const inv = inventoryOf();
+        if (!inv) return { ok: false, reason: 'stats-currency-no-inventory' };
+        if (!config) return { ok: false, reason: 'stats-currency-unset' };
+        try { return currencyBalanceOf(inv.read(), config.name); } catch { return { ok: false, reason: 'inventory-table-read-failed' }; }
+    }
+
+    function currencyLease(messageId = null) {
+        const chatId = chatIdOf(ctx());
+        const epoch = currencyEpoch;
+        const message = messageId === null ? null : messages(ctx())[messageId];
+        const swipeId = Number(message?.swipe_id) || 0;
+        const tagHash = message ? statTagHash(message.mes) : null;
+        return () => active() && epoch === currencyEpoch && chatIdOf(ctx()) === chatId
+            && (messageId === null || (messages(ctx())[messageId] === message
+                && (Number(message?.swipe_id) || 0) === swipeId && statTagHash(message.mes) === tagHash));
+    }
+
+    function queueCurrency(task) {
+        currencyBusy += 1;
+        const run = currencyTail.then(task, task).catch(() => ({ ok: false, reason: 'stats-currency-threw' }))
+            .finally(() => { currencyBusy -= 1; });
+        currencyTail = run;
+        return run;
+    }
+
+    function currencyContext() {
+        if (!currency || !currency.seeded) return { ready: false, balance: 0, table: currency ? currency.table : undefined };
+        const r = readCurrency();
+        if (!r.ok) { diag('stats-currency-read-failed', { reason: r.reason }); return { ready: false, balance: 0, table: currency.table }; }
+        return { ready: true, balance: r.balance, table: currency.table };
+    }
+
+    async function currencySaved(saved, record, alive) {
+        if (saved) await saved;
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        const t = tables();
+        const read = t.ok ? t.read({ kinds: ['stats'] }) : t;
+        if (!read?.ok || !Array.isArray(read.stats)) return { ok: false, reason: 'stats-currency-save-unverified' };
+        if (record) return read.stats.some((row) => row.id === record.id && JSON.stringify(row.payload) === JSON.stringify(record.payload))
+            ? { ok: true } : { ok: false, reason: 'stats-currency-save-unverified' };
+        const restored = mergeStatLog(read.stats, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
+        return JSON.stringify(restored.currency) === JSON.stringify(currency)
+            ? { ok: true } : { ok: false, reason: 'stats-currency-save-unverified' };
+    }
+
+    async function ensureCurrencyInventory(alive) {
+        const inv = inventoryOf();
+        if (!inv) return { ok: false, reason: 'stats-currency-no-inventory' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        if (typeof inv.ensure === 'function') {
+            let made;
+            try { made = await inv.ensure({ shouldStart: alive }); } catch (error) { made = null; }
+            if (!made || made.ok !== true) return { ok: false, reason: (made && made.reason) || 'inventory-ensure-failed' };
+        }
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        inv.client?.invalidate?.();
+        return { ok: true, inventory: inv };
+    }
+
+    async function applyCurrencyDelta(config, write, alive) {
+        const ready = await ensureCurrencyInventory(alive);
+        if (!ready.ok) return ready;
+        const inv = ready.inventory;
+        const read = readCurrency(config);
+        if (!read.ok) return read;
+        if (read.balance === write.after) return { ok: true, reused: true };
+        if (read.balance !== write.before) return { ok: false, reason: 'inventory-quantity-conflict' };
+        let result;
+        try {
+            result = await inv.changeQuantities([{ name: config.name, delta: write.after - write.before, expectedBefore: write.before, category: CURRENCY_CATEGORY }], { shouldStart: alive });
+        } catch { result = { ok: false, reason: 'inventory-write-failed' }; }
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        inv.client?.invalidate?.();
+        const verified = readCurrency(config);
+        if (verified.ok && verified.balance === write.after) {
+            if (result?.reason === 'inventory-refresh-failed') diag('stats-currency-refresh-failed');
+            return { ok: true };
+        }
+        return { ok: false, reason: result?.reason || verified.reason || 'inventory-write-unverified' };
+    }
+
+    function currencyFailed(config, reason) {
+        if (reason === 'request-stale') return;
+        diag('stats-currency-write-failed', { reason });
+        setNotice('currency', { kind: 'onboarding', text: `${config.name}结算未完成：${reason}`, actions: [['retry', '重试'], ['later', '稍后']] });
+    }
+
+    function currencyFloorRecord(entry) {
+        const m = messages(ctx())[entry.messageId];
+        return floorRecord({ messageId: entry.messageId, swipeId: entry.swipeId, tagHash: statTagHash(m?.mes), baseId: entry.baseId ?? null,
+            seed: entry.seed, before: entry.before, after: entry.after, changes: entry.changes, meta: entry.meta, createdAt: Date.now() });
+    }
+
+    async function writeCurrency(entry, record, saved, alive) {
+        const money = normalizeCurrencySettlement(entry.meta?.currency);
+        if (!money?.write || money.applied) return { ok: true, skipped: true };
+        const stored = await currencySaved(saved, record, alive);
+        if (!stored.ok) { currencyFailed(currency, stored.reason); return stored; }
+        const written = await applyCurrencyDelta(currency, money.write, alive);
+        if (!written.ok) { currencyFailed(currency, written.reason); return written; }
+        entry.meta = { ...entry.meta, currency: { ...money, applied: true } };
+        const confirmed = currencyFloorRecord(entry);
+        entry.recordId = confirmed.id;
+        const done = await currencySaved(persist([confirmed], { shouldStart: alive }), confirmed, alive);
+        if (!done.ok) {
+            entry.meta = { ...entry.meta, currency: money };
+            entry.recordId = record.id;
+            currencyFailed(currency, done.reason);
+        }
+        if (alive()) push();
+        return done;
+    }
+
+    async function recoverCurrencyWrites(alive, through = Infinity) {
+        for (const [messageId, swipeId] of [...ledger.active].sort(([a], [b]) => a - b)) {
+            if (messageId > through) continue;
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+            const money = normalizeCurrencySettlement(entry?.meta?.currency);
+            if (!money?.write || money.applied) continue;
+            const record = currencyFloorRecord(entry);
+            const current = currencyLease(messageId);
+            const shouldStart = () => alive() && current();
+            const recovered = await writeCurrency(entry, record, persist([record], { shouldStart }), shouldStart);
+            if (!recovered.ok) return recovered;
+        }
+        return { ok: true };
+    }
+
+    async function seedCurrency(alive) {
+        if (!currency || currency.seeded || !ledger) return { ok: true, skipped: true };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        if (!currency.seed) {
+            const ready = await ensureCurrencyInventory(alive);
+            if (!ready.ok) return ready;
+            const read = readCurrency();
+            if (!read.ok) return read;
+            currency = normalizeCurrencyRecord({ ...currency, seed: { before: read.balance, after: read.balance + currency.initial } });
+            if (!currency) return { ok: false, reason: 'stats-currency-balance-invalid' };
+        }
+        const stored = await currencySaved(persist([], { shouldStart: alive }), null, alive);
+        if (!stored.ok) return stored;
+        const config = currency;
+        const written = await applyCurrencyDelta(config, config.seed, alive);
+        if (!written.ok) return written;
+        currency = normalizeCurrencyRecord({ ...config, seeded: true });
+        const done = await currencySaved(persist([], { shouldStart: alive }), null, alive);
+        if (!done.ok) { if (alive()) currency = config; return done; }
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true };
+    }
+
+    function currencyStoryText() {
+        const chat = messages(ctx()).filter((m) => m && !m.is_system && typeof m.mes === 'string' && m.mes.trim());
+        const picked = [...new Set([...chat.slice(0, 3), ...chat.slice(-3)])];
+        return picked.map((m) => `${m.is_user ? '用户' : '剧情'}：${m.mes.trim()}`).join('\n');
+    }
+
+    // 进入对话：本聊天还没有货币配置时请辅助模型判定（每个聊天自动问一次，失败可从提示条重试）；有配置未发初始金额时补发。
+    function ensureCurrency({ force = false } = {}) {
+        if (!active() || !inventoryOf()) return null;
+        const chatId = chatIdOf(ctx());
+        if (currencyJob?.chatId === chatId && currencyJob.epoch === currencyEpoch) return currencyJob.promise;
+        if (currency?.seeded && !force) return null;
+        if (!force && currencyAsked.has(chatId)) return null;
+        const alive = currencyLease();
+        const request = currency ? null : requester();
+        if (!currency && !request) {
+            setNotice('currency', { kind: 'onboarding', text: '剧情货币尚未判定：辅助模型不可用', actions: [['retry', '重试'], ['later', '稍后']] });
+            return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        }
+        currencyAsked.add(chatId);
+        const job = { chatId, epoch: currencyEpoch, promise: null };
+        currencyJob = job;
+        const run = async () => {
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (!currency) {
+                const names = [PROTAGONIST, ...present(currentStatsState(ledger)).slice(0, 5)];
+                const view = WORLDVIEWS.find((w) => w.id === worldviewOf());
+                const source = { protagonist: userName() || PROTAGONIST, worldview: view?.label || '', story: currencyStoryText() };
+                let people = [];
+                try { people = typeof describePeople === 'function' ? await describePeople(names) : []; } catch { /* 仅使用现有剧情 */ }
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                const prompt = buildCurrencyRequest({ ...source, people }, { prompt: settings().prompts.currency });
+                let parsed = null;
+                setNotice('currency', { kind: 'busy', text: '正在判定剧情货币' });
+                for (let attempt = 0; attempt < CURRENCY_ATTEMPTS && !parsed?.ok; attempt += 1) {
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    try { parsed = parseCurrencyReply(await ask(request, prompt)); } catch { parsed = { ok: false, reason: 'stats-currency-request-failed' }; }
+                }
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (!parsed?.ok) { diag(parsed?.reason || 'stats-currency-request-failed'); return parsed; }
+                currency = normalizeCurrencyRecord({ ...parsed.config, initial: parsed.initial, seeded: false });
+            }
+            const seeded = await seedCurrency(alive);
+            if (!seeded.ok) return seeded;
+            return recoverCurrencyWrites(alive);
+        };
+        job.promise = queueCurrency(run).then((result) => {
+            if (alive()) settleCurrencyNotice(result);
+            return result;
+        }).finally(() => { if (currencyJob === job) currencyJob = null; });
+        return job.promise;
+    }
+
+    function settleCurrencyNotice(r) {
+        if (r?.reason === 'request-stale') return;
+        if (r?.ok) { setNotice('currency', null); return; }
+        setNotice('currency', { kind: 'onboarding', text: currency ? `${currency.name}结算未完成：${r?.reason || 'unknown'}` : '剧情货币判定失败', actions: [['retry', '重试'], ['later', '稍后']] });
+    }
+
+    function currencySnapshot() {
+        if (!currency) return { ready: false, name: '', balance: null, pending: Boolean(currencyJob) };
+        const read = currency.seeded ? readCurrency() : { ok: false };
+        return { name: currency.name, table: currency.table, rate: currency.rate,
+            ready: read.ok === true, balance: read.ok ? read.balance : null, pending: Boolean(currencyJob) };
+    }
     // 引擎读数闭包保持稳定（引用不变引擎缓存才命中）；每次调用时再取战斗源，userName 用 getter 随时取最新。
     const readers = {
         readAbilities: (name) => { const s = life(); return s && typeof s.readAbilities === 'function' ? s.readAbilities(name, { heroPrefs: heroPrefs() }) : null; },
@@ -254,11 +491,11 @@ export function createStatsRuntime({
 
     function adopt(merged) {
         ledger = merged.ledger; chatEnabled = merged.chatEnabled; buildMode = merged.buildMode ?? null; buildChoices = merged.buildChoices || {};
-        catalog = merged.catalog; learned = merged.learned; baseline = merged.baseline;
+        catalog = merged.catalog; learned = merged.learned; baseline = merged.baseline; currency = merged.currency || null;
     }
 
     function resetLoaded() {
-        ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false;
+        ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
         baseline = new Map(); pendingOption = null; manualCheck = null; notices.clear();
     }
 
@@ -292,6 +529,7 @@ export function createStatsRuntime({
     function ensureLoaded(explicit = false) {
         // 挂着聊天监听不代表数据库已就绪；失败后和表版本变化后仍需恢复读取。
         if (inflight > 0 && inflightChat === chatIdOf(ctx())) return;
+        if (currencyBusy > 0 && loadedChat === chatIdOf(ctx())) return;
         const chatId = chatIdOf(ctx());
         if (!explicit && !settings().enabled) { if (loadedChat !== chatId) { resetLoaded(); loadedKey = ''; loadedChat = chatId; } return; }
         if (loadedKey && loadedKey === cacheKey(tables())) return;
@@ -348,11 +586,11 @@ export function createStatsRuntime({
     }
 
     // 持久化（v0.39 ms）：算聊天级差分、附上楼层记录，一次追加；追加串行排队。
-    function persist(extra = []) {
+    function persist(extra = [], options = {}) {
         if (!ledger || blocked || unavailable) return null;
         const t = tables();
         if (!t.ok) { writeFailed({ reason: t.reason }); return null; }
-        const next = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices });
+        const next = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, currency });
         writeSeq += 1;
         const records = [...extra, ...diffChatRecords(baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
         baseline = next;
@@ -361,10 +599,11 @@ export function createStatsRuntime({
         inflightChat = chatIdOf(ctx());
         const chatId = inflightChat;
         let started;
-        try { started = t.append(records); } catch (error) { started = Promise.reject(error); }
-        const job = Promise.resolve(started).then((r) => { if (!r || r.ok !== true) writeFailed(r); return r; }, () => {
+        const shouldStart = () => chatIdOf(ctx()) === chatId && (!options.shouldStart || options.shouldStart() === true);
+        try { started = t.append(records, { ...options, shouldStart }); } catch (error) { started = Promise.reject(error); }
+        const job = Promise.resolve(started).then((r) => { if (chatIdOf(ctx()) === chatId && (!r || r.ok !== true)) writeFailed(r); return r; }, () => {
             const r = { ok: false, reason: 'stats-log-write-threw' };
-            writeFailed(r);
+            if (chatIdOf(ctx()) === chatId) writeFailed(r);
             return r;
         }).finally(() => {
             inflight -= 1;
@@ -388,12 +627,14 @@ export function createStatsRuntime({
     // 同一时间只跑一次推送，后到的请求排在当前这次之后。
     function push() {
         if (!active() || !settings().push.enabled) return Promise.resolve({ ok: true, skipped: true });
+        const alive = currencyLease();
         let client = null;
         try { client = getPushClient(); } catch (error) { client = null; }
         if (!client) return Promise.resolve({ ok: false, reason: 'stats-push-no-client' });
         const run = () => {
+            if (!alive()) return { ok: false, reason: 'request-stale', wrote: 0 };
             const state = currentStatsState(ledger);
-            return pushStats(client, state, { ...pushOptions, overridesByFingerprint: settings().push.mappings, baseAttributes: baseAttributesOf(state) }).then((r) => {
+            return pushStats(client, state, { ...pushOptions, overridesByFingerprint: settings().push.mappings, baseAttributes: baseAttributesOf(state), currency: currencySnapshot(), walletExtra: combatPoints(), shouldStart: alive }).then((r) => {
                 if (!r.ok) diag(r.reason || 'stats-push-partial', { failures: (r.failures || []).length });
                 (r.diagnostics || []).forEach((d) => diag(d.code, d));
                 return r;
@@ -627,7 +868,7 @@ export function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
+            walletExtra: combatPoints(), currency: currencySnapshot(), present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
             nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
@@ -661,7 +902,21 @@ export function createStatsRuntime({
         return found;
     }
 
-    function settleAt(messageId, { redo = false, plan = null } = {}) {
+    function settleAt(messageId, options = {}) {
+        if (!inventoryOf()) return settleAtNow(messageId, options);
+        const alive = currencyLease(messageId);
+        return queueCurrency(async () => {
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            const recovered = await recoverCurrencyWrites(alive, messageId);
+            if (!recovered.ok) return recovered;
+            const result = settleAtNow(messageId, { ...options, alive });
+            if (result?.saved) await result.saved;
+            if (result?.currencySaved) await result.currencySaved;
+            return result;
+        });
+    }
+
+    function settleAtNow(messageId, { redo = false, plan = null, alive = currencyLease(messageId) } = {}) {
         const c = ctx();
         const m = messages(c)[messageId];
         if (!m || m.is_user || m.is_system) return null;
@@ -685,6 +940,11 @@ export function createStatsRuntime({
         const ordinal = floorCheckOrdinal(messages(c), messageId);
         const seed = settleSeed(chatId, ordinal, floor.swipeId);
         const rollPairs = ordinal ? rollsFor(IS_COC(engine), chatId, ordinal, floor.swipeId) : null;
+        // 重算先排除本楼旧增量；写入意图始终锚定物品表实余额，不从截断后的模拟余额反推。
+        const priorCurrency = Math.trunc(Number(priorMeta.currency && priorMeta.currency.delta) || 0);
+        const money = currencyContext();
+        const available = { ...money, balance: Math.max(0, money.balance - priorCurrency) };
+        let currencyFailure = '';
         const settle = (before, random) => {
             let storyChecks = [];
             let npcChecks = [];
@@ -695,19 +955,36 @@ export function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), currency: available, extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
             });
             const meta = { ...r.meta };
+            let changes = r.changes;
             if (p.preroll) meta.preroll = p.preroll;
             const note = { ...(p.note || {}) };
             if (meta.check && !check) note.source = 'roll';
             if (!meta.check && !storyChecks.length && (p.preroll || note.source === 'preroll')) note.reason = r.meta.rollTag ? 'roll-unresolved' : 'stats-roll-skipped';
             if (Object.keys(note).length) meta.note = note;
-            return { ...r, meta };
+            if (money.ready && meta.currency) {
+                const delta = meta.currency.delta - priorCurrency;
+                const after = money.balance + delta;
+                if (!Number.isSafeInteger(after) || after < 0) {
+                    currencyFailure = after < 0 ? 'stats-currency-resettle-insufficient' : 'stats-currency-balance-invalid';
+                    if (priorMeta.currency) meta.currency = priorMeta.currency;
+                    else delete meta.currency;
+                    changes = [...changes.filter((row) => row.key !== 'money'), ...(prior?.changes || []).filter((row) => row.key === 'money')];
+                    meta.diagnostics = [...(meta.diagnostics || []), { code: currencyFailure }];
+                } else {
+                    meta.currency = { ...meta.currency, write: { before: money.balance, after }, applied: delta === 0 };
+                }
+            } else if (priorMeta.currency) {
+                meta.currency = priorMeta.currency;
+            }
+            return { ...r, changes, meta };
         };
         const r = redo ? resettleFloor(ledger, floor, settle) : settleFloor(ledger, floor, settle, seed === null ? undefined : seed);
         if (r.reused) return r;
         const meta = r.entry.meta || {};
+        if (currencyFailure) currencyFailed(currency, currencyFailure);
         if (meta.note && meta.note.reason === 'stats-roll-skipped') diag('stats-roll-skipped', { messageId });
         for (const entry of meta.newSkills || []) commitSkill(entry.name, { attribute: entry.attribute, floor: messageId });
         // 楼层记录接在上一条存活记录之后；重算同一楼时沿用原来的上游。
@@ -716,7 +993,9 @@ export function createStatsRuntime({
         const record = floorRecord({ messageId, swipeId: floor.swipeId, tagHash: statTagHash(body), baseId, seed: r.entry.seed, before: r.entry.before, after: r.entry.after, changes: r.entry.changes, meta: r.entry.meta, createdAt: Date.now() });
         r.entry.recordId = record.id;
         r.entry.baseId = baseId;
-        persist([record]);
+        const saved = persist([record], { shouldStart: alive });
+        r.saved = saved;
+        if (meta.currency?.write && !meta.currency.applied) r.currencySaved = writeCurrency(r.entry, record, saved, alive);
         onChange(currentStatsState(ledger), r.entry);
         push();
         const hurt = meta.flags && meta.flags.battleHurt;
@@ -819,6 +1098,8 @@ export function createStatsRuntime({
     }
 
     function onChatChanged() {
+        currencyEpoch += 1;
+        currencyAsked.delete(chatIdOf(ctx()));
         generating = null;
         clearPrompt();
         load();
@@ -826,9 +1107,11 @@ export function createStatsRuntime({
         onChange(ledger ? currentStatsState(ledger) : null, null, { chatChanged: true });
         refreshOnboarding();
         if (active()) refreshLife();
+        ensureCurrency();
     }
 
     function detach() {
+        currencyEpoch += 1;
         for (const off of offs) { try { off(); } catch (error) { /* */ } }
         offs = [];
         generating = null;
@@ -860,7 +1143,7 @@ export function createStatsRuntime({
     // 设置变化后调用：总开关开就挂监听并读存档，关就全部解绑（易错点 H1）。战斗开启时总开关强制为开。
     function sync() {
         const on = settings().enabled;
-        if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) refreshLife(); } }
+        if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) refreshLife(); ensureCurrency(); } }
         else if (on && offs.length && combatOn()) { autoEnable(); refreshOnboarding(); }
         else if (!on && offs.length) { detach(); notices.clear(); emitNotices(); }
         return { attached: offs.length > 0 };
@@ -899,6 +1182,7 @@ export function createStatsRuntime({
         onChange(currentStatsState(ledger), null);
         refreshOnboarding();
         detectNewCharacters();
+        ensureCurrency();
         return { ok: true };
     }
 
@@ -1312,6 +1596,7 @@ export function createStatsRuntime({
         }
         if (id === 'sheets' && action === 'generate') { setNotice('sheets', null); return generateSheets(); }
         if (id === 'roll' && action === 'roll') return manualRoll();
+        if (id === 'currency' && action === 'retry') return ensureCurrency({ force: true });
         setNotice(id, null);
         return { ok: true };
     }
@@ -1568,6 +1853,7 @@ export function createStatsRuntime({
         diagnose: ev(diagnose),
         sheetOp: ev(sheetOp),
         relationOp: ev(relationOp),
+        retryCurrency: ev(() => { ensureLoaded(true); return ensureCurrency({ force: true }) || Promise.resolve({ ok: false, reason: 'stats-chat-not-enabled' }); }),
         skillOp: ev(skillOp),
         heroOp: ev(heroOp),
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。
@@ -1575,7 +1861,7 @@ export function createStatsRuntime({
         // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
         archive: ev(() => {
             ensureLoaded();
-            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints() }) : null;
+            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot() }) : null;
         }),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {
@@ -1590,11 +1876,11 @@ export function createStatsRuntime({
             if (!active()) return null;
             return createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
         }),
-        // 状态栏主角条（生命、体力、压力、金钱；金钱为合并余额）：只在总开关与本聊天都启用时返回 lookup，其余名字返回 null。
+        // 状态栏主角条：积分沿用原余额，剧情货币单独读取物品表。
         protagonistLookup: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() });
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
         // 日常挑战建局与额度门禁用的只读快照：生活条、技能值与时钟；没有启用时为 null。
@@ -1614,10 +1900,10 @@ export function createStatsRuntime({
         protagonistBlock: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() });
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() });
             return metrics.length ? { name: userName() || PROTAGONIST, metrics } : null;
         }),
-        // 合并余额里数值侧的那一份（战斗账本的主角余额用）；没启用时为 0。
+        // 积分中的旧数值侧份额保留原存储；战斗账本按需合并，未启用时为 0。
         walletMoney: () => {
             ensureLoaded();
             return active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0;
@@ -1634,7 +1920,14 @@ export function createStatsRuntime({
             persist();
             return { ok: true };
         }),
-        // 等写库与旧存档导入都落完（测试与导出前用）。
-        whenSaved: () => Promise.all([tail, importJob ? importJob.promise : null]).then(() => {}),
+        // 等写库与旧存档导入落完，再限时等待当前推送（测试与导出前用）。
+        whenSaved: async () => {
+            let pending;
+            do {
+                pending = [tail, currencyTail, currencyJob?.promise, importJob?.promise];
+                await Promise.all(pending);
+            } while (pending[0] !== tail || pending[1] !== currencyTail);
+            if (pushing) await withTimeout(pushing);
+        },
     };
 }

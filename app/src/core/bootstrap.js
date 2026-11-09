@@ -469,7 +469,8 @@ export function bootstrapIGS(options = {}) {
         // 推送映射页：读当前表格，按草稿里的覆盖值标出每列状态；没装数据库插件时返回 null。
         statsMappings: (overridesByFingerprint) => {
             const api = globalObject.AutoCardUpdaterAPI;
-            return api ? describeStatMappings(createShujukuClient(api).readTables(), overridesByFingerprint || {}) : null;
+            const currencyName = app.statsRuntime?.archive()?.currency?.name || '';
+            return api ? describeStatMappings(createShujukuClient(api).readTables(), overridesByFingerprint || {}, { currencyName }) : null;
         },
         // 数值 v2：选项骰子走 IGS 引擎（未启用时返回 null，交回 AcuDice）、选项成功率、阅读器提示条、诊断与存档区操作。
         statsDice: (raw, ctx) => (app.statsRuntime ? app.statsRuntime.resolveDice(raw, ctx) : null),
@@ -484,6 +485,7 @@ export function bootstrapIGS(options = {}) {
             if (kind === 'skill') return rt.skillOp(op, name, payload);
             if (kind === 'hero') return rt.heroOp(op, name, payload);
             if (kind === 'relation') return rt.relationOp(op, name, payload);
+            if (kind === 'currency' && op === 'retry') return rt.retryCurrency();
             if (kind === 'generate') return rt.generateSheets(name ? [name] : null);
             if (kind === 'backfill') return rt.runBackfill();
             if (kind === 'backup') return rt.dropBackup();
@@ -884,6 +886,8 @@ export function bootstrapIGS(options = {}) {
         // 卡牌战斗桥接：生命与六维取自战斗表，数值表读写走战斗的缓存客户端，检定提示词与队伍状态合并下发。
         combatSource: () => (typeof combatServices.lifeSource === 'function' ? combatServices.lifeSource() : null),
         statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
+        // 剧情货币是物品表里的一行：与战斗共用背包写口。
+        currencyInventory: () => (typeof combatServices.inventoryTables === 'function' ? combatServices.inventoryTables() : null),
         combatPrompt: (type) => {
             const readerSettings = (getUnifiedSettingsSnapshot() || {}).readerSettings;
             if (!combatExpansionEnabled(readerSettings)) return null;

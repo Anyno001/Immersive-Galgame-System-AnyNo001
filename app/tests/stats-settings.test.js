@@ -95,7 +95,7 @@ test('提示词迁移：旧设置里 roll、rollManual、protagonist 的覆盖�
     const old = normalizeStatsSettings({ prompts: { roll: '旧骰运', rollManual: '旧手动', protagonist: '旧主角', sheets: '旧本事', sheetGen: '旧生成', source: '来源' } });
     assert.deepEqual(old.prompts, { sheets: '旧本事', sheetGen: '旧生成', source: '来源' });
     assert.deepEqual(old.stalePrompts, { roll: '旧骰运', rollManual: '旧手动', protagonist: '旧主角' });
-    assert.equal(old.promptsVersion, 3);
+    assert.equal(old.promptsVersion, STAT_PROMPTS_VERSION);
     const now = normalizeStatsSettings({ promptsVersion: 3, prompts: { diceManual: '新手动' }, stalePrompts: old.stalePrompts });
     assert.deepEqual(now.prompts, { diceManual: '新手动' });
     assert.deepEqual(now.stalePrompts, old.stalePrompts);

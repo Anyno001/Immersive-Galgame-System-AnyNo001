@@ -336,10 +336,13 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
     };
 
     // 缺表缺列时在用户当前模板上补建，建完核对。
-    function ensure() {
+    function ensure({ shouldStart = () => true } = {}) {
         return runSerial(async () => {
+            const alive = () => { try { return shouldStart() === true; } catch { return false; } };
+            if (!alive()) return { ok: false, reason: 'request-stale' };
             const support = probe();
             if (!support.ok) return support;
+            client.invalidate?.();
             const current = client.readTables();
             if (!current.ok) return { ok: false, reason: 'inventory-table-read-failed', detail: current.reason };
             if (!current.data || typeof current.data !== 'object' || !Object.keys(current.data).length) return { ok: false, reason: 'inventory-table-not-ready' };
@@ -364,6 +367,7 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
             writing = true;
             let imported;
             try {
+                if (!alive()) return { ok: false, reason: 'request-stale' };
                 imported = await client.importTemplate(plan.template, { scope: 'chat', dataMode: 'seed' });
             } finally {
                 writing = false;
@@ -390,7 +394,7 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
 
     // 对一条物品变化：写表后立即重读核对。snapshot 是写前的快照。
     // 剧情全部失去时保留数量列的正数约束，以类别标记不再持有；再获得时恢复类别与新数量。
-    async function applyQuantityChange(snapshot, { name, delta, description = '', category = '', lost = false }) {
+    async function applyQuantityChange(snapshot, { name, delta, description = '', category = '', lost = false, expectedBefore }) {
         const key = normalizeItemName(name);
         const amount = Number(delta);
         if (!key || !Number.isInteger(amount) || amount === 0) return { ok: false, reason: 'inventory-change-invalid', name };
@@ -399,7 +403,11 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
         const existing = inventory.items.find((item) => item.key === key);
         const held = existing && !existing.lost ? existing : null;
         const before = held ? held.quantity : 0;
+        if (expectedBefore !== undefined && (!Number.isSafeInteger(expectedBefore) || expectedBefore !== before)) {
+            return { ok: false, reason: 'inventory-quantity-conflict', name, have: before };
+        }
         const after = before + amount;
+        if (!Number.isSafeInteger(after)) return { ok: false, reason: 'inventory-change-invalid', name };
         if (after < 0 || (amount < 0 && !held)) {
             return { ok: false, reason: held ? 'inventory-quantity-insufficient' : 'inventory-item-missing', name, have: before };
         }
@@ -435,10 +443,13 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
     }
 
     // 批量改物品数量：按顺序逐条执行，遇到失败停下，已完成的列入 applied。
-    function changeQuantities(changes) {
+    function changeQuantities(changes, { shouldStart = () => true } = {}) {
         return runSerial(async () => {
+            const alive = () => { try { return shouldStart() === true; } catch { return false; } };
+            if (!alive()) return { ok: false, reason: 'request-stale', applied: [] };
             const support = probe();
             if (!support.ok) return support;
+            client.invalidate?.();
             let snapshot = readInventoryTables(client);
             if (!snapshot.ok) return snapshot;
             const applied = [];
@@ -446,6 +457,7 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
             writing = true;
             try {
                 for (const change of Array.isArray(changes) ? changes : [changes]) {
+                    if (!alive()) { failure = { ok: false, reason: 'request-stale' }; break; }
                     const result = await applyQuantityChange(snapshot, change);
                     if (!result.ok) { failure = result; break; }
                     applied.push({ name: result.name, before: result.before, after: result.after });

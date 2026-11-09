@@ -95,3 +95,26 @@ test('CoC：有角色卡的敌人取卡里最高的战斗技能对抗', () => {
     assert.equal(r.rounds[0].foeRoll > 0, true);
     assert.equal(r.rounds[0].win, false);
 });
+test('剧情货币上下文：速算战利品、战败和打工均不改积分，未就绪不回落旧余额', () => {
+    const table = { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 };
+    const cases = [
+        ['[igs-stat:battle|杂兵|1]', seq(0.15, 0.15, 0.99, 0.99), 7],
+        ['[igs-stat:battle|杂兵]', high, -20],
+        ['[igs-stat:work|打工]', () => 0.15, 30],
+    ];
+    for (const [text, random, delta] of cases) {
+        const r = settleFloorText(stateWith({ money: 500 }), text, {
+            random, resolveCharacter, engine: cocEngine, walletExtra: 1000,
+            currency: { ready: true, balance: 100, table },
+        });
+        assert.equal(r.state.protagonist.bars.money, 500, text);
+        assert.deepEqual(r.meta.currency, { delta, balance: 100 + delta }, text);
+        const paused = settleFloorText(stateWith({ money: 500 }), text, {
+            random, resolveCharacter, engine: cocEngine,
+            currency: { ready: false, balance: 100, table },
+        });
+        assert.equal(paused.state.protagonist.bars.money, 500, text);
+        assert.equal(paused.meta.currency, undefined, text);
+        assert.ok(paused.meta.diagnostics.some((d) => d.code === 'stats-currency-unready'), text);
+    }
+});

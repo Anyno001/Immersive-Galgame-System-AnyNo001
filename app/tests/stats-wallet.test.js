@@ -53,15 +53,15 @@ test('结算：settleFloorText 把战斗积分带进「买不起」判断；提�
     assert.equal(covered.meta.flags && covered.meta.flags.shortfall, undefined);
     assert.equal(covered.state.protagonist.bars.money, -70);
     const prompt = buildStatsPrompt(covered.state, { walletExtra: 80 });
-    assert.match(prompt.content, /金钱[^\n]*10/);
+    assert.match(prompt.content, /积分10/);
 });
 
 // ---------- bars.* 开关与状态栏主角条 ----------
 test('主角条：金钱条显示合并余额；bars 开关决定出哪几条', () => {
     const bars = { stamina: 60, stress: 20, money: 40 };
     const all = protagonistStatMetrics(bars, { enabledBars: { stamina: true, stress: true, money: true }, walletExtra: 160 });
-    assert.deepEqual(all.map((m) => m.label), ['体力', '压力', '金钱']);
-    assert.equal(all.find((m) => m.label === '金钱').display, '200');
+    assert.deepEqual(all.map((m) => m.label), ['体力', '压力', '积分']);
+    assert.equal(all.find((m) => m.label === '积分').display, '200');
     const some = protagonistStatMetrics(bars, { enabledBars: { stamina: false, stress: true, money: false }, vitals: { hp: 9, maxHp: 10, down: false } });
     assert.deepEqual(some.map((m) => m.label), ['生命', '压力']);
     assert.ok(all.every((m) => /^slot-[1-6]$/.test(m.colorKey)));
@@ -196,13 +196,13 @@ test('运行时：状态栏主角条只给主角；金钱为合并余额；战�
     const lookup = off.protagonistLookup();
     assert.equal(lookup('小雪'), null);
     const own = lookup('阿明');
-    assert.deepEqual(own.metrics.map((m) => m.label), ['体力', '压力', '金钱']);
-    assert.equal(own.metrics.find((m) => m.label === '金钱').display, '0');
+    assert.deepEqual(own.metrics.map((m) => m.label), ['体力', '压力', '积分']);
+    assert.equal(own.metrics.find((m) => m.label === '积分').display, '0');
     assert.equal(off.walletMoney(), 0);
     const on = runtimeSetup({ combat: true, points: 120 });
     const mine = on.protagonistLookup()('阿明');
-    assert.deepEqual(mine.metrics.map((m) => m.label), ['生命', '体力', '压力', '金钱']);
-    assert.equal(mine.metrics.find((m) => m.label === '金钱').display, '120');
+    assert.deepEqual(mine.metrics.map((m) => m.label), ['生命', '体力', '压力', '积分']);
+    assert.equal(mine.metrics.find((m) => m.label === '积分').display, '120');
     assert.equal(mine.metrics.find((m) => m.label === '生命').display, '7/10');
 });
 
@@ -219,7 +219,7 @@ test('状态栏开关：关着时主角区与数值反馈都不出现，开着�
     const rt = runtimeSetup({ combat: true, points: 120 });
     const block = rt.protagonistBlock();
     assert.equal(block.name, '阿明');
-    assert.deepEqual(block.metrics.map((m) => m.label), ['生命', '体力', '压力', '金钱']);
+    assert.deepEqual(block.metrics.map((m) => m.label), ['生命', '体力', '压力', '积分']);
     const lookup = rt.protagonistLookup();
     const model = (enabled, character) => ({ enabled, character, metrics: [], hiddenCount: 0, relation: '' });
     const compose = (enabled, speaker) => composeStatsHud(model(enabled, speaker), { lookup, speaker });

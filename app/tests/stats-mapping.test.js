@@ -81,3 +81,32 @@ test('映射页渲染：同步关闭时不显示；新模板有确认按钮；�
     assert.match(renderStatsMappingFields({ ok: false, reason: 'x', detail: '<坏>' }, () => '', { pushEnabled: true }), /读取表格失败（&lt;坏&gt;）/);
     assert.match(renderStatsMappingFields(null, () => '', { pushEnabled: true }), /没有检测到数据库插件/);
 });
+
+test('积分与动态剧情货币分别映射、显示并推送，旧货币列取物品表余额', async () => {
+    const data = { m: { uid: 'sheet_m', name: '主角信息表', content: [['姓名', '积分', '铜钱', '金币'], ['我', '1', '2', '3']] } };
+    const api = fakeApi(data);
+    const client = createShujukuClient(api);
+    const described = describeStatMappings(client.readTables(), {}, { currencyName: '铜钱' });
+    assert.deepEqual(described.rows.map((r) => [r.column, r.target]), [['积分', 'points'], ['铜钱', 'money'], ['金币', 'money']]);
+    const html = renderStatsMappingFields(described, () => '', { pushEnabled: true });
+    assert.match(html, /积分 → 主角信息表 · 积分/);
+    assert.match(html, /铜钱 → 主角信息表 · 铜钱/);
+    const state = createStatsState({ money: 500 });
+    const result = await pushStats(client, state, { walletExtra: 25, currency: { name: '铜钱', ready: true, balance: 70 } });
+    assert.equal(result.ok, true);
+    assert.deepEqual(data.m.content[1], ['我', '525', '70', '70']);
+    const again = await pushStats(client, state, { walletExtra: 25, currency: { name: '铜钱', ready: true, balance: 70 } });
+    assert.equal(again.wrote, 0);
+});
+
+test('剧情货币未就绪时跳过货币列，积分照常推送且不被同名货币覆盖', async () => {
+    const data = { m: { uid: 'sheet_m', name: '主角信息表', content: [['姓名', '积分', '铜钱'], ['我', '1', '2']] } };
+    const api = fakeApi(data);
+    const client = createShujukuClient(api);
+    const result = await pushStats(client, createStatsState({ money: 500 }), { walletExtra: 25, currency: { name: '铜钱', ready: false, balance: 0 } });
+    assert.equal(result.ok, true);
+    assert.deepEqual(data.m.content[1], ['我', '525', '2']);
+    assert.ok(result.diagnostics.some((d) => d.code === 'stats-push-currency-unready'));
+    const collision = describeStatMappings(client.readTables(), {}, { currencyName: '积分' });
+    assert.equal(collision.rows.find((r) => r.column === '积分').target, 'points');
+});

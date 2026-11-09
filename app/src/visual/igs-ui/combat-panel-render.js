@@ -109,7 +109,7 @@ const REASON_TEXT = Object.freeze({
     'combat-flip-card-unavailable': '这份战利品没有候选牌',
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
-    'combat-points-insufficient': '金钱不足',
+    'combat-points-insufficient': '积分不足',
     'combat-card-upgrade-none': '卡组里没有可升级的牌',
     'combat-card-upgrade-used': '本场已升级',
     'combat-card-upgrade-expired': '升级机会已过期',
@@ -563,13 +563,13 @@ function lootChoicesHtml(f, pending) {
 }
 
 // 规则 v6 删牌：本场正好满 5 场普通胜利时，战利品工具行里出一个紧凑按钮（未选时为主按钮），点开浮层选牌或不删；选定后按钮写所选。
-// 机会不可用（金钱不足等）时按钮置灰并写原因。
+// 机会不可用（积分不足等）时按钮置灰并写原因。
 function purgeButton(f, pending) {
     const p = f.purge;
     if (!p) return '';
-    if (!p.available) return btn('purge-open', p.reason === 'combat-points-insufficient' ? `删牌 · 金钱不足（需${p.cost}）` : `删牌 · ${combatReasonText(p.reason)}`, { disabled: true });
+    if (!p.available) return btn('purge-open', p.reason === 'combat-points-insufficient' ? `删牌 · 积分不足（需${p.cost}）` : `删牌 · ${combatReasonText(p.reason)}`, { disabled: true });
     const name = (p.cards || []).find((c) => c.copyId === p.pick)?.name;
-    const label = p.pick === 'skip' ? '删牌：不删' : name ? `删牌：${name}` : `删一张牌（消耗${p.cost}金钱）`;
+    const label = p.pick === 'skip' ? '删牌：不删' : name ? `删牌：${name}` : `删一张牌（消耗${p.cost}积分）`;
     return btn('purge-open', label, { primary: f.needPurge === true, disabled: pending });
 }
 
@@ -587,7 +587,7 @@ function purgeDetailHtml(c, cost, pending, upgradePick) {
         + (keywords ? `<span class="igs-combat-trait-tip-meta">${esc(keywords)}</span>` : '')
         + `<span class="igs-combat-trait-tip-text">${esc(text || '无效果')}</span>`
         + (marks ? `<span class="igs-combat-trait-tip-origin">${esc(marks)}</span>` : '')
-        + `<div class="igs-combat-actions">${btn('pick-purge', upgradePick === c.copyId ? '已选为升级' : `删除这张（消耗${cost}金钱）`, { id: c.copyId, primary: true, disabled: pending || upgradePick === c.copyId })}</div></div>`;
+        + `<div class="igs-combat-actions">${btn('pick-purge', upgradePick === c.copyId ? '已选为升级' : `删除这张（消耗${cost}积分）`, { id: c.copyId, primary: true, disabled: pending || upgradePick === c.copyId })}</div></div>`;
 }
 function purgeSheetHtml(v) {
     const f = v.flip;
@@ -605,7 +605,7 @@ function purgeSheetHtml(v) {
     }).join('');
     const skip = btn('pick-purge', p.pick === 'skip' ? '已选不删' : '不删', { id: 'skip', primary: p.pick === 'skip', disabled: pending });
     return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="删牌"><i class="igs-combat-purge-veil" data-combat-act="purge-close"></i>`
-        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">删一张牌（消耗${esc(p.cost)}金钱）</div><div class="igs-combat-purge">${cards}</div>`
+        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">删一张牌（消耗${esc(p.cost)}积分）</div><div class="igs-combat-purge">${cards}</div>`
         + (focus ? purgeDetailHtml(focus, p.cost, pending, upgradePick) : '')
         + `<div class="igs-combat-actions">${skip}${btn('purge-close', '关闭', { disabled: pending })}</div></div></div>`;
 }
@@ -657,7 +657,7 @@ function upgradeSheetHtml(v) {
         + `<div class="igs-combat-actions">${skip}${btn('upgrade-close', '关闭', { disabled: pending })}</div></div></div>`;
 }
 
-// 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（金钱不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
+// 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（积分不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
 function lootHtml(v) {
     const f = v.flip;
     if (!f || f.status === 'none') return '';
@@ -670,7 +670,7 @@ function lootHtml(v) {
     const pause = f.cards.some((c) => struck.has(c.position) && c.slot?.rarity === 'mythic');
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
-        ? btn('reroll', `重新抽取（消耗${r.cost}金钱）`, { disabled: pending || !r.available }) : '';
+        ? btn('reroll', `重新抽取（消耗${r.cost}积分）`, { disabled: pending || !r.available }) : '';
     const choices = lootChoicesHtml(f, pending);
     const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
     const tools = `${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;

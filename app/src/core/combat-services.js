@@ -596,6 +596,12 @@ export function createCombatServices(options = {}) {
             : { ok: false, reason: probe.reason, missing: probe.missing };
     }
 
+    // 物品表读写口（数值侧剧情货币用）：与战斗共用同一套背包写口与串行队列。
+    function inventoryTables() {
+        getTables();
+        return bundle.inventory;
+    }
+
     async function ensureTables() {
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
         const impl = getTables();
@@ -1498,7 +1504,7 @@ export function createCombatServices(options = {}) {
     }
 
     return {
-        getSession, getLedger, ensureTables, statsTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
+        getSession, getLedger, ensureTables, statsTables, inventoryTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,

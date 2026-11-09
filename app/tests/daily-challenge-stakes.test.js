@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { settleCombat } from '../src/scene/stats/stat-battle.js';
 import { challengeCost, challengeMoneyLoss } from '../src/scene/stats/stat-challenge.js';
-import { walletBalance } from '../src/scene/stats/stat-bars.js';
+import { createCurrencyContext, walletBalance } from '../src/scene/stats/stat-bars.js';
 import { FAVOR_GATES, applyDim } from '../src/scene/stats/stat-favor.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 import { CHALLENGE_ENABLED_STAKES } from '../src/scene/challenge-directives.js';
@@ -124,4 +124,25 @@ test('战报写出奖金与代价类别的相对描述，且不含数字', () =>
     assert.doesNotMatch(body(prize.text), /[0-9０-９]/);
     for (const stake of ['金钱', '关系']) assert.doesNotMatch(body(buildChallengeReport({ combatId: 'ch|1|0|a|0', outcome: '失败', stake }).text), /[0-9０-９]/);
     assert.match(body(buildChallengeReport({ combatId: 'ch|1|0|a|0', outcome: '失败', stake: '关系' }).text), /裂痕/);
+});
+test('剧情货币：挑战扣款按货币余额封顶、放弃减半，奖金不增加积分', () => {
+    const table = { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 };
+    for (const [outcome, balance, tier, prize, delta] of [
+        ['失败', 100, '普通', null, -20],
+        ['放弃', 100, '普通', null, -15],
+        ['失败', 1000, '艰难', null, -90],
+        ['圆满', 100, '艰难', '昂贵', 90],
+        ['勉强', 100, '艰难', '昂贵', 0],
+    ]) {
+        const currency = createCurrencyContext({ ready: true, balance, table });
+        const result = settle(stateWith({ bars: { money: 500 } }), directive({ outcome, tier, prize }), newCtx({ currency, walletExtra: 1000 }));
+        assert.equal(result.state.protagonist.bars.money, 500, outcome);
+        assert.equal(currency.delta, delta, outcome);
+        assert.equal(currency.balance, balance + delta, outcome);
+    }
+    const currency = createCurrencyContext({ ready: false, balance: 100, table });
+    const paused = settle(stateWith({ bars: { money: 500 } }), directive(), newCtx({ currency }));
+    assert.equal(paused.state.protagonist.bars.money, 500);
+    assert.equal(currency.delta, 0);
+    assert.ok(paused.ctx.diagnostics.some((d) => d.code === 'stats-currency-unready'));
 });

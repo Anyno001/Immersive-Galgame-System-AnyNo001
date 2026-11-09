@@ -21,7 +21,7 @@ export function dropUserFavor(model, speaker, userName = '') {
 }
 
 const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire', 芥蒂: 'grudge' });
-const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '金钱' });
+const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '积分' });
 // 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
 const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
 // 金钱没有上限：条长按「巨额」档位折算，数字照实显示。
@@ -88,8 +88,8 @@ export function characterStatMetrics(character, { hudLabel = 'number', nsfw = fa
 }
 
 // 主角生命条取战斗 vitals（{hp, maxHp, down}），显示「当前/最大」；没有 vitals 就不出生命条。体力、压力仍按生活条。
-// 金钱条只在 enabledBars.money 明确为真时出，显示合并余额（数值侧金钱 + walletExtra 战斗积分）。
-export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null, walletExtra = 0 } = {}) {
+// money 是沿用的显示开关；积分保留原合并值，剧情货币使用独立物品表快照。
+export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null, walletExtra = 0, currency = null } = {}) {
     const out = [];
     if (vitals && Number(vitals.maxHp) > 0) {
         const hp = vitals.down ? 0 : Math.max(0, Math.round(Number(vitals.hp) || 0));
@@ -104,6 +104,10 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
     if (enabledBars.money === true) {
         const wallet = Math.round(walletBalance(bars, walletExtra));
         out.push({ label: BAR_LABEL.money, percent: Math.max(0, Math.min(100, Math.round((wallet / MONEY_FULL) * 100))), display: String(wallet), colorKey: BAR_COLOR.money, sourceUid: 'igs-stats' });
+        if (currency?.name) {
+            const value = currency.ready ? currency.balance : null;
+            out.push({ label: currency.name, percent: value === null ? 0 : Math.max(0, Math.min(100, Math.round(value / currency.table.巨额 * 100))), display: value === null ? '未知' : String(value), colorKey: BAR_COLOR.money, sourceUid: 'igs-stats' });
+        }
     }
     return out;
 }

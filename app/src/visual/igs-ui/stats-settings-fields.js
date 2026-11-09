@@ -7,6 +7,7 @@ import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
 import { grudgeTier } from '../../scene/stats/stat-state.js';
+import { renderStatsHeroDashboard } from './stats-hero-card.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 export const STAT_PROMPT_LABELS = Object.freeze({
@@ -35,6 +36,7 @@ export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     backfill: '新技能补全（后台请求）',
     heroSkills: '主角技能分配（后台请求）',
     startRelations: '起始关系补填（后台请求）',
+    currency: '剧情货币判定（后台请求）',
 });
 
 // 失效提示词的显示名：只有被新版本弃用的几项（STAT_STALE_PROMPT_KEYS）会进入 stalePrompts。
@@ -84,7 +86,6 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
         : '';
     return staleRow + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-prompts"${advancedOpen('stats-prompts')}>`
         + '<summary>高级：注入给 AI 的提示词</summary>'
-        + '<div class="igs-source-filter-note">框里是当前生效的提示词，可直接修改；点「恢复默认」回到内置内容。模板里的 {{变量}} 写错时会原样保留，不会中断。</div>'
         + rows
         + extras
         + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-stage-text"${advancedOpen('stats-stage-text')}><summary>关系阶段文案</summary><div class="igs-source-filter-grid">${stages}</div></details>`
@@ -92,7 +93,7 @@ export function renderStatsPromptFields(stats, advancedOpen = () => '') {
 }
 
 // 存档区（§10）：当前数值一目了然；技能与变动记录折叠，低频信息不平铺。model 为 statsArchiveModel 的结果。
-const MAPPING_TARGETS = Object.freeze({ stamina: '体力', money: '金钱', stress: '压力', base: '基础属性', special: '特有属性' });
+const MAPPING_TARGETS = Object.freeze({ stamina: '体力', money: '剧情货币', points: '积分', stress: '压力', base: '基础属性', special: '特有属性' });
 
 // 骰子手感：面向只懂 RPG 的玩家，底层仍是 bridge.stats.ruleset（coc7 百分骰 / dnd5e 二十面骰），选项来自规则集登记表。
 const DICE_FEEL = Object.freeze({ coc7: '百分骰（结果更看运气）', dnd5e: '二十面骰（属性越高越稳）' });
@@ -191,26 +192,21 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
             if (r.kind === 'dim') items.push(['number', '数字']);
             if (r.stageAllowed) items.push(['stage', '阶段名']);
             items.push(['skip', '不推送']);
-            const target = MAPPING_TARGETS[r.target] || r.target;
+            const target = r.target === 'money' ? described.currencyName || MAPPING_TARGETS.money : MAPPING_TARGETS[r.target] || r.target;
             return field(path, `${target} → ${r.table} · ${r.column}`, selectInput(path, r.value, items));
         }).join('');
     }
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-mappings"${advancedOpen('stats-mappings')}><summary>高级：推送到哪张表哪一列</summary>${body}</details>`;
 }
 
-// 「我的角色」已开始时的角色卡一览：天数与生命、体力、压力、金钱，六维，主角技能（折叠）。
+// 「我的角色」：生活条、积分与剧情货币、六维及主角技能。
 export function renderStatsHeroCard(model, advancedOpen = () => '') {
-    if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
-    const n = (v) => esc(String(Math.round(Number(v) || 0)));
-    const bars = model.bars || {};
-    // 生命来自战斗 vitals（当前/最大）；没有数据时不显示这一项，避免出现「未知」或 0。
-    const life = model.vitals ? `生命 ${n(model.vitals.down ? 0 : model.vitals.hp)}/${n(model.vitals.maxHp)} · ` : '';
-    const head = `<div class="igs-source-filter-note">${model.day != null ? `第 ${n(model.day)} 天 · ` : ''}${life}体力 ${n(bars.stamina)} · 压力 ${n(bars.stress)} · 金钱 ${n(model.wallet ?? bars.money)}</div>`;
-    const attrs = (model.attributes || []).length ? `<div class="igs-source-filter-note">${model.attributes.map((a) => `${esc(a.name)} ${esc(a.display)}`).join(' · ')}</div>` : '';
-    const skills = model.skills.map((s) => `${esc(s.name)} ${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '✓' : ''}`).join(' · ');
-    return head + attrs
-        + `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能（✓ 表示今天有成长机会）</summary><div class="igs-source-filter-note">${skills || '无'}</div></details>`
-        + renderHeroSkillEditor(model, advancedOpen);
+    if (!model) return renderStatsHeroDashboard(null);
+    const skills = (model.skills || []).map((s) => `<div class="igs-stats-skill"><span>${esc(s.name)}</span><b>${esc(s.display ?? String(Math.round(s.value)))}${s.marked ? '<i title="今日可成长" aria-label="今日可成长">✓</i>' : ''}</b></div>`).join('');
+    const editor = renderHeroSkillEditor(model, advancedOpen);
+    return renderStatsHeroDashboard(model)
+        + `<details class="igs-stats-skills igs-settings-advanced" data-advanced="stats-skills"${advancedOpen('stats-skills')}><summary>技能 <span>${(model.skills || []).length}</span></summary><div class="igs-stats-skill-list">${skills || '<span class="igs-stats-empty">暂无技能</span>'}</div></details>`
+        + (editor ? `<details class="igs-stats-skills igs-settings-advanced" data-advanced="stats-hero-edit"${advancedOpen('stats-hero-edit')}><summary>技能管理</summary>${editor}</details>` : '');
 }
 
 // CoC 主角技能表：已掌握的直接列出，未学的按所属属性折叠。改动写入聊天存档，不进设置草稿（data-stats-hero-skill）。
@@ -285,16 +281,15 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
     const started = Boolean(chatReady && chat.enabled);
     const mode = (chatReady && (chat.buildMode || chat.pendingMode)) || null;
     const manual = chatReady && !started && mode === 'manual';
-    const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里开始。'
-        : chat.blocked ? `本聊天的数值存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
-            : chat.enabled ? '本聊天已开始。暂停后数值冻结、不结算，存档保留。' : '本聊天尚未开始，可直接快速开始，或自己建卡。';
+    const chatNote = !chat || !chat.hasChat ? '未打开聊天'
+        : chat.blocked ? `存档读取失败：${chat.blocked}` : '';
     const buildOpen = (key) => (key === 'stats-build' && manual ? ' open' : advancedOpen(key));
     const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode });
     return {
         statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
-        statsCombatNoteHidden: hiddenAttr(!combatOn),
         statsHidden: hiddenAttr(!statsOn),
         statsChatNote: esc(chatNote),
+        statsChatNoteHidden: hiddenAttr(!chatNote),
         statsStartHidden: hiddenAttr(!chatReady || started),
         statsMainBuildHidden: hiddenAttr(!manual),
         statsMainBuildFields: manual ? build(buildOpen) : '',
@@ -305,9 +300,9 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         optionChanceField: checkbox('bridge.stats.optionChance', stats.optionChance, '选项旁显示成功率'),
         checkFxField: checkbox('bridge.stats.checkFx', stats.checkFx, '显示掷骰卡'),
         intimacyField: checkbox('bridge.stats.intimacyGate', stats.intimacyGate, '好感不够时角色会拒绝'),
-        favorModeField: field('bridge.stats.favorMode', '好感成长', segmentedInput('bridge.stats.favorMode', stats.favorMode, [['normal', '普通'], ['hard', '困难']], '好感成长'), '普通：单楼上限3、每日上限8；困难：单楼上限1、每日上限4。'),
+        favorModeField: field('bridge.stats.favorMode', '好感成长', segmentedInput('bridge.stats.favorMode', stats.favorMode, [['normal', '普通'], ['hard', '困难']], '好感成长')),
         barsFields: checkbox('bridge.stats.bars.stamina', stats.bars.stamina, '体力')
-            + checkbox('bridge.stats.bars.money', stats.bars.money, '金钱')
+            + checkbox('bridge.stats.bars.money', stats.bars.money, '积分与剧情货币')
             + checkbox('bridge.stats.bars.stress', stats.bars.stress, '压力'),
         sheetGenField: field('bridge.stats.sheetGen', '新角色出场时', selectInput('bridge.stats.sheetGen', stats.sheetGen, [['auto', '自动生成数值'], ['prompt', '提醒'], ['off', '不生成']])),
         statsMoreOpen: advancedOpen('stats-more'),

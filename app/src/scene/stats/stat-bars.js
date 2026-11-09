@@ -17,6 +17,46 @@ export function walletBalance(bars, walletExtra = 0) {
     return (Number(bars && bars.money) || 0) + (Number(walletExtra) || 0);
 }
 
+// 剧情货币（物品表里固定的一行）：opts.currency = { ready, balance, table }。结算只改 ctx.currency，
+// 由调用方按 delta 写物品表；未传时沿用旧的 bars.money 路径。
+export function createCurrencyContext(currency, moneyTable = DEFAULT_MONEY_TABLE) {
+    if (!currency || typeof currency !== 'object') return null;
+    const table = currency.table && typeof currency.table === 'object' ? currency.table : moneyTable;
+    return { ready: currency.ready === true, balance: Math.max(0, Math.floor(Number(currency.balance) || 0)), table, delta: 0 };
+}
+
+export const currencyTable = (ctx) => (ctx && ctx.currency ? ctx.currency.table : (ctx && ctx.moneyTable) || DEFAULT_MONEY_TABLE);
+
+// 结算时可用的金钱余额：有剧情货币时取物品表余额，否则取旧合并余额。
+export function moneyBalance(bars, ctx = {}) {
+    return ctx.currency ? ctx.currency.balance : walletBalance(bars, ctx.walletExtra);
+}
+
+// 改剧情货币余额并记一条变化；货币未就绪时不改并记诊断。返回是否已入账。
+export function shiftCurrency(ctx, delta, entry = {}) {
+    const c = ctx.currency;
+    const amount = Math.trunc(Number(delta) || 0);
+    if (!amount) return true;
+    if (!c.ready) { ctx.diagnostics.push({ code: 'stats-currency-unready', note: entry.note || '' }); return false; }
+    const from = c.balance;
+    const to = Math.max(0, from + amount);
+    c.balance = to;
+    c.delta += to - from;
+    if (to !== from) ctx.changes.push({ source: entry.source || 'tag', target: '主角', key: 'money', from, to, note: entry.note || '' });
+    return true;
+}
+
+// money 标签走剧情货币：档位按本聊天的四档价格换算；花费超过余额时不扣并返回 shortfall。
+export function applyCurrencyDirective(ctx, directive, entry = {}) {
+    const c = ctx.currency;
+    const amount = Number(c.table[directive.value]) || 0;
+    if (!amount) return { shortfall: false };
+    if (!c.ready) { ctx.diagnostics.push({ code: 'stats-currency-unready', note: entry.note || '' }); return { shortfall: false };}
+    if (directive.flow === '花费' && amount > c.balance) return { shortfall: true };
+    shiftCurrency(ctx, directive.flow === '花费' ? -amount : amount, entry);
+    return { shortfall: false };
+}
+
 function shift(bars, key, delta, max = 100, min = 0) {
     const from = Number(bars[key]) || 0;
     const to = clamp(from + delta, min, max);

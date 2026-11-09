@@ -5,7 +5,7 @@ import { parseStatDirectives } from './stat-directives.js';
 import { FAVOR_GATES, applyDim, baseDelta, favorLimits, gateKey } from './stat-favor.js';
 import { START_DIMS, START_FAVOR } from './stat-vocab.js';
 import { applyGift, applyKeyEvent } from './stat-favor-events.js';
-import { DEFAULT_MONEY_TABLE, applyBarDirective } from './stat-bars.js';
+import { DEFAULT_MONEY_TABLE, applyBarDirective, applyCurrencyDirective, createCurrencyContext } from './stat-bars.js';
 import { SOFT_DAY_FLOORS, detectDayAdvance, fallbackDirectives, isLateHour, narrationOf, settleDay, settleSkip, settleSoftDay } from './stat-day.js';
 import { DIM_MAX, DIM_MIN, SKILL_MAX, clamp, createCharacter, withBars, withCharacter, withClock } from './stat-state.js';
 import { rollDie } from './stat-rng.js';
@@ -187,6 +187,11 @@ function settleBars(state, directives, hour, ctx) {
     if (isLateHour(hour) && !stayedUp) { list.push({ kind: 'stamina', value: '熬夜', late: true }); stayedUp = true; }
     let bars = state.protagonist.bars;
     for (const d of list) {
+        if (d.kind === 'money' && ctx.currency) {
+            const r = applyCurrencyDirective(ctx, d, { source: 'tag', note: d.value });
+            if (r.shortfall) ctx.flags.shortfall = true;
+            continue;
+        }
         const r = applyBarDirective(bars, d, ctx.moneyTable, ctx.walletExtra);
         if (r.shortfall) ctx.flags.shortfall = true;
         if (r.change) ctx.changes.push({ source: 'tag', target: '主角', key: r.change.key, from: r.change.from, to: r.change.to, note: d.late ? '23点后熬夜' : d.value });
@@ -276,6 +281,7 @@ export function settleFloorText(before, text, opts = {}) {
     const resolve = resolveCharacter || ((name) => (Object.hasOwn(before.characters, name) ? name : null));
     const engine = opts.engine || createEngine();
     const ctx = { random, nsfw, moneyTable, limits: favorLimits(opts.favorMode), walletExtra: Number(opts.walletExtra) || 0, present: Array.isArray(opts.present) ? opts.present : undefined, engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null, skillValueOf: (st, name, skill) => profileOf(engine, st, name, skill).value };
+    ctx.currency = createCurrencyContext(opts.currency, moneyTable);
     const rollTag = parsed.directives.find((d) => d.kind === 'roll') || null;
     let check = opts.check || null;
     let pendingRoll = null;
@@ -311,5 +317,6 @@ export function settleFloorText(before, text, opts = {}) {
     if (ctx.newSkills.length) meta.newSkills = ctx.newSkills;
     if (rollTag) meta.rollTag = { skill: rollTag.skill, difficulty: rollTag.difficulty };
     if (ctx.limits.mode === 'hard') meta.favorMode = 'hard';
+    if (ctx.currency?.ready) meta.currency = { delta: ctx.currency.delta, balance: ctx.currency.balance };
     return { state, changes: ctx.changes, meta };
 }
