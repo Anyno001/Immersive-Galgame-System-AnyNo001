@@ -1,7 +1,8 @@
 // 数值系统存档模型（§3）：默认状态与写时浅拷 helper。
 // 六维属性取自战斗底座，不再存在 skills 里；skills 只放 8 个特有技能，prefs 记六维倾向（主擅长/次擅长/短板）。
 // 状态对象共享只读，修改只复制被改动的路径，不深拷整份存档（易错点 B4）。
-import { traitOn } from './stat-traits.js';
+// 不从 stat-traits.js 导入：stat-traits → 特质规则 → stat-favor → stat-state 成环，打包后 stat-favor 会先于本模块求值，clamp/DIM_* 未定义。
+const traitOn = (entry) => entry === true || Boolean(entry && entry.on === true);
 export const STATS_VERSION = 2;
 export const BASE_ATTRIBUTES = Object.freeze(['力量', '敏捷', '体质', '智力', '感知', '魅力']);
 export const DEFAULT_SPECIAL_SKILLS = Object.freeze(['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']);
