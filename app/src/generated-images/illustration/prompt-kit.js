@@ -1,6 +1,7 @@
 // 生图提示词公共模块：CG 插图与素材补全共用的 LLM 规则、防拦截重试、内置 NAI 模板与词典。
 // 只服务 NovelAI 结构化 caption，按契约放在 generated-images 而不是通用 prompts。
 import { BUILTIN_PROMPTS, SCENE_DICTIONARY } from '../prompt-registry.js';
+import { isMatteUnlocked } from '../../media/matte-unlock.js';
 import { prepareImageWritingRequest } from '../image-prompt-runtime.js';
 import { SecondaryLlmError, secondaryLlmFailure, secondaryLlmText } from '../../host/secondary-llm-result.js';
 import { recoverOperation, recoveryFailureText } from '../../storage/automatic-recovery.js';
@@ -252,8 +253,9 @@ const GROUND_TAGS = Object.freeze({
     green: BUILTIN_PROMPTS.ground.green,
     purple: BUILTIN_PROMPTS.ground.purple,
 });
+// 抠图未解锁时底色选项隐藏，一律按自动处理。
 export function normalizeMatteColor(value) {
-    return MATTE_COLORS.includes(value) ? value : 'auto';
+    return isMatteUnlocked() && MATTE_COLORS.includes(value) ? value : 'auto';
 }
 // 透明底时返回空串；自选底色优先，auto 时按 whiteBackground 取白底或浅灰底。
 export function resolveMatteGround({ transparent = false, whiteBackground = false, matteColor = 'auto' } = {}) {

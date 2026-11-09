@@ -1,4 +1,5 @@
 import { handleTtsVoiceLibraryAction } from './tts-voice-library-actions.js';
+import { isMatteUnlocked } from '../../media/matte-unlock.js';
 import { BUILD_CUSTOM_MAX, BUILD_PICK_SLOTS, normalizeBuild, pickCandidates, validCustomSkillName } from '../../scene/stats/stat-build.js';
 import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
 
@@ -1391,7 +1392,7 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction.startsWith('gen-matte-edit:')) {
         const imageId = decodeSeg(normalizedAction.slice('gen-matte-edit:'.length));
         const globalObj = options.global || globalThis;
-        if (!imageId || typeof options.openMatteEditor !== 'function') {
+        if (!imageId || typeof options.openMatteEditor !== 'function' || !isMatteUnlocked(globalObj)) {
             return generatedOperationFailure(dialogs, globalObj, '抠图修复编辑器当前不可用。', 'matte-editor-unavailable');
         }
         try { return await options.openMatteEditor(imageId); }

@@ -103,8 +103,9 @@ import { createCombatGenerationMaterials } from '../host/combat-generation-mater
 import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
+import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.39.83';
+const IGS_VERSION = '0.39.84';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -201,9 +202,9 @@ export function bootstrapIGS(options = {}) {
         const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
         return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
     };
-    // 自动抠图总开关：对所有图像来源生效；关闭时立绘、表情差分、物品图保留原图。设置页的手动重新抠图不受影响。
+    // 自动抠图总开关：对所有图像来源生效；关闭时立绘、表情差分、物品图保留原图。未用暗号解锁时强制关闭。
     const alphaMatte = options.alphaMatte || createAlphaMatte(globalObject);
-    const autoMatte = (dataUrl, matteOptions) => ((readImageBridge().imageApi || {}).autoMatte === false
+    const autoMatte = (dataUrl, matteOptions) => (!isMatteUnlocked(globalObject) || (readImageBridge().imageApi || {}).autoMatte === false
         ? Promise.resolve(matteOptions && matteOptions.detailed ? { dataUrl, alphaMaskDataUrl: '' } : dataUrl)
         : alphaMatte(dataUrl, matteOptions));
     const imageTaskRuntime = createBuiltinImageTaskRuntime({ readBridge: readImageBridge, registry: presetRegistry, global: globalObject,

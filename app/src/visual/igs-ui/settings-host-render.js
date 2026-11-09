@@ -92,6 +92,7 @@ import { normalizePromptPlacement } from './tag-grammar.js';
 import { renderPromptEntryFields } from './prompt-entries-fields.js';
 import { getLastPromptReport } from '../../scene/prompt-triggers.js';
 import { resolveRenderQuality } from './render-quality.js';
+import { isMatteUnlocked } from '../../media/matte-unlock.js';
 
 // 这几个分类的页面按当前角色卡显示（适配世界、本卡对话框风格提示、仪表盘现状）。
 const READER_SCOPE_CATEGORIES = new Set(['dash', 'style', 'text', 'ui', 'perf', 'sound']);
@@ -467,10 +468,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 sourceExternalHidden: hiddenAttr(sourceMode === 'nai'),
-                spriteMatteColorField: field('bridge.imageApi.spriteMatteColor', '抠图底色', segmentedInput('bridge.imageApi.spriteMatteColor',
+                spriteMatteColorField: !isMatteUnlocked() ? '' : field('bridge.imageApi.spriteMatteColor', '抠图底色', segmentedInput('bridge.imageApi.spriteMatteColor',
                     imageApi.spriteMatteColor || 'auto', [['auto', '自动'], ['white', '白底'], ['grey', '灰底'], ['green', '绿底'], ['purple', '紫底']], '抠图底色'),
                     '立绘与物品图未出透明底时按此底色出图后抠除，角色主色与底色相近时可更换。自动：内置NAI与数据库生图用白底，其余用浅灰底。'),
-                autoMatteField: checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
+                autoMatteField: !isMatteUnlocked() ? '' : checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
                 externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA'),
                 naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭）'),

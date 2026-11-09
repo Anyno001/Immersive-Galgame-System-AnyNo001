@@ -17,6 +17,7 @@ import { renderTtsVoiceSearch } from './tts-voice-search.js';
 import { renderCharacterCreatureMenuItem, renderCharacterCreatureRows, renderCharacterCreatureTag } from './creature-settings.js';
 import { resolveSpriteBaseScale } from './sprite-height.js';
 import { hasCharacterSpriteLayout } from './sprite-key-migration.js';
+import { isMatteUnlocked } from '../../media/matte-unlock.js';
 
 
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
@@ -1018,7 +1019,7 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], tempPage, re
     };
     const matteItem = (imageId, type) => {
         const id = String(imageId || '').trim();
-        return id && type === 'sprite' ? menuItem(`gen-matte-edit:${encSeg(id)}`, '修复抠图') : '';
+        return id && type === 'sprite' && isMatteUnlocked() ? menuItem(`gen-matte-edit:${encSeg(id)}`, '修复抠图') : '';
     };
     const source = library && typeof library === 'object' ? library : {};
     const left = generatedLeftovers(source, characters, scenes);

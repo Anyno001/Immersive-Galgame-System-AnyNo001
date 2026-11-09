@@ -40,6 +40,7 @@ import { createSettingsDialogs } from './settings-dialog.js';
 import { captureSettingsFocus, restoreSettingsFocus } from './settings-focus.js';
 import { CLASSIC_DIALOG_THEME_DEFAULTS } from './classic-dialog-skin.js';
 import { SETTINGS_SEARCH_INDEX, buildSettingsSearchIndex, findSettingNode, renderSettingsSearchResults } from './settings-search.js';
+import { isMatteEntry, isMatteQueryBlocked, isMatteUnlocked, tryToggleMatteUnlock } from '../../media/matte-unlock.js';
 import { eventToShortcut } from './reader-shortcuts.js';
 import { canMorph, morphChildren } from './settings-dom-morph.js';
 import { buildFallbackSettingsOverlay } from './reader-dom-render.js';
@@ -1483,11 +1484,27 @@ export function createSettingsHost(deps) {
             // 设置搜索只就地刷新结果列表，不写草稿、不整页重绘，保留输入焦点与软键盘。
             if (target.getAttribute('data-settings-search') !== null) {
                 const list = root.querySelector('[data-settings-search-results]');
+                const searchGlobal = options.global || globalThis;
+                // 暗号：切换抠图设置的显示，重建搜索索引并重绘当前页。
+                const unlocked = tryToggleMatteUnlock(target.value, searchGlobal);
+                if (unlocked !== null) {
+                    if (state.activeSettings) state.activeSettings.searchIndex = null;
+                    target.value = '';
+                    rerenderSettings({ draftUnchanged: true });
+                    const freshList = root.querySelector('[data-settings-search-results]');
+                    if (freshList) freshList.innerHTML = `<div class="igs-settings-search-empty">${unlocked ? '已开启抠图设置。' : '已隐藏抠图设置。'}</div>`;
+                    return;
+                }
+                if (isMatteQueryBlocked(target.value, searchGlobal)) {
+                    if (list) list.innerHTML = '<div class="igs-settings-search-empty">未找到相关设置，可尝试换一种说法。</div>';
+                    return;
+                }
+                const matteOpen = isMatteUnlocked(searchGlobal);
                 const index = target.value && String(target.value).trim() ? ensureSearchIndex() || SETTINGS_SEARCH_INDEX : SETTINGS_SEARCH_INDEX;
                 // 提示词组编辑器只在内置 NAI 下渲染，外部图像来源不给找不到的入口。
                 const nai = state.activeSettings?.draft?.bridge?.imageApi?.mode === 'nai';
                 if (list) list.innerHTML = renderSettingsSearchResults(target.value,
-                    nai ? index : index.filter(entry => !entry.target?.open?.includes('image-prompt-editor')));
+                    index.filter(entry => (nai || !entry.target?.open?.includes('image-prompt-editor')) && (matteOpen || !isMatteEntry(entry))));
                 return;
             }
             if (target.tagName === 'SELECT') return; // change handles dependent fields once
