@@ -33,7 +33,8 @@ import { prepareCharacterCaption } from '../character-caption.js';
 import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 import { spriteSchemeOf, expressionFragmentDescription } from '../prompt-scheme.js';
 import { creatureOf, creatureFraming, creatureCanvasSize, creatureMoodLabels, creatureNeedsReference } from '../../scene/creature-profile.js';
-import { creatureHintsOf } from '../../scene/creature-registry.js';
+import { creatureHintsOf, knownCharacterNames } from '../../scene/creature-registry.js';
+import { fuzzyPortraitNames } from '../../scene/creature-battle.js';
 import { combatPrewarmTargets } from '../../scene/combat-prewarm.js';
 import { CREATURE_FORM_JUDGE_RULE, creatureFormJudgeDescription, parseCreatureFormJudgement } from '../prompt-tasks/creature.js';
 import { creatureFixedPrompts, creaturePaintMeta } from '../creature-sprite.js';
@@ -1369,7 +1370,9 @@ export function createAssetGenerationService(deps) {
         }
         const assets = state.sceneAssets;
         const known = new Set([...Object.keys(assets.characterDna || {}), ...Object.keys(assets.characters || {}), ...Object.keys(assets.characterOutfits || {})]);
-        // 与战斗面板一致：候选名逐个试，任一候选已有立绘即视为有图。
+        // 与战斗面板一致：候选名逐个试（含模糊兜底的已登记名），任一候选已有立绘即视为有图。
+        const registered = knownCharacterNames(assets);
+        targets = targets.map(target => ({ ...target, candidates: [...new Set([...target.candidates, ...fuzzyPortraitNames(target.raw, registered)])] }));
         const match = matchContext(state, floor, { scenes: [], characters: targets.flatMap(target => target.candidates) }, false);
         await match.hydrate();
         const missing = new Set(collectAssetNeeds({ characters: targets.flatMap(target => target.candidates) }, match, { sprite: true }).map(need => need.name));

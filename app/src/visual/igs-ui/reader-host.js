@@ -82,7 +82,7 @@ import { SPRITE_BACK_MOOD } from './sprite-turn.js';
 import { isReactMoodHit } from '../../scene/react-mood.js';
 
 import { clearCastDom } from './stage-cast-render.js';
-import { combatPortraitNames, hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
+import { combatPortraitNames, fuzzyPortraitNames, hasGroupSuffix, sameFoeName, splitFoeNames } from '../../scene/creature-battle.js';
 import { foeIsDown } from './creature-battle-model.js';
 import { CREATURE_FOE_SLOTS, composeCreatureStage, creatureProfileOf, isGiantCreature, resolveCreatureFoes } from './creature-layout.js';
 import { BUILTIN_NUDE_OUTFIT, createOutfitResolver, fuzzyOutfitName, normalizeWardrobe, spriteIdentity } from '../../scene/character-outfits.js';
@@ -1169,6 +1169,10 @@ export function createIgsReaderHost(options = {}) {
         for (const candidate of candidates) {
             const canonical = canonicalName(sceneAssets, candidate);
             const url = lookup(canonical) || (canonical !== candidate ? lookup(candidate) : '');
+            if (url) return url;
+        }
+        for (const candidate of fuzzyPortraitNames(name, knownCharacterNames(sceneAssets))) {
+            const url = lookup(canonicalName(sceneAssets, candidate));
             if (url) return url;
         }
         return '';
