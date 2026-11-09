@@ -3,6 +3,7 @@
 import { grudgeTier, isRomance } from './stat-state.js';
 import { hasTrait, traitCatalogOf } from './stat-traits.js';
 import { compileCaptureRegex } from './stat-date.js';
+import { landmineMandate } from './stat-trait-landmines.js';
 import { FAVOR_GATES, gateKey, stageOf } from './stat-favor.js';
 import { healthStatus, walletBalance, STAMINA_LOW, STRESS_HIGH } from './stat-bars.js';
 import { FAVOR_PROMPT_GROUPS, FAVOR_STRENGTHS, STRESS_STRENGTHS, HURT_TIERS, INTIMATE_LEVELS, MONEY_TIERS, STAMINA_EVENTS } from './stat-vocab.js';
@@ -53,7 +54,7 @@ const BASE_PROMPTS = {
         '[igs-stat:grudge|角色名|上升/下降|{{强度}}]（芥蒂是对主角的不满与心结，可与好感同时很高；上升如被敷衍、冷落、羞辱，下降如道歉、弥补、释怀、接纳、和解）',
         '[igs-stat:know|角色名|上升/下降]（深谈、得知主角的秘密或真实一面时上升，发现此前对主角的看法有误时下降）',
         '[igs-stat:event|角色名|约会/告白/共患难/交心]（约会、告白只在角色发起或接受时写，被拒不写；交心用于朋友、家人间的深谈、托付秘密、并肩扛事）',
-        '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；与上一行的关键事件不同，不影响关系进展）',
+        '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约/顶撞/命令/冷落/炫耀]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；顶撞、命令、冷落、炫耀只记主角对TA做的：主角当面反驳TA或与TA硬碰硬、主角不容商量地对TA下令、主角有意不理睬TA或把TA晾在一旁、主角当面向TA夸耀财富成就或魅力；与上一行的关键事件不同，不影响关系进展）',
         '[igs-stat:event|角色名|吸血/歌唱/发情]（正文有吸血、歌唱、发情的描写时写一次）',
         '[igs-stat:gift|角色名|礼物类别]',
         '生活（档位前可加角色名，不写角色名则指主角）：',
@@ -313,6 +314,7 @@ export function mandatesFromFlags(flags = {}, vitals = null, { fame = false } = 
     if (flags.forcedRest) out.push('主角体力耗尽，写出主角昏睡或休息');
     // 关键事件大失败：只在紧接着的下一楼出现一次（flags 来自上一楼）。
     if (flags.keyFumble && flags.keyFumble.event) out.push(`上一楼的${flags.keyFumble.event}出了岔子，本楼正文需体现`);
+    if (flags.landmine) { const line = landmineMandate(flags.landmine); if (line) out.push(line); }
     if (healthStatus(vitals) === '倒下') out.push('主角已倒下，写出被救、被俘或醒来的情节');
     return out;
 }

@@ -160,8 +160,8 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-source-filter-title{font-size:13px;line-height:20px;font-weight:600;letter-spacing:.04em;color:var(--igs-settings-ink)}
 details.igs-log-calc>summary{cursor:pointer;list-style:none}
 details.igs-log-calc>summary::-webkit-details-marker{display:none}
-details.igs-log-calc>summary::after{content:" ▾"}
-details.igs-log-calc[open]>summary::after{content:" ▴"}
+details.igs-log-calc>summary::after{content:"";display:inline-block;width:5px;height:5px;margin:0 0 3px 8px;border-right:1.5px solid var(--igs-settings-ink-3);border-bottom:1.5px solid var(--igs-settings-ink-3);transform:rotate(-45deg);transition:transform .15s;vertical-align:middle}
+details.igs-log-calc[open]>summary::after{transform:rotate(45deg)}
 details.igs-log-calc>.igs-source-filter-note{padding-left:14px}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
 .igs-tts-voice-lib{display:flex;flex-direction:column;gap:6px}

@@ -21,6 +21,7 @@ import { amplifyLimit, clampScale, extraGatesOf, getTraitDef, hasTrait, isComboK
 import { calcRow, withCalc } from './stat-status-defs.js';
 import { attachOpeningRels, clearBond, hasClearableBond, pairPartnersOf } from './stat-trait-rules-bond.js';
 import { moonlightJealousy, settleTraitTags } from './stat-trait-hooks.js';
+import { settleLandmines } from './stat-trait-landmines.js';
 import { consumeFavor, luckyReroll } from './stat-trait-dice.js';
 import { settleStatusDirectives } from './stat-status.js';
 import { autoStatuses, statusScale } from './stat-status-auto.js';
@@ -860,6 +861,13 @@ export function settleFloorText(before, text, opts = {}) {
     if (rev >= 2) state = settleBreaks(state, directives, ctx);
     // 特质的事件类联动（抖M、抖S、护短、熊系、包容、猫系）在生活条结算之后，主角压力以本楼结算后的值为准。
     if (rev >= 2) state = settleTraitTags(state, directives, ctx);
+    // 特质雷点：特质钩子之后、声望与过天之前；已踩的雷点经 meta.landmines 交运行时写进 catalog.landmineKnown，强制事项走 flags.landmine。
+    let mines = null;
+    if (rev >= 2) {
+        mines = settleLandmines(state, before, directives, ctx, (name, id) => hasTrait(state, traitCat, name, id));
+        state = mines.state;
+        if (mines.mandate) ctx.flags.landmine = mines.mandate;
+    }
     // 声望（rev ≥ 2，且本聊天开了声望条）：标签结算在过天之前，过了几天就按性质自然变化几天；刚归零或满格记强制事项。
     const fameBars = rev >= 2 ? sanitizeFameBars(opts.fameBars) : [];
     const fameBefore = state;
@@ -900,6 +908,7 @@ export function settleFloorText(before, text, opts = {}) {
     if (ctx.statusBox.cat.statuses !== (opts.catalog || {}).statuses) meta.statuses = ctx.statusBox.cat.statuses || {};
     if (ctx.statusBox.cat.cycles !== (opts.catalog || {}).cycles) meta.cycles = ctx.statusBox.cat.cycles || {};
     if (ctx.touch) meta.touch = ctx.touch;
+    if (mines && mines.known.length) meta.landmines = mines.known;
     if (healed.length) meta.heal = healed;
     // 离体楼标记：运行时据此跳过生命类标签（战斗账本伤势）扫描。
     if (detached) meta.flags = { ...meta.flags, detached: true };

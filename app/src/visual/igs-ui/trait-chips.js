@@ -4,6 +4,7 @@
 // 悟性在界面上并入「天资」组的两个互斥胶囊，仍读写 catalog.aptitude，不占格位。
 import { TRAIT_DEFS, TRAIT_GROUPS, TRAIT_LIMITS, PROTAGONIST_NAME, getTraitDef, isComboKey, slotUsage, traitReqStatus } from '../../scene/stats/stat-traits.js';
 import { CYCLE_DEFS, STATUS_DEFS, STATUS_GROUPS, STATUS_URGENCY, getStatusDef, subInWorlds } from '../../scene/stats/stat-status-defs.js';
+import { landmineView } from '../../scene/stats/stat-trait-landmines.js';
 import { TRAIT_RECIPES } from '../../scene/stats/stat-trait-recipes.js';
 import { esc } from './reader-value-utils.js';
 
@@ -214,8 +215,17 @@ export function relationRows(name, model) {
     return (Array.isArray(list) ? list : []).filter((r) => r && r.id).map((r) => (r.toward ? '对' + r.toward + '：' + r.id : r.dir === 'me' ? '主角对其：' + r.id : r.dir === 'both' ? '与主角：' + r.id : '对主角：' + r.id));
 }
 
+// 已知雷点：踩过的恒显示，了解过半时显示全部；只对角色卡的人物（非主角）。
+function landmineRows(name, model) {
+    const person = (model.characters || []).find((c) => c.name === name);
+    if (!person) return [];
+    const holders = ownItems(model, name).filter((t) => !isComboKey(t.id)).map((t) => (getTraitDef(t.id) || {}).name).filter(Boolean);
+    return landmineView(holders, model.landmineKnown && model.landmineKnown[name], person.dims && person.dims.了解);
+}
+
 export function renderTraitView(name, model) {
     const { shown, usage } = shownTraits(name, model);
+    const mines = landmineRows(name, model);
     const list = shown.filter((x) => !x.waived);
     const block = (attr, title, items, count) => viewBlock(attr + '="' + esc(name) + '"', title, String(count ?? items.length), items.map((x) => tag(x.title, x.off)).join(''));
     const origin = list.filter(isOrigin);
@@ -226,6 +236,7 @@ export function renderTraitView(name, model) {
     return (origin.length ? block('data-origin-of', '出身', origin) : '')
         + viewBlock('data-traits-of="' + esc(name) + '"', '特质', usage.slots + '/' + TRAIT_LIMITS.total, plainList.map((x) => tag(x.title, x.off)).join(''))
         + (achieve.length ? block('data-achieve-of', '成就', achieve) : '')
+        + (mines.length ? viewBlock('data-landmine-of="' + esc(name) + '"', '已知雷点', String(mines.length), mines.map((x) => tag(x.text)).join('')) : '')
         + (status.length ? viewBlock('data-status-of="' + esc(name) + '"', '状态', String(status.length), status.map((x) => tag(x.title)).join('')) : '')
         + (rel.length ? viewBlock('data-rel-of="' + esc(name) + '"', '关系', String(rel.length), rel.map((x) => tag(x)).join('')) : '');
 }

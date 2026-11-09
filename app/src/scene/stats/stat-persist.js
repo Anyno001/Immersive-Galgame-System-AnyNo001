@@ -88,7 +88,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -149,6 +149,13 @@ export function sanitizeCatalog(raw) {
     for (const [k, v] of Object.entries(plainObject(raw.traitNotes) ? raw.traitNotes : {}).slice(0, SHEET_MAX)) {
         const text = typeof v === 'string' ? v.trim().slice(0, TRAIT_NOTE_MAX) : '';
         if (k && k.length <= 20 && text) out.traitNotes[k] = text;
+    }
+    // 已踩过的雷点：{ 角色: { 特质:触发: 首次楼层 } }，只给角色卡「已知雷点」用。
+    for (const [k, v] of Object.entries(plainObject(raw.landmineKnown) ? raw.landmineKnown : {}).slice(0, SHEET_MAX)) {
+        if (!k || k.length > 20 || !plainObject(v)) continue;
+        const own = {};
+        for (const [key, floor] of Object.entries(v).slice(0, 12)) if (key && key.length <= 40 && Number.isFinite(Number(floor))) own[key] = Number(floor);
+        if (Object.keys(own).length) out.landmineKnown[k] = own;
     }
     // 主角的声望条：[{ name, kind }]，最多 3 条，聊天级设置，不随楼层快照。
     out.fameBars = sanitizeFameBars(raw.fameBars);
