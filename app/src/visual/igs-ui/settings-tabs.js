@@ -520,11 +520,10 @@ const STATS_SET_TEMPLATE = `
       <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{backfillField}}{{sheetGenField}}</div>
       <div class="igs-source-filter-note">以下操作作用于本聊天全部角色，由辅助模型给出结果；需要在自动插图设置里接好写词模型。</div>
       <div class="igs-stats-hero-actions">
-        <button class="igs-settings-action" data-action="stats-op:relation-import" type="button">从数据库表格导入角色</button>
-        <button class="igs-settings-action" data-action="stats-op:relation-fill" type="button">按人设补填初始关系</button>
-        <button class="igs-settings-action" data-action="stats-op:generate" type="button">为缺数值的角色生成</button>
-        <button class="igs-settings-action" data-action="stats-op:backfill" type="button">补全新技能</button>
-        <button class="igs-settings-action is-wide" data-action="stats-op:trait-fill" type="button">补全全员特质</button>
+        <button class="igs-settings-action" data-action="stats-op:relation-import" type="button">导入表格角色</button>
+        <button class="igs-settings-action" data-action="stats-op:relation-fill" type="button">补全初始关系</button>
+        <button class="igs-settings-action" data-action="stats-op:fill-all" type="button">补全角色数值</button>
+        <button class="igs-settings-action" data-action="stats-op:trait-fill" type="button">补全特质</button>
       </div>
     </div>
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-more"{{statsMoreOpen}}>

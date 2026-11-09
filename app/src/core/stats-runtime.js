@@ -321,7 +321,7 @@ export function createStatsRuntime({
         return names;
     };
     const tableNameSet = () => new Set(tableNames());
-    // 本楼要新建档的表格人物：{ 角色: {} }，关系从 0 起，初值交给「按人设补填初始关系」；已登记的跳过。
+    // 本楼要新建档的表格人物：{ 角色: {} }，关系从 0 起，初值交给「补全初始关系」；已登记的跳过。
     // 角色卡名与群聊成员：正文里出现过名字就建档，不必等 AI 写好感标签；多人卡的卡名多半不是人名，正文没提到就不建。
     const rosterNames = (upTo = Infinity) => {
         const c = ctx();
@@ -1798,7 +1798,7 @@ export function createStatsRuntime({
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
-        // 队列空时（手动点「补全新技能」）改补主角还没有数值的剧情技能；自动补全只在队列非空时触发，不会走到这里。
+        // 队列空时（手动点「补全角色数值」）改补主角还没有数值的剧情技能；自动补全只在队列非空时触发，不会走到这里。
         const heroLacks = () => {
             const own = currentStatsState(ledger).protagonist.skills;
             return (catalog.story || []).map((s) => s.name).filter((n) => !own[n] && !catalog.protagonistBase[n] && !catalog.protagonistEdit[n]);

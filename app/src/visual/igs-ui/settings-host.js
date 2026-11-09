@@ -725,7 +725,19 @@ export function createSettingsHost(deps) {
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
-            if (kind === 'generate' || kind === 'backfill' || kind === 'backup') {
+            // 「补全角色数值」：依次为缺角色卡的角色生成角色卡、补剧情新技能（全员含主角）、CoC 下按人设分配主角核心技能。
+            // 原「为缺数值的角色生成」「补全新技能」与「我的角色」里的「按人设分配技能」并入这里；任一步失败报第一个失败原因，其余照做。
+            if (kind === 'fill-all') {
+                const steps = [await op('generate')];
+                steps.push(await op('backfill'));
+                const assign = await op('hero', 'assign', '', {});
+                if (assign && assign.reason === 'needs-confirm') {
+                    if (await settingsDialogs.confirm('主角技能已分配过。重新分配会覆盖已分配与手改的技能值，继续？')) steps.push(await op('hero', 'assign', '', { overwrite: true }));
+                }
+                else if (!(assign && assign.reason === 'stats-hero-skills-coc-only')) steps.push(assign);
+                result = steps.find((r) => r && r.ok === false) || { ok: true };
+            }
+            else if (kind === 'generate' || kind === 'backfill' || kind === 'backup') {
                 result = await op(kind);
                 if (kind === 'generate' && result && result.ok && result.skipped && typeof settingsDialogs.alert === 'function') await settingsDialogs.alert('没有缺数值的角色。');
             }

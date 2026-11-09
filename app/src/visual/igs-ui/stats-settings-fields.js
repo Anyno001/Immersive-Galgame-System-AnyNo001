@@ -360,11 +360,9 @@ function renderSkillEditor(model, advancedOpen) {
         + '</details>';
 }
 
-// 「我的角色」底部按钮：暂停本聊天；有主角技能表（CoC）时再加「按人设分配技能」。
+// 「我的角色」底部按钮：暂停本聊天、复制数值诊断。按人设分配主角技能已并入「设置 › 登记与补全」的「补全角色数值」。
 export function renderStatsHeroActions(model) {
-    const assign = model && Array.isArray(model.heroSkills) && model.heroSkills.length
-        ? '<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设分配技能</button>' : '';
-    return `<div class="igs-stats-hero-actions">${assign}<button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button><button class="igs-settings-action" data-action="stats-storage-report" type="button">复制数值诊断</button></div>`;
+    return `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button><button class="igs-settings-action" data-action="stats-storage-report" type="button">复制数值诊断</button></div>`;
 }
 
 
