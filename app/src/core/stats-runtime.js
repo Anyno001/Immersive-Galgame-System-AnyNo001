@@ -2206,6 +2206,15 @@ export function createStatsRuntime({
         add('聊天元数据', typeof read === 'string' ? read : `ok=${read.ok} 旧整体存档igs_stats=${read.raw ? '有' : '无'} declined=${read.declined === true} 旧备份=${read.hasBackup === true}`);
         const t = tables();
         add('数据库接口', t.ok ? `可用 version=${safe(() => t.version)}` : `不可用 ${t.reason}`);
+        add('数据库原表', safe(() => {
+            const api = globalThis.AutoCardUpdaterAPI;
+            if (!api) return '未找到 AutoCardUpdaterAPI';
+            if (typeof api.exportTableAsJson !== 'function') return '缺 exportTableAsJson';
+            const data = api.exportTableAsJson();
+            if (!data || typeof data !== 'object') return `导出结果 ${data === null ? 'null' : typeof data}`;
+            const names = Object.entries(data).map(([k, v]) => (v && typeof v === 'object' && v.name) || k);
+            return names.length ? `${names.length} 张：${names.join('、')}` : '导出为空对象（数据库插件当前没有本聊天的表）';
+        }));
         if (t.ok) {
             const rows = safe(() => t.read({ kinds: ['stats'] }));
             if (typeof rows === 'string') add('读表', rows);

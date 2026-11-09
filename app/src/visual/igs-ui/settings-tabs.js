@@ -461,6 +461,9 @@ const STATS_TEMPLATE = `
         <button class="igs-settings-action" data-action="stats-chat-enable" type="button">快速开始</button>
         <button class="igs-settings-action" data-action="stats-build-mode:manual" type="button">自己建卡</button>
       </div>
+      <div class="igs-settings-row"{{statsBlockedDiagHidden}}>
+        <button class="igs-settings-action" data-action="stats-storage-report" type="button">复制数值诊断</button>
+      </div>
       <div{{statsMainBuildHidden}}>{{statsMainBuildFields}}</div>
       <div class="igs-settings-section"{{statsHeroHidden}}>
         {{statsHeroCard}}

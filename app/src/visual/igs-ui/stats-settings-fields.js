@@ -538,6 +538,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsOffNoteHidden: hiddenAttr(statsOn),
         statsChatNote: esc(chatNote),
         statsStartHidden: hiddenAttr(!chatReady || started),
+        statsBlockedDiagHidden: hiddenAttr(!(statsOn && chat && chat.hasChat && chat.blocked)),
         statsMainBuildHidden: hiddenAttr(!manual),
         statsMainBuildFields: manual ? build(buildOpen) : '',
         statsHeroHidden: hiddenAttr(!started),
