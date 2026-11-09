@@ -105,7 +105,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.39.84';
+const IGS_VERSION = '0.39.85';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -392,6 +392,10 @@ export function bootstrapIGS(options = {}) {
                 const read = createShujukuClient(globalObject.AutoCardUpdaterAPI).readTables();
                 return collectOutfitClues(read, names, read.ok === false ? [] : parseTables(read.data));
             },
+        },
+        // 公开接口 IGS.stats 的只读读取器；runtime 在 app 之后创建，调用时再取。
+        statsReaders: {
+            fame: () => (app.statsRuntime && typeof app.statsRuntime.fameSnapshot === 'function' ? app.statsRuntime.fameSnapshot() : []),
         },
         global: globalObject,
         media,
@@ -937,6 +941,20 @@ export function bootstrapIGS(options = {}) {
             return typeof wi.text === 'string' && wi.text.includes(name);
         },
     });
+    // 公开事件 igs:stats-changed：账本变化后在 window 上派发，同一同步流程内多次变化用微任务合并成一次；失败不影响数值系统。
+    let statsChangedQueued = false;
+    const scheduleStatsChanged = () => {
+        if (statsChangedQueued) return;
+        statsChangedQueued = true;
+        Promise.resolve().then(() => {
+            statsChangedQueued = false;
+            try {
+                const Ctor = globalObject.CustomEvent || globalThis.CustomEvent;
+                if (state.destroyed || typeof globalObject.dispatchEvent !== 'function' || typeof Ctor !== 'function') return;
+                globalObject.dispatchEvent(new Ctor('igs:stats-changed', { detail: { reason: 'ledger' } }));
+            } catch (error) { /* 无事件环境 */ }
+        });
+    };
     const statsRuntime = createStatsRuntime({
         getContext: resolveTavernContext,
         // 随身系统的属性加成（原始值，只读）；originRuntime 在其后创建，这里取用时再读。
@@ -994,6 +1012,7 @@ export function bootstrapIGS(options = {}) {
         onCheck: ({ detail }) => { try { app.igsUi && typeof app.igsUi.playStatsCheck === 'function' && app.igsUi.playStatsCheck(detail); } catch (error) { /* */ } },
         onNotices: () => { try { app.igsUi && typeof app.igsUi.syncStatsNotices === 'function' && app.igsUi.syncStatsNotices(); } catch (error) { /* */ } },
         onChange: (statsState, entry, info) => {
+            scheduleStatsChanged();
             events.emit('igs:stats-updated', { state: statsState, entry });
             // 演出数据（P5）：只在本楼有新结算时发出；没有可播内容时 statsFxOf 返回 null，直接跳过。
             if (!entry) return;

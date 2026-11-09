@@ -45,6 +45,16 @@ export function createPublicApi(app) {
     groupedApi.chats = createChatsApi();
     // 只读接口：角色外貌 DNA，读取器由 core 经 app.characterDnaReaders 注入。
     groupedApi.characters = createCharactersApi(app.characterDnaReaders);
+    // 只读接口：数值系统的声望快照，读取器由 core 经 app.statsReaders 注入；出错、未开声望一律返回 []。
+    const statsApi = {
+        fame() {
+            try {
+                const rows = app.statsReaders && typeof app.statsReaders.fame === 'function' ? app.statsReaders.fame() : [];
+                return Array.isArray(rows) ? JSON.parse(JSON.stringify(rows)) : [];
+            } catch (error) { return []; }
+        },
+    };
+    groupedApi.stats = statsApi;
     groupedApi.version = DLC_API_VERSION;
     const igsCompatApi = createIgsCompatApi(app);
 
@@ -52,6 +62,7 @@ export function createPublicApi(app) {
         name: 'Immersive Galgame System',
         version: app.version,
         api: groupedApi,
+        stats: statsApi,
         media: app.media,
 
         refresh: app.refresh,

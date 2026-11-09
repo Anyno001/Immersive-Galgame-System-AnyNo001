@@ -26,7 +26,7 @@ import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '
 import { statsPushActive } from '../data/shujuku/igs-managed.js';
 import { canonicalAttribute, isSixAttribute } from '../data/shujuku/skill-table.js';
 import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
-import { FAME_BAR_MAX, buildFameFillPrompt, fameDraftText, fameHudMetrics, fameRows, fameTemplateBar, parseFameDraft, parseFameFill } from '../scene/stats/stat-fame.js';
+import { FAME_BAR_MAX, buildFameFillPrompt, fameDraftText, fameHudMetrics, famePairs, fameRows, fameTemplateBar, fameTier, fameValue, parseFameDraft, parseFameFill } from '../scene/stats/stat-fame.js';
 import { stageLabel } from '../scene/stats/stat-relation-label.js';
 import { statsRivalSet } from '../scene/stats/stat-rivals.js';
 import { SKILL_TIER_ORDER, describeClockTrail, heroSkillCap, resolveHeroSlots, statsArchiveModel, statsClockTrail, statsFavorOverview, tierWordOfValue } from '../scene/stats/stat-archive.js';
@@ -2791,6 +2791,22 @@ export function createStatsRuntime({
         refreshBuildAsk,
         getState: () => (ledger ? currentStatsState(ledger) : null),
         getLedger: () => ledger,
+        // 只读：声望快照 [{ name, owner, cls, value, tier, pairs? }]；未开声望、无账本、无聊天都返回 []，每次全新对象。
+        fameSnapshot() {
+            try {
+                if (!ledger) return [];
+                const bars = catalog.fameBars;
+                if (!Array.isArray(bars) || !bars.length) return [];
+                const state = currentStatsState(ledger);
+                return bars.map((bar) => {
+                    const head = { name: bar.name, owner: bar.owner, cls: bar.cls };
+                    if (!bar.pair) { const value = fameValue(state, bar); return { ...head, value, tier: fameTier(bar, value) }; }
+                    const pairs = famePairs(state, bar).map((p) => ({ partner: p.partner, value: p.value, tier: fameTier(bar, p.value) }));
+                    const top = pairs.length ? pairs[0].value : 0;
+                    return { ...head, value: top, tier: fameTier(bar, top), pairs };
+                });
+            } catch (error) { return []; }
+        },
         getCatalog: () => catalog,
         getDiagnostics: () => diagnostics.slice(),
         isChatEnabled: () => chatEnabled,

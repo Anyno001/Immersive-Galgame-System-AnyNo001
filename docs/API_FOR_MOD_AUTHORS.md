@@ -65,6 +65,23 @@ IGS.api.promptPresets.register(preset);
 - 提示词预设：提供生图模板、变量替换和 provider 参数映射。
 - 工作流预设：提供 ComfyUI 等工作流型 provider 的可切换配置。
 
+## 只读接口：声望 `IGS.stats.fame()`
+
+返回当前聊天的声望条快照（同时可通过 `IGS.api.stats.fame()` 调用）：
+
+```js
+IGS.stats.fame();
+// [{ name, owner, cls, value, tier, pairs?: [{ partner, value, tier }] }]
+```
+
+- `name`：声望条名称；`owner`：归属角色；`cls`：类别（口碑、热度、威胁、消耗）。
+- `value`：当前值，0 到 100；`tier`：档位词，值为 0 或 100 时取该条设定的空、满档词，其余按高低取低、中、高三档词。
+- 组合热度条带 `pairs`，按热度从高到低列出各搭档的 `partner`、`value`、`tier`；此时 `value` 与 `tier` 取最高一对。
+- 未开启声望、数值账本尚未建立或没有打开聊天时返回 `[]`，不会抛错。
+- 只读：每次调用返回全新对象，不暴露内部引用，调用方修改返回值不影响 IGS，也不会改动任何状态。
+
+声望可能变化后，IGS 会在宿主 `window` 上派发事件 `igs:stats-changed`，`detail` 为 `{ reason }`。该事件在数值账本每次变化时派发，不保证声望一定改变，同一同步流程内的多次变化合并为一次；监听方收到后自行调用 `IGS.stats.fame()` 并与上次结果比较。没有监听者时不影响 IGS 原有行为。
+
 ## 权限
 
 默认本地 Mod 不需要联网。只有确实要访问外部服务时才声明 `network`。
