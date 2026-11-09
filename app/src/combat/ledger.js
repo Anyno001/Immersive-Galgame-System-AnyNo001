@@ -38,6 +38,7 @@ import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js
 import { isRelicPassive } from './relics/draw.js';
 import { heldOffCombat, offCombatModel, refsHeld, relicRefKey } from './relics/off-combat.js';
 import { rewardCardMarks } from './reward-cards.js';
+import { isOriginRecord, mergeOriginRecords, originPointsOf } from '../scene/origin/origin-log.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -133,6 +134,7 @@ export function normalizeSnapshot(read) {
     const entries = [];
     const ids = new Set();
     for (const row of read.ledger || []) {
+        if (isOriginRecord(row)) continue;
         const parsed = normalizeLedgerEntry(row);
         if (!parsed.ok) {
             diagnostics.push({ code: 'combat-entry-invalid', id: row?.id ?? null, errors: parsed.errors.slice(0, 5) });
@@ -158,7 +160,10 @@ export function normalizeSnapshot(read) {
             profiles.set(entry.character, { version: -1, createdAt: entry.createdAt, profile: entry.payload });
         }
     }
-    return { ok: true, profiles, entries, ids, attributes, attributeIds, attributeTable, diagnostics };
+    const origin = diagnostics.some((item) => item.kind === 'ledger' && String(item.key || '').startsWith('or|'))
+        ? { ok: false, reason: 'origin-database-invalid' }
+        : mergeOriginRecords(read.ledger || []);
+    return { ok: true, profiles, entries, ids, attributes, attributeIds, attributeTable, diagnostics, origin };
 }
 
 // ---------------------------------------------------------------------------
@@ -1596,8 +1601,10 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
         heroId, attributeContext, ...(heroStock ? { heroInventory: options.heroInventory } : {}),
     })]));
     const attributes = { table: attributeContext.table, heroId, heroLevel: attributeContext.heroLevel, fold: folded.fold, inactive: folded.inactive };
+    const origin = originPointsOf(snapshot.origin || { ok: true, raw: null }, chat);
+    if (!origin.ok) return origin;
     return {
-        ok: true, characters, classes: index.classes, enemies: index.enemies,
+        ok: true, characters, classes: index.classes, enemies: index.enemies, originPoints: origin.balance,
         profileMeta: new Map([...snapshot.profiles].map(([id, meta]) => [id, { version: meta.version, createdAt: meta.createdAt }])),
         unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals,
     };
@@ -2309,10 +2316,20 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         return readSnapshot();
     }
 
+    // 只供 Origin 在校验自身写入意图后读取其他份额，不是可消费的共享余额。
+    async function externalPoints() {
+        const snapshot = await readSnapshot();
+        if (!snapshot.ok) return snapshot;
+        const state = computeEffectiveState({ ...snapshot, origin: { ok: true, raw: null } }, getChat(), replayOptions(false));
+        if (!state.ok) return state;
+        const balance = Number(state.characters.get(state.attributes?.heroId)?.points) || 0;
+        return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
+    }
+
     // 主角的 points 并入数值侧金钱（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
     const walletViews = new WeakMap();
     function withWallet(state) {
-        const extra = getWallet();
+        const extra = getWallet() + (state?.originPoints || 0);
         if (!extra || !state || state.ok !== true) return state;
         const heroId = state.attributes && state.attributes.heroId;
         const hero = heroId ? state.characters.get(heroId) : null;
@@ -2793,7 +2810,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
-            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet());
+            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet() + (state.originPoints || 0));
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
             const trialDiagnostic = trial.ok ? trial.diagnostics.find((item) => item.id === built.entry.id) : null;
@@ -2831,8 +2848,8 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     const pickCard = (characterId, drawId, pick) => heroPanelAction(characterId, 'card-pick', { drawId, pick, ...(COMBAT_RULES.version >= 6 && pick !== 'skip' ? { added: true } : {}) });
 
     return {
-        read, effectiveState, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
+        read, effectiveState, externalPoints, append, appendAttributes, scan, scanLife, saveDeck, claimReward, setGear, grantInitialGear, allocate, writeInit,
         sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard,
-        stats: readStats,
+        stats: readStats, withPointsLock: queueAction,
     };
 }

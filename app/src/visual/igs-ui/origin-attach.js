@@ -40,12 +40,13 @@ export function originChatStatus() {
     return { hasChat: Boolean(state), paused: Boolean(state && state.paused), blocked: blocked || null, legacy, world: state ? String(state.world || '') : '' };
 }
 
-// 设置页的存档操作：recalc / reset / pause / resume / import / dismiss-legacy / world（payload 为新世界名）。
+// 设置页的存档操作：recalc / retry / reset / pause / resume / import / dismiss-legacy / world（payload 为新世界名）。
 export async function runAttachedOriginOp(kind, payload) {
     if (!attached) return { ok: false, reason: 'origin-engine-missing' };
     const { engine } = attached;
     switch (kind) {
     case 'recalc': return engine.recalcAll();
+    case 'retry': return typeof engine.retrySave === 'function' ? engine.retrySave() : { ok: false, reason: 'origin-op-unknown' };
     case 'reset': return engine.dispatch({ type: 'reset' });
     case 'pause': return engine.dispatch({ type: 'pause' });
     case 'resume': return engine.dispatch({ type: 'resume' });

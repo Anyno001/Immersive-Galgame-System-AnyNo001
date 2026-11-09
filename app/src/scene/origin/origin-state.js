@@ -1,6 +1,6 @@
 // Origin 系统核心 · 常量、默认值与状态工具。
 // 来源：vicliaaa/origin-sillytavern v1.5（作者已授权移植）；IGS 与天音共用，两份逐字相同。不碰 DOM、不碰酒馆全局。
-export const ORIGIN_CORE_VER = 'v1.5-core.2';
+export const ORIGIN_CORE_VER = 'v1.5-core.3';
 export const ORIGIN_META_KEY = 'origin_v2';
 export const ORIGIN_LEGACY_KEY = 'origin';
 // 2：加入楼层保留的底稿（base）。旧核心读到 2 会拒收而不是丢掉底稿。

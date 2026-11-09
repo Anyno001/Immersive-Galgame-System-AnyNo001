@@ -33,6 +33,11 @@ export function getSharedOriginEngine(host) {
         const call = (name) => (...args) => { const h = pick(); return h && typeof h[name] === 'function' ? h[name](...args) : undefined; };
         const proxy = {
             getContext: call('getContext'), settings: call('settings'), saveMetadata: call('saveMetadata'), saveSettings: call('saveSettings'),
+            database: call('database'), wallet: call('wallet'), walletSnapshot: call('walletSnapshot'),
+            withPointsLock: (task) => {
+                const h = pick();
+                return typeof h?.withPointsLock === 'function' ? h.withPointsLock(task) : task();
+            },
             generate: call('generate'), notify: call('notify'), legacyActive: call('legacyActive'),
             // 任何一方在跑自己的后台请求时都不注入。
             isBackground: () => hosts.some((h) => { try { return typeof h.isBackground === 'function' && h.isBackground(); } catch (e) { return false; } }),
@@ -59,6 +64,15 @@ export function createOriginEngine(host) {
     let warnedLegacy = false;
     let offs = [];
     const subs = new Set();
+    let database = null;
+    let databaseState = null;
+    let databaseTail = Promise.resolve();
+    let databaseEpoch = 0;
+    let pendingSave = null;
+    let deferredEvents = [];
+    let staging = null;
+    let walletValue = 0;
+    const databaseOf = () => typeof host.database === 'function' ? host.database() : null;
 
     const ctx = () => { try { return host.getContext(); } catch (e) { return null; } };
     const settings = () => fillSettings(host.settings());
@@ -73,11 +87,23 @@ export function createOriginEngine(host) {
         return m && typeof m === 'object' ? m : null;
     };
     // extra：结构化字段（抽奖带 tier / name / desc，给翻牌演出用）；只认 text 的宿主照旧。
-    const notify = (kind, text, extra) => { try { if (host.notify) host.notify({ kind, text, ...(extra || {}) }); } catch (e) { /* */ } };
+    const notify = (kind, text, extra) => {
+        if (staging) { staging.notifications.push([kind, text, extra]); return; }
+        try { if (host.notify) host.notify({ kind, text, ...(extra || {}) }); } catch (e) { /* */ }
+    };
     // 宿主插件自己发起的后台请求（写词、副模型等）也会触发全局生成事件，不注入、不记生成类型。
     const isBackground = () => { try { return typeof host.isBackground === 'function' && Boolean(host.isBackground()); } catch (e) { return false; } };
 
     function load() {
+        databaseEpoch += 1;
+        database = databaseOf();
+        pendingSave = null;
+        deferredEvents = [];
+        databaseState = null;
+        if (database) return loadDatabase();
+        return loadMetadata();
+    }
+    function loadMetadata() {
         cache = null;
         blocked = null;
         const c = ctx();
@@ -102,6 +128,7 @@ export function createOriginEngine(host) {
     }
     // 不主动 saveChat：只把账本写进 chatMetadata，落盘交给宿主的防抖保存。
     function persist() {
+        if (staging) { staging.dirty = true; return true; }
         if (blocked || !ledger) return false;
         const md = metaOf(ctx());
         if (!md) return false;
@@ -115,20 +142,264 @@ export function createOriginEngine(host) {
     }
     function current() {
         ensure();
-        if (!cache) {
+        if (database && typeof host.walletSnapshot === 'function') {
+            const read = host.walletSnapshot();
+            if (read?.ok && Number.isSafeInteger(read.balance)) walletValue = read.balance;
+        }
+        const wallet = database ? walletValue : 0;
+        if (!cache || cache.wallet !== wallet) {
             const rep = compute(false);
-            const view = deepFreeze({ ...rep.state, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
-            cache = { rep, view };
+            const view = deepFreeze({ ...rep.state, points: rep.state.points + wallet, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
+            cache = { rep, view, wallet };
         }
         return cache;
     }
     const getState = () => current().view;
     function emit(type, extra) {
+        if (staging) { staging.events.push([type, extra]); cache = null; return; }
         cache = null;
         const st = getState();
         for (const fn of [...subs]) { try { fn(st, { type, ...(extra || {}) }); } catch (e) { /* 订阅者出错不影响核心 */ } }
     }
     function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
+
+    function adoptDatabase(raw) {
+        const restored = deserializeLedger(raw, chatId);
+        if (!restored.ok || restored.dropped.length) return { ok: false, reason: restored.reason || 'origin-database-invalid' };
+        ledger = restored.ledger;
+        meta = { world: restored.world, direction: restored.direction };
+        cache = null;
+        return { ok: true };
+    }
+    function databaseRaw() {
+        const s = settings();
+        const rules = Object.fromEntries(['bindTo', 'punishEvent', 'penaltyPref', 'achieveOn', 'drawCost'].map((key) => [key, s[key]]));
+        return serializeLedger(ledger, { ...meta, rules });
+    }
+    function databaseLease() {
+        const owner = ctx();
+        const id = idOf(owner);
+        const messages = owner?.chat;
+        const metadata = metaOf(owner);
+        const epoch = databaseEpoch;
+        const store = database;
+        return () => {
+            const current = ctx();
+            return Boolean(id) && settings().enabled && idOf(current) === id && current?.chat === messages
+                && metaOf(current) === metadata && databaseEpoch === epoch && databaseOf() === store;
+        };
+    }
+    function pathLease(allowAppend = false) {
+        const chat = (ctx() || {}).chat || [];
+        const path = chat.map((message) => {
+            const text = String(message?.mes || '');
+            return { message, swipe: swipeOf(message), text, split: splitBlock(text) };
+        });
+        return () => {
+            const currentChat = (ctx() || {}).chat || [];
+            return (allowAppend ? currentChat.length >= path.length : currentChat.length === path.length)
+                && path.every(({ message, swipe, text, split }, i) => currentChat[i] === message && swipeOf(message) === swipe
+                    && (String(message?.mes || '') === text || (split.block != null && message?.mes === split.text
+                        && (blocksOf(message, false)[swipe] === split.block || (ledger?.base && i <= ledger.base.floor)))));
+        };
+    }
+    async function readWallet(options) {
+        let value;
+        try { value = await host.wallet(options); } catch { return { ok: false, reason: 'origin-wallet-unavailable' }; }
+        if (value?.ok === false) return value;
+        const amount = typeof value === 'number' ? value : value?.balance;
+        if (!Number.isSafeInteger(amount)) return { ok: false, reason: 'origin-wallet-unavailable' };
+        walletValue = amount;
+        return { ok: true, balance: amount };
+    }
+    function databaseFailure(result) {
+        blocked = result?.reason || 'origin-database-write-failed';
+        notify('warn', `随身系统保存未完成：${blocked}`);
+        return { ok: false, reason: blocked, text: `随身系统保存未完成：${blocked}` };
+    }
+    function loadDatabase() {
+        chatId = idOf(ctx());
+        ledger = createLedger(chatId);
+        meta = { world: '', direction: '' };
+        cache = null;
+        blocked = 'origin-database-loading';
+        remember();
+        const alive = databaseLease();
+        const store = database;
+        const run = async () => {
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            let read = await store.load({ shouldStart: alive });
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (!read.ok) return databaseFailure(read);
+            if (!read.raw) {
+                const old = metaOf(ctx())?.[ORIGIN_META_KEY];
+                const raw = old == null ? databaseRaw() : old;
+                const restored = adoptDatabase(raw);
+                if (!restored.ok) return databaseFailure(restored);
+                const intent = store.prepare(read, databaseRaw());
+                read = await store.commit(intent, { shouldStart: alive });
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (!read.ok) { ledger = createLedger(chatId); cache = null; return databaseFailure(read); }
+            }
+            const restored = adoptDatabase(read.raw);
+            if (!restored.ok) return databaseFailure(restored);
+            databaseState = read;
+            const wallet = await readWallet();
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (!wallet.ok) return databaseFailure(wallet);
+            blocked = null;
+            remember();
+            emit('load');
+            return { ok: true };
+        };
+        databaseTail = databaseTail.then(run, run).catch((error) => alive()
+            ? databaseFailure({ reason: 'origin-database-load-failed' }) : { ok: false, reason: 'request-stale' });
+        return databaseTail;
+    }
+    function publishDatabase(job, verified) {
+        if (job.published) return job.result || { ok: true };
+        job.published = true;
+        ledger = job.ledger;
+        meta = job.meta;
+        known = job.known;
+        cache = null;
+        databaseState = verified;
+        pendingSave = null;
+        blocked = null;
+        for (const [type, extra] of job.events) emit(type, extra);
+        if (!job.events.length) emit('saved');
+        for (const args of job.notifications) notify(...args);
+        for (const action of job.afterCommit) action();
+        drainDatabaseEvents();
+        return job.result || { ok: true };
+    }
+    async function saveDatabase(job) {
+        let verified;
+        try { verified = await database.commit(job.intent, { shouldStart: job.alive }); }
+        catch { verified = { ok: false, reason: 'origin-database-write-failed' }; }
+        if (!job.ownerAlive()) return { ok: false, reason: 'request-stale' };
+        if (!job.alive()) { pendingSave = job; return databaseFailure({ reason: 'origin-database-path-changed' }); }
+        if (!verified.ok) { pendingSave = job; return databaseFailure(verified); }
+        return publishDatabase(job, verified);
+    }
+    async function recoverDatabaseBranch(job) {
+        if (!job.ownerAlive()) return { ok: false, reason: 'request-stale' };
+        const requestedPath = pathLease(true);
+        const alive = () => job.ownerAlive() && requestedPath();
+        let present = database.read({ intent: job.intent, fresh: true });
+        if (!present.ok) return databaseFailure(present);
+        const parent = job.intent.record?.payload.parent ?? job.intent.revision;
+        if (present.revision !== job.intent.revision && present.revision !== parent) {
+            return databaseFailure({ reason: 'origin-database-conflict' });
+        }
+        if (present.incomplete) {
+            present = await database.commit(job.intent, { shouldStart: alive });
+            if (!present.ok) return databaseFailure(present);
+        }
+        const wallet = await readWallet({ intent: job.intent });
+        if (!alive()) return databaseFailure({ reason: 'origin-database-path-changed' });
+        if (!wallet.ok) return databaseFailure(wallet);
+        const previous = { ledger, meta, cache, known, blocked };
+        const effects = { events: [], notifications: [], afterCommit: [], dirty: false };
+        let recovered;
+        try {
+            const restored = adoptDatabase(present.raw);
+            if (!restored.ok) return databaseFailure(restored);
+            known = present.revision === job.intent.revision ? job.known : job.beforeKnown;
+            blocked = null;
+            staging = effects;
+            onDeleted();
+            recalcAll();
+            const intent = database.prepare(present, databaseRaw());
+            if (!intent.ok) return intent;
+            const writtenPath = pathLease(true);
+            recovered = { ...effects, events: [['recover']], notifications: [], intent, ledger, meta, known,
+                beforeKnown: previous.known, wallet: wallet.balance, result: { ok: true, recovered: true },
+                alive: () => job.ownerAlive() && writtenPath() };
+        } finally {
+            staging = null;
+            ({ ledger, meta, cache, known, blocked } = previous);
+        }
+        Object.assign(job, recovered);
+        return saveDatabase(job);
+    }
+    function drainDatabaseEvents() {
+        if (blocked || pendingSave || !deferredEvents.length) return;
+        const waiting = deferredEvents;
+        deferredEvents = [];
+        for (const event of waiting) queueDatabase(event.fn, event);
+    }
+    function queueDatabase(fn, event = null) {
+        ensure();
+        const ownerAlive = event?.ownerAlive || databaseLease();
+        const requestedPath = event?.requestedPath || pathLease(Boolean(event));
+        const run = async () => {
+            if (!ownerAlive() || !requestedPath()) return { ok: false, reason: 'request-stale' };
+            if (blocked || pendingSave || !databaseState) {
+                if (event) deferredEvents.push({ fn, ownerAlive, requestedPath });
+                return { ok: false, reason: blocked || 'origin-database-unavailable', ...(event ? { deferred: true } : {}) };
+            }
+            const read = database.read();
+            if (!read.ok) return databaseFailure(read);
+            if (read.revision !== databaseState.revision) return databaseFailure({ reason: 'origin-database-conflict' });
+            const wallet = await readWallet();
+            if (!ownerAlive() || !requestedPath()) return { ok: false, reason: 'request-stale' };
+            if (!wallet.ok) return databaseFailure(wallet);
+            const previous = { ledger, meta, cache, known };
+            const copy = deserializeLedger(databaseRaw(), chatId);
+            if (!copy.ok) return databaseFailure(copy);
+            ledger = copy.ledger;
+            meta = { ...meta };
+            cache = null;
+            const effects = { events: [], notifications: [], afterCommit: [], dirty: false };
+            let job;
+            try {
+                staging = effects;
+                const result = fn();
+                if (result?.ok === false) return result;
+                const intent = database.prepare(databaseState, databaseRaw());
+                if (!intent.ok) return intent;
+                const writtenPath = pathLease(true);
+                job = { ...effects, intent, result, ledger, meta, known, beforeKnown: previous.known,
+                    wallet: wallet.balance, ownerAlive, alive: () => ownerAlive() && writtenPath() };
+            } finally {
+                staging = null;
+                ({ ledger, meta, cache, known } = previous);
+            }
+            return saveDatabase(job);
+        };
+        const locked = () => typeof host.withPointsLock === 'function' ? host.withPointsLock(run) : run();
+        databaseTail = databaseTail.then(locked, locked).catch(() => ownerAlive()
+            ? databaseFailure({ reason: 'origin-database-write-failed' }) : { ok: false, reason: 'request-stale' });
+        return databaseTail;
+    }
+    function retrySave() {
+        if (!database) return Promise.resolve({ ok: true, skipped: true });
+        const job = pendingSave;
+        if (!job) return load();
+        const run = async () => {
+            if (job.published) return job.result || { ok: true };
+            if (!job.alive()) return recoverDatabaseBranch(job);
+            const present = database.read({ intent: job.intent, fresh: true });
+            if (!present.ok) return databaseFailure(present);
+            if (present.revision !== job.intent.revision) {
+                const wallet = await readWallet({ intent: job.intent });
+                if (!job.alive()) return { ok: false, reason: 'request-stale' };
+                if (!wallet.ok || wallet.balance !== job.wallet) return databaseFailure({ reason: wallet.reason || 'origin-wallet-changed' });
+            }
+            return saveDatabase(job);
+        };
+        const locked = () => typeof host.withPointsLock === 'function' ? host.withPointsLock(run) : run();
+        databaseTail = databaseTail.then(locked, locked);
+        return databaseTail;
+    }
+    const savedAction = (fn) => (...args) => databaseOf() ? queueDatabase(() => fn(...args)) : fn(...args);
+    const savedEvent = (fn) => (...args) => databaseOf() ? queueDatabase(() => fn(...args), {}) : fn(...args);
+    const commitSaved = (op) => databaseOf() ? queueDatabase(() => commit(op)) : commit(op);
+    async function whenSaved() {
+        let pending;
+        do { pending = databaseTail; await pending; } while (pending !== databaseTail);
+    }
 
     function blocksOf(m, create) {
         const o = m && m.extra && m.extra.origin;
@@ -187,6 +458,7 @@ export function createOriginEngine(host) {
         }
         const entry = makeEntry(block, prose, existing ? existing.seed : newSeed());
         if (existing && existing.h === entry.h) return { changed: false, entry: existing };
+        if (database) entry.wallet = existing?.wallet ?? walletValue;
         return { changed: true, entry: setEntry(ledger, idx, sw, entry) };
     }
 
@@ -210,10 +482,26 @@ export function createOriginEngine(host) {
             const dropLast = Boolean(generating && (generating.type === 'swipe' || generating.type === 'regenerate') && last && !last.is_user);
             const path = buildPath(chat, isAiMsg, dropLast);
             const target = path.length ? path[path.length - 1].id : -1;
-            if (bindPending(ledger, target)) persist();
+            if (!database && bindPending(ledger, target)) persist();
+            if (database) current();
             const rep = replay(ledger, path, s);
-            const text = buildInjection({ st: rep.state, world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, s, rep.turn);
-            injectInto(ev.chat, text); // 永远放在提示词最后一条，输入不在此清空（治 D1）
+            const st = database ? { ...rep.state, points: rep.state.points + walletValue } : rep.state;
+            const text = buildInjection({ st, world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, s, rep.turn);
+            injectInto(ev.chat, text);
+            if (database) {
+                const ids = new Set(ledger.ops.filter((rec) => rec.boundTo == null && rec.after <= target).map((rec) => rec.id));
+                if (ids.size) queueDatabase(() => {
+                    let changed = false;
+                    for (const rec of ledger.ops) {
+                        if (ids.has(rec.id) && rec.boundTo == null && rec.after <= target) {
+                            rec.boundTo = target;
+                            changed = true;
+                        }
+                    }
+                    if (changed) persist();
+                    return { ok: true };
+                });
+            }
         } catch (e) { try { console.error('[Origin] 注入失败', e); } catch (_) { /* */ } }
     }
     function onStarted(type, params, dryRun) {
@@ -233,7 +521,7 @@ export function createOriginEngine(host) {
         if (!r || !r.changed) return;
         emit('settle', { messageId: idx });
         notifyFloor(idx);
-        compactOld();
+        compactOld(idx);
         persist();
     }
     // 正文指纹（与 makeEntry 的 fp 同算法），给底稿当锚点。
@@ -244,15 +532,20 @@ export function createOriginEngine(host) {
         return hash53(String(sp.block != null ? sp.text : (m.mes || '')).trim());
     }
     // 楼层保留：超出的旧楼并进底稿，消息里存的数据块原文一并清掉（聊天文件变小）。
-    function compactOld() {
+    function compactOld(through) {
         const c = ctx();
-        const chat = (c && c.chat) || [];
+        const messages = (c && c.chat) || [];
+        const chat = Number.isInteger(through) ? messages.slice(0, through + 1) : messages;
         const cut = compact(ledger, buildPath(chat, isAiMsg, false), settings(), settings().keepFloors, fpAt);
         if (cut < 0) return;
-        for (let i = 0; i <= cut; i += 1) {
-            const m = chat[i];
-            if (m && m.extra && m.extra.origin) delete m.extra.origin;
-        }
+        const cleanup = () => {
+            for (let i = 0; i <= cut; i += 1) {
+                const m = chat[i];
+                if (m && m.extra && m.extra.origin) delete m.extra.origin;
+            }
+        };
+        if (staging) staging.afterCommit.push(cleanup);
+        else cleanup();
         cache = null;
     }
     function onSwiped(messageId) {
@@ -325,11 +618,13 @@ export function createOriginEngine(host) {
     }
     function onChatChanged() {
         generating = null;
-        load();
-        emit('load');
+        const loaded = load();
+        if (!database) emit('load');
+        return loaded;
     }
 
     function detach() {
+        databaseEpoch += 1;
         for (const off of offs) { try { off(); } catch (e) { /* */ } }
         offs = [];
         generating = null;
@@ -348,11 +643,11 @@ export function createOriginEngine(host) {
         bind(types.GENERATION_STARTED, onStarted);
         bind(types.GENERATION_ENDED, onEnded);
         bind(types.GENERATION_STOPPED, onEnded);
-        bind(types.MESSAGE_RECEIVED, onReceived);
-        bind(types.MESSAGE_SWIPED, onSwiped);
-        bind(types.MESSAGE_DELETED, onDeleted);
-        bind(types.MESSAGE_UPDATED, onUpdated);
-        bind(types.MESSAGE_EDITED, onUpdated);
+        bind(types.MESSAGE_RECEIVED, savedEvent(onReceived));
+        bind(types.MESSAGE_SWIPED, savedEvent(onSwiped));
+        bind(types.MESSAGE_DELETED, savedEvent(onDeleted));
+        bind(types.MESSAGE_UPDATED, savedEvent(onUpdated));
+        bind(types.MESSAGE_EDITED, savedEvent(onUpdated));
         bind(types.CHAT_CHANGED, onChatChanged);
         return true;
     }
@@ -373,10 +668,11 @@ export function createOriginEngine(host) {
         const chat = (ctx() || {}).chat || [];
         const after = chat.length - 1;
         const seed = newSeed();
-        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: settings(), random: seededRandom(seed) });
+        const wallet = database ? walletValue : undefined;
+        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: settings(), random: seededRandom(seed), wallet });
         const r = applyManual(cloneForWrite(rep.state), op, cx);
         if (!r.ok) return { ok: false, reason: r.reason, text: r.text };
-        const rec = recordOp(ledger, op, after, seed);
+        const rec = recordOp(ledger, op, after, seed, wallet);
         persist();
         emit('op', { opId: rec.id, op: op.type });
         const rep2 = current().rep;
@@ -458,7 +754,7 @@ export function createOriginEngine(host) {
             const r = await runGen('task', taskPrompt({ ...v, cd: mt.cd.slice(0, 400), recent: mt.recent.slice(-900) }));
             const line = r.out ? pickTaskLine(r.out) : '';
             if (!line) { notify('warn', '没生成出来，再点一次或手动添加'); return { ok: false, reason: r.err || 'no-result' }; }
-            const res = commit({ type: 'applyBlock', block: line });
+            const res = await commitSaved({ type: 'applyBlock', block: line });
             if (res.ok) notify('info', '任务已派发');
             return res;
         });
@@ -470,7 +766,7 @@ export function createOriginEngine(host) {
             const r = await runGen('shop', shopPrompt({ ...v, cd: material(1, 0).cd.slice(0, 300) }));
             const items = parseShopLines(r.out);
             if (!items.length) { notify('warn', '刷新失败，重试'); return { ok: false, reason: r.err || 'no-result' }; }
-            const res = commit({ type: 'setShop', items });
+            const res = await commitSaved({ type: 'setShop', items });
             if (res.ok) notify('info', '商城已刷新');
             return res;
         });
@@ -482,7 +778,7 @@ export function createOriginEngine(host) {
             const r = await runGen('gacha', gachaPrompt({ ...v, cd: material(1, 0).cd.slice(0, 300) }));
             const items = parseGachaLines(r.out);
             if (!items.length) { notify('warn', '重出失败，重试'); return { ok: false, reason: r.err || 'no-result' }; }
-            const res = commit({ type: 'setGacha', items });
+            const res = await commitSaved({ type: 'setGacha', items });
             if (res.ok) notify('info', '奖池已刷新');
             return res;
         });
@@ -492,14 +788,15 @@ export function createOriginEngine(host) {
         const ask = String(text || '').trim();
         if (!ask) return Promise.resolve({ ok: false, reason: 'empty' });
         return guarded(async () => {
-            commit({ type: 'chatMe', text: ask });
+            const asked = await commitSaved({ type: 'chatMe', text: ask });
+            if (!asked.ok) return asked;
             const v = view();
             const mt = material(2, 350);
             const p = sysChatPrompt({ st: v.st, world: v.world, s: v.s, turn: v.turn, recent: mt.recent });
             const r = await runGen('sysChat', flatChat(p.system, p.msgs));
-            if (r.err !== undefined) return commit({ type: 'chatSys', text: '（连接失败：' + r.err + '）', block: null, toStory: false, ask });
+            if (r.err !== undefined) return commitSaved({ type: 'chatSys', text: '（连接失败：' + r.err + '）', block: null, toStory: false, ask });
             const sp = splitReplyBlock(r.out);
-            return commit({ type: 'chatSys', text: sp.text, block: sp.block && sp.block !== '无' ? sp.block : null, toStory: v.s.chatToStory !== false, ask });
+            return commitSaved({ type: 'chatSys', text: sp.text, block: sp.block && sp.block !== '无' ? sp.block : null, toStory: v.s.chatToStory !== false, ask });
         });
     }
     function rpChatGen() {
@@ -511,7 +808,7 @@ export function createOriginEngine(host) {
             const r = await runGen('rpChat', rpChatPrompt({ st: v.st, world: v.world, s: v.s, cd: mt.cd, recent: mt.recent }));
             const lines = parseRpChatLines(r.out);
             if (!lines.length) { notify('warn', '没生成出来，再试一次'); return { ok: false, reason: r.err || 'no-result' }; }
-            return commit({ type: 'chatRp', lines });
+            return commitSaved({ type: 'chatRp', lines });
         });
     }
     // 系统对角色喊话：下回合他会听到（事件挂在这条操作上，随下一个用户楼发出）。
@@ -519,7 +816,7 @@ export function createOriginEngine(host) {
         const t = String(text || '').trim();
         if (!t) return Promise.resolve({ ok: false, reason: 'empty' });
         if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'disabled' });
-        return Promise.resolve(commit({ type: 'chatCall', text: t }));
+        return Promise.resolve(commitSaved({ type: 'chatCall', text: t }));
     }
 
     // ---------- 全楼重算：按当前规则重解析每一楼（含已有存档的其他 swipe），种子沿用，手动操作保留并重新校验 ----------
@@ -540,7 +837,7 @@ export function createOriginEngine(host) {
                 const raw = Array.isArray(m.swipes) ? m.swipes[e.swipeId] : null;
                 if (raw == null) continue;
                 const sp = splitBlock(raw);
-                setEntry(ledger, i, e.swipeId, makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed));
+                setEntry(ledger, i, e.swipeId, { ...makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed), ...(e.wallet === undefined ? {} : { wallet: e.wallet }) });
             }
             settleAt(i);
         }
@@ -632,9 +929,12 @@ export function createOriginEngine(host) {
     }
 
     return {
-        getState, subscribe, dispatch, genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
-        recalcAll, importLegacy, legacyDetected, dismissLegacy, lastFloorStatus,
-        start: sync, sync, stop: detach, reload: () => { load(); emit('load'); },
+        getState, subscribe, dispatch: savedAction(dispatch), genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
+        recalcAll: savedAction(recalcAll), importLegacy: savedAction(importLegacy), legacyDetected,
+        dismissLegacy: savedAction(dismissLegacy), lastFloorStatus, whenSaved, retrySave,
+        start: sync, sync, stop: detach, reload: () => {
+            const loaded = load(); if (!database) emit('load'); return loaded;
+        },
         isBlocked: () => blocked,
     };
 }

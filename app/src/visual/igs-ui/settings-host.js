@@ -751,7 +751,7 @@ export function createSettingsHost(deps) {
         const op = typeof options.originOp === 'function' ? options.originOp : runAttachedOriginOp;
         let result;
         try {
-            if (kind === 'recalc') result = await op('recalc');
+            if (kind === 'recalc' || kind === 'retry') result = await op(kind);
             else if (kind === 'reset') result = await settingsDialogs.confirm('清空本聊天的随身系统存档？任务、积分、属性与记录都会移除。') ? await op('reset') : { ok: true, cancelled: true };
             else if (kind === 'pause' || kind === 'resume' || kind === 'import') result = await op(kind);
             else if (kind === 'world') {

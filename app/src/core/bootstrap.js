@@ -946,6 +946,7 @@ export function bootstrapIGS(options = {}) {
         readLlm: () => (((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {}).llm,
         readProfiles: () => createModelProfilesStore(globalObject).read(),
         secondaryLlm,
+        combatServices,
         notice: (level, text) => { const notice = app.igsUi && app.igsUi.showImageNotice; if (typeof notice === 'function') notice.call(app.igsUi, level, text); },
         openSettings: () => publicApi.openSettings({ tab: 'origin' }),
         legacyActive: () => originLegacyActive(globalObject),

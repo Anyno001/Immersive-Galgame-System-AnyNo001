@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { blk, createHarness } from './origin-host.js';
 import { fillSettings } from '../src/scene/origin/origin-state.js';
-
-const ORIGINAL = 'G:/奶龙Code/gal/参考文件/origin-sillytavern/index.js';
 
 test('注入：放在 ev.chat 最后一条、system 角色；dryRun、总开关关、暂停时不注入', () => {
     const h = createHarness();
@@ -21,15 +18,6 @@ test('注入：放在 ev.chat 最后一条、system 角色；dryRun、总开关�
     assert.equal(h.injected(), '', '暂停时不注入');
     const off = createHarness({ enabled: false });
     assert.equal(off.injected(), '', '总开关关');
-});
-
-test('注入提示词原文逐字照搬：原插件 buildInjection 里的每一段静态文案都在新文件里', () => {
-    const src = readFileSync(ORIGINAL, 'utf8').split('\n').slice(101, 181).join('\n');
-    const mine = readFileSync(new URL('../src/scene/origin/origin-inject.js', import.meta.url), 'utf8');
-    const lits = [...src.matchAll(/'((?:[^'\\\n]|\\.)*)'/g)].map((m) => m[1]).filter((s) => /[一-龥]/.test(s) && s.length >= 6);
-    assert.ok(lits.length > 60, '取到的文案段数 ' + lits.length);
-    const missing = lits.filter((s) => !mine.includes(s));
-    assert.deepEqual(missing, []);
 });
 
 test('反串模式注入：绑定角色、私聊行、商城与自主行动提示', () => {

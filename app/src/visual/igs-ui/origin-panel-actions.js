@@ -66,7 +66,7 @@ export async function runOriginAction(name, el, ctx) {
         }
         return result;
     };
-    const dispatch = (op) => report(engine.dispatch(op));
+    const dispatch = async (op) => report(await engine.dispatch(op));
     const generate = async (fn) => report(await fn.call(engine));
 
     switch (name) {
@@ -139,7 +139,7 @@ export async function runOriginAction(name, el, ctx) {
         const direction = await ask('下一个任务的大致方向，例如：一个复仇任务、让他吃醋', state.direction || '');
         if (direction === null) return { ok: true, cancelled: true };
         // 方向存在本聊天里；注入只区分「只手写」与其余来源，不必改任务来源设置。
-        const result = dispatch(OP.setDirection(trim(direction)));
+        const result = await dispatch(OP.setDirection(trim(direction)));
         if (result && result.ok) ctx.notice('info', '方向已记下，下次派发任务时采用。');
         return result;
     }
@@ -225,7 +225,7 @@ export async function runOriginAction(name, el, ctx) {
         if (result && result.ok) ctx.notice('info', `旧存档已导入，共${result.floors || 0}楼，原数据保留。`);
         return result;
     }
-    case 'legacy-dismiss': return report(typeof engine.dismissLegacy === 'function' ? engine.dismissLegacy() : { ok: true });
+    case 'legacy-dismiss': return report(typeof engine.dismissLegacy === 'function' ? await engine.dismissLegacy() : { ok: true });
     default: return { ok: false, reason: 'origin-action-unknown' };
     }
 }

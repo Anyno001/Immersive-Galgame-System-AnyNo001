@@ -209,9 +209,8 @@ export function createStatsRuntime({
     };
     const heroPrefs = () => (ledger && currentStatsState(ledger).protagonist.prefs) || null;
     const userName = () => String((ctx() && ctx().name1) || '');
-    // 钱包：战斗侧主角积分净流水（战斗扩展开着且战斗数据已就绪才有，否则 0）；与数值侧金钱相加即合并余额。
+    // 共享净流水不含 bars.money，与旧钱包份额相加一次；不受战斗界面开关影响。
     const combatPoints = () => {
-        if (!combatOn()) return 0;
         const s = life();
         try { return s && typeof s.readPoints === 'function' ? Number(s.readPoints()) || 0 : 0; } catch (error) { return 0; }
     };

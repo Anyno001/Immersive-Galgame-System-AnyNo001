@@ -10,7 +10,7 @@ export function makeMsg(mes, isUser = false) {
     return { name: isUser ? 'User' : 'Bot', is_user: isUser, is_system: false, mes, swipe_id: 0, swipes: [mes], extra: {} };
 }
 
-export function createHarness(settingsOver = {}) {
+export function createHarness(settingsOver = {}, hostOver = {}) {
     const handlers = new Map();
     const eventSource = {
         on(n, f) { if (!handlers.has(n)) handlers.set(n, new Set()); handlers.get(n).add(f); },
@@ -29,6 +29,7 @@ export function createHarness(settingsOver = {}) {
             getContext: () => ctx, settings: () => settings, saveSettings() { h.settingsSaved = true; },
             saveMetadata() { h.saves += 1; }, notify: (n) => notes.push(n),
             generate: (kind, prompt) => h.generateImpl(kind, prompt),
+            ...hostOver,
         },
     };
     h.engine = createOriginEngine(h.host);

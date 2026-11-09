@@ -42,10 +42,8 @@ export function proseCompletions(prose) {
 const PREVIEW = /(任务奖励|奖励[：:]|完成后|达成后|可获得|将获得|即可获得)/;
 const stripTags = (t) => String(t).replace(/<[^>]+>/g, ' ');
 
-// 正文里和积分有关的事实：最后一个余额、各句的积分变动值（已按「扣除/惩罚」定好正负）。
+// 正文中的积分变动事实，已按「扣除/惩罚」定好正负；余额陈述不参与记账。
 function pointFacts(prose) {
-    let bal = null;
-    for (const r of prose.matchAll(/(?:积分余额|当前积分|剩余积分|积分)\s*[：:]\s*(\d{1,7})(?!\s*[%％])/g)) bal = parseInt(r[1], 10);
     const deltas = [];
     for (const seg of prose.split(/[。\n]/)) {
         if (!/(奖励发放|发放|到账|结算|已存入|存入|已获得|扣除|扣减|惩罚)/.test(seg)) continue;
@@ -58,7 +56,7 @@ function pointFacts(prose) {
             deltas.push(v);
         }
     }
-    return { bal: Number.isNaN(bal) ? null : bal, deltas };
+    return { deltas };
 }
 
 function bagFacts(prose) {
@@ -108,7 +106,6 @@ export function extractProseFacts(text, block) {
     if (b && /新任务\|/.test(b)) f.hn = 1;
     const prose = stripTags(text);
     const pf = pointFacts(prose);
-    if (pf.bal != null) f.bal = pf.bal;
     if (pf.deltas.length) f.deltas = pf.deltas;
     const rf = rewardFacts(prose);
     if (rf.rewards.length) f.rewards = rf.rewards;
@@ -124,13 +121,7 @@ export function extractProseFacts(text, block) {
     return f;
 }
 
-function syncPoints(st, f, prevPoints, cx) {
-    if (f.bal != null) {
-        // 和注入给它的旧值一样、且数据块里已经报了变动 → 只是抄了旧值，不算数
-        if (prevPoints != null && f.bal === prevPoints && f.hp) return;
-        if (f.bal !== st.points) { st.points = f.bal; pushLog(st, '积分同步为 ' + f.bal + '（按正文余额）', '·', cx); }
-        return;
-    }
+function syncPoints(st, f, cx) {
     if (f.hp) return;
     let ch = false;
     for (const v of f.deltas || []) {
@@ -175,9 +166,8 @@ function syncTasks(st, f, cx) {
 // 一个 AI 楼的完整结算：数据块操作 → 正文积分 → 奖励流水/权限 → 背包/技能 → 阶段任务。暂停中整楼不结算。
 export function applyFloor(st, { ops = [], facts = {} }, cx) {
     if (st.paused) return;
-    const prevPoints = st.points;
     if (ops.length) applyOps(st, ops, cx, { proseTitle: facts.title || '' });
-    syncPoints(st, facts, prevPoints, cx);
+    syncPoints(st, facts, cx);
     syncRewards(st, facts, cx);
     if (!facts.hg) for (const it of facts.bag || []) addItem(st, it.nm, it.c, '按正文补记', cx);
     for (const k of facts.skills || []) addSkill(st, k.name, k.desc, cx);

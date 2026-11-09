@@ -464,6 +464,26 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
         return visible;
     }
 
+    function matchesIncomplete(kind, record) {
+        const spec = COMBAT_TABLE_SPECS[kind];
+        if (!spec) return false;
+        const loaded = loadSheets(client);
+        if (!loaded.ok) return false;
+        const sheet = findSheet(loaded.sheets, kind);
+        if (!sheet) return false;
+        const expected = encodeCombatRecord(kind, record, cellMax);
+        const parts = new Set();
+        for (const row of sheet.rows) {
+            const cells = rowToCells(sheet, Array.isArray(row) ? row : []);
+            if (spec.keyOf(cells) !== expected.key) continue;
+            const match = cells[SEGMENT_COLUMN].match(SEGMENT_PATTERN);
+            const wanted = match && expected.rows[Number(match[1]) - 1];
+            if (!wanted || Object.keys(wanted).some((key) => cells[key] !== wanted[key])) return false;
+            parts.add(Number(match[1]));
+        }
+        return parts.size > 0 && parts.size < expected.rows.length;
+    }
+
     // 缺表时在用户当前模板上补建，建完核对。
     function ensure() {
         return serial(async () => {
@@ -636,13 +656,21 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
         });
     }
 
-    function append(kind, records, options) {
+    async function append(kind, records, options) {
         if (!Object.hasOwn(COMBAT_TABLE_SPECS, kind)) return Promise.resolve({ ok: false, reason: 'combat-table-unknown-kind' });
-        for (const record of Array.isArray(records) ? records : [records]) {
-            queue.push({ kind, record, reason: 'queued', ...(options && { options }) });
+        const requests = (Array.isArray(records) ? records : [records]).map((record) => ({ kind, record, reason: 'queued', ...(options && { options }) }));
+        queue.push(...requests);
+        try {
+            return await flush();
+        } finally {
+            if (options?.retainOnFailure === false) {
+                const owned = new Set(requests);
+                for (let at = queue.length - 1; at >= 0; at -= 1) {
+                    if (owned.has(queue[at])) queue.splice(at, 1);
+                }
+            }
         }
-        return flush();
     }
 
-    return { probe, read, ensure, append, flush, pending, serial, isWriting: () => writing, client };
+    return { probe, read, ensure, append, flush, pending, serial, matchesIncomplete, isWriting: () => writing, client };
 }

@@ -191,13 +191,13 @@ function runtimeSetup({ combat = false, points = 0, bars } = {}) {
     return rt;
 }
 
-test('运行时：状态栏主角条只给主角；金钱为合并余额；战斗关闭时只有数值侧金钱且不读战斗积分', () => {
+test('运行时：状态栏主角条只给主角；共享积分不受战斗界面开关影响，生命仍跟随战斗开关', () => {
     const off = runtimeSetup({ combat: false, points: 500 });
     const lookup = off.protagonistLookup();
     assert.equal(lookup('小雪'), null);
     const own = lookup('阿明');
     assert.deepEqual(own.metrics.map((m) => m.label), ['体力', '压力', '积分']);
-    assert.equal(own.metrics.find((m) => m.label === '积分').display, '0');
+    assert.equal(own.metrics.find((m) => m.label === '积分').display, '500');
     assert.equal(off.walletMoney(), 0);
     const on = runtimeSetup({ combat: true, points: 120 });
     const mine = on.protagonistLookup()('阿明');
@@ -267,4 +267,110 @@ test('金钱合并后楼层回退：bars.money 随数值账本回退，战斗积
     deleteFloorsFrom(stats, 0);
     assert.equal(money(), 0);
     assert.equal(heroOf(await combat.effectiveState({ raw: true })).points, 0);
+});
+
+async function sharedRuntime(t, money = 500) {
+    const { createCombatTables } = await import('../src/data/shujuku/combat-tables.js');
+    const { createCombatServices } = await import('../src/core/combat-services.js');
+    const { createOriginRuntime } = await import('../src/core/origin-runtime.js');
+    const { createHarness } = await import('./origin-host.js');
+    const { createLedgerMockHost, userInventorySheet } = await import('./helpers/combat-mock-host-ledger.js');
+    const db = createLedgerMockHost();
+    db.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: db.api });
+    assert.equal((await tables.ensure()).ok, true);
+    assert.equal((await tables.append('profile', [row(classDef('cls-blade'), 1), row(classDef('cls-mage'), 2), row(heroDef(), 3)])).ok, true);
+    const game = createHarness({ enabled: false });
+    const holder = { money, enabled: true };
+    const services = createCombatServices({
+        global: { AutoCardUpdaterAPI: db.api, SillyTavern: { getContext: () => game.ctx } },
+        getChatId: () => game.ctx.chatId, getUserName: () => '主角', getWallet: () => holder.money,
+        getReaderSettings: () => ({ combatExpansion: { enabled: holder.enabled } }),
+    });
+    const runtime = createOriginRuntime({
+        getContext: () => ({ ...game.ctx }), readSettings: () => ({ enabled: true, achieveOn: false }),
+        readLlm: () => ({}), combatServices: services,
+    });
+    runtime.sync();
+    t.after(() => { runtime.destroy(); game.engine.stop(); });
+    await runtime.engine.whenSaved();
+    assert.equal(runtime.engine.isBlocked(), null);
+    return { db, game, holder, services, runtime, ledger: services.getLedger() };
+}
+
+test('生产共用积分：Origin收入可供战斗消费，重建回读与关闭战斗均不重复加旧钱包', async (t) => {
+    const h = await sharedRuntime(t, 120);
+    h.game.user(); h.game.ai('委托完成<origin>\n积分|+30|委托\n</origin>');
+    await h.runtime.engine.whenSaved();
+    assert.equal(h.runtime.engine.getState().points, 150);
+    assert.deepEqual(await h.services.readSharedPoints(), { ok: true, wallet: 120, combat: 0, origin: 30, flow: 30, balance: 150 });
+    assert.equal((await h.ledger.respecClass('pc-hero', 'cls-mage')).ok, true);
+    assert.equal((await h.services.readSharedPoints()).balance, 0);
+    assert.equal(h.runtime.engine.getState().points, 0);
+    assert.equal(h.holder.money, 120);
+    assert.equal((await h.ledger.effectiveState({ raw: true })).characters.get('pc-hero').points, -150);
+    assert.equal((await h.ledger.effectiveState()).characters.get('pc-hero').points, 0);
+    h.holder.enabled = false;
+    assert.equal(h.services.getLedger(), null);
+    assert.equal((await h.services.readSharedPoints()).balance, 0);
+    assert.equal(h.services.lifeSource().readPoints(), -120);
+    await h.runtime.engine.reload();
+    assert.equal(h.runtime.engine.getState().points, 0);
+    assert.equal((await h.services.readSharedPoints()).origin, 30);
+});
+
+test('生产共用积分：战斗净流水供Origin购买和本地抽奖，跨系统并发不能超支', async (t) => {
+    const h = await sharedRuntime(t, 300);
+    h.game.user('出发'); h.game.ai('交易准备');
+    await h.runtime.engine.whenSaved();
+    const results = await Promise.all([
+        h.runtime.engine.dispatch({ type: 'buy', name: '凝神丹' }),
+        h.ledger.respecClass('pc-hero', 'cls-mage'),
+    ]);
+    assert.equal(results.filter((result) => result.ok).length, 1, JSON.stringify(results));
+    const balance = await h.services.readSharedPoints();
+    assert.equal(balance.balance, results[0].ok ? 100 : 150);
+    assert.equal(h.runtime.engine.getState().points, balance.balance);
+    assert.ok(balance.balance >= 0);
+    assert.equal(h.holder.money, 300);
+    const short = await h.runtime.engine.dispatch({ type: 'draw' });
+    assert.equal(short.reason, 'no-points');
+    assert.equal((await h.services.readSharedPoints()).balance, balance.balance);
+    h.holder.money += 300;
+    const bought = await h.runtime.engine.dispatch({ type: 'draw' });
+    assert.equal(bought.ok, true, JSON.stringify(bought));
+    const after = await h.services.readSharedPoints();
+    assert.equal(after.balance, balance.balance);
+    assert.equal(h.holder.money, 600);
+    assert.equal(h.runtime.engine.getState().points, after.balance);
+    await h.runtime.engine.reload();
+    assert.equal(h.runtime.engine.getState().points, after.balance);
+});
+
+test('生产失败恢复：分段购买不发货且共享余额拒读，原意图重试后只扣款一次', async (t) => {
+    const h = await sharedRuntime(t, 500);
+    const { runtime } = h;
+    h.game.ctx.generateQuietPrompt = async () => '系统回复。'.repeat(4000) + '<origin>\n购买|凝神丹\n</origin>';
+    const insert = h.db.api.insertRow;
+    let interrupted = false;
+    h.db.api.insertRow = (...args) => {
+        const cells = typeof args[0] === 'object' ? args[0].data : args[1];
+        if (String(cells?.['分段']).startsWith('2/')) { interrupted = true; return false; }
+        return insert(...args);
+    };
+    assert.equal((await runtime.engine.sysChat('购买凝神丹')).ok, false);
+    assert.equal(interrupted, true, '实际写入必须跨过生产分段阈值');
+    assert.equal(runtime.engine.getState().bag.some((item) => item.name === '凝神丹'), false);
+    assert.equal(runtime.engine.getState().points, 500);
+    assert.equal((await h.services.readSharedPoints()).ok, false);
+    h.db.api.insertRow = insert;
+    const recovered = await runtime.engine.retrySave();
+    assert.equal(recovered.ok, true, JSON.stringify(recovered));
+    assert.equal(runtime.engine.getState().bag.find((item) => item.name === '凝神丹').count, 1);
+    assert.equal((await h.services.readSharedPoints()).balance, 300);
+    const count = h.db.calls.insertRow;
+    assert.equal((await runtime.engine.retrySave()).ok, true);
+    await runtime.engine.whenSaved();
+    assert.equal(h.db.calls.insertRow, count);
+    assert.equal(runtime.engine.getState().points, 300);
 });

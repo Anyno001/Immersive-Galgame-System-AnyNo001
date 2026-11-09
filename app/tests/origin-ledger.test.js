@@ -129,3 +129,21 @@ test('D7 回合 = AI 楼序号：删楼后时限按剩余楼数重算，不再�
     h.user('u');
     assert.match(h.injected(), /跑腿（进度0%，剩2回合）/);
 });
+
+test('积分只按增减结算：正文与数据块的绝对余额不覆盖已有积分，重开仍一致', () => {
+    const h = createHarness({ achieveOn: false });
+    h.user('开始');
+    h.ai('当前积分：9999。\n' + blk('积分|+100|完成委托', '积分：8000'));
+    assert.equal(h.state().points, 100);
+    h.user();
+    h.ai('扣除积分30。剩余积分：7777。\n' + blk('积分：6000'));
+    assert.equal(h.state().points, 70);
+    h.reopen();
+    assert.equal(h.state().points, 70);
+    const save = h.ctx.chatMetadata.origin_v2;
+    save.entries[0].ops.push({ k: 'balance', v: 5000 });
+    save.entries[0].facts.bal = 4000;
+    save.checkpoints = [];
+    h.reopen();
+    assert.equal(h.state().points, 70, '旧存档里的余额覆盖操作同样不生效');
+});

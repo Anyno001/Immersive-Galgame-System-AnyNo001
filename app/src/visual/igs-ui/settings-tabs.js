@@ -568,6 +568,7 @@ const ORIGIN_TEMPLATE = `
       <div class="igs-source-filter-note">逐楼存档只保留最近若干个回复楼，更早的楼合并为一份底稿；底稿之前的楼切换回复、编辑或重算都不再影响系统数值。</div>
       <div class="igs-settings-row">
         <button class="igs-settings-action" data-action="origin-op:recalc" type="button">按全部楼层重算</button>
+        <button class="igs-settings-action" data-action="origin-op:retry" type="button"{{originRetryHidden}}>重试保存</button>
         <button class="igs-settings-action" data-action="origin-op:reset" type="button">清空本聊天存档</button>
         <button class="igs-settings-action" data-action="origin-op:import" type="button"{{originLegacyHidden}}>导入原版存档</button>
       </div>

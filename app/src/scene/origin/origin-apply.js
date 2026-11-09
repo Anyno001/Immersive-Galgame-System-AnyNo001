@@ -8,6 +8,8 @@ import { hostOf } from './origin-state.js';
 export function createCx(over = {}) {
     return { turn: 0, floor: null, s: {}, random: Math.random, events: [], uses: [], draws: [], logged: [], grantT: {}, ptT: [], ...over };
 }
+// points 保留 Origin 净流水，wallet 是操作开始时来自数据库的其他积分份额。
+export const pointBalance = (st, cx = {}) => st.points + (Number(cx.wallet) || 0);
 function stamp(cx, o) { return cx && cx.floor != null ? { ...o, floor: cx.floor } : o; }
 
 export function pushLog(st, text, mark, cx) {
@@ -131,7 +133,7 @@ export const ACHIEVEMENTS = [
     { id: 'first', name: '初出茅庐', desc: '完成第一个任务', cond: (st) => doneCount(st) >= 1 },
     { id: 'five', name: '渐入佳境', desc: '完成5个任务', cond: (st) => doneCount(st) >= 5 },
     { id: 'fifteen', name: '任务达人', desc: '完成15个任务', cond: (st) => doneCount(st) >= 15 },
-    { id: 'rich', name: '腰缠万贯', desc: '积分累积到1000', cond: (st) => st.points >= 1000 },
+    { id: 'rich', name: '腰缠万贯', desc: '积分累积到1000', cond: (st, cx) => pointBalance(st, cx) >= 1000 },
 ];
 const hasAch = (st, id) => st.achievements.some((a) => a.id === id);
 
@@ -148,7 +150,7 @@ export function unlockAch(st, id, name, desc, bonus, cx) {
 export function checkAchievements(st, cx) {
     if (!cx.s.achieveOn) return false;
     let ch = false;
-    for (const a of ACHIEVEMENTS) if (!hasAch(st, a.id) && a.cond(st)) { unlockAch(st, a.id, a.name, a.desc, 50, cx); ch = true; }
+    for (const a of ACHIEVEMENTS) if (!hasAch(st, a.id) && a.cond(st, cx)) { unlockAch(st, a.id, a.name, a.desc, 50, cx); ch = true; }
     return ch;
 }
 
@@ -172,7 +174,7 @@ export function checkExpiry(st, cx) {
 
 export function drawCore(st, free, cx) {
     if (!st.gachaPool || !st.gachaPool.length) return null;
-    if (!free) { if (st.points < cx.s.drawCost) return null; st.points -= cx.s.drawCost; }
+    if (!free) { if (pointBalance(st, cx) < cx.s.drawCost) return null; st.points -= cx.s.drawCost; }
     const tot = st.gachaPool.reduce((a, b) => a + (b.weight || 0), 0);
     let r = cx.random() * tot;
     let pick = st.gachaPool[0];
@@ -232,7 +234,7 @@ const fuzzy = (list, nm) => list.find((x) => x.name === nm) || list.find((x) => 
 
 function opBuy(st, op, cx) {
     const it = fuzzy(st.shop, op.name);
-    if (!it || st.points < it.price) return false;
+    if (!it || pointBalance(st, cx) < it.price) return false;
     st.points -= it.price;
     const ex = st.bag.find((b) => b.name === it.name);
     if (ex) ex.count = (ex.count || 1) + 1; else st.bag.push({ name: it.name, count: 1, desc: it.desc, effect: it.effect || '' });
@@ -257,7 +259,6 @@ function opGet(st, op, cx) {
 
 // 数据块解析出的操作 → 状态。ext：{ proseTitle }。返回改动条数。
 export function applyOps(st, ops, cx, ext = {}) {
-    const prevP = st.points;
     let changed = 0;
     const hit = (v) => { if (v) changed += 1; };
     for (const op of ops) {
@@ -304,9 +305,6 @@ export function applyOps(st, ops, cx, ext = {}) {
         }
     }
     for (const op of ops) if (op.k === 'gachaSet') { st.gachaPool = op.items.map((x) => ({ ...x })); st.lastGachaTurn = cx.turn; changed += 1; }
-    for (const op of ops) {
-        if (op.k === 'balance' && op.v !== prevP && op.v !== st.points) { st.points = op.v; pushLog(st, '积分同步为 ' + op.v + '（按数据块余额）', '·', cx); changed += 1; }
-    }
     return changed;
 }
 
@@ -372,7 +370,7 @@ function mUse(st, op, cx) {
 function mBuy(st, op, cx) {
     const it = st.shop.find((x) => x.name === op.name);
     if (!it) return fail('no-goods', '商城里没有「' + op.name + '」');
-    if (st.points < it.price) return fail('no-points', '积分不够购买「' + it.name + '」（需' + it.price + '，现有' + st.points + '）');
+    if (pointBalance(st, cx) < it.price) return fail('no-points', '积分不够购买「' + it.name + '」（需' + it.price + '，现有' + pointBalance(st, cx) + '）');
     st.points -= it.price;
     const ex = st.bag.find((b) => b.name === it.name);
     if (ex) ex.count = (ex.count || 1) + 1; else st.bag.push({ name: it.name, count: 1, desc: it.desc, effect: it.effect || '' });
@@ -461,7 +459,7 @@ export function applyManual(st, op, cx) {
         case 'use': r = mUse(st, op, cx); break;
         case 'draw':
             if (!st.gachaPool.length) r = fail('empty-pool', '奖池是空的');
-            else if (!op.free && st.points < cx.s.drawCost) r = fail('no-points', '积分不够（需' + cx.s.drawCost + '）');
+            else if (!op.free && pointBalance(st, cx) < cx.s.drawCost) r = fail('no-points', '积分不够（需' + cx.s.drawCost + '）');
             else { drawCore(st, !!op.free, cx); r = OK; }
             break;
         case 'addTask': case 'editTask': case 'completeTask': case 'deleteTask': r = mTask(st, op, cx); break;

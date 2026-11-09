@@ -174,27 +174,27 @@ test('综合（悬浮窗挂载，原插件常态）：数值一致；已知差�
     assert.ok(t(last.core.log).indexOf('解锁成就「初出茅庐」　+50') > t(last.core.log).indexOf('完成「主线任务·阶段一」'));
 });
 
-// ---------- 已知差异（不改 src，只把差异钉住；差异被修掉后这些断言会失败，届时改成 assertSame） ----------
-test('已知差异 1：数据块把积分推过 1000、正文余额又压回去时，原插件已在块末发了「腰缠万贯」，新核心按楼末积分判定不发', () => {
+// ---------- 与原版的行为边界 ----------
+test('积分按增减结算：正文余额不抹掉收入与成就奖励', () => {
     const r = run(['当前积分：800' + B('积分|+1200|卖地')]);
     assert.equal(r.ref.state.points, 800);
     assert.ok(r.ref.state.achievements.some((a) => a.id === 'rich'), '原插件：成就已解锁（+50 被余额覆盖掉）');
-    assert.equal(r.st.points, 800);
-    assert.ok(!r.st.achievements.some((a) => a.id === 'rich'), '新核心：未解锁');
+    assert.equal(r.st.points, 1250);
+    assert.ok(r.st.achievements.some((a) => a.id === 'rich'), '收入与成就奖励均保留');
 });
 
-test('已知差异 2：到期与正文余额 / 正文阶段完成的先后（原插件悬浮窗挂载时在数据块之后立即判到期）', () => {
+test('到期惩罚不被正文余额覆盖；正文阶段完成仍先于楼末到期判定', () => {
     const lim = (title) => B('新任务|类型:支线|标题:' + title + '|描述:d|条件:c|奖励:积分40|惩罚:积分-50|时限:1|对象:宿主');
     // a. 到期惩罚在原插件里被随后的正文余额覆盖
     const a = run(['开始' + lim('送信'), '当前积分：300' + B('播报|嗯')], { panel: true });
     assert.equal(a.ref.state.points, 300);
-    assert.equal(a.st.points, 250);
+    assert.equal(a.st.points, -50);
     // b. 同一楼正文写「阶段1已达成」：原插件先判超时失败，新核心先完成
     const b = run(['开始' + lim('护送·阶段1'), '阶段1已达成' + B('播报|嗯')], { panel: true });
     assert.equal(b.ref.state.tasks[0].status, 'failed');
     assert.equal(b.st.tasks[0].status, 'done');
-    // 悬浮窗未挂载时（到期只在生成提示词时判），两边一致
-    assertSame(['开始' + lim('送信'), '当前积分：300' + B('播报|嗯')]);
+    // 不含绝对余额、面板未挂载时，既有到期链路与原版一致
+    assertSame(['开始' + lim('送信'), '继续' + B('播报|嗯')]);
 });
 
 test('已知差异 3：同一回合里楼层结算与手动操作的物品去重。原插件按回合去重（同回合再发同名物品被吞），新核心按每楼 / 每条操作去重', () => {

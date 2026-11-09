@@ -23,6 +23,8 @@
 - 数值日志 `chat:currency` 固化货币名、四档价格、比例、初始金额与 `seeded`；初始读取前经带租约的 `ensure` 补建物品表。初始写入和楼层结算先保存并确认写入意图 `{ before, after }`，再改物品表并追加确认标记。重算只写新旧 delta 差额，`before` 使用实余额；补差不足时保留原已入账的货币结算与流水，记录 `stats-currency-resettle-insufficient`，不生成待恢复意图、不阻塞后续楼，其他数值仍按当前正文结算。待确认写入在下一楼或手动重试前恢复，余额等于目标值时仅补确认，不重复入账。日志与物品表不具备跨表原子事务。每楼增量与 swipe／删楼回退沿用宿主数据库，不另做补偿或全量余额重算。
 - `stats-push.js` 只更新已识别的目标格：积分列写旧合并积分，金钱／金币／货币列及当前动态货币名列写物品表余额；货币未就绪时跳过并诊断。积分列优先匹配，动态名称不会覆盖积分映射；映射描述与实际推送使用同一货币名。运行时在初始发放、楼层写入和失败恢复读回后补推最终余额，不在货币队列内等待推送；推送失败不改结算结果，`whenSaved()` 在写库完成后限时等待当前推送。
 
+- Origin 积分日志复用 `combat-tables.js` 的「IGS战斗·日志」写口与缓存客户端。`origin-store.js` 将操作账本编码为带父 revision 的 `set/drop` 差分，记录 ID 为载荷哈希；只追加，经读回确认才对业务发布。重复提交同一意图只确认已存记录；断链、同键冲突、无效记录或残缺分段返回错误，不能当作空账本或零余额。
+- `append(kind, records, { retainOnFailure: false, shouldStart })` 仅让当前调用持有的失败请求退出待写队列，默认战斗请求仍保留；Origin 由引擎持有原意图显式重试，其他写入不得补交它。`matchesIncomplete(kind, record)` 逐项核对已有片段与同一意图的编码，只允许补齐自己的缺段，普通读取仍拒绝残缺记录。Origin 恢复读取先校验原意图，再读取排除 Origin 的外部积分份额；共享消费与恢复使用同一进程内积分锁，旧钱包和战斗净流水不做余额覆盖。
 
 - `client.insertRow(tableName, rowData, options?)`：不传 options 时保持原位置参数调用；成功时宿主返回行号则带 `rowIndex`。`client.getTableTemplate()`、`client.importTemplate()` 统一返回 `{ ok, reason }`，缺方法时为 `missing-api`。
 - 刷新世界书必须显式调用 `refreshDataAndWorldbook()`，不能隐式触发。

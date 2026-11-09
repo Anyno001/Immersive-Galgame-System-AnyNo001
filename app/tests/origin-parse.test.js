@@ -52,17 +52,17 @@ const FLOORS = [
     '一夜无事。\n<origin>无</origin>',
     // 4 代码围栏 + 完成 + 技能奖励（带 积分+权限）
     '她终于到家。\n```origin\n进度|1|100|送到了\n获得|干粮|3|路上吃\n技能|夜视|黑暗中也能看清\n权限|夜间通行|可在宵禁后出入\n```',
-    // 5 思维链里提到 <origin>，真块在最后；含块内余额行
-    '<thinking>等下要输出 <origin> 数据块</thinking>天亮了。\n<origin>\n积分：400\n用道具|干粮|1\n成就|黎明|看见了第一缕光\n</origin>',
+    // 5 思维链里提到 <origin>，真块在最后
+    '<thinking>等下要输出 <origin> 数据块</thinking>天亮了。\n<origin>\n用道具|干粮|1\n成就|黎明|看见了第一缕光\n</origin>',
     // 6 积分涨到 1000+（触发成就）、买、抽奖、新商品、新奖品、时限、失败、私聊
     '集市里很热闹。\n<origin>\n积分|+900|卖掉旧物\n新商品|急救包|120|止血|生命+5\n买|急救包\n抽奖\n时限|2|5\n失败|2\n私聊|系统|别乱花钱\n新奖品|金币袋|R|30|一袋金币|积分+100\n新奖品|传说之剑|UR|1|传说|\n</origin>',
-    // 7 只有正文、没有数据块：靠正文兜底（余额、获得×N、技能）
-    '店主结算：奖励已发放，获得 回复药水×2。积分余额：1200。你获得技能「铁壁」。技能说明：受伤减半。',
+    // 7 只有正文、没有数据块：靠正文兜底（获得×N、技能）
+    '店主结算：奖励已发放，获得 回复药水×2。你获得技能「铁壁」。技能说明：受伤减半。',
     // 8 块里没写积分但正文扣了积分
     '被罚款，扣除积分 30。\n<origin>\n播报|已罚款\n</origin>',
 ];
 
-test('黄金样本：8 楼链路的结算结果与原插件逐楼一致（别名、编号、围栏、思维链、余额行、抽奖、成就）', () => {
+test('黄金样本：8 楼增减链路与原插件逐楼一致（别名、编号、围栏、思维链、抽奖、成就）', () => {
     const { st } = runBoth(FLOORS);
     assert.ok(st.tasks.length >= 2 && st.skills.some((k) => k.name === '夜视'));
     assert.ok(st.achievements.some((a) => a.id === 'first'));
@@ -89,8 +89,8 @@ test('提块：思维链里的 <origin> 不算；代码围栏；未闭合；过�
 test('逐行解析：别名与容错写法产出对应操作', () => {
     const r = parseBlock('[支线#3]|完成\n购买|短剑\n消耗|药水|2\n特权|VIP|永久\n积分：80\n系统：说明\n无\n发布|找猫|主线|在巷子里');
     const kinds = r.ops.map((o) => o.k);
-    assert.deepEqual(kinds, ['done', 'buy', 'use', 'perk', 'newTask', 'balance']);
-    assert.equal(r.balance, 80);
+    assert.deepEqual(kinds, ['done', 'buy', 'use', 'perk', 'newTask']);
+    assert.equal(Object.hasOwn(r, 'balance'), false);
     const nt = r.ops.find((o) => o.k === 'newTask');
     assert.equal(nt.title, '找猫');
     assert.equal(nt.ty, '主线');

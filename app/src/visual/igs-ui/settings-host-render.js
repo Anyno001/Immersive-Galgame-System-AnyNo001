@@ -323,6 +323,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 originChatNote: esc(chatNote),
                 originWorldText: esc(chat && chat.world ? chat.world : '未设定'),
                 originWorldHidden: hiddenAttr(!chatReady),
+                originRetryHidden: hiddenAttr(!origin.enabled || !chat?.blocked || chat.blocked === 'origin-database-loading'),
                 originResumeHidden: hiddenAttr(!chatReady || !chat.paused),
                 originPauseHidden: hiddenAttr(!chatReady || chat.paused),
                 originFreqField: intField('freq', '任务频率（回合）', 1, 10, '每隔几回合最多派发一个任务'),

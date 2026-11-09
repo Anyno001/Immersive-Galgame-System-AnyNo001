@@ -1,6 +1,6 @@
 // 随身系统宿主层（Origin 系统 原作 vicliaaa，经授权移植）：把 scene/origin 的核心接到 IGS。
 // 只做四件事：给核心提供 host（上下文、设置、存盘、生成、通知）、按总开关挂/卸监听、登记到界面接入点、设置变化时同步。
-// 设置只读：bridge.origin 来自共享只读快照，这里不改它；本聊天数据（世界名、任务方向）核心自己存在 chatMetadata.origin_v2。
+// 设置只读；生产操作经共用积分服务持久化，旧 chatMetadata.origin_v2 仅在数据库无记录时导入。
 import { getSharedOriginEngine } from '../scene/origin/origin-engine.js';
 import { attachOriginEngine } from '../visual/igs-ui/origin-attach.js';
 import { normalizeOriginSettings, originRequestRoute } from '../visual/igs-ui/origin-settings.js';
@@ -9,7 +9,13 @@ import { runBackgroundGeneration, isBackgroundGenerationActive } from '../host/b
 // 核心的通知类别 → 阅读器细线的级别。
 const NOTICE_LEVEL = Object.freeze({ warn: 'warn', info: 'info' });
 
-export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive }) {
+function externalPoints(value) {
+    if (!value?.ok) return value || { ok: false, reason: 'origin-wallet-unavailable' };
+    const balance = value.balance - value.origin;
+    return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
+}
+
+export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive, combatServices }) {
     const ctx = () => { try { return getContext() || null; } catch (error) { return null; } };
 
     async function viaTavern(prompt) {
@@ -30,6 +36,14 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
     let lastNorm = null;
     const host = {
         getContext: ctx,
+        ...(combatServices ? {
+            database: () => combatServices.originStore(),
+            wallet: async (options) => options?.intent
+                ? combatServices.readOriginWallet(options)
+                : externalPoints(await combatServices.readSharedPoints()),
+            walletSnapshot: () => externalPoints(combatServices.pointsSnapshot()),
+            withPointsLock: (task) => combatServices.withPointsLock(task),
+        } : {}),
         // 核心内部 fillSettings 会返回新对象，不会改这里给出的快照。
         settings: () => {
             const raw = readSettings();

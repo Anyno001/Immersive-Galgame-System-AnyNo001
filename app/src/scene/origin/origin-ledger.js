@@ -43,8 +43,8 @@ export function getEntry(ledger, messageId, swipeId) {
 }
 
 // after：当时最后一楼的 id（-1 = 还没有任何楼）。boundTo：被哪一个用户楼的提示词带走（null = 还没发出去）。
-export function recordOp(ledger, op, after, seed) {
-    const rec = { id: ledger.nextOpId, after, seed, boundTo: null, op };
+export function recordOp(ledger, op, after, seed, wallet) {
+    const rec = { id: ledger.nextOpId, after, seed, boundTo: null, op, ...(Number.isSafeInteger(wallet) ? { wallet } : {}) };
     ledger.nextOpId += 1;
     ledger.ops.push(rec);
     ledger.rev += 1;
@@ -162,14 +162,14 @@ function buildSteps(ledger, path) {
         const list = byAfter.get(rec.after);
         if (list) list.push(rec); else byAfter.set(rec.after, [rec]);
     }
-    const push = (rec) => steps.push({ type: 'op', rec, turn, token: `o${rec.id}:${rec.after}` });
+    const push = (rec) => steps.push({ type: 'op', rec, turn, token: `o${rec.id}:${rec.after}:${rec.wallet ?? 0}` });
     for (const rec of byAfter.get(-1) || []) push(rec);
     for (const it of path) {
         if (it.id <= from) continue;
         if (it.kind === 'ai') {
             turn += 1;
             const entry = getEntry(ledger, it.id, it.swipeId) || EMPTY_ENTRY;
-            steps.push({ type: 'floor', id: it.id, swipeId: it.swipeId, turn, entry, token: `f${it.id}:${it.swipeId}:${entry.h}` });
+            steps.push({ type: 'floor', id: it.id, swipeId: it.swipeId, turn, entry, token: `f${it.id}:${it.swipeId}:${entry.h}:${entry.wallet ?? 0}` });
         }
         for (const rec of byAfter.get(it.id) || []) push(rec);
     }
@@ -192,7 +192,7 @@ function finish(st, cx, skipped) {
 
 function stepOnce(prev, step, s) {
     if (step.type === 'floor') {
-        const cx = createCx({ turn: step.turn, floor: step.id, s, random: seededRandom(step.entry.seed) });
+        const cx = createCx({ turn: step.turn, floor: step.id, s, random: seededRandom(step.entry.seed), wallet: step.entry.wallet });
         const st = cloneForWrite(prev);
         applyFloor(st, step.entry, cx);
         checkExpiry(st, cx);
@@ -200,7 +200,7 @@ function stepOnce(prev, step, s) {
         return finish(st, cx);
     }
     const rec = step.rec;
-    const cx = createCx({ turn: step.turn, floor: rec.after >= 0 ? rec.after : null, s, random: seededRandom(rec.seed) });
+    const cx = createCx({ turn: step.turn, floor: rec.after >= 0 ? rec.after : null, s, random: seededRandom(rec.seed), wallet: rec.wallet });
     const st = cloneForWrite(prev);
     const r = applyManual(st, rec.op, cx);
     if (r.ok) return finish(st, cx);
@@ -275,6 +275,7 @@ export function pendingFor(rep, targetId) {
 export function serializeLedger(ledger, meta = {}) {
     const entries = [...ledger.entries.values()].map((e) => ({
         messageId: e.messageId, swipeId: e.swipeId, seed: e.seed, block: e.block, ops: e.ops, facts: e.facts, fp: e.fp,
+        ...(Number.isSafeInteger(e.wallet) ? { wallet: e.wallet } : {}),
     }));
     return {
         version: ORIGIN_SAVE_VERSION, core: ORIGIN_CORE_VER, chatId: ledger.chatId,
@@ -283,6 +284,7 @@ export function serializeLedger(ledger, meta = {}) {
         checkpoints: ledger.checkpoints, legacyDone: ledger.legacyDone,
         base: ledger.base,
         world: meta.world || '', direction: meta.direction || '',
+        ...(meta.rules ? { rules: meta.rules } : {}),
     };
 }
 
@@ -308,13 +310,13 @@ export function deserializeLedger(raw, chatId) {
     const dropped = [];
     for (const e of raw.entries) {
         if (!validEntry(e)) { dropped.push(e && e.messageId); continue; }
-        const entry = { seed: e.seed, block: e.block == null ? null : String(e.block), ops: e.ops, facts: e.facts, fp: e.fp };
+        const entry = { seed: e.seed, block: e.block == null ? null : String(e.block), ops: e.ops, facts: e.facts, fp: e.fp, ...(Number.isSafeInteger(e.wallet) ? { wallet: e.wallet } : {}) };
         entry.h = hash53(JSON.stringify([entry.block, entry.ops, entry.facts, entry.seed]));
         ledger.entries.set(floorKey(chatId, e.messageId, e.swipeId), { messageId: e.messageId, swipeId: e.swipeId, ...entry });
     }
     for (const o of raw.ops) {
         if (!validOp(o)) continue;
-        ledger.ops.push({ id: o.id, after: o.after, seed: isNum(o.seed) ? o.seed : 0, boundTo: Number.isInteger(o.boundTo) ? o.boundTo : null, op: o.op });
+        ledger.ops.push({ id: o.id, after: o.after, seed: isNum(o.seed) ? o.seed : 0, boundTo: Number.isInteger(o.boundTo) ? o.boundTo : null, op: o.op, ...(Number.isSafeInteger(o.wallet) ? { wallet: o.wallet } : {}) });
     }
     ledger.nextOpId = Math.max(Number(raw.nextOpId) || 1, ...ledger.ops.map((o) => o.id + 1), 1);
     // 检查点的签名已含核心版本、设置、初始状态与整条路径前缀；版本不同时签名对不上，自然不命中。

@@ -6,6 +6,7 @@
 //   - 成长监听者只在有效状态签名变化时才被通知（内部缓存照常更新）；
 //   - 同一事件内账本有效状态只取一次并传递。
 import { createCachedTableClient, createCombatTables } from '../data/shujuku/combat-tables.js';
+import { createOriginStore } from '../data/shujuku/origin-store.js';
 import { createCombatMaterialContext } from './combat-material-context.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, vitalsForName } from '../combat/ledger.js';
@@ -207,7 +208,7 @@ export function createCombatServices(options = {}) {
             const raw = createCombatTables({ api, client });
             const inventory = createInventoryTables({ api, client, serial: raw.serial });
             bundleGeneration += 1;
-            bundle = { api, client, raw, impl: wrapTables(raw), inventory, generation: bundleGeneration };
+            bundle = { api, client, raw, impl: wrapTables(raw), inventory, origin: createOriginStore({ tables: raw }), generation: bundleGeneration };
             ledger = createCombatLedger({
                 tables: bundle.impl, chat: getChat, userName: getUserName, sourceFilter: getSourceFilter,
                 difficulty: () => settings().difficulty, inventory,
@@ -489,8 +490,12 @@ export function createCombatServices(options = {}) {
                 return sheet || (state ? abilitiesForName(state, name, getUserName(), extra) : null);
             },
             readVitals: (name, extra) => (state ? vitalsForName(state, name, getUserName(), extra) : null),
-            // 主角的战斗积分净流水（不含数值侧金钱）；战斗数据没就绪时按 0。
-            readPoints: () => { const heroId = state && state.attributes && state.attributes.heroId; const hero = heroId ? state.characters.get(heroId) : null; return hero ? Number(hero.points) || 0 : 0; },
+            // 净流水不含旧 bars.money；共享积分不受战斗界面开关影响。
+            readPoints: () => {
+                const shared = pointsSnapshot();
+                const hero = state?.characters.get(state.attributes?.heroId);
+                return shared.ok ? shared.flow : (Number(hero?.points) || 0) + (state?.originPoints || 0);
+            },
             names: () => (state ? [...state.characters.values()].map((character) => character.name).filter(Boolean) : []),
             refresh: refreshLife,
         };
@@ -600,6 +605,63 @@ export function createCombatServices(options = {}) {
     function inventoryTables() {
         getTables();
         return bundle.inventory;
+    }
+
+    // 积分独立于战斗界面开关；原钱包份额与战斗净流水均只读。
+    let pointsCache = null;
+    function originStore() {
+        getTables();
+        return bundle.origin;
+    }
+    async function readSharedPoints() {
+        getTables();
+        const owner = bundle;
+        const chatId = getChatId();
+        if (!chatId) return { ok: false, reason: 'origin-no-chat' };
+        const state = await ledger.effectiveState({ raw: true });
+        if (bundle !== owner || getChatId() !== chatId) return { ok: false, reason: 'request-stale' };
+        if (!state.ok) { pointsCache = null; return state; }
+        lifeCache = { chatId, state };
+        const hero = state.characters.get(state.attributes?.heroId);
+        const combat = Number(hero?.points) || 0;
+        const wallet = Number(typeof options.getWallet === 'function' ? options.getWallet() : 0) || 0;
+        const origin = state.originPoints || 0;
+        const balance = wallet + combat + origin;
+        if (!Number.isSafeInteger(balance)) return { ok: false, reason: 'origin-points-invalid' };
+        const value = { ok: true, balance, combat, origin, wallet, flow: combat + origin };
+        pointsCache = { chatId, owner, key: cacheKey(), value };
+        return value;
+    }
+    async function readOriginWallet({ intent } = {}) {
+        getTables();
+        const owner = bundle;
+        const chatId = getChatId();
+        if (!chatId || !intent?.ok) return { ok: false, reason: 'origin-wallet-unavailable' };
+        owner.client.invalidate();
+        const checked = owner.origin.read({ intent });
+        if (!checked.ok) return checked;
+        if (checked.revision !== intent.revision && checked.revision !== intent.record?.payload.parent) {
+            return { ok: false, reason: 'origin-database-conflict' };
+        }
+        const external = await ledger.externalPoints();
+        if (bundle !== owner || getChatId() !== chatId) return { ok: false, reason: 'request-stale' };
+        if (!external.ok) return external;
+        const balance = external.balance + (Number(typeof options.getWallet === 'function' ? options.getWallet() : 0) || 0);
+        return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
+    }
+    function pointsSnapshot() {
+        if (pointsCache?.owner !== bundle || pointsCache.chatId !== getChatId() || pointsCache.key !== cacheKey()) {
+            return { ok: false, reason: 'origin-wallet-unavailable' };
+        }
+        const wallet = Number(typeof options.getWallet === 'function' ? options.getWallet() : 0) || 0;
+        const balance = pointsCache.value.flow + wallet;
+        return Number.isSafeInteger(balance)
+            ? { ...pointsCache.value, wallet, balance }
+            : { ok: false, reason: 'origin-points-invalid' };
+    }
+    function withPointsLock(task) {
+        getTables();
+        return ledger.withPointsLock(task);
     }
 
     async function ensureTables() {
@@ -1476,6 +1538,7 @@ export function createCombatServices(options = {}) {
         growthCache = null;
         lifeCache = null;
         lifeStamp = null;
+        pointsCache = null;
         growthSnapshot = null;
         ensureFailure = null;
         inventoryTakeover = null;
@@ -1505,6 +1568,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, inventoryTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
+        originStore, readSharedPoints, readOriginWallet, pointsSnapshot, withPointsLock,
         drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
