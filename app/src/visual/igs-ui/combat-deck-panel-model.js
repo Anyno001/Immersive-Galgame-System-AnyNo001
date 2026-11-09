@@ -3,7 +3,7 @@ import { scaleCard } from '../../combat/card-scaling.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
 import { characterCombatStats, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
-import { describeEffects, describeKeywords } from './combat-card-art.js';
+import { describeEffects, describeKeywords, describeTrigger } from './combat-card-art.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
@@ -108,9 +108,10 @@ export function validateDraft(view, draft) {
 }
 
 // 人物特性（P-d）：名称、稀有度、来历、联动与效果说明（被动数值已按稀有度加强）；v4 主动特性（kind: 'active'）另给费用，说明取技能效果。
+const passiveText = (p) => [describeTrigger(p.trigger, p.cardType), describeEffects(p.effects)].filter(Boolean).join('：');
 const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null,
     ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
-    text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : '' });
+    text: t.passive ? passiveText(t.passive) : t.skill ? describeEffects(t.skill.effects) : '' });
 
 // v4 特性槽（助手 10-28，只主角）：slots 为当前槽数、max 为上限；innate 为保留着的固有特性（人物技能 / 个人被动，可被替换）；
 // locked 为未解锁的槽与价格（第一个即下一个可解锁的）；有待定特性时 replaceable 列出替换后不挤掉其他固有特性、主动不超上限的特性 ID。
@@ -121,7 +122,7 @@ function traitSlotView(view) {
     const own = view.profile?.personalPassive;
     const innate = kept.map((k) => (k === 'active'
         ? { traitId: ids.active, name: skill.name, kind: 'active', innate: true, cost: COMBAT_RULES.heroSkillCost, text: describeEffects(skill.effects) }
-        : { traitId: ids.passive, name: own.name, kind: 'passive', innate: true, text: describeEffects(own.effects) }));
+        : { traitId: ids.passive, name: own.name, kind: 'passive', innate: true, text: passiveText(own) }));
     const slots = traitSlots(view);
     const locked = [];
     for (let slot = slots + 1; slot <= TRAIT_SLOT_MAX; slot += 1) locked.push({ slot, cost: TRAIT_SLOT_COSTS[slot] });

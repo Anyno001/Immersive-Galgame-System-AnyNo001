@@ -78,3 +78,5 @@
 
 - `combat-generation-materials.js` 只读 `Mvu.getMvuData({type:'message',message_id})`，兼容 `TavernHelper.getVariables`；从最新楼向前最多 40 楼取第一个有效 `stat_data`，空对象也是有效快照，不复活旧技能。未发现楼层数据时可读取当前聊天的 `stat_data`，不读取角色级或全局变量；无接口时兼容楼层直存 `stat_data`。
 - 未安装、读取失败和读取成功分别报告。不解析更新指令，不执行变量中的文字，不写变量或表；候选与手动路径经 combat 层选择、裁剪后发送。真实 MVU 版本与角色卡结构仍需体验验证。
+
+- v0.39.76：`combat-trait-seed.js` 的 `createCombatTraitSeed(host, getChatId).ensure({ signal })` 将 128 位随机种子保存到当前聊天元数据 `igsCombatTraitSeed`。保存中并行读取等待同一次保存，失败撤回未确认种子，未保存时不允许抽取；已有有效种子直接复用，损坏值明确拒收，取消或切聊天返回 `request-stale`。种子随聊天元数据跨设备，不进入浏览器存储，也不改写已有特性和战斗记录。
