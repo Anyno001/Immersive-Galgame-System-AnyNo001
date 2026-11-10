@@ -18,6 +18,10 @@ const STYLE_TEXT = `
 .igs-onboarding-btn.is-quiet{border-color:transparent;opacity:.75}
 .igs-onboarding-btn.is-disabled{opacity:.45;cursor:not-allowed}
 #igs-onboarding-card .igs-onboarding-body{white-space:pre-line}
+#igs-onboarding-card{z-index:7}
+#igs-unified-settings .igs-settings-nav:has(.igs-onboarding-nav-frame){position:relative}
+@media (max-width:899px){#igs-unified-settings .igs-settings-nav:has(.igs-onboarding-nav-frame){position:absolute}}
+.igs-onboarding-nav-frame{position:absolute;left:4px;right:4px;box-sizing:border-box;border:2px solid currentColor;border-radius:var(--igs-settings-radius-small,6px);pointer-events:none}
 #igs-onboarding-card .igs-onboarding-body{max-height:min(40vh,320px);overflow-y:auto}
 .igs-onboarding-btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 #igs-onboarding-card .igs-onboarding-quiz{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,360px);overflow-y:auto;margin:0 0 6px}

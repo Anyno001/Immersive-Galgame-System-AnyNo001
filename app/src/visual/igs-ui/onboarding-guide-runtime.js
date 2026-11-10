@@ -119,14 +119,56 @@ export function resolveStepTarget(container, step, wide) {
             try { placeRowMenu(menu, container.ownerDocument?.defaultView || globalThis); } catch (_) { /* 定位失败按默认方向展开 */ }
         }
     }
-    const selectors = !wide && step.targetNarrow ? step.targetNarrow : step.target;
+    const selectors = step.target;
     const target = queryVisible(container, selectors);
     return { target, note: !target && (selectors || []).length ? step.missing || '这一项当前不可见' : '', blocked: false };
+}
+
+// 窄屏的分类栏是抽屉：讲侧边栏的步骤先拉开，换到其他步骤时收起。
+function syncNavDrawer(container, step, wide, stepChanged) {
+    const host = container.querySelector?.('#igs-unified-settings');
+    if (!host || wide) return;
+    if (step.nav) host.setAttribute('data-igs-nav', 'open');
+    else if (stepChanged) host.removeAttribute('data-igs-nav');
+}
+
+// 分组标题到下一个分组之前的分类一起框住。
+function mountNavGroupFrame(container, group, doc) {
+    const nav = group?.parentElement;
+    if (!nav) return;
+    let last = group;
+    for (let node = group.nextElementSibling; node && !node.classList?.contains('igs-settings-nav-group'); node = node.nextElementSibling) last = node;
+    const frame = doc.createElement('div');
+    frame.className = 'igs-onboarding-nav-frame';
+    // 先挂上框让分类栏变成定位容器，再量分组位置。
+    nav.appendChild(frame);
+    frame.style.top = `${group.offsetTop - 2}px`;
+    frame.style.height = `${last.offsetTop + last.offsetHeight - group.offsetTop + 4}px`;
+}
+
+// 角色设定面板：只在换步时替用户打开一次，并切到指定页；用户自己收起后不再强开。
+function openCharPanel(container, page, win) {
+    const card = container.querySelector?.('.igs-char-card');
+    if (!card) return;
+    const run = (selector) => {
+        const node = card.querySelector?.(selector);
+        if (node) win.setTimeout(() => node.click?.(), 0);
+        return Boolean(node);
+    };
+    if (!card.querySelector?.('.igs-char-dna-panel')) {
+        run('[data-action^="scene-toggle-dna:"]');
+        return 'opening';
+    }
+    const tab = Array.from(card.querySelectorAll?.('.igs-char-setup-tabs [data-action]') || [])
+        .find((node) => String(node.getAttribute('data-action')).endsWith(`%3D${page}`));
+    if (tab && !tab.classList.contains('is-active')) win.setTimeout(() => tab.click?.(), 0);
+    return 'done';
 }
 
 export function removeOnboardingCard(container) {
     if (!container) return;
     for (const node of Array.from(container.querySelectorAll?.(`[${ONBOARDING_ACTIVE_ATTR}]`) || [])) node.removeAttribute?.(ONBOARDING_ACTIVE_ATTR);
+    for (const node of Array.from(container.querySelectorAll?.('.igs-onboarding-nav-frame') || [])) node.remove?.();
     container.querySelector?.(`#${ONBOARDING_CARD_ID}`)?.remove?.();
     const body = container.querySelector?.('.igs-settings-body');
     if (body?.style) body.style.paddingBottom = '';
@@ -139,7 +181,13 @@ export function mountOnboardingCard(container, guide, mountOptions = {}) {
     if (!container || !guide || !doc || typeof doc.createElement !== 'function') return null;
     const host = container.querySelector?.('#igs-unified-settings') || container;
     const step = getOnboardingStep(guide.step);
-    const { target, note } = resolveStepTarget(container, step, isWideLayout(doc));
+    const wide = isWideLayout(doc);
+    syncNavDrawer(container, step, wide, Boolean(mountOptions.scroll));
+    if (mountOptions.scroll) guide.panelStage = step.charPanel ? 'pending' : '';
+    if (step.charPanel && guide.panelStage && guide.panelStage !== 'done' && doc.defaultView) {
+        guide.panelStage = openCharPanel(container, step.charPanel, doc.defaultView) || 'done';
+    }
+    const { target, note } = resolveStepTarget(container, step, wide);
     const card = doc.createElement('section');
     card.id = ONBOARDING_CARD_ID;
     card.className = 'igs-onboarding-card';
@@ -151,8 +199,9 @@ export function mountOnboardingCard(container, guide, mountOptions = {}) {
     const body = container.querySelector?.('.igs-settings-body');
     const cardHeight = Number(card.offsetHeight) || 0;
     if (body?.style && cardHeight > 0) body.style.paddingBottom = `${cardHeight + 16}px`;
+    if (target && step.navGroup) mountNavGroupFrame(container, target, doc);
+    else if (target) target.setAttribute(ONBOARDING_ACTIVE_ATTR, '1');
     if (target) {
-        target.setAttribute(ONBOARDING_ACTIVE_ATTR, '1');
         const compact = Number(doc.defaultView?.innerWidth) <= ONBOARDING_COMPACT_WIDTH;
         if (mountOptions.scroll) target.scrollIntoView?.({ block: 'start', behavior: compact || prefersReducedMotion(doc) ? 'auto' : 'smooth' });
         // 细窄手机：目标落在下半屏时，引导卡贴到顶部，不盖住目标。

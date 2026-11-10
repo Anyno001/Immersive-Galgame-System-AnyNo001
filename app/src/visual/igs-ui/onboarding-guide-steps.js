@@ -1,8 +1,9 @@
 // 新手配置引导的步骤数据。
 // page 是设置器的页面 id（见 settings-pages.js），交给设置控制器切换视图，不写任何设置值。
 // open 是要自动展开的折叠 key（data-advanced）；target 为候选选择器，取第一个可见的命中元素高亮，
-// targetNarrow 只在窄屏（与设置外壳同一断点，宽度小于 900px）使用，全部不命中时卡片提示 missing 或「这一项当前不可见」。
+// 全部不命中时卡片提示 missing 或「这一项当前不可见」。
 // requires：目标所在区域被隐藏时，先高亮 switch 对应的开关并提示 hint（素材模式没开就是这种情况）。
+// nav：打开窄屏侧边栏抽屉，navGroup 连同组下分类一起高亮；charPanel：展开第一个角色的设定面板并切到该页；
 // menu：先展开第一个角色的「⋯」菜单再找目标；gate：条件满足前「下一步」只提示不前进；branch：给「到此结束」出口。
 const SCENE_ASSET_REQUIRES = Object.freeze({
     content: '.igs-scene-settings-content',
@@ -10,7 +11,6 @@ const SCENE_ASSET_REQUIRES = Object.freeze({
     hint: '先开启「启用场景素材模式」',
 });
 
-const NAV_NARROW = Object.freeze(['.igs-settings-nav-toggle']);
 const navGroup = (n) => Object.freeze([`.igs-settings-nav > .igs-settings-nav-group:nth-of-type(${n})`]);
 const navItem = (cat) => Object.freeze([`.igs-settings-nav [data-cat="${cat}"]`]);
 const CHAR_MENU = '.igs-char-card .igs-row-menu';
@@ -32,32 +32,32 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '有任何想找的功能或问题，比如「黑边」「卡顿」，都可以在这里直接搜索。',
     }),
     step({
-        id: 'nav', page: 'dash', target: ['.igs-settings-nav'], targetNarrow: NAV_NARROW,
+        id: 'nav', page: 'dash', target: ['.igs-settings-nav'], nav: true,
         title: '设置',
         body: '这里能看到各个功能的目录。',
     }),
     step({
-        id: 'navReading', page: 'dash', target: navGroup(1), targetNarrow: NAV_NARROW,
+        id: 'navReading', page: 'dash', target: navGroup(1), nav: true, navGroup: 1,
         title: '阅读体验',
         body: '这里的设置决定你的阅读感受，可以按喜好慢慢调整细节。',
     }),
     step({
-        id: 'navAssets', page: 'dash', target: navGroup(2), targetNarrow: NAV_NARROW,
+        id: 'navAssets', page: 'dash', target: navGroup(2), nav: true, navGroup: 2,
         title: '素材与生图',
         body: '你的素材都在这里管理，API也在这里配置。',
     }),
     step({
-        id: 'navFormat', page: 'dash', target: navGroup(3), targetNarrow: NAV_NARROW,
+        id: 'navFormat', page: 'dash', target: navGroup(3), nav: true, navGroup: 3,
         title: '格式处理',
         body: '这里可以单独修改生图模型，以及对正文格式的要求。',
     }),
     step({
-        id: 'navPlay', page: 'dash', target: navGroup(4), targetNarrow: NAV_NARROW,
+        id: 'navPlay', page: 'dash', target: navGroup(4), nav: true, navGroup: 4,
         title: '玩法与数据',
         body: '这里是进阶玩法。',
     }),
     step({
-        id: 'api', page: 'source', target: [...navItem('ai'), '.igs-page-tabs'], targetNarrow: ['.igs-page-tabs'],
+        id: 'api', page: 'source', target: [...navItem('ai'), '.igs-page-tabs'], nav: true,
         title: 'API配置',
         body: '开始配置我们的IGS吧！第一步是配置生图API和备用模型API。',
     }),
@@ -101,15 +101,17 @@ export const ONBOARDING_STEPS = Object.freeze([
         title: '角色菜单',
         body: '每个角色名字右边都有一个「⋯」，这个角色的所有设置都收在这里。接下来带你从上往下认识一遍，看到感兴趣的可以直接点开试试，不会弄坏东西哦。',
     }),
-    menuStep({
-        id: 'charSetup', target: menuItem('scene-toggle-dna'),
+    step({
+        id: 'charSetup', page: 'chars', requires: SCENE_ASSET_REQUIRES, charPanel: 'look', missing: NO_CHAR,
+        target: ['.igs-char-card .igs-char-dna-panel', ...menuItem('scene-toggle-dna')],
         title: '角色设定',
-        body: '角色的详细资料都在这里，分三页：\n· 外貌：就是上一步说的DNA，决定这个角色画出来长什么样。没填时菜单上会写「（外貌未填）」，不影响阅读。\n· 资料：可以填别名（下一步细说）、状态栏头像（上传图片，或者点「生成Q版」自动画一个），还有名字颜色（窄屏阅读时名字的颜色，默认从立绘取色）。\n· 声音：开启语气音或台词朗读后才会出现，用来给这个角色挑声线、调音高和语速。',
+        body: '菜单里的「角色设定」会打开下面这块面板，角色的详细资料都在这里，分三页：\n· 外貌：就是上一步说的DNA，决定这个角色画出来长什么样。没填时菜单上会写「（外貌未填）」，不影响阅读。\n· 资料：可以填别名（下一步细说）、状态栏头像（上传图片，或者点「生成Q版」自动画一个），还有名字颜色（窄屏阅读时名字的颜色，默认从立绘取色）。\n· 声音：开启语气音或台词朗读后才会出现，用来给这个角色挑声线、调音高和语速。',
     }),
-    menuStep({
-        id: 'charAlias', target: menuItem('scene-toggle-dna'),
+    step({
+        id: 'charAlias', page: 'chars', requires: SCENE_ASSET_REQUIRES, charPanel: 'profile', missing: NO_CHAR,
+        target: ['.igs-char-card .igs-char-dna-panel .igs-char-info-row:has(.igs-mood-word-list)', '.igs-char-card .igs-char-dna-panel'],
         title: '别名',
-        body: '别名在「角色设定 › 资料」里。正文里同一个人常常有好几种叫法，比如「林小雨」「小雨」「林同学」，把这些叫法都加进别名，插件就知道说的是同一个人，会用同一套立绘。点「+」就能添加，点名字旁边的「×」可以删掉。',
+        body: '别名在「角色设定 › 资料」页的第一行。正文里同一个人常常有好几种叫法，比如「林小雨」「小雨」「林同学」，把这些叫法都加进别名，插件就知道说的是同一个人，会用同一套立绘。点「+」就能添加，点名字旁边的「×」可以删掉。',
     }),
     menuStep({
         id: 'charUser', target: menuItem('scene-set-user-char'),
@@ -183,22 +185,22 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '在这里换对话框风格，有很多款漂亮的对话框等你来用。选择困难的话：现代故事选「渐变黑幕」，古代故事选「水墨武侠」，奇幻故事选「魔法星夜」！',
     }),
     step({
-        id: 'text', page: 'text', target: navItem('text'), targetNarrow: NAV_NARROW, optional: true,
+        id: 'text', page: 'text', target: navItem('text'), nav: true, optional: true,
         title: '文字',
         body: '这里可以修改字号、字体等参数。',
     }),
     step({
-        id: 'sound', page: 'sound', target: navItem('sound'), targetNarrow: NAV_NARROW, optional: true,
+        id: 'sound', page: 'sound', target: navItem('sound'), nav: true, optional: true,
         title: '声音',
         body: '这里可以调整BGM、环境音和角色说话的声音。',
     }),
     step({
-        id: 'perf', page: 'perf-text', target: navItem('perf'), targetNarrow: NAV_NARROW, optional: true,
+        id: 'perf', page: 'perf-text', target: navItem('perf'), nav: true, optional: true,
         title: '演出',
         body: '这里可以按喜好安排各种演出，每项一个开关，点「›」能看到更细的选项。内容太丰富啦，以后慢慢看吧！',
     }),
     step({
-        id: 'stats', page: 'stats-set', target: navItem('stats'), targetNarrow: NAV_NARROW, optional: true,
+        id: 'stats', page: 'stats-set', target: navItem('stats'), nav: true, optional: true,
         title: '数值系统',
         body: '开启后，角色会有自己的好感度和信任度，影响他们怎么看你！数值系统要搭配数据库插件的表格一起用，接下来教你怎么准备表格。',
     }),
@@ -218,12 +220,12 @@ export const ONBOARDING_STEPS = Object.freeze([
         body: '如果上面两个按钮提示「未检测到数据库」，或者你习惯自己手动导入，就点这里把模板文件存到本地，再到数据库插件里导入。',
     }),
     step({
-        id: 'combat', page: 'combat', target: navItem('combat'), targetNarrow: NAV_NARROW, optional: true,
+        id: 'combat', page: 'combat', target: navItem('combat'), nav: true, optional: true,
         title: '战斗与敌方',
         body: '想多点趣味的话，可以在这里开启卡牌战斗！不管是日常挑战还是遭遇敌人，都用卡牌一决胜负吧！',
     }),
     step({
-        id: 'origin', page: 'origin', target: navItem('origin'), targetNarrow: NAV_NARROW, optional: true,
+        id: 'origin', page: 'origin', target: navItem('origin'), nav: true, optional: true,
         title: '随身系统',
         body: '这里可以开启新的玩法：完成系统发布的任务，就能获得各种奖励！',
     }),
