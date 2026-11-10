@@ -449,6 +449,11 @@ function transformModule(module) {
     let importCounter = 0;
     let code = module.source;
 
+    code = code.replace(/^\s*import\s+['"]([^'"]+)['"];\s*$/gm, (_match, request) => {
+        const resolved = resolveLocalModule(module.file, request);
+        return `require(${JSON.stringify(resolved.id)});`;
+    });
+
     code = code.replace(/^\s*import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];\s*$/gm, (_match, clause, request) => {
         const resolved = resolveLocalModule(module.file, request);
         return renderImportClause(clause, resolved.id);
@@ -535,6 +540,7 @@ function parseSpecifierPairs(text) {
 function extractDependencies(source) {
     const dependencies = [];
     collect(/^\s*import\s+[\s\S]*?\s+from\s+['"]([^'"]+)['"];\s*$/gm);
+    collect(/^\s*import\s+['"]([^'"]+)['"];\s*$/gm);
     collect(/^\s*export\s+\{[\s\S]*?\}\s+from\s+['"]([^'"]+)['"];\s*$/gm);
     return dependencies;
 
