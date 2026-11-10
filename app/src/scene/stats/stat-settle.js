@@ -335,7 +335,17 @@ function applyCharacterDirective(current, d, state, ctx) {
     const coef = Number(current.coef) || 1;
     if (d.kind === 'gift') return applyGift(current, d.value, { random: ctx.random, coef, floorRoom: room('好感'), scale, ...(scale && up > 1 ? { dailyMax: limits.daily } : {}) });
     if (d.kind === 'event') {
-        const roll = () => resolveCheck(ctx.engine, state, { actor: PROTAGONIST, skill: keyEventSkill(ctx.engine, state, d.value, ctx.rev), toward: d.target }, ctx.random);
+        const skill = keyEventSkill(ctx.engine, state, d.value, ctx.rev);
+        // 特质奖惩骰（rev ≥ 2 由运行时传入 traitEdge）。
+        const te = ctx.rev >= 2 && typeof ctx.traitEdge === 'function' ? ctx.traitEdge(state, { skill, toward: d.target }) : null;
+        const request = { actor: PROTAGONIST, skill, toward: d.target, edge: te ? te.edge : 0, floor: te ? te.floor : 0 };
+        const roll = () => {
+            if (!te) return resolveCheck(ctx.engine, state, request, ctx.random);
+            const check = luckyReroll(ctx.keyLuckyUsed ? { ...state, clock: { ...state.clock, luckyUsed: true } } : state, ctx.traitCat, resolveCheck(ctx.engine, state, request, ctx.random), () => resolveCheck(ctx.engine, state, request, ctx.random));
+            if (check.reroll) ctx.keyLuckyUsed = true;
+            if (te.favorFrom) ctx.keyFavorUsed = [...(ctx.keyFavorUsed || []), te.favorFrom];
+            return check;
+        };
         const grades = ctx.rev >= 2;
         const { character, result } = applyKeyEvent(current, d.value, { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(state, ctx.traitCat, d.target) : [], grades, day: state.clock.day });
         ctx.events.push({ target: d.target, ...result });
@@ -782,7 +792,7 @@ export function settleFloorText(before, text, opts = {}) {
     // 主角离体（rev ≥ 2）：本楼最后一个 hero 标签定状态，没有标签沿用存档。离体时冻结体力、金钱、伤势与主角检定。
     const heroTag = rev >= 2 ? [...parsed.directives].reverse().find((d) => d.kind === 'hero') : null;
     const detached = rev >= 2 && (heroTag ? heroTag.value === '离体' : before.protagonist.detached === true);
-    const ctx = { rev2: rev >= 2, detached, traits, traitCat, romanceSeen: Array.isArray(opts.romanceSeen) ? opts.romanceSeen : [], aptitudeOf: typeof opts.aptitudeOf === 'function' ? opts.aptitudeOf : () => '平庸', random, nsfw, dateKey, dateMode: Boolean(dateRegex.regex && (dateKey || (before.clock && before.clock.lastDate))), moneyTable, tier, rev, intimateCost, limits: favorTierLimits(tier, rev), walletExtra: Number(opts.walletExtra) || 0, present: Array.isArray(opts.present) ? opts.present.filter((n) => !hasTrait(before, traitCat, n, '已故')) : undefined, weather: String((opts.env && opts.env.weather) || ''), time: String((opts.env && opts.env.time) || ''), place: String((opts.env && opts.env.place) || ''), fx: Array.isArray(opts.env && opts.env.fx) ? opts.env.fx : [], bondEvents: Array.isArray(opts.bondEvents) ? opts.bondEvents : [], reviewEvents: Array.isArray(opts.reviewEvents) ? opts.reviewEvents : [], engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null, skillValueOf: (st, name, skill) => profileOf(engine, st, name, skill).value };
+    const ctx = { rev2: rev >= 2, detached, traits, traitCat, traitEdge: typeof opts.traitEdge === 'function' ? opts.traitEdge : null, romanceSeen: Array.isArray(opts.romanceSeen) ? opts.romanceSeen : [], aptitudeOf: typeof opts.aptitudeOf === 'function' ? opts.aptitudeOf : () => '平庸', random, nsfw, dateKey, dateMode: Boolean(dateRegex.regex && (dateKey || (before.clock && before.clock.lastDate))), moneyTable, tier, rev, intimateCost, limits: favorTierLimits(tier, rev), walletExtra: Number(opts.walletExtra) || 0, present: Array.isArray(opts.present) ? opts.present.filter((n) => !hasTrait(before, traitCat, n, '已故')) : undefined, weather: String((opts.env && opts.env.weather) || ''), time: String((opts.env && opts.env.time) || ''), place: String((opts.env && opts.env.place) || ''), fx: Array.isArray(opts.env && opts.env.fx) ? opts.env.fx : [], bondEvents: Array.isArray(opts.bondEvents) ? opts.bondEvents : [], reviewEvents: Array.isArray(opts.reviewEvents) ? opts.reviewEvents : [], engine, changes: [], diagnostics, events: [], flags: {}, floorGained: new Map(), newSkills: [], critTarget: null, skillValueOf: (st, name, skill) => profileOf(engine, st, name, skill).value };
     const rollTag = detached ? null : parsed.directives.find((d) => d.kind === 'roll') || null;
     let check = detached ? null : opts.check || null;
     let pendingRoll = null;
@@ -863,6 +873,9 @@ export function settleFloorText(before, text, opts = {}) {
     if (rev >= 2) state = unlockKinGates(state, ctx);
     if (rev >= 2) { const moon = moonlightJealousy(state, directives, ctx); state = moon.state; directives.push(...moon.directives); }
     state = settleCharacters(state, directives, ctx);
+    // 关键事件检定用掉的「欠你人情」与福星重掷。
+    for (const name of new Set(ctx.keyFavorUsed || [])) if (name !== favorUsed) state = consumeFavor(state, name);
+    if (ctx.keyLuckyUsed) state = withClock(state, { luckyUsed: true });
     if (rev >= 2) { state = settleRomance(state, directives); state = settleClear(state, directives, ctx); }
     state = settleGrowTags(state, directives, ctx);
     if (rev >= 2) state = settleInsight(state, directives, ctx);

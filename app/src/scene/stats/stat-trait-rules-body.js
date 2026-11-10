@@ -160,6 +160,7 @@ function staminaHook(state, api) {
         if (has('病秧子')) mul(1.5, '病秧子');
         if (has('强健')) mul(0.5, '强健');
         else if (has('铁打的身体')) mul(0.5, '铁打的身体');
+        else if (has('龙族')) mul(0.5, '龙族');
         if (name === HERO && has('耐寒') && COLD.test(env)) mul(0.5, '耐寒');
         if (name === HERO && has('耐热') && HOT.test(env)) mul(0.5, '耐热');
         if (name === HERO && severe && has('耐痛')) mul(0.5, '耐痛');
