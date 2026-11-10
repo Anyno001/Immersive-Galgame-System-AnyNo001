@@ -39,7 +39,7 @@ export function attributeMultiplier(policy, ability, tier = 'normal') {
     const diff = abilityMod(policy.scores[ability]) + policy.proficiency - 2;
     const conservative = tier === 'support';
     const step = conservative ? 0.04 : 0.08;
-    const low = conservative ? 0.85 : 0.70;
+    const low = conservative ? 0.95 : 0.90;
     const high = conservative ? 1.15 : 1.30;
     return Math.round(Math.max(low, Math.min(high, 1 + step * diff)) * 100) / 100;
 }
