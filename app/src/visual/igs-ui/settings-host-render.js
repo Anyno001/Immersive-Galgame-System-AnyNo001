@@ -1,3 +1,4 @@
+import { renderNaiQuota } from './settings-nai-quota.js';
 import { renderTtsVoiceLibrary } from './tts-voice-library-view.js';
 import { renderTtsVoicePoolGroups, ttsVoiceSelectInput } from './tts-voice-options.js';
 import { renderTtsVoiceSearch } from './tts-voice-search.js';
@@ -33,7 +34,6 @@ import { getReaderModeIcon } from './icons.js';
 import { renderPromptKindsPanel } from './settings-prompt-kinds.js';
 import { renderImagePromptPanel } from './settings-image-prompt-view.js';
 import { renderWorldInfoFilterPanel } from './settings-world-info-filter.js';
-import { renderArtistLibrary, renderArtistSelector } from './settings-artist-library.js';
 import { renderModelProfileRow } from './settings-model-profiles.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
@@ -428,15 +428,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const directMedium = isNaiMediumModel(auto.nai.model);
             const hasEffortModel = directMedium || [auto.nai.model, auto.consistencyModel,
                 ...['cgModel', 'spriteModel', 'backgroundModel', 'itemModel'].map(key => imageApi[key])].some(supportsNaiEffort);
-            const sourceNotes = {
-                nai: '用 NAI 生成剧情 CG、立绘与背景。',
-                dbgen: '提示词与 Key 由数据库生图插件管理。',
-                extension: '画风沿用智绘姬。',
-                baibai: '画风沿用柏宝绘。',
-            };
+            // 只在画师串与分类模型不生效的来源下提示。
             const contentNotes = {
-                nai: '当前图像来源：IGS内置NAI。',
-                dbgen: '当前图像来源：数据库生图插件。',
                 extension: '当前图像来源：智绘姬，不使用画师串与分类模型。',
                 baibai: '当前图像来源：柏宝绘，不使用画师串与分类模型。',
             };
@@ -460,8 +453,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 imageCgOldestFirst: String(Boolean(asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst)),
                 imageCgOrderLabel: asyncState.imageCg && asyncState.imageCg.state.filters.oldestFirst ? '最早在前' : '最新在前',
                 imageSourceField: field('bridge.imageApi.mode', '图像来源', segmentedInput('bridge.imageApi.mode', sourceMode, [['nai', 'IGS内置NAI'], ['dbgen', '数据库生图插件'], ['extension', '智绘姬'], ['baibai', '柏宝绘']], '图像来源')),
-                imageSourceNote: esc(sourceNotes[sourceMode]),
-                imageContentNote: esc(contentNotes[sourceMode]),
+                imageContentNote: contentNotes[sourceMode] ? `<div class="igs-source-filter-note">${esc(contentNotes[sourceMode])}</div>` : '',
                 sourceNaiHidden: hiddenAttr(sourceMode !== 'nai'),
                 sourceBuiltinHidden: hiddenAttr(sourceMode !== 'nai'),
                 sourceConsistencyHidden: hiddenAttr(sourceMode !== 'nai' && sourceMode !== 'dbgen'),
@@ -483,12 +475,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 assetSceneWarnHidden: hiddenAttr(!(auto.assets.spriteEnabled || auto.assets.backgroundEnabled) || Boolean(bridge.sceneAssets && bridge.sceneAssets.enabled)),
                 imagePromptPanel: sourceMode === 'nai' ? renderImagePromptPanel(asyncState.imagePromptEditor, asyncState.advancedOpen) : '',
                 worldInfoFilterPanel: renderWorldInfoFilterPanel(imageApi, asyncState),
-                artistLibraryPanel: renderArtistLibrary(auto.nai, asyncState.artistLibrary),
-                globalArtistField: sourceMode === 'nai' || sourceMode === 'dbgen'
-                    ? renderArtistSelector(auto.nai, 'global', sourceMode) : '',
-                autoLlmNote: esc(sourceMode === 'dbgen'
-                    ? '规划剧情 CG 与素材标签。'
-                    : '编写生图提示词；可沿用酒馆 API。'),
                 adapterField: field('bridge.imageApi.externalAdapter', '识别范围', selectInput('bridge.imageApi.externalAdapter', imageApi.externalAdapter, [['auto', '自动检测'], ['chatu8', '仅智绘姬（st-chatu8）']])),
                 pollIntervalField: field('bridge.imageApi.pollIntervalMs', '等待新图：查询间隔（毫秒）', numberInput('bridge.imageApi.pollIntervalMs', imageApi.pollIntervalMs, 500, 30000)),
                 pollAttemptsField: field('bridge.imageApi.pollAttempts', '等待新图：查询次数', numberInput('bridge.imageApi.pollAttempts', imageApi.pollAttempts, 1, 240)),
@@ -520,7 +506,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 itemImageFields: checkbox('bridge.itemImages.enabled', normalizeItemImageSettings(bridge.itemImages).enabled, '自动生成物品图')
                     + field('bridge.itemImages.inventoryIcon', '背包格子图标', selectInput('bridge.itemImages.inventoryIcon', normalizeItemImageSettings(bridge.itemImages).inventoryIcon, [['image', '图片'], ['svg', '矢量图标']])),
                 autoLlmApiHidden: hiddenAttr(openaiDisabled),
-                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前API（消耗主模型额度）'], ['openai', '独立API']])),
+                autoLlmSourceField: field('bridge.autoIllustration.llm.source', '来源', selectInput('bridge.autoIllustration.llm.source', auto.llm.source, [['tavern', '酒馆当前API'], ['openai', '独立API']])),
                 autoLlmEndpointField: field('bridge.autoIllustration.llm.endpoint', '地址', textInput('bridge.autoIllustration.llm.endpoint', auto.llm.endpoint, 'https://.../v1', 'text', openaiDisabled)),
                 autoLlmKeyField: field('bridge.autoIllustration.llm.apiKey', 'API Key', secretInput('bridge.autoIllustration.llm.apiKey', auto.llm.apiKey, '无需Key可留空', openaiDisabled)),
                 autoLlmModelField: field('bridge.autoIllustration.llm.model', '模型', modelPicker('bridge.autoIllustration.llm.model', auto.llm.model, asyncState.llmModels, 'fetch-llm-models', 'gpt-4o-mini', openaiDisabled)),
@@ -533,37 +519,36 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoLlmJailbreakHeadField: field('bridge.autoIllustration.llm.jailbreakHead', '头部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakHead', auto.llm.jailbreakHead, '每次写词请求最前插入')),
                 autoLlmJailbreakTailField: field('bridge.autoIllustration.llm.jailbreakTail', '尾部附加词', autoTextarea('bridge.autoIllustration.llm.jailbreakTail', auto.llm.jailbreakTail, '每次写词请求最后插入')),
                 autoLlmContextField: field('bridge.autoIllustration.llm.contextFloors', '参考前文楼层数', numberInput('bridge.autoIllustration.llm.contextFloors', auto.llm.contextFloors, 0, 3)),
-                autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动（酒馆代理已开启时经酒馆转发）']])),
+                autoNaiTransportField: field('bridge.autoIllustration.nai.transport', '传输方式', selectInput('bridge.autoIllustration.nai.transport', auto.nai.transport, [['direct', '浏览器直连'], ['st-proxy', '酒馆CORS代理（需开启enableCorsProxy）'], ['auto', '自动']])),
                 autoNaiQueueOpen: advancedOpen('nai-queue'),
                 autoNaiIntervalFields: checkbox('bridge.autoIllustration.nai.minIntervalEnabled', auto.nai.minIntervalEnabled, '生图间隔')
-                    + field('bridge.autoIllustration.nai.minIntervalMs', '间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000, !auto.nai.minIntervalEnabled), '同一密钥两次请求之间的等待时间。'),
+                    + field('bridge.autoIllustration.nai.minIntervalMs', '间隔（毫秒）', numberInput('bridge.autoIllustration.nai.minIntervalMs', auto.nai.minIntervalMs, 0, 60000, !auto.nai.minIntervalEnabled)),
                 autoNaiCloudQueueFields: checkbox('bridge.autoIllustration.nai.cloudQueue.enabled', auto.nai.cloudQueue.enabled, '云端排队')
-                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, '填写后生效'), '多人共用同一密钥时使用，各方须填写同一地址。')
+                    + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, '填写后生效'))
                     + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '最长排队（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000)),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
+                autoNaiQuotaPanel: renderNaiQuota(asyncState.naiQuota),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
-                autoNaiEffortField: hasEffortModel ? field('bridge.autoIllustration.nai.effort', 'V5 Full 档位', selectInput('bridge.autoIllustration.nai.effort', directMedium ? 'medium' : auto.nai.effort, [['high', 'High（原档位）'], ['medium', 'Medium（14 步省算力）']], directMedium), directMedium ? '当前直接选择了 Medium 专模；要切回 High，请先把模型选为 nai-diffusion-5-full。' : '仅对实际使用的 V5 Full 及其局部重绘生效。Medium 固定 14 步和 Euler Ancestral；其它型号仍用原参数，切回 High 保留原设置。') : '',
+                autoNaiEffortField: hasEffortModel ? field('bridge.autoIllustration.nai.effort', 'V5 Full 档位', selectInput('bridge.autoIllustration.nai.effort', directMedium ? 'medium' : auto.nai.effort, [['high', 'High（原档位）'], ['medium', 'Medium（14 步省算力）']], directMedium), directMedium ? '当前直接选择了 Medium 专模；要切回 High，请先把模型选为 nai-diffusion-5-full。' : '') : '',
                 modelProfileImageRow: renderModelProfileRow('image', asyncState.modelProfiles),
                 modelProfileLlmRow: renderModelProfileRow('llm', asyncState.modelProfiles),
                 autoNaiModelsMessage: esc(asyncState.naiModelsMessage || ''),
                 autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
                 autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', effectiveNai.steps, 1, 50, medium)),
                 autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
-                consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '一致性重绘强度', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05'), '0.1–1，越低越保留原图'),
+                consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '一致性重绘强度', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05')),
                 consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
                 autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', effectiveNai.sampler, 'k_euler_ancestral', 'text', medium)),
             };
             const anchorViewportField = (autoSettings) => {
                 const width = Number(autoSettings.assets.anchoredWidth) || 0;
                 const height = Number(autoSettings.assets.anchoredHeight) || 0;
-                const note = width > 0 && height > 0
-                    ? `已锚定出图 ${width}×${height}。这是按当时窗口比例、不超过 1024×1024 的最大尺寸。全屏生图沿用这个尺寸，再点一次才更新。`
-                    : '还没锚定。点一下按现在的窗口比例，记下不超过 1024×1024 的最大出图尺寸。全屏生图会一直用这个尺寸。';
+                const note = width > 0 && height > 0 ? `已锚定 ${width}×${height}` : '';
                 return `<div class="igs-settings-sub" data-image-feature="cg-anchor">`
                     + `<input type="hidden" data-path="bridge.autoIllustration.assets.anchoredWidth" value="${width}">`
                     + `<input type="hidden" data-path="bridge.autoIllustration.assets.anchoredHeight" value="${height}">`
-                    + `<div class="igs-source-filter-note">${esc(note)}</div>`
+                    + (note ? `<div class="igs-settings-result">${esc(note)}</div>` : '')
                     + `<button type="button" class="igs-settings-action" data-action="anchor-cg-viewport">锚定当前宽高</button>`
                     + `</div>`;
             };
@@ -575,7 +560,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const kindModel = (kind, label) => (sourceMode === 'nai' || sourceMode === 'dbgen'
                 ? field(`bridge.imageApi.${kind}Model`, label, kindModelPicker(`bridge.imageApi.${kind}Model`, imageApi[`${kind}Model`], pulledImageModels)) : '');
             imageFields.promptKindsPanel = renderPromptKindsPanel({
-                nai: auto.nai, sourceMode, checkbox, advancedOpen,
+                nai: auto.nai, sourceMode, checkbox, advancedOpen, artistLibraryState: asyncState.artistLibrary,
                 templateFields: {
                     sprite: [imageFields.autoAssetSpriteTemplateField, imageFields.autoAssetSpriteNegativeTemplateField],
                     background: [imageFields.autoAssetBackgroundTemplateField, imageFields.autoAssetBackgroundNegativeTemplateField],
@@ -586,7 +571,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<div class="igs-settings-sub" data-image-feature="asset-options"${imageFields.autoAssetOptionsHidden}>${grid(imageFields.autoAssetMaxField)}</div>`,
                     character: grid(imageFields.autoAssetSpriteField, '<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在「角色」页编辑外貌（DNA）">角色 DNA</button>')
                         + grid(imageFields.autoOutfitField)
-                        + '<div class="igs-source-filter-note">会调用备用模型和当前生图来源。</div>'
                         + `<div class="igs-settings-sub" data-image-feature="sprite-options"${hiddenAttr(!auto.assets.spriteEnabled)}>${grid(imageFields.autoAssetSpriteSizeField, kindModel('sprite', '立绘模型'))}</div>`,
                     scene: grid(imageFields.autoAssetBackgroundField)
                         + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'), imageFields.autoAssetDayFirstField)}</div>`
@@ -596,7 +580,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + imageFields.autoInterludeField
                         + `<div class="igs-settings-sub" data-image-feature="interlude"${imageFields.autoInterludeHidden}>${grid(imageFields.autoInterludeProbabilityField, imageFields.autoInterludeMaxField)}</div>`
                         + grid(kindModel('cg', '剧情CG模型'))
-                        + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}<div class="igs-source-filter-note">翻到未出图或出图失败的旧楼层时补画，会消耗生图额度。</div></div>`,
+                        + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}</div>`,
                     nsfw: imageFields.autoNsfwField
                         + `<div class="igs-settings-sub" data-image-feature="nsfw"${imageFields.autoNsfwHidden}>${grid(imageFields.autoNsfwCountField)}</div>`,
                 },
@@ -1003,7 +987,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 `<div class="igs-source-filter-note">声线可在「角色 › 角色设定」中选择；未选择时按DNA中的性别分配。</div>`,
             ].join('') : ''; },
             get ttsToggle() { return checkbox('readerSettings.tts.enabled', tts.enabled, '台词朗读（TTS）'); },
-            get ttsControls() { return tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '', batches: asyncState.ttsBatch || {}, assets: draftEffectiveAssets(state.activeSettings), previewError: asyncState.ttsPreviewError || '', narratorPreviewError: asyncState.ttsNarratorPreviewError || '', advancedOpen: isOpenKey('tts-advanced') }) : ''; },
+            get ttsControls() { return tts.enabled ? renderTtsControls(tts, { bilingual: normalizeBilingualSettings(reader.bilingual).enabled, voicesMessage: asyncState.ttsVoicesMessage || '', narratorVoicesMessage: asyncState.ttsNarratorVoicesMessage || '', batches: asyncState.ttsBatch || {}, assets: draftEffectiveAssets(state.activeSettings), previewError: asyncState.ttsPreviewError || '', narratorPreviewError: asyncState.ttsNarratorPreviewError || '', advancedOpen: isOpenKey('tts-advanced'), isOpen: isOpenKey, voiceSelect: asyncState.ttsVoiceSelect }) : ''; },
             get stageShakeToggle() { return checkbox('readerSettings.stageShake.enabled', stageShake.enabled, '画面震动'); },
             get stageShakeSettings() { return stageShake.enabled ? renderStageShakeSettings(stageShake) : ''; },
             get systemRoleFields() { return renderSystemRoleSettings(systemRole, {
@@ -1417,7 +1401,7 @@ const ttsGroup = (title, parts, headAction = '') => `<div class="igs-settings-gr
 const ttsInlineField = (label, controlHtml, tag = 'label') => `<${tag} class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></${tag}>`;
 
 // 默认声音候选池：点选多个，没单独设声音的角色按名字稳定地取其中一个。source 为 api / system，items 是 [id, 显示名]。
-function ttsVoicePoolField(label, source, role, value, items, { missingNote = '不在声音库', groups = null } = {}) {
+function ttsVoicePoolField(label, source, role, value, items, { missingNote = '不在声音库', groups = null, open = false } = {}) {
     const picked = parseVoicePool(value);
     const chip = (id, text, missing) => `<button type="button" class="igs-table-pick${picked.includes(id) ? ' is-on' : ''}${missing ? ' is-missing' : ''}" data-action="tts-pool-toggle:${source}:${role}:${encodeURIComponent(id)}" aria-pressed="${picked.includes(id) ? 'true' : 'false'}"><i></i><span>${esc(text)}</span></button>`;
     const known = new Set(items.map(([id]) => id));
@@ -1425,8 +1409,14 @@ function ttsVoicePoolField(label, source, role, value, items, { missingNote = '�
     const body = groups ? renderTtsVoicePoolGroups(groups, (id, text) => chip(id, text, false))
         + renderTtsVoicePoolGroups([{ label: missingNote, items: missing }], (id, text) => chip(id, text, true))
         : items.filter(([id]) => id).map(([id, text]) => chip(id, text, false)).concat(missing.map(([id, text]) => chip(id, text, true))).join('');
-    return `<div class="igs-settings-field igs-tts-pool-field"><span>${esc(label)}<small class="igs-switch-note">多选时按名字随机</small></span>`
-        + renderTtsVoiceSearch(`pool:${source}:${role}`, `<div class="${groups ? 'igs-tts-pool-groups' : 'igs-tts-pool'}">${body || '<div class="igs-scene-empty">暂无声音</div>'}</div>`, { kind: 'pool', label }) + '</div>';
+    // 收起时只显示已选的声音（点一下移除）；点「选择」原位展开带搜索的完整列表。
+    const names = new Map(items);
+    const summary = open ? `已选 ${picked.length} 个`
+        : picked.map(id => chip(id, names.get(id) || `${id}（${missingNote}）`, !known.has(id))).join('') || '未选择';
+    const toggle = `<button type="button" class="igs-settings-action" data-action="ui-toggle-open:tts-pool-${source}-${role}" aria-expanded="${open ? 'true' : 'false'}">${open ? '收起' : '选择'}</button>`;
+    return `<div class="igs-settings-field igs-tts-pool-field"><span>${esc(label)}${open ? '<small class="igs-switch-note">多选时按名字随机</small>' : ''}</span>`
+        + `<div class="igs-artist-lib-row"><div class="igs-tts-pool${open || !picked.length ? ' igs-outfit-muted' : ''}">${summary}</div>${toggle}</div>`
+        + (open ? renderTtsVoiceSearch(`pool:${source}:${role}`, `<div class="${groups ? 'igs-tts-pool-groups' : 'igs-tts-pool'}">${body || '<div class="igs-scene-empty">暂无声音</div>'}</div>`, { kind: 'pool', label }) : '') + '</div>';
 }
 
 const ttsPreviewButton = (action, label) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}">${label}</button>`;
@@ -1437,7 +1427,7 @@ const ttsPreviewError = (text) => (text ? `<div class="igs-source-filter-note ig
 const ttsStyleFormat = (api) => api.format === 'openai' || api.format === 'custom';
 
 // 旁白：声音、语速、风格与独立接口（开启后旁白用自己的一套接口与声音，不受主来源影响）。
-function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options = [], installed = [], previewError = '' } = {}) {
+function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options = [], installed = [], previewError = '', isOpen = () => false, voiceSelect = null } = {}) {
     const base = 'readerSettings.tts';
     const narrator = tts.narratorApi;
     const apiPath = (key) => `${base}.narratorApi.${key}`;
@@ -1459,12 +1449,12 @@ function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options
     parts.push(checkbox(apiPath('enabled'), narrator.enabled, '旁白使用独立接口'));
     if (narrator.enabled) {
         parts.push(...renderTtsApiFields(narrator, apiPath));
-        parts.push(renderTtsVoiceLibrary('narratorApi', narrator, { fetchable: ['openai', 'fish', 'minimax'].includes(narrator.format), message: voicesMessage, batch }));
+        parts.push(renderTtsVoiceLibrary('narratorApi', narrator, { fetchable: ['openai', 'fish', 'minimax'].includes(narrator.format), message: voicesMessage, batch, isOpen, select: voiceSelect && voiceSelect.source === 'narratorApi' ? voiceSelect.ids : null }));
     }
     return ttsGroup('旁白', parts, ttsPreviewButton('tts-preview-narrator', '试听旁白'));
 }
 
-function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narratorVoicesMessage = '', batches = {}, assets = null, previewError = '', narratorPreviewError = '', advancedOpen = false } = {}) {
+function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narratorVoicesMessage = '', batches = {}, assets = null, previewError = '', narratorPreviewError = '', advancedOpen = false, isOpen = () => false, voiceSelect = null } = {}) {
     const base = 'readerSettings.tts';
     const rates = TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]);
     const apiMode = tts.provider === 'api';
@@ -1496,17 +1486,17 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
 
     const voiceParts = [ttsPreviewError(previewError)];
     if (apiMode) {
-        voiceParts.push(renderTtsVoiceLibrary('api', api, { fetchable: ['openai', 'fish', 'minimax'].includes(api.format), message: voicesMessage, batch: batches.api }));
+        voiceParts.push(renderTtsVoiceLibrary('api', api, { fetchable: ['openai', 'fish', 'minimax'].includes(api.format), message: voicesMessage, batch: batches.api, isOpen, select: voiceSelect && voiceSelect.source === 'api' ? voiceSelect.ids : null }));
         // 默认声音从声音库里多选；旧版手填、不在库里的值保留并标出。
         const library = ttsApiVoiceOptions(tts);
         for (const [key, label] of [['female', '女角色默认'], ['male', '男角色默认']]) {
-            voiceParts.push(ttsVoicePoolField(label, 'api', key, api[key], library, { groups: ttsApiVoiceGroups(tts) }));
+            voiceParts.push(ttsVoicePoolField(label, 'api', key, api[key], library, { groups: ttsApiVoiceGroups(tts), open: isOpen(`tts-pool-api-${key}`) }));
         }
     } else {
         const allVoicesButton = `<button type="button" class="igs-table-pick${tts.allVoices ? ' is-on' : ''}" data-switch="${base}.allVoices" aria-pressed="${tts.allVoices ? 'true' : 'false'}" title="列出全部语言的系统声音"><i></i><span>全部语言</span></button>`;
         [['female', '女角色默认'], ['male', '男角色默认']].forEach(([key, label], index) => {
             const value = tts.system[key];
-            voiceParts.push(ttsVoicePoolField(label, 'system', key, value, options, { missingNote: '不在列表' }));
+            voiceParts.push(ttsVoicePoolField(label, 'system', key, value, options, { missingNote: '不在列表', open: isOpen(`tts-pool-system-${key}`) }));
             if (index === 0) voiceParts.push(`<div class="igs-settings-row">${allVoicesButton}</div>`);
         });
         if (!options.length) voiceParts.push('<div class="igs-source-filter-note">没读到本机的声音（浏览器可能还在加载，稍等会自动刷新）。Windows 推荐使用 Edge 浏览器，自然声更多。</div>');
@@ -1521,7 +1511,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
         bilingual ? field(`${base}.thoughtBilingual`, '心里话朗读', segmentedInput(`${base}.thoughtBilingual`, tts.thoughtBilingual, TTS_THOUGHT_BILINGUAL_MODES, '心里话朗读')) : '',
     ]);
 
-    const narrator = tts.narration ? renderTtsNarratorGroup(tts, { voicesMessage: narratorVoicesMessage, batch: batches.narratorApi, options, installed, previewError: narratorPreviewError }) : '';
+    const narrator = tts.narration ? renderTtsNarratorGroup(tts, { voicesMessage: narratorVoicesMessage, batch: batches.narratorApi, options, installed, previewError: narratorPreviewError, isOpen, voiceSelect }) : '';
 
     const advanced = `<details class="igs-settings-advanced" data-advanced="tts-advanced"${advancedOpen ? ' open' : ''}><summary>高级</summary>${[
         apiMode ? checkbox(apiPath('chunk'), api.chunk, '长句分段先播') : '',

@@ -3,6 +3,7 @@
 // 总开关关闭时不挂任何监听（sync 解绑）；本聊天未启用时不注入、不结算，数值冻结。
 import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
+import { DEFAULT_MONEY_TABLE } from '../scene/stats/stat-bars.js';
 import { MANUAL_DIMS, applyManualRelations, settleFloorText } from '../scene/stats/stat-settle.js';
 import { FAVOR_TIERS, normalizeFavorTier, stageOf } from '../scene/stats/stat-favor.js';
 import { START_DIMS, startFixOffsets } from '../scene/stats/stat-vocab.js';
@@ -19,7 +20,8 @@ import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene
 import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
-import { createStatsState, grudgeOfCharacter, isRomance } from '../scene/stats/stat-state.js';
+import { createStatsState, grudgeOfCharacter, heroDimsOf, isRomance } from '../scene/stats/stat-state.js';
+import { applyEvolutions, evolveCandidates, evolveText } from '../scene/stats/stat-trait-evolve.js';
 import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, listTraits, setTraitAttrReader, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
@@ -28,6 +30,8 @@ import { canonicalAttribute, isSixAttribute } from '../data/shujuku/skill-table.
 import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
 import { FAME_BAR_MAX, buildFameFillPrompt, fameDraftText, fameHudMetrics, famePairs, fameRows, fameTemplateBar, fameTier, fameValue, parseFameDraft, parseFameFill } from '../scene/stats/stat-fame.js';
 import { stageLabel } from '../scene/stats/stat-relation-label.js';
+import { swipeTextOf } from '../scene/stats/stat-log.js';
+import { canonPersonName, renameCatalog, renameChangeRows, renameFloorMeta, renameInState, validPersonName } from '../scene/stats/stat-rename.js';
 import { statsRivalSet } from '../scene/stats/stat-rivals.js';
 import { SKILL_TIER_ORDER, describeClockTrail, heroSkillCap, resolveHeroSlots, statsArchiveModel, statsClockTrail, statsFavorOverview, tierWordOfValue } from '../scene/stats/stat-archive.js';
 import { BUILD_PICK_SLOTS, backfillHeroSlots, slotValue } from '../scene/stats/stat-build.js';
@@ -333,7 +337,7 @@ export function createStatsRuntime({
         return [...new Set(names)].filter((n) => text.includes(n));
     };
     const tableSeedOf = (state, upTo = Infinity) => {
-        const fresh = [...new Set([...tableNames(), ...rosterNames(upTo)])].filter((name) => !state.characters[name]);
+        const fresh = [...new Set([...tableNames(), ...rosterNames(upTo)])].filter((name) => !state.characters[name] && !Object.hasOwn(catalog.renames, name));
         return fresh.length ? Object.fromEntries(fresh.map((name) => [name, {}])) : null;
     };
     // 表格被数据库插件改过后分两种来源：
@@ -765,7 +769,12 @@ export function createStatsRuntime({
         try { extra = await describePeople(cards); } catch (error) { extra = []; }
         const more = extra.map((p) => String((p && p.summary) || '').trim()).filter(Boolean).join(' ');
         if (!more) return list;
-        return list.map((p) => (p && p.name === PROTAGONIST ? { ...p, summary: `${String(p.summary || '').trim()} ${more}`.trim() } : p));
+        const ownMore = extra.map((p) => String((p && (p.own ?? p.summary)) || '').trim()).filter(Boolean).join('\n');
+        const worldMore = extra.map((p) => String((p && p.world) || '').trim()).filter(Boolean).join('\n');
+        return list.map((p) => (p && p.name === PROTAGONIST ? {
+            ...p, summary: `${String(p.summary || '').trim()} ${more}`.trim(),
+            own: `${String((p.own ?? p.summary) || '').trim()}\n${ownMore}`.trim(), world: `${String(p.world || '').trim()}\n${worldMore}`.trim(),
+        } : p));
     };
 
     // 回放需要的取数回调。D&D 与 CoC 共用同一份 profile，百分制 = 六维分数 × 5。
@@ -960,9 +969,9 @@ export function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            walletExtra: combatPoints(), present: names, shortfall: flags.shortfall, dateRegex: s.dateRegex, mandates: mandatesFromFlags(flags, state.protagonist.bars, { fame: catalog.fameBars.length > 0 }), vitals, fameBars: catalog.fameBars, statusCat: { statuses: catalog.statuses },
+            walletExtra: combatPoints(), moneyUnit: catalog.moneyUnit, present: names, shortfall: flags.shortfall, dateRegex: s.dateRegex, mandates: mandatesFromFlags(flags, state.protagonist.bars, { fame: catalog.fameBars.length > 0 }), vitals, fameBars: catalog.fameBars, statusCat: { statuses: catalog.statuses },
             worlds: worldsNow(), nsfw: isNsfw(), intimacyGate: s.intimacyGate, intimateCost: s.intimateCost, forcedNames: catalog.intimacyForced, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText, stageTextPlatonic: s.stageTextPlatonic, traits: catalog.traits, romanceSeen: catalog.romanceSeen,
-            heroNotes: s.heroNotePrompt ? catalog.heroNotes : null,
+            heroNotes: s.heroNotePrompt && !s.heroFeelings ? catalog.heroNotes : null, heroFeelings: s.heroFeelings === true,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
             sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n], state.characters[n] && state.characters[n].skillGrowth), bonus: abilityLine(engine, state, n) })),
@@ -1011,7 +1020,7 @@ export function createStatsRuntime({
     function traitEdgeFor(state, { skill, toward = null, engine = null } = {}) {
         const eng = engine || memoEngineOf();
         const cat = traitCatalogOf(catalog.traits, isNsfw());
-        return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, state, PROTAGONIST, skill).value) || 0, present: present(state), skillOf: (name) => { const p = profileOf(eng, state, name, skill); return p && p.kind === 'skill' && p.learned && !p.provisional ? Number(p.value) || 0 : 0; } });
+        return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, state, PROTAGONIST, skill).value) || 0, present: present(state), heroSide: settings().heroFeelings === true, skillOf: (name) => { const p = profileOf(eng, state, name, skill); return p && p.kind === 'skill' && p.learned && !p.provisional ? Number(p.value) || 0 : 0; } });
     }
     // 主角检定带特质：万事通技能下限、贵人相助失败重掷；favorFrom 随结果一并带上。
     function resolveHeroCheck(engine, state, request) {
@@ -1052,6 +1061,12 @@ export function createStatsRuntime({
         for (const drop of (meta.flags && meta.flags.traitDrops) || []) {
             const r = applyTraitChange(state, catalog, drop.name, drop.id, false, 'story');
             if (r.notices.length) { applyCatalog(r.catalog); notices.push(...r.notices); }
+        }
+        // 进化：原地替换特质，来源沿用原条目。
+        const evolved = Array.isArray(meta.evolve) ? evolveCandidates(state, catalog.traits).filter((c) => meta.evolve.some((m) => m.name === c.name && m.from === c.from)) : [];
+        if (evolved.length) {
+            applyCatalog({ ...catalog, traits: applyEvolutions(catalog.traits, evolved) });
+            announceTraits([], evolved.map(evolveText));
         }
         const ach = achievementPass(catalog, state, entry, catalog.romanceSeen);
         if (ach.catalog !== catalog) applyCatalog(ach.catalog);
@@ -1123,9 +1138,14 @@ export function createStatsRuntime({
                 const persona = new Map((Array.isArray(people) ? people : []).filter(Boolean).map((p) => [p.name, String(p.summary || '')]));
                 for (const p of Array.isArray(people) ? people : []) {
                     if (!p) continue;
-                    personaReport.set(p.name, { len: String(p.summary || '').length, from: p.from || '' });
+                    personaReport.set(p.name, { len: String((p.own ?? p.summary) || '').length, world: String(p.world || '').length, from: p.from || '' });
                     if (Array.isArray(p.errors) && p.errors.length) diag('stats-trait-persona-read-failed', { name: p.name, reasons: p.errors });
                 }
+                // 角色自己的资料逐人发送；世界观资料整批只发一份，按行去重（各人扫到的常驻条目相同）。
+                const ownOf = new Map((Array.isArray(people) ? people : []).filter(Boolean).map((p) => [p.name, String((p.own ?? p.summary) || '')]));
+                const seenLines = new Set();
+                const world = (Array.isArray(people) ? people : []).filter(Boolean).flatMap((p) => String(p.world || '').split('\n'))
+                    .map((line) => line.trim()).filter((line) => line && !seenLines.has(line) && seenLines.add(line)).join('\n');
                 const c = ctx();
                 const state = currentStatsState(ledger);
                 const nsfw = isNsfw();
@@ -1137,12 +1157,12 @@ export function createStatsRuntime({
                 let aliases = {};
                 try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
                 const chars = batch.map((n) => ({
-                    name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST, persona: persona.get(n) || '', note: catalog.traitNotes[n] || '',
+                    name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST, persona: ownOf.get(n) || '', note: catalog.traitNotes[n] || '',
                     relation: state.characters[n] ? stageLabel(Number(state.characters[n].dims.好感) || 0, isRomance(state.characters[n], n, catalog.romanceSeen)) : '',
                     traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
                     attrs: gateAttrsOf(n),
                 }));
-                const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
+                const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw, world });
                 const prompt = { system: '你是角色设定评定助手，只依据人设与正文作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'initial', [], null, WORLD_GENRES) };
                 let text;
                 try {
@@ -1289,10 +1309,11 @@ export function createStatsRuntime({
         const favorTier = prior ? (FAVOR_TIERS.includes(priorMeta.favorTier) ? priorMeta.favorTier : null) : normalizeFavorTier(s.favorMode);
         // 好感强度规则版本：新楼写 1；重算同一楼沿用 meta.strengthRev，没有则按旧规则（改档或升级只影响之后的楼）。
         // rev 2：悟性、顿悟、交心、误会解除、离体、随身与无实体、恋爱判定、十年跳跃上限等；新楼写 2，重算沿用 meta 值（旧楼 0、1 不变）。
-        const strengthRev = prior ? (Number(priorMeta.strengthRev) >= 2 ? 2 : Number(priorMeta.strengthRev) >= 1 ? 1 : 0) : 2;
+        const strengthRev = prior ? (Number(priorMeta.strengthRev) >= 3 ? 3 : Number(priorMeta.strengthRev) >= 2 ? 2 : Number(priorMeta.strengthRev) >= 1 ? 1 : 0) : 3;
         const favorMode = prior && !favorTier ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : undefined;
         // 亲密体力：重算旧楼按当时写进 meta 的档位，旧楼没有该字段就不结算；新楼（含新 swipe）取当前设置。
         const intimateCost = prior ? priorMeta.intimateCost : s.intimateCost;
+        const heroSide = prior ? priorMeta.heroSide === true : s.heroFeelings === true;
         // 手改关系挂在楼上：重算、重 roll 同一楼都沿用，否则一重 roll 就丢。
         const manual = priorMeta.manual || manualOfFloor(messageId);
         // 同一楼同一 swipe 的结算种子与骰序都由「聊天 + 楼序号 + swipe」决定（确定性）。
@@ -1312,8 +1333,9 @@ export function createStatsRuntime({
             const r = settleFloorText(before, body, {
                 env: traitEnvOf(body, previousBodies(c, messageId)), bondEvents: priorMeta.bondEvents || takeBondEvents(), reviewEvents: priorMeta.reviewEvents || takeReviewEvents(),
                 traitEdge: strengthRev >= 2 ? (st, req) => traitEdgeFor(st, { ...req, engine }) : null,
-                random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(canonPersonName(catalog.renames, name), before), engine,
+                moneyTable: { ...DEFAULT_MONEY_TABLE, ...catalog.moneyTable }, expenses: catalog.expenses,
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, heroSide, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), walletExtra: combatPoints(), extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
                 seedCharacters: autoTable ? tableSeedOf(before, messageId) : null, fameBars: catalog.fameBars,
             });
             const meta = { ...r.meta };
@@ -1344,6 +1366,19 @@ export function createStatsRuntime({
             }
             for (const { name, key } of mines) if (!(known[name] && Object.hasOwn(known[name], key))) known[name] = { ...(known[name] || {}), [key]: messageId };
             catalog = sanitizeCatalog({ ...catalog, landmineKnown: known });
+        }
+        // 已知软肋：写法同已知雷点。
+        const prevSoft = catalog.softKnown || {};
+        const softStale = Object.values(prevSoft).some((own) => Object.values(own).some((at) => Number(at) === Number(messageId)));
+        const softs = Array.isArray(meta.softspots) ? meta.softspots : [];
+        if (softStale || softs.length) {
+            const known = {};
+            for (const [name, own] of Object.entries(prevSoft)) {
+                const kept = Object.fromEntries(Object.entries(own).filter(([, at]) => Number(at) !== Number(messageId)));
+                if (Object.keys(kept).length) known[name] = kept;
+            }
+            for (const { name, key } of softs) if (!(known[name] && Object.hasOwn(known[name], key))) known[name] = { ...(known[name] || {}), [key]: messageId };
+            catalog = sanitizeCatalog({ ...catalog, softKnown: known });
         }
         for (const entry of meta.newSkills || []) commitSkill(entry.name, { attribute: entry.attribute, floor: messageId });
         // 楼层记录接在上一条存活记录之后；重算同一楼时沿用原来的上游。
@@ -2101,7 +2136,7 @@ export function createStatsRuntime({
         const c = ctx();
         const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles, tableNameSet(), isHero);
         const engine = memoEngineOf();
-        const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(name, state) });
+        const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(canonPersonName(catalog.renames, name), state) });
         if (!req) return null;
         const ensure = (skill) => (BUILTIN_SKILLS[skill] || engine.registry.has(skill) ? skill : commitSkill(skill) || skill);
         if (req.kind === 'check') {
@@ -2198,7 +2233,7 @@ export function createStatsRuntime({
     function diagnose(messageId) {
         const text = diagnoseFloor(messageId);
         const trail = ledger && chatEnabled && settings().enabled ? describeClockTrail(statsClockTrail(ledger)) : '';
-        const persona = personaReport.size ? `特质评定人设字数：${[...personaReport].map(([n, r]) => `${n} ${r.len}${r.from === 'floors' ? '（取自正文）' : ''}`).join('、')}` : '';
+        const persona = personaReport.size ? `特质评定人设字数：${[...personaReport].map(([n, r]) => `${n} ${r.len}${r.world ? `+世界书${r.world}` : ''}${r.from === 'floors' ? '（取自正文）' : ''}`).join('、')}` : '';
         return [text, trail, persona].filter(Boolean).join('\n');
     }
 
@@ -2320,6 +2355,53 @@ export function createStatsRuntime({
         return null;
     }
 
+    // 角色改名（路人揭晓真名）：账本各楼状态、变动记录、手改记录与聊天级目录一并换名；旧名记进改名表，之后正文写旧名仍记到此人身上。
+    // 新名已有档案时须带 merge：两份并成一人。存档按差分链重写受影响的楼层记录。
+    function renamePerson(from, rawTo, merge) {
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const to = String(rawTo || '').trim();
+        if (!knownPerson(from)) return { ok: false, reason: 'stats-relation-missing' };
+        if (to === from) return { ok: true, cancelled: true };
+        if (!validPersonName(to)) return { ok: false, reason: 'stats-rename-invalid' };
+        if (to === PROTAGONIST || isHero(to)) return { ok: false, reason: 'stats-rename-hero' };
+        const exists = knownPerson(to);
+        if (exists && !merge) return { ok: false, reason: 'stats-rename-exists' };
+        const memo = new Map();
+        const moved = (state) => { if (!memo.has(state)) memo.set(state, renameInState(state, from, to)); return memo.get(state); };
+        const chat = messages(ctx());
+        const records = [];
+        const idMap = new Map();
+        const initial = moved(ledger.initial);
+        if (initial !== ledger.initial) { ledger.initial = initial; records.push(initRecord(initial, { createdAt: Date.now() })); }
+        const ordered = [...ledger.entries.entries()].sort((a, b) => a[1].messageId - b[1].messageId || a[1].swipeId - b[1].swipeId);
+        for (const [key, entry] of ordered) {
+            const next = { ...entry, before: moved(entry.before), after: moved(entry.after), changes: renameChangeRows(entry.changes, from, to), meta: renameFloorMeta(entry.meta, from, to) };
+            const baseId = entry.baseId != null && idMap.has(entry.baseId) ? idMap.get(entry.baseId) : entry.baseId ?? null;
+            const text = swipeTextOf(chat, entry.messageId, entry.swipeId);
+            if (text !== null && entry.recordId) {
+                const record = floorRecord({ messageId: entry.messageId, swipeId: entry.swipeId, tagHash: statTagHash(text), baseId, seed: entry.seed, before: next.before, after: next.after, changes: next.changes, meta: next.meta, createdAt: Date.now() });
+                if (record.id !== entry.recordId) { records.push(record); idMap.set(entry.recordId, record.id); next.recordId = record.id; }
+            }
+            next.baseId = baseId;
+            ledger.entries.set(key, next);
+        }
+        ledger.log = renameChangeRows(ledger.log, from, to);
+        catalog = sanitizeCatalog(renameCatalog(catalog, from, to));
+        persist(records);
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true, merged: exists };
+    }
+
+    // 移除曾用名：之后正文再写这个名字不再记到现用名身上，已结算的楼不变。
+    function dropAlias(alias) {
+        if (!Object.hasOwn(catalog.renames, alias)) return { ok: true, cancelled: true };
+        const { [alias]: gone, ...renames } = catalog.renames;
+        catalog = sanitizeCatalog({ ...catalog, renames });
+        persist();
+        return { ok: true };
+    }
+
     // 手改关系数值：写进最近一楼的结算结果，并记在该楼 meta.manual 上，之后重算或重 roll 这一楼仍保留。
     function relationOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
@@ -2330,16 +2412,25 @@ export function createStatsRuntime({
         if (op === 'trait') return setTrait(name, payload && payload.key, payload && payload.on === true);
         if (op === 'trait-id') return setTraitById(name, payload && payload.id, payload && payload.on === true);
         if (op === 'aptitude') return setAptitude(name, payload && payload.level);
+        if (op === 'rename') return renamePerson(name, payload && payload.to, payload && payload.merge === true);
+        if (op === 'rename-drop') return dropAlias(name);
         if (op === 'note') return setHeroNote(name, payload && payload.text);
         if (op === 'note-prompt') return heroNotePrompt(name);
+        if (op === 'hero-prompt') return heroNotePrompt(name, true);
         if (op === 'trait-note') return setTraitNote(name, payload && payload.text);
         if (op === 'set-worlds') return setWorlds(payload && payload.worlds);
+        if (op === 'money-config-read') return { ok: true, config: { unit: catalog.moneyUnit, table: { ...DEFAULT_MONEY_TABLE, ...catalog.moneyTable } } };
+        if (op === 'money-config') return setMoneyConfig(payload || {});
+        if (op === 'expenses-read') return { ok: true, expenses: catalog.expenses.map((e) => ({ ...e })) };
+        if (op === 'expenses-set') { catalog = sanitizeCatalog({ ...catalog, expenses: payload && payload.expenses }); persist(); return { ok: true }; }
+        if (op === 'money-set') return setMoneyBalance(name, payload && payload.value);
+        if (op === 'address-set') return setAddress(name, payload || {});
         if (op.startsWith('status-') || op.startsWith('cycle-')) return statusEditOp(op, name, payload || {});
         if (op === 'fame-add') return addFameBar(payload || {});
         if (op === 'fame-fill') return fameFill(payload && payload.sentence);
         if (op === 'fame-draft') { const bar = payload && payload.template ? fameTemplateBar(payload.template) : catalog.fameBars.find((b) => b.name === name); return bar ? { ok: true, draft: fameDraftText(bar) } : { ok: false, reason: 'stats-fame-kind' }; }
         if (op === 'fame-remove') return removeFameBar(name);
-        if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
+        if (op !== 'set' && op !== 'set-hero') return { ok: false, reason: 'stats-relation-op-unknown' };
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
         if (!(entry ? entry.after : ledger.initial).characters[name]) return { ok: false, reason: 'stats-relation-missing' };
@@ -2350,7 +2441,8 @@ export function createStatsRuntime({
             if (Object.hasOwn(payload, key)) dims[key] = v;
         }
         if (!Object.keys(dims).length) return { ok: true, cancelled: true };
-        return entry ? commitManualRelations(entry, { [name]: dims }) : commitInitialRelations({ [name]: dims });
+        const manual = { [name]: op === 'set-hero' ? { hero: dims } : dims };
+        return entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
     }
 
     // 亲密门槛豁免（剧情需要）：记在聊天级目录里，与楼层无关，swipe、删楼不丢。
@@ -2419,6 +2511,51 @@ export function createStatsRuntime({
         if (!Array.isArray(list) || !list.length || JSON.stringify(list) === JSON.stringify(catalog.worlds)) return;
         catalog = sanitizeCatalog({ ...catalog, worlds: list });
         persist();
+    }
+    // 货币单位与四档金额：存在本聊天目录里（与世界观同层）；只收有变化的项。
+    function setMoneyConfig(payload) {
+        const next = { moneyUnit: catalog.moneyUnit, moneyTable: { ...catalog.moneyTable } };
+        if (Object.hasOwn(payload, 'unit')) next.moneyUnit = String(payload.unit ?? '');
+        if (payload.tier) {
+            const v = Math.round(Number(payload.value));
+            if (String(payload.value ?? '').trim() === '') delete next.moneyTable[payload.tier];
+            else if (Number.isSafeInteger(v) && v > 0) next.moneyTable[payload.tier] = v;
+            else return { ok: false, reason: 'stats-relation-invalid' };
+        }
+        catalog = sanitizeCatalog({ ...catalog, ...next });
+        persist();
+        return { ok: true };
+    }
+    // 手改金钱余额：主角取合并余额之外的数值侧金钱，按填入的新余额折算后记一条手动修改。
+    function setMoneyBalance(name, value) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        // 只收非负整数；空值与 null 不当作 0。
+        const v = typeof value === 'number' ? value : NaN;
+        if (!Number.isSafeInteger(v) || v < 0) return { ok: false, reason: 'stats-relation-invalid' };
+        const who = name || PROTAGONIST;
+        const entry = activeEntryBefore(ledger, Infinity);
+        const state = entry ? entry.after : ledger.initial;
+        if (who !== PROTAGONIST && !state.characters[who]) return { ok: false, reason: 'stats-relation-missing' };
+        const bars = who === PROTAGONIST ? state.protagonist.bars : (state.characters[who].bars || {});
+        const extra = who === PROTAGONIST ? combatPoints() : 0;
+        // 主角的显示余额含战斗积分，数值侧金钱 = 目标余额 − 积分。
+        const to = v - extra;
+        if (to === (Number(bars.money) || 0)) return { ok: true, cancelled: true };
+        const manual = { [who]: { bars: { money: to } } };
+        return entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
+    }
+    // 手改称呼：payload = { private?, public? }，空串删除；走手动修改通道并留记录。
+    function setAddress(name, payload) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const entry = activeEntryBefore(ledger, Infinity);
+        const state = entry ? entry.after : ledger.initial;
+        if (!name || !state.characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        const address = {};
+        for (const key of ['private', 'public']) if (typeof payload[key] === 'string') address[key] = payload[key];
+        const manual = { [name]: { address } };
+        return entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
     }
     function setWorlds(list) {
         catalog = sanitizeCatalog({ ...catalog, worldsManual: Array.isArray(list) ? list : [] });
@@ -2506,7 +2643,7 @@ export function createStatsRuntime({
     const heroFameMetrics = (s) => (s.hudFame && catalog.fameBars.length ? fameHudMetrics(currentStatsState(ledger), catalog.fameBars, { detail: s.hudFameDetail === true }) : []);
 
     // 「按剧情拟写」的请求内容：最近若干楼正文（去掉数值标签与网页标签），由设置页交给副模型。
-    function heroNotePrompt(name) {
+    function heroNotePrompt(name, estimate = false) {
         if (!knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
         const hero = userName() || PROTAGONIST;
         const lines = messages(ctx()).filter((m) => m && !m.is_system && typeof m.mes === 'string').slice(-HERO_NOTE_FLOORS)
@@ -2515,7 +2652,9 @@ export function createStatsRuntime({
         if (!lines.length) return { ok: false, reason: 'stats-note-no-text' };
         const user = lines.join('\n').slice(-HERO_NOTE_CHARS);
         const system = `根据下面的剧情正文，用一句话写出${hero}（主角）对${name}的态度，以及两人之间已经发生的事。只写正文里明确出现的内容，不推测，不按身份套路补写。不超过四十字，只输出这句话。`;
-        return { ok: true, system, user };
+        if (!estimate) return { ok: true, system, user };
+        const desire = isNsfw() ? '、欲望' : '';
+        return { ok: true, user, system: `根据下面的剧情正文，估算${hero}（主角）对${name}的态度。只依据正文里明确写出的主角心理、选择与言行，不推测，不按身份套路补写，看不出的项填0。好感、信任、了解取-100到100的整数，芥蒂${desire}取0到100的整数。好感的参考：0为无感，1到25为初步好感，26到50为明确喜欢，51到75为强烈在意，76以上为深爱，负数为反感。只输出一行，格式为：好感=数值，信任=数值，了解=数值，芥蒂=数值${desire ? '，欲望=数值' : ''}` };
     }
 
     // 演出层 romance 第 3 栏出现过的对象：names 为候选写法（场景素材键、原文），取已登记的那个；都未登记时记第一个。去重后存聊天级目录。
@@ -2526,6 +2665,7 @@ export function createStatsRuntime({
         const known = currentStatsState(ledger).characters;
         const name = list.find((n) => known[n]) || list[0];
         if (catalog.romanceSeen.includes(name)) return { ok: true, skipped: true };
+        if (settings().heroFeelings === true && known[name] && (Number(heroDimsOf(known[name], { nsfw: isNsfw() }).好感) || 0) <= 25) return { ok: true, skipped: true };
         catalog = sanitizeCatalog({ ...catalog, romanceSeen: [...catalog.romanceSeen, name] });
         persist();
         return { ok: true };
@@ -2537,7 +2677,7 @@ export function createStatsRuntime({
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
         const known = entry ? entry.after.characters : ledger.initial.characters;
-        const fresh = [...new Set([...tableNames({ fresh: true }), ...rosterNames()])].filter((name) => !known[name]);
+        const fresh = [...new Set([...tableNames({ fresh: true }), ...rosterNames()])].filter((name) => !known[name] && !Object.hasOwn(catalog.renames, name));
         if (!fresh.length) return { ok: false, reason: 'stats-table-none' };
         const manual = Object.fromEntries(fresh.map((name) => [name, {}]));
         const result = entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
@@ -2582,7 +2722,7 @@ export function createStatsRuntime({
             const mods = {};
             // 主角资料（用户人设）只取一次，每批都带上。
             let hero = '';
-            try { if (typeof describePeople === 'function') hero = String(((await describeWithHero([PROTAGONIST]))[0] || {}).summary || ''); }
+            try { if (typeof describePeople === 'function') { const h = (await describeWithHero([PROTAGONIST]))[0] || {}; hero = String((h.own ?? h.summary) || ''); } }
             catch (error) { hero = ''; }
             let plot = '';
             try { plot = String(plotSetting() || ''); } catch (error) { plot = ''; }
@@ -2647,6 +2787,8 @@ export function createStatsRuntime({
         for (const [name, dims] of Object.entries(manual)) {
             merged[name] = { ...(prev[name] || {}), ...dims };
             if (dims && dims.bars) merged[name].bars = { ...((prev[name] && prev[name].bars) || {}), ...dims.bars };
+            if (dims && dims.hero) merged[name].hero = { ...((prev[name] && prev[name].hero) || {}), ...dims.hero };
+            if (dims && dims.address) merged[name].address = { ...((prev[name] && prev[name].address) || {}), ...dims.address };
         }
         const meta = { ...(entry.meta || {}), manual: merged };
         const m = messages(ctx())[entry.messageId];
@@ -2806,7 +2948,7 @@ export function createStatsRuntime({
     function archiveModel() {
         ensureLoaded();
         const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), isHero, heroName: userName() }) : null;
-        return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+        return model ? { ...model, moneyUnit: catalog.moneyUnit, expenses: catalog.expenses, moneyTable: { ...DEFAULT_MONEY_TABLE, ...catalog.moneyTable }, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
     }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;
@@ -2893,6 +3035,7 @@ export function createStatsRuntime({
                 return {
                     ...p,
                     romance,
+                    hero: s.heroFeelings === true ? { ...heroDimsOf(c, { nsfw }) } : null,
                     kin: hasTrait(state, traitCatalogOf(catalog.traits), p.name, 'kin'),
                     metrics: characterStatMetrics(c, { hudLabel: s.hudLabel, nsfw, stamina: npcStaminaShown(), favorTier: normalizeFavorTier(s.favorMode) }),
                     stage: stageLabel(Number(p.dims.好感) || 0, romance),
@@ -2904,7 +3047,7 @@ export function createStatsRuntime({
         protagonistLookup: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() }).concat(heroFameMetrics(s));
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), moneyUnit: catalog.moneyUnit }).concat(heroFameMetrics(s));
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
         // 好战者名单：主角与在场角色里挂有「战斗狂」的名字；没有启用数值系统或没有人时为 null。
@@ -2934,7 +3077,7 @@ export function createStatsRuntime({
         protagonistBlock: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints() }).concat(heroFameMetrics(s));
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), moneyUnit: catalog.moneyUnit }).concat(heroFameMetrics(s));
             return metrics.length ? { name: userName() || PROTAGONIST, metrics } : null;
         }),
         // 合并余额里数值侧的那一份（战斗账本的主角余额用）；没启用时为 0。

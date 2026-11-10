@@ -70,3 +70,20 @@ test('好感标签可选第四段强度：近义词归一，含数字或不认�
     assert.equal(parseStatDirectives('[igs-stat:favor|小雪|感动|+10]').directives.length, 0);
     assert.equal(parseStatDirectives('[igs-stat:favor|小雪|感动|很多]').directives.length, 0);
 });
+
+test('金钱标签具体数目：rev ≥ 3 按数目，旧楼仍丢弃，档位词照旧', () => {
+    const p = (t, rev) => parseStatDirectives(t, { rev }).directives;
+    assert.deepEqual(p('[igs-stat:money|收入|300]', 3), [{ kind: 'money', flow: '收入', value: '300', amount: 300 }]);
+    assert.deepEqual(p('[igs-stat:money|小雪|花费|1,200]', 3), [{ kind: 'money', flow: '花费', value: '1200', amount: 1200, target: '小雪' }]);
+    assert.equal(p('[igs-stat:money|收入|300]', 2).length, 0);
+    assert.equal(p('[igs-stat:money|收入|0]', 3).length, 0);
+    assert.deepEqual(p('[igs-stat:money|收入|大额]', 3), [{ kind: 'money', flow: '收入', value: '昂贵' }]);
+});
+
+test('称呼标签：rev 3 才认，去引号，人前第四段，空称呼丢弃', () => {
+    const p = (t, rev) => parseStatDirectives(t, { rev }).directives;
+    assert.deepEqual(p('[igs-stat:address|小雪|「阿昭」]', 3), [{ kind: 'address', target: '小雪', value: '阿昭', scope: 'private' }]);
+    assert.deepEqual(p('[igs-stat:address|小雪|昭哥|人前]', 3), [{ kind: 'address', target: '小雪', value: '昭哥', scope: 'public' }]);
+    assert.equal(p('[igs-stat:address|小雪|阿昭]', 2).length, 0);
+    assert.equal(p('[igs-stat:address|小雪|“”]', 3).length, 0);
+});

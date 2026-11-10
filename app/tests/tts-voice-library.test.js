@@ -111,7 +111,7 @@ test('分组后每行仍编辑原条目，名称和 ID 被转义，空库也能�
     let library = editTtsVoiceLibrary(null, 'add', { name: '收藏' });
     library = editTtsVoiceLibrary(library, 'move', { item: 'voice-b', to: '收藏' });
     library = editTtsVoiceLibrary(library, 'language', { item: 'voice-b', language: 'ja' });
-    const html = renderTtsVoiceLibrary('api', { voices: 'voice-a#<img src=x>, voice-b#乙', voiceLibrary: library });
+    const html = renderTtsVoiceLibrary('api', { voices: 'voice-a#<img src=x>, voice-b#乙', voiceLibrary: library }, { isOpen: () => true });
     assert.ok(html.indexOf('value="乙"') < html.indexOf('value="&lt;img src=x&gt;"'));
     assert.match(html, /data-voice-index="1" data-voice-part="language"/);
     assert.match(html, /value="ja" selected/);
@@ -144,4 +144,30 @@ test('只改语言和分类不会重启正在预载的楼层', () => {
     preload.startPrepared(prepared, { tts: { ...tts, api: { ...tts.api, voiceLibrary: { languages: { a: 'ja' }, folders: { folders: ['收藏'], assign: { a: '收藏' } } } } } }, { identity: 'chat|1|0' });
     assert.equal(calls, 1);
     preload.dispose();
+});
+
+test('多选后可一起设语言、移进文件夹、删除，取消多选不改声音库', async t => {
+    const f = fixture(t);
+    f.controller.setValue('readerSettings.tts.api.voices', 'voice-a#甲, voice-b#乙, voice-c#丙');
+    f.answers.push('收藏'); await f.controller.invoke('tts-voice-folder-add:api');
+    f.controller.goToPath('readerSettings.tts.provider');
+    await f.controller.invoke('tts-voice-select:api');
+    assert.match(f.controller.getSnapshot().html, /data-action="tts-voice-pick:api:voice-a"/);
+    await f.controller.invoke('tts-voice-pick:api:voice-a');
+    await f.controller.invoke('tts-voice-pick:api:voice-c');
+    f.answers.push('ja'); await f.controller.invoke('tts-voice-bulk-language:api');
+    assert.deepEqual(f.api().voiceLibrary.languages, { 'voice-a': 'ja', 'voice-c': 'ja' });
+    await f.controller.invoke('tts-voice-select:api');
+    await f.controller.invoke('tts-voice-pick-all:api');
+    await f.controller.invoke('tts-voice-pick:api:voice-b');
+    f.answers.push('收藏'); await f.controller.invoke('tts-voice-bulk-move:api');
+    assert.deepEqual(f.api().voiceLibrary.folders.assign, { 'voice-a': '收藏', 'voice-c': '收藏' });
+    await f.controller.invoke('tts-voice-select:api');
+    await f.controller.invoke('tts-voice-pick:api:voice-a');
+    await f.controller.invoke('tts-voice-pick:api:voice-b');
+    await f.controller.invoke('tts-voice-bulk-delete:api');
+    assert.deepEqual(ttsVoiceEntries(f.api().voices).map(([id]) => id), ['voice-c']);
+    assert.deepEqual(Object.keys(f.api().voiceLibrary.languages), ['voice-c']);
+    assert.doesNotMatch(f.controller.getSnapshot().html, /tts-voice-pick:api/);
+    assert.equal(f.narrator().voices, 'voice-a#旁白');
 });

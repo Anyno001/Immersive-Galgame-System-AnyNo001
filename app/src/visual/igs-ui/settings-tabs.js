@@ -81,7 +81,6 @@ const IMAGE_SOURCE_TEMPLATE = `
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">图像来源</div>
     {{imageSourceField}}
-    <div class="igs-source-filter-note">{{imageSourceNote}}</div>
     <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
       {{autoMatteField}}
       {{spriteMatteColorField}}
@@ -92,6 +91,7 @@ const IMAGE_SOURCE_TEMPLATE = `
         {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
         {{autoNaiTransportField}}
       </div>
+      {{autoNaiQuotaPanel}}
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}
@@ -132,7 +132,6 @@ const IMAGE_LLM_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="llm">
   <div class="igs-source-filter" data-image-feature="llm">
     <div class="igs-source-filter-title">备用模型</div>
-    <div class="igs-source-filter-note">{{autoLlmNote}}</div>
     <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
     <div class="igs-source-filter-grid">
       {{autoLlmSourceField}}{{autoLlmContextField}}
@@ -146,14 +145,11 @@ const IMAGE_LLM_TEMPLATE = `
       <div class="igs-settings-result" data-result="llm-models">{{autoLlmModelsMessage}}</div>
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-request"{{autoLlmRequestOpen}}>
         <summary><b>请求参数</b></summary>
-        <div class="igs-source-filter-note">写法同酒馆自定义源，YAML或JSON。</div>
         <div class="igs-settings-full">{{autoLlmIncludeHeadersField}}</div>
         <div class="igs-settings-full">{{autoLlmIncludeBodyField}}</div>
         <div class="igs-settings-full">{{autoLlmExcludeBodyField}}</div>
       </details>
     </div>
-  </div>
-  <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
       <summary><b>附加词</b></summary>
       <div class="igs-settings-full">{{autoLlmJailbreakHeadField}}</div>
@@ -167,9 +163,7 @@ const IMAGE_PROMPT_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="img-prompt">
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">生图提示词</div>
-    <div class="igs-source-filter-note">写词走「备用模型」页的连接。</div>
     <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
-    {{globalArtistField}}
     <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
       {{externalSpriteDnaField}}
     </div>
@@ -226,10 +220,9 @@ const IMAGE_CG_TEMPLATE = `
 // 生图内容按类别分卡片（角色 / 表情差分 / Q 版 / 场景与物品 / CG / NSFW），开关、模型、画师串都在卡片里，见 settings-prompt-kinds.js。
 const IMAGE_AUTO_TEMPLATE = `
 <div class="igs-settings-grid" data-image-pane="auto">
-  <div class="igs-source-filter-note">{{imageContentNote}}</div>
+  {{imageContentNote}}
   <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
   {{promptKindsPanel}}
-  {{artistLibraryPanel}}
 </div>
 `.trim();
 
@@ -512,7 +505,7 @@ const STATS_SET_TEMPLATE = `
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">玩法</div>
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
-      <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}{{heroNotePromptField}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}{{heroFeelingsField}}{{heroNotePromptField}}</div>
       <div class="igs-source-filter-grid">{{favorModeField}}{{intimateCostField}}</div>
       <div class="igs-source-filter-grid">{{healModeField}}{{worldviewField}}</div>
     </div>

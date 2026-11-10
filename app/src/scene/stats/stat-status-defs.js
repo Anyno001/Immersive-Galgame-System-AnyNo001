@@ -36,9 +36,9 @@ const STATUS_ROWS = [
     ['感冒', '个人', 'timer', 3, '', '{{名}}正在感冒', '体力消耗略快；体力恢复略慢', ''],
     ['宿醉', '个人', 'timer', 1, '', '{{名}}宿醉未醒，头痛乏力', '当天体力上限下降；检定多一个惩罚骰', ''],
     ['失恋期', '个人', 'timer', 14, '', '{{名}}刚刚失恋', '压力每天缓升；对他人好感上升减半', '热恋期'],
-    ['冷战中', '关系', 'until', 0, '', '{{名}}正与{{对象}}冷战', '彼此好感不上升；同场时压力缓升', ''],
+    ['冷战中', '关系', 'until', 0, '', '{{名}}正与{{对象}}冷战', '对主角的好感不上升，每天可能下降；同场时压力缓升', ''],
     ['身体不适', '个人', 'timer', 2, '', '{{名}}身体不适', '体力消耗略快', ''],
-    // E1 批（backlog 第 10 条）：通用状态。醉酒为 until：次日由系统转成宿醉；手头紧、犯瘾由系统按条件挂摘（见 stat-status-auto.js）。
+    // E1 批（backlog 第 10 条）：通用状态。醉酒为 until：次日由系统转成宿醉；囊中羞涩、犯瘾由系统按条件挂摘（见 stat-status-auto.js）。
     ['醉酒', '个人', 'until', 0, '', '{{名}}喝醉了，举止失控、口齿不清', '压力上升略慢；次日转为宿醉', '宿醉'],
     ['失眠', '个人', 'timer', 2, '', '{{名}}近来失眠，睡不安稳', '体力恢复变慢', ''],
     ['受惊', '个人', 'timer', 1, '', '{{名}}受到惊吓，惊魂未定', '压力上升加快', ''],
@@ -46,10 +46,12 @@ const STATUS_ROWS = [
     ['吃醋中', '关系', 'until', 0, '', '{{名}}正在吃{{对象}}的醋', '压力上升略快', ''],
     ['心情很好', '个人', 'timer', 3, '', '{{名}}心情很好', '压力上升变慢', ''],
     ['赶工期', '个人', 'timer', 5, '', '{{名}}正在赶工，疲惫又焦躁', '压力上升略快', ''],
-    ['手头紧', '个人', 'until', 0, '', '{{名}}最近手头紧，为钱发愁', '压力上升略快', ''],
+    ['囊中羞涩', '个人', 'until', 0, '', '{{名}}最近囊中羞涩，为钱发愁', '压力上升略快', ''],
     ['中毒', '个人', 'timer', 3, '', '{{名}}中了毒，虚弱难受', '体力恢复大减', ''],
     ['犯瘾', '个人', 'until', 0, '', '{{名}}犯了瘾，心神不宁', '压力上升加快', ''],
     ['信物', '关系', 'until', 0, '', '{{名}}留着{{对象}}送的信物', '压力上升略慢', ''],
+    // 特质加深 A5：踩重雷时由系统挂上（stat-trait-landmines.js）；约会、交心、送礼成功当楼摘下。
+    ['闹别扭', '关系', 'timer', 2, '', '{{名}}还在生{{对象}}的气', '对主角好感上升减半', ''],
     // 世界观状态：子类对应登记表「题材子类」；系统不自动挂，正文标签或副模型评定挂摘。
     ['透支', '个人', 'timer', 2, '修仙/西幻', '{{名}}灵力（魔力）透支，虚弱无力', '体力恢复变慢', ''],
     ['受祝福', '个人', 'timer', 3, '西幻', '{{名}}受到祝福，心境安稳', '压力上升变慢', ''],
@@ -62,6 +64,14 @@ const STATUS_ROWS = [
     ['生理期', '个人', 'cycle', 0, '', '{{名}}正处于生理期', '体力消耗略快；情绪容易波动', ''],
     ['发情期', '个人', 'cycle', 0, 'ABO', '{{名}}正处于发情期，信息素外溢、身体燥热', '压力缓升；欲望更容易上升', '易感期'],
     ['易感期', '个人', 'cycle', 0, 'ABO', '{{名}}正处于易感期，情绪激烈、占有欲强', '压力缓升；对冲突更敏感', '发情期'],
+    // G 批：世界观状态（ABO、哨向）。效果见 STATUS_EFFECT 与 stat-trait-rules-genre.js 的钩子。
+    ['临时标记', '关系', 'timer', 7, 'ABO', '{{名}}身上带着{{对象}}的临时标记', '不受其他Alpha压制；压力上升略慢；对标记者欲望上升略快；七天后自行消退', ''],
+    ['抑制剂', '个人', 'timer', 1, 'ABO', '{{名}}用了抑制剂，信息素被压住', '发情期、易感期的效果暂停；体力恢复略慢', ''],
+    ['信息素紊乱', '个人', 'until', 0, 'ABO', '{{名}}信息素紊乱，时强时弱、难以自控', '压力上升加快', ''],
+    ['戒断反应', '个人', 'timer', 7, 'ABO', '{{名}}的标记被洗去，正经历戒断反应', '压力上升加快', ''],
+    ['筑巢', '个人', 'timer', 2, 'ABO', '{{名}}正在筑巢，收集带有伴侣气味的衣物', '压力上升变慢', ''],
+    ['精神疏导', '关系', 'timer', 3, '哨向', '{{名}}刚接受过{{对象}}的精神疏导', '压力上升变慢', ''],
+    ['感官过载', '个人', 'timer', 1, '哨向', '{{名}}感官过载，声音与光线都难以忍受', '压力上升加快', ''],
 ];
 
 const freezeDef = ([name, group, kind, days, sub, inject, desc, excl]) => Object.freeze({
@@ -118,10 +128,11 @@ export const TRAIT_MIGRATION = Object.freeze({
     已故: Object.freeze({ to: 'status', kind: 'until' }),
     // 关系状态 14 项
     共犯: Object.freeze({ to: 'relation', kind: 'until' }),
-    已标记: Object.freeze({ to: 'relation', kind: 'until' }),
+    永久标记: Object.freeze({ to: 'relation', kind: 'until' }),
     信息素契合: Object.freeze({ to: 'relation', kind: 'until' }),
     精神结合: Object.freeze({ to: 'relation', kind: 'until' }),
-    认出蛋糕: Object.freeze({ to: 'relation', kind: 'until' }),
+    尝到味道: Object.freeze({ to: 'relation', kind: 'until' }),
+    守护: Object.freeze({ to: 'relation', kind: 'until' }),
     伴侣印记: Object.freeze({ to: 'relation', kind: 'until' }),
     血契: Object.freeze({ to: 'relation', kind: 'until' }),
     主从契约: Object.freeze({ to: 'relation', kind: 'until' }),
@@ -135,6 +146,8 @@ export const TRAIT_MIGRATION = Object.freeze({
     豁免亲密门槛: Object.freeze({ to: 'setting' }),
     精神体: Object.freeze({ to: 'note' }),
 });
+// 状态改名别名：旧存档里的旧名读取时转成新名。
+export const STATUS_RENAME = Object.freeze({ 手头紧: '囊中羞涩', 手头紧张: '囊中羞涩' });
 // 旧特质「附带注入句」五项改走状态注入（B 批）。键为显示名，值为注入句（与 stat-traits.js 的 INJECT 一致）。
 export const LEGACY_INJECT_STATUS = Object.freeze({
     无实体: '{{名}}没有实体，无法触碰',
@@ -169,11 +182,15 @@ export const EVENT_GRADES = Object.freeze(['大成功', '成功', '失败', '大
 export const STATUS_EFFECT = Object.freeze({
     感冒: ['staminaRecover', 0.85], 宿醉: ['staminaRecover', 0.8], 醉酒: ['stressUp', 0.8], 失眠: ['staminaRecover', 0.8],
     受惊: ['stressUp', 1.5], 失恋期: ['stressUp', 1.3], 热恋期: ['stressUp', 0.8], 冷战中: ['stressUp', 1.2],
-    吃醋中: ['stressUp', 1.2], 心情很好: ['stressUp', 0.7], 赶工期: ['stressUp', 1.2], 手头紧: ['stressUp', 1.2],
+    吃醋中: ['stressUp', 1.2], 心情很好: ['stressUp', 0.7], 赶工期: ['stressUp', 1.2], 囊中羞涩: ['stressUp', 1.2],
     身体不适: ['staminaRecover', 0.9], 中毒: ['staminaRecover', 0.6], 犯瘾: ['stressUp', 1.3], 信物: ['stressUp', 0.9],
     透支: ['staminaRecover', 0.8], 受祝福: ['stressUp', 0.8], 走火入魔: ['stressUp', 1.5], 闭关中: ['stressUp', 0.8],
     渡劫: ['stressUp', 1.3], 被控制: ['stressUp', 1.3], 感染初期: ['staminaRecover', 0.8], 生理期: ['staminaRecover', 0.9],
     发情期: ['stressUp', 1.2], 易感期: ['stressUp', 1.2],
+    临时标记: ['stressUp', 0.8], 抑制剂: ['staminaRecover', 0.9], 信息素紊乱: ['stressUp', 1.3], 戒断反应: ['stressUp', 1.3],
+    筑巢: ['stressUp', 0.7], 精神疏导: ['stressUp', 0.7], 感官过载: ['stressUp', 1.5],
+    // favorUp：对主角好感上升倍率，与特质倍率连乘后夹在 ×0.5–×2（stat-settle.js characterScale）。
+    闹别扭: ['favorUp', 0.5],
 });
 
 // 题材（E5）：登记表「题材子类」出现过的全部取值（子类可写「修仙/西幻」表示任一）。

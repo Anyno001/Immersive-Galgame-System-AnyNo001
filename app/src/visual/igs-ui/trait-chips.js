@@ -5,6 +5,7 @@
 import { TRAIT_DEFS, TRAIT_GROUPS, TRAIT_LIMITS, PROTAGONIST_NAME, getTraitDef, isComboKey, slotUsage, traitReqStatus } from '../../scene/stats/stat-traits.js';
 import { CYCLE_DEFS, STATUS_DEFS, STATUS_GROUPS, STATUS_URGENCY, getStatusDef, subInWorlds } from '../../scene/stats/stat-status-defs.js';
 import { landmineView } from '../../scene/stats/stat-trait-landmines.js';
+import { softspotView } from '../../scene/stats/stat-trait-softspots.js';
 import { TRAIT_RECIPES } from '../../scene/stats/stat-trait-recipes.js';
 import { esc } from './reader-value-utils.js';
 
@@ -220,10 +221,18 @@ function landmineRows(name, model) {
     const person = (model.characters || []).find((c) => c.name === name);
     if (!person) return [];
     const holders = ownItems(model, name).filter((t) => !isComboKey(t.id)).map((t) => (getTraitDef(t.id) || {}).name).filter(Boolean);
-    return landmineView(holders, model.landmineKnown && model.landmineKnown[name], person.dims && person.dims.了解);
+    return landmineView(holders, model.landmineKnown && model.landmineKnown[name], (model.heroFeelings === true && model.heroDims && model.heroDims[name] ? model.heroDims[name].了解 : person.dims && person.dims.了解));
+}
+
+function softspotRows(name, model) {
+    const person = (model.characters || []).find((c) => c.name === name);
+    if (!person) return [];
+    const holders = ownItems(model, name).filter((t) => !isComboKey(t.id)).map((t) => (getTraitDef(t.id) || {}).name).filter(Boolean);
+    return softspotView(holders, model.softKnown && model.softKnown[name], (model.heroFeelings === true && model.heroDims && model.heroDims[name] ? model.heroDims[name].了解 : person.dims && person.dims.了解));
 }
 
 export function renderTraitView(name, model) {
+    const softs = softspotRows(name, model);
     const { shown, usage } = shownTraits(name, model);
     const mines = landmineRows(name, model);
     const list = shown.filter((x) => !x.waived);
@@ -237,6 +246,7 @@ export function renderTraitView(name, model) {
         + viewBlock('data-traits-of="' + esc(name) + '"', '特质', usage.slots + '/' + TRAIT_LIMITS.total, plainList.map((x) => tag(x.title, x.off)).join(''))
         + (achieve.length ? block('data-achieve-of', '成就', achieve) : '')
         + (mines.length ? viewBlock('data-landmine-of="' + esc(name) + '"', '已知雷点', String(mines.length), mines.map((x) => tag(x.text)).join('')) : '')
+        + (softs.length ? viewBlock('data-softspot-of="' + esc(name) + '"', '已知软肋', String(softs.length), softs.map((x) => tag(x.text)).join('')) : '')
         + (status.length ? viewBlock('data-status-of="' + esc(name) + '"', '状态', String(status.length), status.map((x) => tag(x.title)).join('')) : '')
         + (rel.length ? viewBlock('data-rel-of="' + esc(name) + '"', '关系', String(rel.length), rel.map((x) => tag(x)).join('')) : '');
 }

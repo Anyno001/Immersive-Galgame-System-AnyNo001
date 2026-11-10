@@ -65,8 +65,8 @@ function summarize(traitNames) {
 const base = summarize([]);
 // [特质, 型, 看哪一项]：加成型期望少 25%–45%，减弱型期望多 40%–80%。
 const CASES = [
-    ['恋爱脑', 'boost', 'f51'], ['温柔疏离', 'boost', 'f51'], ['傻白甜', 'boost', 't26'], ['犬系', 'boost', 't26'], ['爱撒娇', 'boost', 't26'],
-    ['慢热', 'weak', 'f51'], ['蛇系', 'weak', 'f51'], ['猫系', 'weak', 'f51'], ['多疑', 'weak', 't26'], ['傲娇', 'weak', 'f26'], ['高岭之花', 'weak', 'f51'],
+    ['恋爱脑', 'boost', 'f51'], ['温柔疏离', 'boost', 'f51'], ['傻白甜', 'boost', 't26'], ['犬系', 'boost', 't26'], ['撒娇精', 'boost', 't26'],
+    ['慢热', 'weak', 'f51'], ['蛇系', 'weak', 'f51'], ['猫系', 'weak', 'f51'], ['疑心病', 'weak', 't26'], ['傲娇', 'weak', 'f26'], ['高岭之花', 'weak', 'f51'],
 ];
 console.log(`无特质：好感 26 平均第 ${base.f26.toFixed(1)} 楼，51 平均第 ${base.f51.toFixed(1)} 楼，信任 26 平均第 ${base.t26.toFixed(1)} 楼，30 楼末好感 ${base.favor.toFixed(1)}；单楼最大上升 ${base.maxUp}、最大下降 ${base.maxDown}`);
 let bad = 0;

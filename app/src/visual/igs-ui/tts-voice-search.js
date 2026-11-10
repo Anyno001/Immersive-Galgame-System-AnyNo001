@@ -17,10 +17,29 @@ export function matchesTtsVoiceSearch(text, query) {
     return normalize(query).split(/\s+/).every(word => haystack.includes(word));
 }
 
+const SEARCH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>';
+
+// kind：select 下拉（搜索框默认收起，点下拉旁的放大镜展开）、pool 默认声音候选、lib 声音库列表（后两种搜索框常显）。
 export function renderTtsVoiceSearch(key, body, { kind = 'select', label = '声音' } = {}) {
-    return `<div class="igs-tts-voice-search" data-tts-voice-search-scope="${esc(key)}" data-tts-voice-search-kind="${kind}">`
-        + `<input class="igs-asset-move" type="search" data-tts-voice-search="${esc(key)}" aria-label="搜索${esc(label)}" placeholder="搜索名称、ID 或语言（部分匹配）" autocomplete="off">`
-        + body + '<div class="igs-source-filter-note" data-tts-voice-search-empty role="status" hidden>没有匹配的声音</div></div>';
+    const input = `<input class="igs-asset-move" type="search" data-tts-voice-search="${esc(key)}" aria-label="搜索${esc(label)}" placeholder="搜索名称、ID或语言" autocomplete="off">`;
+    const empty = '<div class="igs-source-filter-note" data-tts-voice-search-empty role="status" hidden>没有匹配的声音</div>';
+    const head = `<div class="igs-tts-voice-search" data-tts-voice-search-scope="${esc(key)}" data-tts-voice-search-kind="${kind}">`;
+    if (kind !== 'select') return head + input + body + empty + '</div>';
+    return head + `<div class="igs-tts-voice-search-row">${body}<details class="igs-tts-voice-search-fold"><summary class="igs-btn-mgr-icon" title="搜索${esc(label)}" aria-label="搜索${esc(label)}">${SEARCH_ICON}</summary></details></div>`
+        + input + empty + '</div>';
+}
+
+function filterRows(scope, query) {
+    let count = 0;
+    for (const row of scope.querySelectorAll('[data-tts-voice-row]')) {
+        row.hidden = !matchesTtsVoiceSearch(row.getAttribute('data-tts-voice-row'), query);
+        if (!row.hidden) count++;
+    }
+    // 折叠着的文件夹里没有行，保持原样。
+    for (const folder of scope.querySelectorAll('.igs-asset-folder')) {
+        if (folder.querySelector('[data-tts-voice-row]')) folder.hidden = !folder.querySelector('[data-tts-voice-row]:not([hidden])');
+    }
+    return count;
 }
 
 function filterSelect(scope, query, fresh) {
@@ -60,7 +79,8 @@ function filterSelect(scope, query, fresh) {
 function filterPool(scope, query) {
     let count = 0;
     for (const button of scope.querySelectorAll('[data-action^="tts-pool-toggle:"]')) {
-        button.hidden = !matchesTtsVoiceSearch(button.textContent, query);
+        const id = decodeURIComponent((button.getAttribute('data-action') || '').split(':').pop());
+        button.hidden = !(matchesTtsVoiceSearch(button.textContent, query) || matchesTtsVoiceSearch(`${id} ${button.textContent}`, query));
         if (!button.hidden) count++;
     }
     for (const folder of scope.querySelectorAll('.igs-asset-folder')) {
@@ -75,8 +95,9 @@ function filterPool(scope, query) {
 export function applyTtsVoiceSearch(input, { fresh = false } = {}) {
     const scope = input.closest('[data-tts-voice-search-scope]');
     if (!scope) return;
-    const count = scope.getAttribute('data-tts-voice-search-kind') === 'pool'
-        ? filterPool(scope, input.value) : filterSelect(scope, input.value, fresh);
+    const kind = scope.getAttribute('data-tts-voice-search-kind');
+    const count = kind === 'pool' ? filterPool(scope, input.value)
+        : kind === 'lib' ? filterRows(scope, input.value) : filterSelect(scope, input.value, fresh);
     const empty = scope.querySelector('[data-tts-voice-search-empty]');
     if (empty) empty.hidden = !normalize(input.value) || count > 0;
 }
@@ -85,6 +106,9 @@ export function applyTtsVoiceSearch(input, { fresh = false } = {}) {
 export function restoreTtsVoiceSearch(root, queries = {}) {
     for (const input of root.querySelectorAll('[data-tts-voice-search]')) {
         input.value = queries[input.getAttribute('data-tts-voice-search')] || '';
+        // 还在筛选的下拉保持搜索框展开。
+        const fold = input.value ? input.closest('[data-tts-voice-search-scope]')?.querySelector('.igs-tts-voice-search-fold') : null;
+        if (fold) fold.open = true;
         applyTtsVoiceSearch(input, { fresh: true });
     }
 }

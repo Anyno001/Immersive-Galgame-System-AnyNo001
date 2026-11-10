@@ -11,7 +11,7 @@
 // 【事件入口】正文标签读不到「救命」「背叛」「偷窃」这类语义，由副模型或演出层填 ctx.bondEvents：
 //   [{ type, target?, who?, dir?, by? }]，type 取值见 EVENT_TYPES；标签里读得到的（芥蒂上升、共患难 / 交心事件、被迫类压力来源、战斗标签、打工）本文件自行推导。
 import { shiftStress } from './stat-strain.js';
-import { DIM_MAX, barsOf, clamp, dimMin, isRomance, withBars, withCharacter } from './stat-state.js';
+import { DIM_MAX, GRUDGE_TIERS, barsOf, clamp, dimMin, isRomance, withBars, withCharacter } from './stat-state.js';
 import { START_FIX_VALUE, START_MODIFIERS } from './stat-vocab.js';
 import { calcRow, withCalc } from './stat-status-defs.js';
 import { INTIMATE_STOP } from '../intimate-duel.js';
@@ -463,7 +463,15 @@ export function applyEvent(state, api, ev) {
             next = addRel(next, name, '结怨', 'ta', { hold: dimOf(cur, '芥蒂') + GRUDGE_UP_BIG });
             return api.bump(next, name, '芥蒂', GRUDGE_UP_BIG, '结怨');
         }
-        return api.has(next, '主角', '以德报怨') ? next : addRel(next, name, '结怨', 'me');
+        if (api.has(next, '主角', '以德报怨')) return next;
+        next = addRel(next, name, '结怨', 'me');
+        const floor = GRUDGE_TIERS.find((t) => t.name === '怨恨').min;
+        const own = next.characters[name];
+        if (api.ctx.heroSide && own && own.hero && own.hero.dims && (Number(own.hero.dims.芥蒂) || 0) < floor) {
+            api.ctx.changes.push({ source: 'trait', target: name, key: 'my:芥蒂', from: Number(own.hero.dims.芥蒂) || 0, to: floor, heroSide: true, note: '结怨' });
+            next = withCharacter(next, name, { ...own, hero: { ...own.hero, dims: { ...own.hero.dims, 芥蒂: floor } } });
+        }
+        return next;
     }
     case '血仇': {
         if (dir === 'me') return addRel(next, name, '血仇', 'me');

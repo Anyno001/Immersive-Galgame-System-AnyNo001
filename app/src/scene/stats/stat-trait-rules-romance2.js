@@ -29,6 +29,7 @@ const num = (v) => Number(v) || 0;
 const dimOf = (c, dim) => num(c && c.dims && c.dims[dim]);
 const stressOf = (c) => num(c && c.bars && c.bars.stress);
 const gainOf = (c) => num(c.to) - num(c.from);
+const knowOfHero = (c, ctx) => (ctx && ctx.heroSide === true && c && c.hero && c.hero.dims ? num(c.hero.dims.了解) : dimOf(c, '了解'));
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // ---- 读本楼变动 ----
@@ -126,7 +127,7 @@ function incomeDown(state, api, note) {
 // ---- 恋爱人设：倍率 / 标记 ----
 export const SCALE = [
     // 舔狗：主角对其好感上升 ×0.5（越追越不值钱）。
-    ['舔狗', '好感', 'up', 0.5],
+    ['舔狗', '好感', 'up', 0.5, (c, ctx) => !(ctx && ctx.heroSide === true)],
     // 白莲：自身芥蒂上升 ×0.5。
     ['白莲', '芥蒂', 'up', 0.5],
     // 破碎感：其压力过半时，好感上升 ×1.5（激起保护欲）。
@@ -307,7 +308,17 @@ export const TAG_HOOKS = [
     // 千年狐狸：主角对其了解不超过一半（欲望不消退见日结算）。
     (state, api) => {
         let next = state;
-        for (const name of comboHolders(api, '千年狐狸')) if (next.characters[name] && dimOf(next.characters[name], '了解') > HALF) next = putDim(next, api.ctx.changes, name, '了解', HALF, '千年狐狸');
+        for (const name of comboHolders(api, '千年狐狸')) {
+            const cur = next.characters[name];
+            if (!cur) continue;
+            if (api.ctx.heroSide && cur.hero && cur.hero.dims) {
+                const from = num(cur.hero.dims.了解);
+                if (from > HALF) {
+                    api.ctx.changes.push({ source: 'trait', target: name, key: 'my:了解', from, to: HALF, heroSide: true, note: '千年狐狸' });
+                    next = { ...next, characters: { ...next.characters, [name]: { ...cur, hero: { ...cur.hero, dims: { ...cur.hero.dims, 了解: HALF } } } } };
+                }
+            } else if (dimOf(cur, '了解') > HALF) next = putDim(next, api.ctx.changes, name, '了解', HALF, '千年狐狸');
+        }
         return next;
     },
     // 受惊小兔、金丝雀：主角在场那一楼其压力不上升。
@@ -340,7 +351,7 @@ export const TAG_HOOKS = [
     (state, api) => {
         let next = state;
         for (const name of comboHolders(api, '温柔刀')) {
-            if (!mine(api, name, '了解', (c) => num(c.from) <= HALF && num(c.to) > HALF).length) continue;
+            if (!mine(api, name, api.ctx.heroSide ? 'my:了解' : '了解', (c) => num(c.from) <= HALF && num(c.to) > HALF).length) continue;
             next = api.bumpHeroStress(next, STRESS_BIG, '温柔刀');
             next = api.bump(next, name, '好感', FAVOR_BIG, '温柔刀');
         }
@@ -534,7 +545,7 @@ export const DAILY_HOOKS = [
 const DICE_HERE = (c, ctx) => Boolean(ctx && ctx.here === true);
 export const DICE = [
     // 腹黑：主角对其社交检定多一个惩罚骰，了解过半后恢复。
-    ['腹黑', '社交', -1, (c) => dimOf(c, '了解') <= HALF],
+    ['腹黑', '社交', -1, (c, ctx) => knowOfHero(c, ctx) <= HALF],
     // 小笨蛋：自身各类检定多一个惩罚骰。
     ['小笨蛋', '全部', -1],
     // 绿茶：主角对其社交检定多一个惩罚骰。

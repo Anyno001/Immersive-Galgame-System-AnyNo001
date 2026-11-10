@@ -38,7 +38,7 @@ export function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TA
         return shift(bars, 'stress', (table && table[directive.strength]) || STRESS_DELTA[directive.value] || 0);
     }
     case 'money': {
-        const amount = Number(moneyTable[directive.value]) || 0;
+        const amount = directive.amount > 0 ? directive.amount : Number(moneyTable[directive.value]) || 0;
         if (directive.flow === '花费' && amount > walletBalance(bars, walletExtra)) return { bars, change: null, shortfall: true };
         // 扣款记在数值侧金钱上；战斗积分垫付的部分会让它为负，合并余额仍不小于零。
         return shift(bars, 'money', directive.flow === '花费' ? -amount : amount, Infinity, -Infinity);

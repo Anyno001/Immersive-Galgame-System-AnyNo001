@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 import { createEngine } from '../src/scene/stats/stat-engine.js';
+import { mandatesFromFlags } from '../src/scene/stats/stat-prompt.js';
+import { sanitizeCatalog } from '../src/scene/stats/stat-persist.js';
 
 const high = () => 0.99;
 const resolveCharacter = (name) => (name === '小雪' || name === '雪' ? '小雪' : null);
@@ -177,4 +179,138 @@ test('开局修正标签：信任扣、芥蒂加，同一角色每项只生效�
     assert.equal(again.characters.小雪.dims.信任, 0);
     assert.equal(settle('[igs-stat:start|小雪|恋人+猜忌][igs-stat:startfix|小雪|芥蒂|中]').state.characters.小雪.dims.芥蒂, 10);
     assert.equal(settle('[igs-stat:startfix|小雪|信任|3]').state.characters.小雪, undefined);
+});
+
+test('称呼：改口记入变动，相同不记，人前单独记，好感升档给一次性标记', () => {
+    const state = { ...createStatsState(), characters: { 小雪: createCharacter(1) } };
+    const r = settleFloorText(state, '[igs-stat:address|小雪|阿昭]', { random: high, resolveCharacter, strengthRev: 3, favorTier: 'normal' });
+    assert.equal(r.state.characters.小雪.address.private, '阿昭');
+    assert.ok(r.changes.some((c) => c.key === 'address' && c.to === '阿昭' && c.note === '改口'));
+    const again = settleFloorText(r.state, '[igs-stat:address|小雪|阿昭]', { random: high, resolveCharacter, strengthRev: 3, favorTier: 'normal' });
+    assert.ok(!again.changes.some((c) => c.key === 'address'));
+    const pub = settleFloorText(r.state, '[igs-stat:address|小雪|昭哥|人前]', { random: high, resolveCharacter, strengthRev: 3, favorTier: 'normal' });
+    assert.equal(pub.state.characters.小雪.address.public, '昭哥');
+    assert.equal(pub.state.characters.小雪.address.private, '阿昭');
+    const old = settleFloorText(state, '[igs-stat:address|小雪|阿昭]', { random: high, resolveCharacter, strengthRev: 2, favorTier: 'normal' });
+    assert.equal(old.state.characters.小雪.address, undefined);
+});
+
+// ---- 冷战（rev ≥ 3） ----
+const coldCat = (extra = {}) => ({ statuses: { 小雪: { 冷战中: { src: 'story', kind: 'until', since: 1, toward: '主角' }, ...extra } } });
+const coldState = (dims = {}) => ({ ...createStatsState(), characters: { 小雪: { ...createCharacter(1), dims: { ...createCharacter(1).dims, 好感: 20, 芥蒂: 30, ...dims } } } });
+const coldOpts = (o = {}) => ({ random: high, resolveCharacter, strengthRev: 3, favorTier: 'normal', ...o });
+
+test('冷战中：好感上升被挡并留记录，下降照常，旧楼不受影响', () => {
+    const r = settleFloorText(coldState(), '[igs-stat:favor|小雪|感动]', coldOpts({ catalog: coldCat() }));
+    assert.equal(r.state.characters.小雪.dims.好感, 20);
+    assert.ok(r.changes.some((c) => c.key === '好感' && c.to === c.from && String(c.note).includes('冷战中')));
+    const down = settleFloorText(coldState(), '[igs-stat:favor|小雪|受伤]', coldOpts({ catalog: coldCat() }));
+    assert.ok(down.state.characters.小雪.dims.好感 < 20);
+    const old = settleFloorText(coldState(), '[igs-stat:favor|小雪|感动]', coldOpts({ catalog: coldCat(), strengthRev: 2 }));
+    assert.ok(old.state.characters.小雪.dims.好感 > 20);
+});
+
+test('冷战：送礼和好后芥蒂降、好感回升、有记录，并给一次性标记', () => {
+    const r = settleFloorText(coldState(), '[igs-stat:gift|小雪|甜点]', coldOpts({ catalog: coldCat() }));
+    const c = r.state.characters.小雪;
+    assert.ok(c.dims.芥蒂 < 30);
+    assert.ok(c.dims.好感 > 20);
+    assert.ok(r.changes.some((x) => x.note === '和好'));
+    assert.ok(!r.meta.statuses.小雪 || !r.meta.statuses.小雪.冷战中);
+    assert.deepEqual(r.meta.flags.coldWar.end, ['小雪']);
+    const next = settleFloorText(r.state, '平常的一楼', coldOpts({ catalog: { statuses: r.meta.statuses } }));
+    assert.equal(next.meta.flags.coldWar, undefined);
+});
+
+test('闹别扭自然到期：芥蒂 ≥ 40 转冷战并摘掉闹别扭，不到 40 直接结束', () => {
+    const sulk = { 闹别扭: { src: 'system', kind: 'timer', since: 1, until: 2, toward: '主角' } };
+    const cat = { statuses: { 小雪: sulk } };
+    const hi = settleFloorText(coldState({ 芥蒂: 45 }), '她睡下了。[igs-stat:sleep]', coldOpts({ catalog: cat }));
+    assert.ok(hi.meta.statuses.小雪.冷战中);
+    assert.ok(!hi.meta.statuses.小雪.闹别扭);
+    assert.ok(hi.changes.some((c) => c.note === '闹别扭转为冷战'));
+    assert.deepEqual(hi.meta.flags.coldWar.start, ['小雪']);
+    const lo = settleFloorText(coldState({ 芥蒂: 30 }), '她睡下了。[igs-stat:sleep]', coldOpts({ catalog: cat }));
+    assert.ok(!lo.meta.statuses || !lo.meta.statuses.小雪 || !lo.meta.statuses.小雪.冷战中);
+});
+
+test('冷战每日掷骰：命中好感降「小」档，不中不降；跳多天最多 7 次', () => {
+    const run = (random, text, g = 30) => settleFloorText(coldState({ 芥蒂: g }), text, coldOpts({ catalog: coldCat(), random }));
+    const hit = run(() => 0.05, '她睡下了。[igs-stat:sleep]');
+    assert.equal(hit.state.characters.小雪.dims.好感, 17);
+    assert.ok(hit.changes.some((c) => c.note === '冷战' && c.to - c.from === -3));
+    const miss = run(() => 0.99, '她睡下了。[igs-stat:sleep]');
+    assert.ok(!miss.changes.some((c) => c.note === '冷战'));
+    const many = settleFloorText(coldState({ 芥蒂: 80, 好感: 60 }), '[igs-stat:skip|20天]', coldOpts({ catalog: coldCat(), random: () => 0.05 }));
+    const drop = many.changes.find((c) => c.note === '冷战');
+    assert.ok(drop);
+    assert.equal(drop.from - drop.to, 21);
+});
+
+const expOpts = (expenses, o = {}) => ({ random: high, resolveCharacter, strengthRev: 3, favorTier: 'normal', expenses, ...o });
+const moneyRows = (r) => r.changes.filter((c) => c.key === 'money');
+
+test('固定支出：每天一条，睡一天扣一次并留记录', () => {
+    const r = settleFloorText(stateWith({ money: 500 }, { day: 1 }), '她睡下了。[igs-stat:sleep]', expOpts([{ name: '房租', amount: 30, every: 1 }]));
+    assert.equal(r.state.protagonist.bars.money, 470);
+    assert.equal(moneyRows(r).length, 1);
+    assert.equal(moneyRows(r)[0].note, '房租');
+    assert.equal(moneyRows(r)[0].from - moneyRows(r)[0].to, 30);
+});
+
+test('固定支出：每隔三天，第二天不扣、跨过第三天才扣', () => {
+    const list = [{ name: '会费', amount: 50, every: 3 }];
+    const d2 = settleFloorText(stateWith({ money: 500 }, { day: 1 }), '她睡下了。[igs-stat:sleep]', expOpts(list));
+    assert.equal(d2.state.clock.day, 2);
+    assert.equal(d2.state.protagonist.bars.money, 500);
+    assert.equal(moneyRows(d2).length, 0);
+    const d3 = settleFloorText(d2.state, '她睡下了。[igs-stat:sleep]', expOpts(list));
+    assert.equal(d3.state.clock.day, 3);
+    assert.equal(d3.state.protagonist.bars.money, 450);
+});
+
+test('固定支出：跳十天、每隔三天，三期合并为一条记录', () => {
+    const r = settleFloorText(stateWith({ money: 500 }, { day: 1 }), '[igs-stat:skip|10天]', expOpts([{ name: '会费', amount: 50, every: 3 }]));
+    assert.equal(r.state.clock.day, 11);
+    assert.equal(r.state.protagonist.bars.money, 350);
+    assert.equal(moneyRows(r).length, 1);
+    assert.equal(moneyRows(r)[0].note, '会费×3');
+});
+
+test('固定支出：余额不够不扣，挂囊中羞涩、记名称，提示只出现一楼', () => {
+    const r = settleFloorText(stateWith({ money: 10 }, { day: 1 }), '她睡下了。[igs-stat:sleep]', expOpts([{ name: '房租', amount: 30, every: 1 }]));
+    assert.equal(r.state.protagonist.bars.money, 10);
+    assert.equal(moneyRows(r).filter((c) => c.note === '房租').length, 0);
+    assert.ok(r.meta.statuses['主角'].囊中羞涩);
+    assert.deepEqual(r.meta.flags.expenseShort, ['房租']);
+    assert.deepEqual(mandatesFromFlags(r.meta.flags).filter((t) => t.includes('没有付上')), ['这一期的房租没有付上']);
+    const next = settleFloorText(r.state, '平常的一楼', expOpts([{ name: '房租', amount: 30, every: 1 }], { catalog: { statuses: r.meta.statuses } }));
+    assert.equal(next.meta.flags.expenseShort, undefined);
+    assert.deepEqual(mandatesFromFlags(next.meta.flags).filter((t) => t.includes('没有付上')), []);
+});
+
+test('固定支出：余额 150、支出 200，囊中羞涩在本楼结算后仍挂着', () => {
+    const r = settleFloorText(stateWith({ money: 150 }, { day: 1 }), '她睡下了。[igs-stat:sleep]', expOpts([{ name: '债务', amount: 200, every: 1 }]));
+    assert.equal(r.state.protagonist.bars.money, 150);
+    assert.ok(r.meta.statuses['主角'].囊中羞涩);
+});
+
+test('固定支出：旧结算版本不扣', () => {
+    const r = settleFloorText(stateWith({ money: 500 }, { day: 1 }), '她睡下了。[igs-stat:sleep]', expOpts([{ name: '房租', amount: 30, every: 1 }], { strengthRev: 2 }));
+    assert.equal(r.state.protagonist.bars.money, 500);
+    assert.equal(moneyRows(r).length, 0);
+});
+
+test('固定支出：列表为空无变动、无标记、无状态', () => {
+    const r = settleFloorText(stateWith({ money: 500 }, { day: 1 }), '她睡下了。[igs-stat:sleep]', expOpts([]));
+    assert.equal(r.state.protagonist.bars.money, 500);
+    assert.equal(moneyRows(r).length, 0);
+    assert.equal(r.meta.flags.expenseShort, undefined);
+    assert.equal(r.meta.statuses, undefined);
+});
+
+test('固定支出：目录清洗丢弃不合法条目并截断名称', () => {
+    const c = sanitizeCatalog({ expenses: [{ name: ' “房租<a>” ', amount: 30, every: 7 }, { name: '', amount: 5, every: 1 }, { name: 'x', amount: 0, every: 1 }, { name: 'y', amount: 5, every: 366 }, { name: 'z', amount: 1.5, every: 1 }, { name: '一二三四五六七八九十十一十二十三', amount: 9, every: 365 }] });
+    assert.deepEqual(c.expenses, [{ name: '房租a', amount: 30, every: 7 }, { name: '一二三四五六七八九十十一', amount: 9, every: 365 }]);
+    assert.equal(sanitizeCatalog({ expenses: Array.from({ length: 20 }, () => ({ name: 'a', amount: 1, every: 1 })) }).expenses.length, 12);
 });

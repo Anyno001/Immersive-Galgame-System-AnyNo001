@@ -22,12 +22,12 @@ const labels = select => [...select.querySelectorAll('optgroup')].map(group => g
 test('选声按文件夹顺序排列，未分类置后，折叠不隐藏声音，语言仅在设置后显示', () => {
     const groups = ttsApiVoiceGroups(settings());
     assert.deepEqual(groups, [
-        { label: '日语', items: [['jp', '日文声（jp） · 日文']] },
-        { label: '常用', items: [['cn', '中文声（cn） · 中文']] },
-        { label: '未分类', items: [['plain', '未标记（plain）']] },
+        { label: '日语', items: [['jp', '日文声 · 日文']] },
+        { label: '常用', items: [['cn', '中文声 · 中文']] },
+        { label: '未分类', items: [['plain', '未标记']] },
     ]);
-    assert.deepEqual(ttsNarratorVoiceGroups(settings()), [{ label: '旁白专用', items: [['solo', '旁白（solo） · 英文']] }]);
-    assert.deepEqual(ttsApiVoiceGroups({ api: { voices: 'a#甲,b' } }), [{ label: '', items: [['a', '甲（a）'], ['b', 'b']] }]);
+    assert.deepEqual(ttsNarratorVoiceGroups(settings()), [{ label: '旁白专用', items: [['solo', '旁白 · 英文']] }]);
+    assert.deepEqual(ttsApiVoiceGroups({ api: { voices: 'a#甲,b' } }), [{ label: '', items: [['a', '甲'], ['b', 'b']] }]);
 });
 
 test('原生选声保留自动项、库外选中值，并转义声音和文件夹内容', () => {
@@ -52,7 +52,7 @@ test('角色实际台词与心里话控件均分组、显示语言，库外值�
         const select = document.querySelector(`select[data-char-voice-${field}]`);
         assert.ok(select, `${field} 声音控件存在`);
         assert.deepEqual(labels(select), ['日语', '常用', '未分类']);
-        assert.equal(select.querySelector('option[value="jp"]').textContent, '日文声（jp） · 日文');
+        assert.equal(select.querySelector('option[value="jp"]').textContent, '日文声 · 日文', '角色选声不显示声音 ID');
     }
     assert.equal(document.querySelector('[data-char-voice-tts]').value, 'jp');
     assert.equal(document.querySelector('[data-char-voice-ttsThought]').value, 'ghost');
@@ -67,6 +67,8 @@ test('实际设置页男女默认池、主库旁白与独立旁白均分组，�
     const controller = vn.openSettings({ tab: 'sound', mode: 'pc' }).controller;
     controller.goToPath('readerSettings.tts.provider');
     const view = () => doc(controller.getSnapshot().html);
+    // 默认声音收起时只显示已选的，展开后才列出全部。
+    for (const role of ['female', 'male']) await controller.invoke(`ui-toggle-open:tts-pool-api-${role}`);
     let document = view();
     const main = document.querySelector('[data-path="readerSettings.tts.api.narrator"]');
     assert.deepEqual(labels(main), ['日语', '常用', '未分类']);
@@ -76,7 +78,7 @@ test('实际设置页男女默认池、主库旁白与独立旁白均分组，�
         const pool = button.closest('.igs-tts-pool-field');
         assert.deepEqual([...pool.querySelectorAll('.igs-asset-folder-name')].map(node => node.textContent),
             role === 'female' ? ['日语', '常用', '未分类', '不在声音库'] : ['日语', '常用', '未分类']);
-        assert.equal(button.textContent, '日文声（jp） · 日文');
+        assert.equal(button.textContent, '日文声 · 日文');
         assert.equal(button.getAttribute('aria-pressed'), role === 'female' ? 'true' : 'false');
     }
     await controller.invoke('tts-pool-toggle:api:male:jp');
@@ -87,7 +89,7 @@ test('实际设置页男女默认池、主库旁白与独立旁白均分组，�
     const separate = document.querySelector('[data-path="readerSettings.tts.narratorApi.voice"]');
     assert.deepEqual(labels(separate), ['旁白专用']);
     assert.equal(separate.value, 'solo');
-    assert.equal(separate.selectedOptions[0].textContent, '旁白（solo） · 英文');
+    assert.equal(separate.selectedOptions[0].textContent, '旁白 · 英文');
     assert.equal(separate.querySelector('option[value="jp"]'), null);
     await controller.invoke('tts-voice-folder-remove:api:' + encodeURIComponent('日语'));
     controller.setValue('readerSettings.tts.narratorApi.enabled', false);

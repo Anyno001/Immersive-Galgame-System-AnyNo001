@@ -88,7 +88,7 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, moneyUnit: '', moneyTable: {}, expenses: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -157,6 +157,12 @@ export function sanitizeCatalog(raw) {
         for (const [key, floor] of Object.entries(v).slice(0, 12)) if (key && key.length <= 40 && Number.isFinite(Number(floor))) own[key] = Number(floor);
         if (Object.keys(own).length) out.landmineKnown[k] = own;
     }
+    for (const [k, v] of Object.entries(plainObject(raw.softKnown) ? raw.softKnown : {}).slice(0, SHEET_MAX)) {
+        if (!k || k.length > 20 || !plainObject(v)) continue;
+        const own = {};
+        for (const [key, floor] of Object.entries(v).slice(0, 12)) if (key && key.length <= 40 && Number.isFinite(Number(floor))) own[key] = Number(floor);
+        if (Object.keys(own).length) out.softKnown[k] = own;
+    }
     // 主角的声望条：[{ name, kind }]，最多 3 条，聊天级设置，不随楼层快照。
     out.fameBars = sanitizeFameBars(raw.fameBars);
     out.romanceSeen = [...new Set((Array.isArray(raw.romanceSeen) ? raw.romanceSeen : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
@@ -173,6 +179,20 @@ export function sanitizeCatalog(raw) {
     const genres = (v) => [...new Set((Array.isArray(v) ? v : []).filter((w) => WORLD_GENRES.includes(w)))];
     out.worlds = genres(raw.worlds);
     out.worldsManual = genres(raw.worldsManual);
+    // 货币单位与四档金额（本聊天）：单位留空表示不带单位，金额缺省走默认表。
+    out.moneyUnit = typeof raw.moneyUnit === 'string' ? raw.moneyUnit.trim().slice(0, 6) : '';
+    out.moneyTable = {};
+    for (const k of ['少量', '普通', '昂贵', '巨额']) { const v = Math.round(Number(plainObject(raw.moneyTable) ? raw.moneyTable[k] : NaN)); if (Number.isSafeInteger(v) && v > 0) out.moneyTable[k] = v; }
+    // 固定支出（本聊天，主角金钱）：名称去引号与尖括号、截 12 字；金额与周期为正整数，周期上限 365；最多 12 条，不合法的丢弃。
+    out.expenses = [];
+    for (const e of Array.isArray(raw.expenses) ? raw.expenses : []) {
+        if (!plainObject(e) || out.expenses.length >= 12) continue;
+        const name = String(e.name ?? '').replace(/["'“”‘’「」<>＜＞]/g, '').trim().slice(0, 12);
+        const amount = Number(e.amount), every = Number(e.every);
+        if (name && Number.isSafeInteger(amount) && amount > 0 && Number.isSafeInteger(every) && every >= 1 && every <= 365) out.expenses.push({ name, amount, every });
+    }
+    // 角色改名表：{ 曾用名: 现用名 }，结算解析角色名时先查。
+    for (const [k, v] of Object.entries(plainObject(raw.renames) ? raw.renames : {}).slice(0, SHEET_MAX)) if (k && k.length <= 20 && typeof v === 'string' && v && v.length <= 20 && v !== k) out.renames[k] = v;
     return out;
 }
 

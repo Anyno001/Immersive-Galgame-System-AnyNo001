@@ -1,6 +1,6 @@
 import { IMAGE_PROMPT_FORMATS, IMAGE_PROMPT_TASKS, PROMPT_DATA_FIELDS } from '../../presets/prompt-preset.js';
 import { collapsible, perfItem } from './fx-settings-fields.js';
-import { menuItem } from './settings-outfit-fields.js';
+import { renderRowMenu } from './settings-outfit-fields.js';
 import { field as settingsField, segmentedInput } from './settings-fields.js';
 import { blockTitle, dataFieldLabel, describeFailure, describeIssues, formatLabel, imagePromptStatusClass, imagePromptStatusText,
     moduleTitle, ROLE_LABELS, SLOT_LABELS, taskLabel } from './settings-image-prompt-labels.js';
@@ -161,11 +161,11 @@ export function renderImagePromptPanel(editor, advancedOpen = {}) {
     const own = Boolean(state.preset);
     let head = '<div class="igs-source-filter"><div class="igs-source-filter-title">生图提示词组</div>';
     // 下拉一选中即设为使用中；复制与导入/导出/删除收在「更多」里。
-    head += `<label class="igs-settings-field"><span>提示词组</span><select data-image-prompt-select aria-label="提示词组">${own ? '' : '<option value="">请选择</option>'}${choices(items.map(p => [p.id, label(p)]), state.preset?.id)}</select></label>`;
-    head += `<div class="igs-image-prompt-actions igs-image-prompt-preset-actions">${button('new', '新建')}${button('rename', '重命名', [], { disabled: !own })}${button('reset', '恢复默认', [], { disabled: !own })}`
-        + `<details class="igs-add-menu igs-image-prompt-more"><summary class="igs-settings-action igs-settings-inline-action" aria-label="更多">更多 ▾</summary><div class="igs-add-menu-list" role="menu">`
-        + [menuItem(act('copy'), '复制'), menuItem(act('import'), '导入文件'), menuItem(act('import-text'), '从剪贴板导入'),
-            menuItem(act('export'), '导出文件'), menuItem(act('delete'), '删除', ' is-danger')].join('') + '</div></details></div>';
+    const item = (verb, text, { disabled = false, danger = false } = {}) => `<button type="button" class="igs-add-menu-item${danger ? ' is-danger' : ''}" data-action="${act(verb)}" role="menuitem"${disabled ? ' disabled' : ''}>${esc(text)}</button>`;
+    head += `<div class="igs-artist-lib-row is-labeled"><label class="igs-settings-field"><span>提示词组</span><select data-image-prompt-select aria-label="提示词组">${own ? '' : '<option value="">请选择</option>'}${choices(items.map(p => [p.id, label(p)]), state.preset?.id)}</select></label>`
+        + renderRowMenu([item('new', '新建'), item('rename', '重命名', { disabled: !own }), item('reset', '恢复默认', { disabled: !own }),
+            item('copy', '复制'), item('import', '导入文件'), item('import-text', '从剪贴板导入'),
+            item('export', '导出文件'), item('delete', '删除', { danger: true })], '提示词组操作') + '</div>';
     // 演绎档位、CG主体、补标签只在灵动方案下出现；缺省为现实、角色、关闭。
     if (state.preset?.data.spriteScheme === 'lively')
         head += settingsField('', '演绎', segmentedInput('', state.preset.data.performance === 'expressive' ? 'expressive' : 'subtle',

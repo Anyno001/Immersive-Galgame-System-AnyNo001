@@ -4,13 +4,14 @@
 // TAG_HOOKS：每楼事件钩子 (state, api) => state；DAILY_HOOKS：日结算钩子 (state, api) => state。api 见 stat-trait-hooks.js。
 //
 // 约定：
-// - 双向特质（已标记、精神结合、认出蛋糕、伴侣印记、血契、主从契约）挂在 NPC 身上时，对方默认为主角。
+// - 双向特质（永久标记、精神结合、尝到味道、伴侣印记、血契、主从契约）挂在 NPC 身上时，对方默认为主角。
 // - 无法单凭特质认出「主人 / 向导 / 叉子」是谁时，按「持有对应特质的任一角色」认定（主角视为一直在场）。
 // - 钩子读本楼结算已产生的变动记录（ctx.changes 中 source 为 tag 的条目）取实际增减量，再追加差额，不重算强度表。
 // - 只改数值，不碰战斗与亲密对决的牌组、主导权、回合与牌效。
 // - 环境读取：ABO 演出标签、地点由结算放进 ctx.fx / ctx.place（见 stat-trait-env.js），吸血、歌唱、发情读本楼 traitEvent 标签，读不到静默不生效。
 // 模块级代码不使用 import 的值（这些模块与 stat-traits.js 存在互相引用），导入项只在函数里用。
 import { DIM_MAX, barsOf, clamp, withBars, withCharacter } from './stat-state.js';
+import { applyStatusChange } from './stat-status.js';
 import { shiftStress } from './stat-strain.js';
 import { FAVOR_DELTA, FAVOR_WORDS } from './stat-vocab.js';
 
@@ -32,8 +33,8 @@ export const SCALE = [
     ['精神结合', '信任', 'up', 2],
     // 信息素契合：欲望上升 ×1.5（安抚加倍需 ABO 演出标签，未接）。
     ['信息素契合', '欲望', 'up', 1.5],
-    // 认出蛋糕：叉子对蛋糕好感过「喜欢」后转为守护，叉子对蛋糕信任上升加倍。
-    ['认出蛋糕', '信任', 'up', 2, (c) => dimOf(c, '好感') >= LIKE],
+    // 守护（由尝到味道进化而来）：叉子对蛋糕信任上升加倍。
+    ['守护', '信任', 'up', 2],
     // 命定之人：好感上升 ×1.5。
     ['命定之人', '好感', 'up', 1.5],
 ];
@@ -41,7 +42,7 @@ export const SCALE = [
 // ---- 布尔效果 ----
 export const FLAG = [
     // 双向状态：彼此好感不冷却。
-    ['noCool', '已标记'],
+    ['noCool', '永久标记'],
     ['noCool', '精神结合'],
     ['noCool', '伴侣印记'],
     ['noCool', '血契'],
@@ -92,13 +93,13 @@ const closeToOther = (state, api, owner) => api.directives.some((d) => d.target 
 
 // ---- 每楼钩子 ----
 
-// 已标记（压力上升一大档）、伴侣印记（芥蒂上升一大档）：主角与他人亲近时，另一方（NPC）受影响。NPC 之间的亲近读不到。
+// 永久标记（压力上升一大档）、伴侣印记（芥蒂上升一大档）：主角与他人亲近时，另一方（NPC）受影响。NPC 之间的亲近读不到。
 function jealousBond(state, api) {
     for (const name of npcsOf(state)) {
-        const marked = api.has(state, name, '已标记');
+        const marked = api.has(state, name, '永久标记');
         const imprint = api.has(state, name, '伴侣印记');
         if ((!marked && !imprint) || !closeToOther(state, api, name)) continue;
-        if (marked) state = shiftBar(state, name, 'stress', BIG_BAR, '已标记：另一方与他人亲近', api.ctx);
+        if (marked) state = shiftBar(state, name, 'stress', BIG_BAR, '永久标记：另一方与他人亲近', api.ctx);
         if (imprint) state = api.bump(state, name, '芥蒂', GRUDGE_BIG, '伴侣印记：另一方与他人亲近');
     }
     return state;
@@ -122,10 +123,15 @@ function staminaScale(state, api) {
 }
 
 // 哨兵：结合向导（双方都有精神结合、对方是向导）在场时压力不上升；战斗那一楼压力上升 ×1.5。
-// 向导：与哨兵同在场那一楼，哨兵压力下降一大档。（「进行疏导时体力小降」需疏导关键词，未接。）
+// 向导：与哨兵同在场那一楼，哨兵压力下降一大档。（进行疏导时体力小降：由「精神疏导」状态标签触发。）
 function sentinelGuide(state, api) {
     const guides = withIds(state, api, ['向导']);
     const battle = api.directives.some((d) => d.kind === 'battle');
+    // 精神疏导挂上的那一楼，在场向导体力小降（疏导的消耗）。
+    for (const d of api.directives) {
+        if (d.kind !== 'status' || d.status !== '精神疏导' || d.on !== true) continue;
+        for (const g of guides) if (g !== d.target && present(api, g)) state = shiftBar(state, g, 'stamina', -STRESS_SMALL, '精神疏导', api.ctx);
+    }
     for (const s of withIds(state, api, ['哨兵'])) {
         const others = guides.filter((g) => g !== s && present(api, g));
         const bonded = others.some((g) => api.has(state, g, '精神结合') && api.has(state, s, '精神结合'));
@@ -143,6 +149,17 @@ function bondedStress(state, api) {
         if (!api.has(state, name, '精神结合')) continue;
         if (heavyUp(api, HERO)) state = shiftBar(state, name, 'stress', STRESS_SMALL, '精神结合', api.ctx);
         if (heavyUp(api, name)) state = shiftBar(state, HERO, 'stress', STRESS_SMALL, '精神结合', api.ctx);
+    }
+    return state;
+}
+
+// 契约者：式神或使魔在场的那一楼，其压力上升量退回两成（按本楼已涨量返还）。
+function contractorRelief(state, api) {
+    const servants = withIds(state, api, ['式神', '使魔']);
+    for (const m of withIds(state, api, ['契约者'])) {
+        if (!servants.some((v) => v !== m && present(api, v))) continue;
+        const up = applied(api.ctx, m, 'stress', 1);
+        if (up) state = shiftBar(state, m, 'stress', -Math.round(up * 0.2), '契约者：式神在场', api.ctx);
     }
     return state;
 }
@@ -234,6 +251,12 @@ const fxOf = (ctx, kind) => (Array.isArray(ctx.fx) ? ctx.fx.filter((f) => f && f
 const wordHit = (ctx, ...words) => Array.isArray(ctx.directives) && ctx.directives.some((d) => d.kind === 'traitEvent' && words.includes(d.value));
 // 一个角色有无某一组身份之一。
 const holders = (state, api, id) => withIds(state, api, [id]);
+// 读本楼状态箱里的状态条目（不导入状态读取层的特质依赖，直接读 cat.statuses）。
+const statusEntry = (api, name, key) => {
+  const box = api.ctx.statusBox;
+  const own = box && box.cat && box.cat.statuses && box.cat.statuses[name];
+  return (own && own[key]) || null;
+};
 
 // ABO：压制 / 安抚 / 发情期 / 易感期。Beta 不受压制与安抚影响；被标记的 Omega 不再受其他 Alpha 压制；信息素契合让安抚效果加倍。
 function aboScene(state, api) {
@@ -244,7 +267,10 @@ function aboScene(state, api) {
     const all = fx.args[1] && /全|所有|整/.test(fx.args[1]);
     for (const o of omegas) {
       if (o === by || (!all && !present(api, o))) continue;
-      if (api.has(state, o, '已标记') && by && !api.has(state, by, '已标记')) continue;
+      if (api.has(state, o, '永久标记') && by && !api.has(state, by, '永久标记')) continue;
+      // 临时标记：只认标记者，其他施压者压不住。
+      const tm = statusEntry(api, o, '临时标记');
+      if (tm && by && tm.toward && tm.toward !== by) continue;
       state = shiftBar(state, o, 'stress', STRESS_SMALL, '信息素压制', ctx);
     }
   }
@@ -260,12 +286,40 @@ function aboScene(state, api) {
     const who = fx.args[2];
     for (const name of namesOf(state)) {
       if (who && name !== who) continue;
+      if (statusEntry(api, name, '抑制剂')) continue;
       if (heat && api.has(state, name, 'Omega')) { const g = applied(ctx, name, '欲望', 1); if (g) state = api.bump(state, name, '欲望', g, '发情期'); }
       if (!heat && api.has(state, name, 'Alpha')) {
         const g = applied(ctx, name, '欲望', 1); if (g) state = api.bump(state, name, '欲望', Math.round(g * 0.5), '易感期');
         const r = applied(ctx, name, '芥蒂', 1); if (r) state = api.bump(state, name, '芥蒂', Math.round(r * 0.5), '易感期');
       }
     }
+  }
+  return state;
+}
+
+// 临时标记：演出标签「标记」（非永久）自动挂上；有了永久标记自动摘下；带临时标记的 Omega 本楼欲望上升量再补三成。
+function putStatus(api, name, key, on, opts) {
+    const box = api.ctx.statusBox;
+    if (!box || !box.cat) return;
+    const r = applyStatusChange(box.cat, name, key, { on, src: 'system', ...opts });
+    if (r.reason) return;
+    box.cat = r.catalog;
+    api.ctx.changes.push(...r.changes);
+}
+function tempMark(state, api) {
+  const ctx = api.ctx;
+  const day = state.clock.day;
+  for (const fx of fxOf(ctx, 'bond')) {
+    const who = fx.args[0];
+    if (!who || /永久|终身|life/i.test(fx.args[1] || '') || !namesOf(state).includes(who) || api.has(state, who, '永久标记') || statusEntry(api, who, '临时标记')) continue;
+    const by = withIds(state, api, ['Alpha']).find((n) => n !== who && present(api, n)) || (who === HERO ? '' : HERO);
+    putStatus(api, who, '临时标记', true, { day, ...(by ? { toward: by } : {}) });
+  }
+  for (const name of namesOf(state)) {
+    if (!statusEntry(api, name, '临时标记')) continue;
+    if (api.has(state, name, '永久标记')) { putStatus(api, name, '临时标记', false, {}); continue; }
+    const g = applied(ctx, name, '欲望', 1);
+    if (g) state = api.bump(state, name, '欲望', Math.round(g * 0.3), '临时标记');
   }
   return state;
 }
@@ -288,7 +342,7 @@ function wordScene(state, api) {
   return state;
 }
 
-export const TAG_HOOKS = [aboScene, wordScene, jealousBond, staminaScale, sentinelGuide, bondedStress, servantSync, cakeFork, masterServantPact, amnesia, disguiseCap];
+export const TAG_HOOKS = [aboScene, tempMark, wordScene, jealousBond, staminaScale, sentinelGuide, contractorRelief, bondedStress, servantSync, cakeFork, masterServantPact, amnesia, disguiseCap];
 
 // ---- 日结算钩子 ----
 
@@ -308,11 +362,11 @@ function deceasedFreeze(state, api) {
     return state;
 }
 
-// 认出蛋糕：叉子在场、对蛋糕好感未到「喜欢」时，蛋糕（主角）压力缓升；到了「喜欢」转为守护，不再紧张。
+// 尝到味道：叉子在场、对蛋糕好感未到「喜欢」时，蛋糕（主角）压力缓升；到了「喜欢」转为守护，不再紧张。
 function recognizedCake(state, api) {
     for (const name of npcsOf(state)) {
-        if (!api.present.has(name) || !api.has(state, name, '认出蛋糕') || dimOf(state.characters[name], '好感') >= LIKE) continue;
-        state = api.shiftStress(HERO, DAILY_CREEP, '认出蛋糕');
+        if (!api.present.has(name) || !api.has(state, name, '尝到味道') || dimOf(state.characters[name], '好感') >= LIKE) continue;
+        state = api.shiftStress(HERO, DAILY_CREEP, '尝到味道');
     }
     return state;
 }
@@ -327,7 +381,17 @@ function bloodServantRelief(state, api) {
     return state;
 }
 
-export const DAILY_HOOKS = [deceasedFreeze, recognizedCake, bloodServantRelief];
+// 精神体：持有者压力达七成以上时，每天压力下降 3（精神体已迁为备注，hasTrait 仍可读）。
+function spiritAnimal(state, api) {
+    for (const name of namesOf(state)) {
+        const bars = name === HERO ? state.protagonist.bars : state.characters[name] && state.characters[name].bars;
+        if (!api.has(state, name, '精神体') || !bars || (Number(bars.stress) || 0) < 70) continue;
+        state = api.shiftStress(name, -DAILY_CREEP, '精神体');
+    }
+    return state;
+}
+
+export const DAILY_HOOKS = [deceasedFreeze, recognizedCake, bloodServantRelief, spiritAnimal];
 
 // DICE：[特质键, 检定类别(社交/战斗/技术/敏捷/手工/学习/全部…), 奖惩骰数(+1 奖励 / -1 惩罚), 条件(character, ctx)?]
 export const DICE = [];

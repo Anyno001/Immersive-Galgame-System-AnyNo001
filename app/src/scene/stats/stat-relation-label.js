@@ -59,13 +59,32 @@ function level(value) {
 }
 
 // dims：{ 好感, 信任, 了解, 芥蒂, 欲望 }，缺项按零。romance 为真用恋爱向名称；否则 kin 为真用亲情向，其余用友情向。返回 { name, desc }。
-export function relationLabel(dims, { nsfw = false, romance = false, kin = false } = {}) {
+const BOTH_WAY = Object.freeze([
+    (f, h) => f > 50 && h.f < 0 && ['避之不及', '避之不及', '对方对你避之不及，你却在意对方'],
+    (f, h) => f > 50 && h.f <= 25 && ['一厢情愿', '单方面亲近', '对方在意你，你却没有同样的心意'],
+    (f, h) => h.f > 50 && f < 0 && ['求而不得', '热脸冷遇', '你在意对方，对方却无意回应'],
+    (f, h) => h.f > 50 && f <= 25 && ['暗自倾心', '有心结交', '你在意对方，对方的心意尚浅'],
+    (f, h) => h.g >= 51 && f > 25 && ['难以释怀', '难以释怀', '对方亲近你，你心里的结却没有解开'],
+    (f, h, nsfw) => nsfw && h.d > 50 && h.f <= 0 && ['只图一时', '只图一时', '你对对方有渴求，却谈不上喜欢'],
+]);
+
+function bothWayLabel(f, hero, nsfw, romance) {
+    const h = { f: level(hero.好感), g: Math.max(0, level(hero.芥蒂)), d: level(hero.欲望) };
+    for (const test of BOTH_WAY) {
+        const names = test(f, h, nsfw);
+        if (names) return { name: names[romance ? 0 : 1], desc: names[2] };
+    }
+    return null;
+}
+
+export function relationLabel(dims, { nsfw = false, romance = false, kin = false, hero = null } = {}) {
     const d = dims && typeof dims === 'object' ? dims : {};
     const f = level(d.好感);
     const t = level(d.信任);
     const k = level(d.了解);
     const g = Math.max(0, level(d.芥蒂));
     const desire = level(d.欲望);
+    if (hero && typeof hero === 'object') { const both = bothWayLabel(f, hero, nsfw, romance); if (both) return both; }
     const hit = RELATION_RULES.find((r) => (!r.needsDesire || nsfw) && r.test(f, t, k, g, desire)) || FALLBACK;
     const shown = romance ? hit : (kin && hit.kin) || hit.friend || hit;
     return { name: shown.name, desc: shown.desc };

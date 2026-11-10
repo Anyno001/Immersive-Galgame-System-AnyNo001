@@ -2,9 +2,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
+import { statusScale } from '../src/scene/stats/stat-status-auto.js';
+import { evolveCandidates } from '../src/scene/stats/stat-trait-evolve.js';
 import { settleDay } from '../src/scene/stats/stat-day.js';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
-import { getTraitByName, traitCatalogOf, traitDaily, traitFlag, traitScale } from '../src/scene/stats/stat-traits.js';
+import { LEGACY_RENAME, getTraitByName, traitCatalogOf, traitDaily, traitFlag, traitScale } from '../src/scene/stats/stat-traits.js';
 
 const high = () => 0.99;
 const floor = (state, text, traits = {}, opts = {}) => settleFloorText(state, text, { random: high, resolveCharacter: (n) => n, favorTier: 'normal', strengthRev: 2, nsfw: true, traits, ...opts });
@@ -22,19 +24,18 @@ const cat = (map) => traitCatalogOf(tr(map), true);
 const hero = (r) => r.state.protagonist.bars;
 const npc = (r, name = '林夏') => r.state.characters[name];
 
-test('静态倍率：精神结合信任、信息素契合欲望、命定之人好感、认出蛋糕按好感门槛', () => {
+test('静态倍率：精神结合信任、信息素契合欲望、命定之人好感、尝到味道按好感门槛', () => {
     const s = world({ 林夏: mk({ dims: { 好感: 30 } }) });
     assert.equal(traitScale(s, cat({ 林夏: ['精神结合'] }), '林夏', '信任', 'up'), 2);
     assert.equal(traitScale(s, cat({ 林夏: ['信息素契合'] }), '林夏', '欲望', 'up'), 1.5);
     assert.equal(traitScale(s, cat({ 林夏: ['命定之人'] }), '林夏', '好感', 'up'), 1.5);
-    assert.equal(traitScale(s, cat({ 林夏: ['认出蛋糕'] }), '林夏', '信任', 'up'), 2);
-    const low = world({ 林夏: mk({ dims: { 好感: 10 } }) });
-    assert.equal(traitScale(low, cat({ 林夏: ['认出蛋糕'] }), '林夏', '信任', 'up'), 1, '好感未到喜欢不守护');
+    assert.equal(traitScale(s, cat({ 林夏: ['守护'] }), '林夏', '信任', 'up'), 2);
+    assert.equal(traitScale(s, cat({ 林夏: ['尝到味道'] }), '林夏', '信任', 'up'), 1, '尝到味道本身不加倍');
 });
 
-test('不冷却：已标记、精神结合、伴侣印记、血契；命定之人好感未到喜欢时不冷却', () => {
+test('不冷却：永久标记、精神结合、伴侣印记、血契；命定之人好感未到喜欢时不冷却', () => {
     const s = world({ 林夏: mk({ dims: { 好感: 10 } }) });
-    for (const n of ['已标记', '精神结合', '伴侣印记', '血契', '命定之人']) assert.equal(traitFlag(s, cat({ 林夏: [n] }), '林夏', 'noCool'), true, n);
+    for (const n of ['永久标记', '精神结合', '伴侣印记', '血契', '命定之人']) assert.equal(traitFlag(s, cat({ 林夏: [n] }), '林夏', 'noCool'), true, n);
     const liked = world({ 林夏: mk({ dims: { 好感: 30 } }) });
     assert.equal(traitFlag(liked, cat({ 林夏: ['命定之人'] }), '林夏', 'noCool'), false);
     assert.equal(traitFlag(liked, cat({ 林夏: ['血契'] }), '林夏', 'noCool'), true);
@@ -48,10 +49,10 @@ test('诅咒：每天压力 +5，日结算后主角压力 +5 再减自然回落'
     assert.equal(r.protagonist.bars.stress, 30, '30×15%=5 回落再加 5');
 });
 
-test('已标记：主角与他人亲近，已标记者压力上升一大档；无特质不变', () => {
+test('永久标记：主角与他人亲近，永久标记者压力上升一大档；无特质不变', () => {
     const s = world({ 林夏: mk({}, { stress: 10 }), 苏晴: mk() });
     const text = '[igs-stat:favor|苏晴|喜悦|中]';
-    assert.equal(npc(floor(s, text, tr({ 林夏: ['已标记'] }))).bars.stress, 30);
+    assert.equal(npc(floor(s, text, tr({ 林夏: ['永久标记'] }))).bars.stress, 30);
     assert.equal(npc(floor(s, text)).bars.stress, 10);
 });
 
@@ -174,8 +175,8 @@ test('已故：日结算冻结好感冷却与芥蒂消退', () => {
     assert.equal(dead.characters.林夏.dims.芥蒂, 40);
 });
 
-test('认出蛋糕：叉子在场且好感未到喜欢，每天蛋糕压力缓升；到喜欢后不再', () => {
-    const t = tr({ 林夏: ['认出蛋糕'] });
+test('尝到味道：叉子在场且好感未到喜欢，每天蛋糕压力缓升；到喜欢后不再', () => {
+    const t = tr({ 林夏: ['尝到味道'] });
     const low = world({ 林夏: mk({ dims: { 好感: 10 }, lastSeenDay: 1 }) }, { stress: 0 });
     assert.equal(settleDay(low, { random: high, rev: 2, traits: t, nsfw: true, present: ['林夏'] }).protagonist.bars.stress, 3);
     const liked = world({ 林夏: mk({ dims: { 好感: 30 }, lastSeenDay: 1 }) }, { stress: 0 });
@@ -188,4 +189,66 @@ test('血仆：主人（吸血鬼）在场时每天压力下降', () => {
     const here = settleDay(s, { random: high, rev: 2, traits: t, nsfw: true, present: ['林夏', '夜宵'] });
     const away = settleDay(s, { random: high, rev: 2, traits: t, nsfw: true, present: ['林夏'] });
     assert.equal(here.characters.林夏.bars.stress, away.characters.林夏.bars.stress - 3);
+});
+
+test('G1：旧名改名、尝到味道好感 26 进化为守护、守护不进候选', () => {
+    assert.equal(LEGACY_RENAME.认出蛋糕, '尝到味道');
+    assert.equal(LEGACY_RENAME.已标记, '永久标记');
+    assert.equal(getTraitByName('守护').candidate, false);
+    const own = { 林夏: { [getTraitByName('尝到味道').id]: on } };
+    assert.equal(evolveCandidates(world({ 林夏: mk({ dims: { 好感: 25 } }) }), own).length, 0);
+    const list = evolveCandidates(world({ 林夏: mk({ dims: { 好感: 26 } }) }), own);
+    assert.deepEqual(list.map((x) => `${x.from}>${x.to}`), [`${getTraitByName('尝到味道').id}>${getTraitByName('守护').id}`.replace(/^[^>]*/, '尝到味道').replace(/>.*$/, '>守护')]);
+});
+
+test('G2：临时标记压力倍率 0.8、抑制剂暂停发情期倍率、紊乱 1.3', () => {
+    const c = (map) => ({ statuses: map });
+    assert.equal(statusScale(c({ 林夏: { 临时标记: {} } }), '林夏', 'stressUp'), 0.8);
+    assert.equal(statusScale(c({ 林夏: { 发情期: {} } }), '林夏', 'stressUp'), 1.2);
+    assert.equal(statusScale(c({ 林夏: { 发情期: {}, 抑制剂: {} } }), '林夏', 'stressUp'), 1);
+    assert.equal(statusScale(c({ 林夏: { 抑制剂: {} } }), '林夏', 'staminaRecover'), 0.9);
+    assert.equal(statusScale(c({ 林夏: { 信息素紊乱: {} } }), '林夏', 'stressUp'), 1.3);
+});
+
+test('G2：带临时标记的 Omega 不受非标记者压制，标记者仍可压制', () => {
+    const s = world({ 林夏: mk({}, { stress: 10 }), 苏晴: mk() });
+    const t = tr({ 林夏: ['Omega'], 苏晴: ['Alpha'] });
+    const cat0 = { statuses: { 林夏: { 临时标记: { src: 'story', kind: 'timer', since: 1, toward: '主角' } } } };
+    const env = { fx: [{ kind: 'suppress', args: ['苏晴', '近身'] }] };
+    const opt = { present: ['林夏', '苏晴'], env };
+    const base = npc(floor(s, '正文', t, { ...opt, catalog: {} })).bars.stress;
+    assert.ok(base > 10, '无标记被压制');
+    assert.equal(npc(floor(s, '正文', t, { ...opt, catalog: cat0 })).bars.stress, 10, '非标记者压不住');
+});
+
+test('G2：永久标记出现时临时标记自动摘下', () => {
+    const s = world({ 林夏: mk() });
+    const cat0 = { statuses: { 林夏: { 临时标记: { src: 'story', kind: 'timer', since: 1, toward: '主角' } } } };
+    const r = floor(s, '正文', tr({ 林夏: ['永久标记'] }), { catalog: cat0 });
+    assert.equal(r.meta.statuses.林夏, undefined);
+});
+
+test('G3：精神疏导挂上那一楼，在场向导体力下降一小档', () => {
+    const s = world({ 林夏: mk(), 苏晴: mk() });
+    const r = floor(s, '[igs-stat:status|林夏|精神疏导|开始|苏晴]', tr({ 苏晴: ['向导'] }), { present: ['苏晴', '林夏'] });
+    assert.equal(npc(r, '苏晴').bars.stamina, 95);
+});
+
+test('G4：契约者在式神在场那一楼压力上升退回两成', () => {
+    const s = world({ 林夏: mk({}, { stress: 0 }), 夜宵: mk() });
+    const text = '[igs-stat:stress|林夏|上升|大]';
+    const t = tr({ 林夏: ['契约者'], 夜宵: ['式神'] });
+    const withServant = npc(floor(s, text, t, { present: ['林夏', '夜宵'] })).bars.stress;
+    const alone = npc(floor(s, text, tr({ 林夏: ['契约者'] }), { present: ['林夏'] })).bars.stress;
+    assert.ok(alone > 0 && withServant === alone - Math.round(alone * 0.2));
+});
+
+test('G4：精神体持有者压力七成以上，每天压力下降 3', () => {
+    const t = tr({ 林夏: ['精神体'] });
+    const hi = settleDay(world({ 林夏: mk({}, { stress: 90 }) }), { random: high, rev: 2, traits: t, nsfw: true });
+    const base = settleDay(world({ 林夏: mk({}, { stress: 90 }) }), { random: high, rev: 2, traits: {}, nsfw: true });
+    assert.equal(hi.characters.林夏.bars.stress, base.characters.林夏.bars.stress - 3);
+    const lo = settleDay(world({ 林夏: mk({}, { stress: 50 }) }), { random: high, rev: 2, traits: t, nsfw: true });
+    const lob = settleDay(world({ 林夏: mk({}, { stress: 50 }) }), { random: high, rev: 2, traits: {}, nsfw: true });
+    assert.equal(lo.characters.林夏.bars.stress, lob.characters.林夏.bars.stress);
 });

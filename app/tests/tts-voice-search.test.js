@@ -73,11 +73,14 @@ test('实际设置的搜索输入不保存、不失焦，旁白与默认池搜�
     t.after(() => { vn.destroy(); dom.window.close(); });
     const controller = vn.openSettings({ tab: 'sound', mode: 'pc' }).controller;
     controller.goToPath('readerSettings.tts.provider');
+    await controller.invoke('ui-toggle-open:tts-pool-api-male');
     const document = dom.window.document;
     const inputFor = key => [...document.querySelectorAll('[data-tts-voice-search]')].find(node => node.dataset.ttsVoiceSearch === key);
     const input = inputFor('readerSettings.tts.api.narrator');
     assert.ok(input, '实际挂载产生搜索控件');
     const before = storage.getItem('igs-reader-settings-v9-default');
+    // 下拉的搜索框默认收起，点放大镜展开后才能输入。
+    input.closest('[data-tts-voice-search-scope]').querySelector('.igs-tts-voice-search-fold').open = true;
     input.focus(); input.value = 'ja 少女';
     input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
@@ -88,7 +91,7 @@ test('实际设置的搜索输入不保存、不失焦，旁白与默认池搜�
     const poolSearch = inputFor('pool:api:male');
     poolSearch.value = '日'; poolSearch.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     const pool = poolSearch.closest('[data-tts-voice-search-scope]');
-    assert.deepEqual([...pool.querySelectorAll('button:not([hidden])')].map(node => node.textContent), ['少女（ABC123） · 日文']);
+    assert.deepEqual([...pool.querySelectorAll('button:not([hidden])')].map(node => node.textContent), ['少女 · 日文']);
     assert.equal(controller.getSnapshot().draft.readerSettings.tts.api.male, 'en-id');
     await controller.invoke('tts-pool-toggle:api:male:ABC123');
     controller.goToPath('readerSettings.tts.provider');

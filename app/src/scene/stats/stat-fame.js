@@ -185,7 +185,7 @@ export function parseFameDraft(text) {
 
 // ───── 副模型补全：一句话 → 草稿 ─────
 export function buildFameFillPrompt(sentence, { worldview = '', people = [] } = {}) {
-    const refs = people.filter((p) => p && p.summary).map((p) => `${p.name}：${String(p.summary).slice(0, 400)}`).join('\n');
+    const refs = people.filter((p) => p && p.summary).map((p) => `${p.name}：${String(p.own ?? p.summary).slice(0, 3000)}`).join('\n');
     const user = [
         '请把下面这句话整理成一条「声望」设定。声望记录某一群体对某个人物的看法，用 0 到 100 的数值表示。',
         `一句话：${sentence}`,

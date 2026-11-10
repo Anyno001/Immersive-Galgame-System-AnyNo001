@@ -316,14 +316,14 @@ test('界面无内部英文：渲染文本、选项、标签全是中文', () =>
     for (const label of ['Q版头像', '剧情CG', 'CG局部重绘']) assert.ok(html.includes(label), label);
 });
 
-test('版面：顶部「新建/重命名/恢复默认/更多」四按钮；各任务组默认展开 11 行；通用规则默认折叠，无预览区', () => {
+test('版面：顶部下拉旁一个「⋯」菜单收全部操作；各任务组默认展开 11 行；通用规则默认折叠，无预览区', () => {
     const { editor } = setup();
     const html = renderImagePromptPanel(editor, {});
     const top = html.slice(0, html.indexOf('igs-perf-group'));
     assert.equal(top.includes('data-action="image-prompt:activate"'), false, '不再有「使用」按钮，下拉选中即使用');
     for (const verb of ['new', 'rename', 'reset']) assert.ok(top.includes(`data-action="image-prompt:${verb}"`), verb);
     for (const label of ['新建', '重命名', '恢复默认']) assert.ok(top.includes(`>${label}</button>`), label);
-    assert.ok(top.includes('>更多 ▾<'));
+    assert.ok(top.includes('igs-row-menu'));
     for (const label of ['复制', '导入文件', '从剪贴板导入', '导出文件', '删除']) assert.ok(top.includes(`>${label}</button>`), label);
     assert.match(top, /is-danger" data-action="image-prompt:delete" role="menuitem"/);
     assert.equal((html.match(/igs-perf-item"/g) || []).length, IMAGE_PROMPT_TASKS.length);

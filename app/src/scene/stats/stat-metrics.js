@@ -105,7 +105,7 @@ export function characterStatMetrics(character, { hudLabel = 'number', nsfw = fa
 
 // 主角生命条取战斗 vitals（{hp, maxHp, down}），显示「当前/最大」；没有 vitals 就不出生命条。体力、压力仍按生活条。
 // 金钱条只在 enabledBars.money 明确为真时出，显示合并余额（数值侧金钱 + walletExtra 战斗积分）。
-export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null, walletExtra = 0 } = {}) {
+export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, stress: true }, vitals = null, walletExtra = 0, moneyUnit = '' } = {}) {
     const out = [];
     if (vitals && Number(vitals.maxHp) > 0) {
         const hp = vitals.down ? 0 : Math.max(0, Math.round(Number(vitals.hp) || 0));
@@ -120,7 +120,7 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
     }
     if (enabledBars.money === true) {
         const wallet = Math.round(walletBalance(bars, walletExtra));
-        out.push({ label: BAR_LABEL.money, percent: Math.max(0, Math.min(100, Math.round((wallet / MONEY_FULL) * 100))), display: String(wallet), colorKey: BAR_COLOR.money, sourceUid: 'igs-stats' });
+        out.push({ label: BAR_LABEL.money, percent: Math.max(0, Math.min(100, Math.round((wallet / MONEY_FULL) * 100))), display: `${wallet}${moneyUnit || ''}`, colorKey: BAR_COLOR.money, sourceUid: 'igs-stats' });
     }
     return out;
 }

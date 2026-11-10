@@ -1,6 +1,7 @@
 // 设置器「模型预设」：生图 / 副 LLM 两组接口配置的存取，数据在酒馆文件里（见 storage/model-profiles-file.js）。
 import { createModelProfilesStore } from '../../storage/model-profiles-file.js';
 import { esc } from './reader-value-utils.js';
+import { menuItem, renderRowMenu } from './settings-outfit-fields.js';
 import { getPath, normalizeSettingsValue, setPath } from './settings-normalize.js';
 
 const PROFILE_PATHS = Object.freeze({
@@ -52,10 +53,8 @@ export function renderModelProfileRow(kind, profileState) {
         .concat(list.map((item) => `<option value="${esc(item.id)}"${item.id === selected ? ' selected' : ''}>${esc(item.name)}</option>`)).join('');
     const message = profiles.status === 'error' ? `预设读取失败：${profiles.error || '未知原因'}` : (profiles.message || '');
     return `<div class="igs-settings-sub" data-model-profiles="${kind}">`
-        + `<label class="igs-settings-field"><span>模型预设</span><select data-model-profile-select="${kind}" aria-label="${KIND_LABEL[kind]}模型预设">${options}</select></label>`
-        + '<div class="igs-settings-row">'
-        + `<button class="igs-settings-action" type="button" data-action="model-profile:save:${kind}">存为预设</button>`
-        + `<button class="igs-settings-action" type="button" data-action="model-profile:delete:${kind}">删除</button></div>`
+        + `<div class="igs-artist-lib-row is-labeled"><label class="igs-settings-field"><span>模型预设</span><select data-model-profile-select="${kind}" aria-label="${KIND_LABEL[kind]}模型预设">${options}</select></label>`
+        + renderRowMenu([menuItem(`model-profile:save:${kind}`, '存为预设'), menuItem(`model-profile:delete:${kind}`, '删除', ' is-danger')], '模型预设操作') + '</div>'
         + `<div class="igs-settings-result" data-result="model-profile-${kind}">${esc(message)}</div></div>`;
 }
 

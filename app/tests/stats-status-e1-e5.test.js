@@ -9,7 +9,7 @@ import { sanitizeCatalog, emptyCatalog } from '../src/scene/stats/stat-persist.j
 
 const names = (d) => new Set(STATUS_DEFS.map((x) => x.name));
 test('E1 状态全集与效果', () => {
-    for (const n of ['感冒', '宿醉', '醉酒', '失眠', '受惊', '失恋期', '热恋期', '冷战中', '吃醋中', '心情很好', '赶工期', '手头紧', '身体不适', '中毒', '透支', '受祝福', '走火入魔', '闭关中', '渡劫', '被控制', '感染初期', '犯瘾', '信物']) {
+    for (const n of ['感冒', '宿醉', '醉酒', '失眠', '受惊', '失恋期', '热恋期', '冷战中', '吃醋中', '心情很好', '赶工期', '囊中羞涩', '身体不适', '中毒', '透支', '受祝福', '走火入魔', '闭关中', '渡劫', '被控制', '感染初期', '犯瘾', '信物']) {
         assert.ok(names().has(n), n);
         assert.ok(STATUS_EFFECT[n], `效果 ${n}`);
     }
@@ -18,11 +18,11 @@ test('E1 状态全集与效果', () => {
     assert.equal(statusScale(cat, '主角', 'stressUp'), 1.5);
     assert.equal(statusScale(cat, '主角', 'staminaRecover'), 1);
 });
-test('E1 自动挂：醉酒→宿醉、手头紧、心情很好、信物', () => {
+test('E1 自动挂：醉酒→宿醉、囊中羞涩、心情很好、信物', () => {
     const state = createStatsState({ day: 3, money: 5 });
     const box = { cat: {} };
     autoStatuses(state, box, { day: 3, narration: '他喝醉了。', directives: [], changes: [] });
-    assert.ok(box.cat.statuses['主角'].醉酒 && box.cat.statuses['主角'].手头紧);
+    assert.ok(box.cat.statuses['主角'].醉酒 && box.cat.statuses['主角'].囊中羞涩);
     assert.equal(box.cat.statuses['主角'].醉酒.src, 'system');
     autoStatuses(state, box, { day: 4, narration: '', directives: [], changes: [] });
     assert.ok(!box.cat.statuses['主角'].醉酒 && box.cat.statuses['主角'].宿醉);

@@ -105,7 +105,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.39.97';
+const IGS_VERSION = '0.39.98';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -862,7 +862,9 @@ export function bootstrapIGS(options = {}) {
     // 角色资料（v2 §6.4）：主角读人设，NPC 读角色卡与按名字、别名扫到的世界书条目（标题或正文开头含名字的也算）；
     // 仍为空时从最近楼层截取提到该角色的段落兜底。读取失败记在 errors 里，由数值运行时写进诊断。
     const PERSONA_FLOORS = 20;
-    const PERSONA_FALLBACK_MAX = 1200;
+    const PERSONA_FALLBACK_MAX = 3000;
+    // 条目开头的 HTML 注释（如数据库技能元信息）不是设定内容，读人设时去掉。
+    const stripNotes = (text) => String(text || '').replace(/<!--[\s\S]*?-->/g, '').trim();
     const aliasGroupOf = (name) => {
         const aliases = (readImageBridge().sceneAssets || {}).characterAliases || {};
         const group = new Set([name, ...(Array.isArray(aliases[name]) ? aliases[name] : [])]);
@@ -886,34 +888,44 @@ export function bootstrapIGS(options = {}) {
         const out = [];
         for (const name of names) {
             if (name === '主角') {
-                let summary = String((c && c.powerUserSettings && c.powerUserSettings.persona_description) || '').trim();
+                const own = String((c && c.powerUserSettings && c.powerUserSettings.persona_description) || '').trim();
+                let world = '';
                 const userName = String((c && c.name1) || '').trim();
                 if (userName) {
                     try {
                         const wi = await statsWorldInfo({ description: userName });
-                        if (wi && wi.ok && wi.text) summary = `${summary} ${wi.text}`.trim();
+                        if (wi && wi.ok && wi.text) world = stripNotes(wi.text);
                     } catch (error) { /* 世界书读不到时只用人设 */ }
                 }
-                out.push({ name, summary });
+                out.push({ name, summary: [own, world].filter(Boolean).join('\n'), own, world });
                 continue;
             }
             const words = aliasGroupOf(name);
             const card = cards.find((ch) => ch && words.includes(ch.name));
-            let summary = card ? [card.description, card.personality].filter(Boolean).join(' ') : '';
+            // own：角色自己的资料（卡面人设 + 标题或开头写着名字的条目），排在最前；world：其余扫到的世界书（常驻与关键词条目）。
+            // 常驻条目多的卡，世界书全文远长于角色条目，混在一起再截断会把角色自己的条目切掉。
+            let own = card ? stripNotes([card.description, card.personality].filter(Boolean).join('\n')) : '';
+            let world = '';
             const errors = [];
             try {
                 const wi = await statsWorldInfo({ description: words.join(' ') });
-                if (wi && wi.ok && wi.text) summary = `${summary} ${wi.text}`.trim();
+                if (wi && wi.ok && wi.text) world = stripNotes(wi.text);
                 else if (wi && !wi.ok) errors.push(wi.reason || 'WORLDINFO_RESOLVE_FAILED');
             } catch (error) { errors.push('WORLDINFO_RESOLVE_THREW'); }
             try {
                 const named = await readWorldInfoByNames(globalObject, words, readWorldInfoExclude());
-                for (const part of named.entries || []) if (!summary.includes(part)) summary = `${summary} ${part}`.trim();
+                for (const raw of named.entries || []) {
+                    const part = stripNotes(raw);
+                    if (!part) continue;
+                    if (world.includes(part)) world = world.split(part).join('').trim();
+                    if (!own.includes(part)) own = `${own}\n${part}`.trim();
+                }
                 if (named.reason) errors.push(named.reason);
             } catch (error) { errors.push('WORLDINFO_BY_NAME_THREW'); }
+            let summary = [own, world].filter(Boolean).join('\n');
             let from = summary ? 'card' : '';
-            if (!summary) { summary = recentParagraphs(c, words); from = summary ? 'floors' : ''; }
-            out.push({ name, summary, from, ...(errors.length ? { errors } : {}) });
+            if (!summary) { summary = recentParagraphs(c, words); own = summary; from = summary ? 'floors' : ''; }
+            out.push({ name, summary, own, world, from, ...(errors.length ? { errors } : {}) });
         }
         return out;
     };

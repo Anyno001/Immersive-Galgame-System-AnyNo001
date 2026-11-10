@@ -4,7 +4,8 @@ import { esc } from './reader-value-utils.js';
 import { PROMPT_KINDS, normalizeArtistByKind } from '../../generated-images/prompt-artists.js';
 import { BUILTIN_PROMPTS, SCENE_DICTIONARY } from '../../generated-images/prompt-registry.js';
 import { MOOD_PRESET } from '../../scene/mood-groups.js';
-import { renderArtistSelector } from './settings-artist-library.js';
+import { renderArtistSelector, renderGlobalArtistRow } from './settings-artist-library.js';
+import { perfItem } from './fx-settings-fields.js';
 
 const B = BUILTIN_PROMPTS;
 const rows = (list) => list.map(([key, tags]) => `${Array.isArray(key) ? key.join('|') : key} → ${tags}`).join('\n');
@@ -37,13 +38,6 @@ const BUILTIN_VIEW = {
     ],
     item: [['正面', B.item.positive], ['负面', B.item.negative]],
 };
-const KIND_NOTE = {
-    cg: 'CG的写词规则在「生图提示词」页。',
-    expression: '表情差分跟随立绘模型。',
-    creature: '非人角色的立绘与姿态差分使用本分区画师串；留空使用全局画师。写词规则在「生图提示词」页的提示词预设（任务 creature）。',
-    avatar: 'Q版头像跟随立绘模型。',
-    nsfwCg: 'NSFW CG跟随剧情CG模型；写词规则在「生图提示词」页（含温和重试）。',
-};
 const FORM_VIEW = [
     ['变身时摘掉的性别 / 年龄标签（匹配规则，进阶）', B.form.bodyTagPattern],
     ['按性别补回', Object.entries(B.form.gender).map(([k, v]) => `${k === 'male' ? '男' : '女'} → ${v}`).join('\n')],
@@ -61,32 +55,24 @@ function builtinBlock(items) {
         + `<textarea readonly rows="${Math.min(6, String(value).split('\n').length + 1)}">${esc(value)}</textarea></div>`).join('');
 }
 
-function fold(key, summary, body, advancedOpen) {
-    return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="${esc(key)}"${advancedOpen(key)}><summary>${summary}</summary>${body}</details>`;
-}
-
 // templateFields：{ sprite: [html…], background: [html…], nsfwCg: [html…] } —— 可编辑的 IGS 自带模板。
 // slots：{ common, character, scene, cg, nsfw } —— 各卡片顶部的生成开关与模型。
-export function renderPromptKindsPanel({ nai, sourceMode, checkbox, advancedOpen, templateFields = {}, slots = {} }) {
+export function renderPromptKindsPanel({ nai, sourceMode, checkbox, advancedOpen, templateFields = {}, slots = {}, artistLibraryState }) {
     const conf = normalizeArtistByKind(nai && nai.artistByKind);
     const artistSelectionAvailable = sourceMode === 'nai' || sourceMode === 'dbgen';
     const base = 'bridge.autoIllustration.nai.artistByKind';
-    const card = (id, single) => {
-        const entry = conf.kinds[id];
-        const filled = entry.positive.trim() || entry.negative.trim();
+    // 每类一行：画师串下拉 + ›，点 › 才展开 IGS 自带的词；展开状态记在 advancedOpen['perf-prompt-kind-<id>']。
+    const more = { isOpen: (key) => Boolean(advancedOpen(`perf-${key}`)) };
+    const rowName = (text) => `<span class="igs-image-prompt-row-name">${esc(text)}</span>`;
+    const card = (id) => {
         const editable = (templateFields[id] || []).map((html) => `<div class="igs-settings-full">${html}</div>`).join('');
-        const view = BUILTIN_VIEW[id] || [];
-        const builtin = editable || view.length ? fold(`prompt-builtin-${id}`, 'IGS自带', editable + builtinBlock(view), advancedOpen) : '';
-        return fold(`prompt-kind-${id}`, (single ? '画师串与提示词' : `${esc(LABEL.get(id))} · 画师串与提示词`) + (filled ? ' ·' : ''),
-            (artistSelectionAvailable ? renderArtistSelector(nai, id, sourceMode) : '')
-            + `<div class="igs-source-filter-note">${filled ? (conf.enabled ? '本分类使用所选画师。' : '当前使用全局画师；开启分区画师后使用此选择。') : '使用全局画师。'}</div>`
-            + builtin
-            + (KIND_NOTE[id] ? `<div class="igs-source-filter-note">${esc(KIND_NOTE[id])}</div>` : ''), advancedOpen);
+        return perfItem(more, `prompt-kind-${id}`, artistSelectionAvailable ? renderArtistSelector(nai, id, sourceMode) : rowName(LABEL.get(id)),
+            { detail: editable + builtinBlock(BUILTIN_VIEW[id] || []) });
     };
     const group = (title, body) => `<div class="igs-source-filter"><div class="igs-source-filter-title">${esc(title)}</div>${body}</div>`;
-    return group('通用', checkbox(`${base}.enabled`, conf.enabled, '分区画师串（打开后每类用自己的画师串替换全局）')
-        + (artistSelectionAvailable ? renderArtistSelector(nai, 'global', sourceMode) : '')
+    return group('通用', checkbox(`${base}.enabled`, conf.enabled, '分区画师串')
+        + (artistSelectionAvailable ? renderGlobalArtistRow(nai, sourceMode, artistLibraryState) : '')
         + (slots.common || ''))
-        + GROUPS.map(([title, ids, slot]) => group(title, (slot && slots[slot] || '') + ids.map((id) => (SLOT_BEFORE[id] && slots[SLOT_BEFORE[id]] || '') + card(id, ids.length === 1)).join('')
-            + (slot === 'character' ? fold('prompt-kind-form', '变身 · IGS自带', builtinBlock(FORM_VIEW), advancedOpen) : ''))).join('');
+        + GROUPS.map(([title, ids, slot]) => group(title, (slot && slots[slot] || '') + ids.map((id) => (SLOT_BEFORE[id] && slots[SLOT_BEFORE[id]] || '') + card(id)).join('')
+            + (slot === 'character' ? perfItem(more, 'prompt-kind-form', rowName('变身'), { detail: builtinBlock(FORM_VIEW) }) : ''))).join('');
 }
