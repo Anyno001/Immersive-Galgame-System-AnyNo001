@@ -45,9 +45,9 @@ export const COMBAT_RULES = Object.freeze({
     defaultSpeed: 100,
     speedJitter: 5,
     tiers: Object.freeze({
-        normal: Object.freeze({ label: '普通', hp: 40, damageCap: 12, exp: 20, speed: 100, hpScale: 1.3, damageScale: 2.7, difficultyGain: 1 }),
-        elite: Object.freeze({ label: '精英', hp: 80, damageCap: 18, exp: 45, speed: 104, hpScale: 1.15, damageScale: 1.75, difficultyGain: 0.5 }),
-        boss: Object.freeze({ label: '首领', hp: 160, damageCap: 26, exp: 100, speed: 92, hpScale: 0.68, damageScale: 1, difficultyGain: 0.5 }),
+        normal: Object.freeze({ label: '普通', hp: 40, damageCap: 12, exp: 20, speed: 100, hpScale: 1.2, damageScale: 2.38, difficultyGain: 1 }),
+        elite: Object.freeze({ label: '精英', hp: 80, damageCap: 18, exp: 45, speed: 104, hpScale: 1.01, damageScale: 1.49, difficultyGain: 0.5 }),
+        boss: Object.freeze({ label: '首领', hp: 160, damageCap: 26, exp: 100, speed: 92, hpScale: 0.51, damageScale: 0.75, difficultyGain: 0.5 }),
     }),
     tierScalePerLevel: 0.05,
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
