@@ -733,7 +733,7 @@ export function createSettingsHost(deps) {
                 steps.push(await op('backfill'));
                 const assign = await op('hero', 'assign', '', {});
                 if (assign && assign.reason === 'needs-confirm') {
-                    if (await settingsDialogs.confirm('主角技能已分配过。重新分配会覆盖已分配与手改的技能值，继续？')) steps.push(await op('hero', 'assign', '', { overwrite: true }));
+                    if (await settingsDialogs.confirm('其他角色已补全。主角技能已分配过，重新分配会覆盖已分配与手改的技能值，是否覆盖？')) steps.push(await op('hero', 'assign', '', { overwrite: true }));
                 }
                 else if (!(assign && assign.reason === 'stats-hero-skills-coc-only')) steps.push(assign);
                 result = steps.find((r) => r && r.ok === false) || { ok: true };
