@@ -291,18 +291,72 @@ function pickDistinct(rng, cards, count, weightOf) {
     return out;
 }
 
+function starterDirectValue(card, op) {
+    if (!Number.isInteger(card.cost) || card.cost > 2 || card.radiance != null || card.ethereal) return 0;
+    if (card.effects.some((effect) => ['exhaust-self', 'end-turn', 'requires', 'transmute', 'morph-hand', 'discard-hand'].includes(effect.op)
+        || (['status', 'apply-status'].includes(effect.op) && effect.status === 'no-draw')
+        || (effect.op === 'create' && /^(status-|curse-)/.test(effect.card)))) return 0;
+    const amount = card.effects.reduce((sum, effect) => {
+        if (effect.op !== op) return sum;
+        const targets = op === 'damage' ? ['enemy', 'all-enemies', 'random-enemy'] : ['self', 'all-allies'];
+        if (!targets.includes(effect.target || (op === 'damage' ? 'enemy' : 'self'))) return sum;
+        return sum + effect.amount * (op === 'damage' ? effect.hits || 1 : 1);
+    }, 0);
+    const loss = card.effects.filter((effect) => effect.op === 'self-damage').reduce((sum, effect) => sum + effect.amount, 0);
+    return Math.max(0, amount - loss) / Math.max(1, card.cost);
+}
+
+const channels = (card, orb) => card.effects.some((effect) => effect.op === 'channel' && effect.orb === orb);
+const grantsStatus = (card, status) => card.effects.some((effect) => ['status', 'apply-status'].includes(effect.op) && effect.status === status);
+const STARTER_ENGINES = Object.freeze({
+    mage: { attack: (card) => channels(card, 'lightning'), skill: (card) => channels(card, 'frost') },
+    priest: {
+        attack: (card) => Number.isInteger(card.radiance) && card.radiance <= 2
+            && card.effects.some((effect) => effect.op === 'damage' && effect.amount * (effect.hits || 1) >= 6),
+        skill: (card) => card.effects.some((effect) => effect.op === 'radiance')
+            && card.effects.some((effect) => effect.op === 'block'),
+        third: (card) => card.type === 'power' && grantsStatus(card, 'halo-strike'),
+    },
+    guardian: { third: (card) => card.type === 'power' && (grantsStatus(card, 'dexterity') || grantsStatus(card, 'plated')) },
+});
+
+// 高副本槽以打击 6 / 防御 5 的净收益为参照；池不足时取实际前列，至少保留一个低费核心。
+function pickStarterTypes(rng, cards, count, op, weightOf, engine) {
+    const ranked = cards.map((card) => ({ card, value: starterDirectValue(card, op) }))
+        .filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
+    const coreCount = Math.min(2, count, ranked.length);
+    const benchmark = op === 'damage' ? 6 : 5;
+    const threshold = Math.min(benchmark, ranked[coreCount - 1]?.value ?? 0);
+    const cheap = ranked.filter((item) => item.card.cost <= 1);
+    const cheapThreshold = Math.min(benchmark, cheap[0]?.value ?? 0);
+    const core = pickDistinct(rng, cheap.filter((item) => item.value >= cheapThreshold).map((item) => item.card), Math.min(1, coreCount), weightOf);
+    const first = new Set(core.map((card) => card.id));
+    if (engine && core.length < coreCount) {
+        core.push(...pickDistinct(rng, cards.filter((card) => !first.has(card.id) && Number.isInteger(card.cost) && card.cost <= 2
+            && !card.ethereal && !card.effects.some((effect) => effect.op === 'exhaust-self') && engine(card)), 1, weightOf));
+    }
+    const reserved = new Set(core.map((card) => card.id));
+    core.push(...pickDistinct(rng, ranked.filter((item) => item.value >= threshold && !reserved.has(item.card.id))
+        .map((item) => item.card), coreCount - core.length, weightOf));
+    const taken = new Set(core.map((card) => card.id));
+    return [...core, ...pickDistinct(rng, cards.filter((card) => !taken.has(card.id)), count - core.length, weightOf)];
+}
+
 // 规则 v6 起始卡组：从本职业固定池（普通、罕见、可打出）先选种类、再按 starterDeckShapeV6 定份数，不放基础打击 / 防御。
 // 攻击、技能各选 3 种，第三种从能力牌与剩下的攻击 / 技能里选，个人牌选 1 种；固定池凑不齐形状时返回 null。
-function buildFixedStarterDeck(fixedPool, personalPool, seed) {
+function buildFixedStarterDeck(fixedPool, personalPool, seed, archetype) {
     const shape = COMBAT_RULES.starterDeckShapeV6;
     const rng = { state: hash32(`starter-v6:${seed}`) };
     const costWeight = (card) => STARTER_COST_WEIGHT[card.cost] ?? 1;
     const fixedWeight = (card) => costWeight(card) * STARTER_RARITY_WEIGHT[card.rarity];
     const usable = (Array.isArray(fixedPool) ? fixedPool : []).filter((card) => Object.hasOwn(STARTER_RARITY_WEIGHT, card.rarity) && !card.unplayable);
-    const attacks = pickDistinct(rng, usable.filter((card) => card.type === 'attack'), shape.attack.length, fixedWeight);
-    const skills = pickDistinct(rng, usable.filter((card) => card.type === 'skill'), shape.skill.length, fixedWeight);
+    const engine = STARTER_ENGINES[archetype];
+    const attacks = pickStarterTypes(rng, usable.filter((card) => card.type === 'attack'), shape.attack.length, 'damage', fixedWeight, engine?.attack);
+    const skills = pickStarterTypes(rng, usable.filter((card) => card.type === 'skill'), shape.skill.length, 'block', fixedWeight, engine?.skill);
     const taken = new Set([...attacks, ...skills].map((card) => card.id));
-    const third = pickDistinct(rng, usable.filter((card) => !taken.has(card.id)), shape.third.length, fixedWeight);
+    const remaining = usable.filter((card) => !taken.has(card.id));
+    const support = engine?.third ? remaining.filter(engine.third) : [];
+    const third = pickDistinct(rng, support.length ? support : remaining, shape.third.length, fixedWeight);
     const personal = pickDistinct(rng, Array.isArray(personalPool) ? personalPool : [], shape.personal.length, costWeight);
     const groups = [[attacks, shape.attack], [skills, shape.skill], [third, shape.third], [personal, shape.personal]];
     if (groups.some(([cards, copies]) => cards.length < copies.length)) return null;
@@ -314,7 +368,7 @@ function buildFixedStarterDeck(fixedPool, personalPool, seed) {
 // 抽取用确定性随机；同一张已抽得越多权重越低，且不超过 perCardLimit。
 export function buildStarterDeck(classPool, personalPool, seed = '', archetype) {
     if (archetype !== undefined) {
-        const fixedDeck = buildFixedStarterDeck(fixedClassPool(archetype), personalPool, seed);
+        const fixedDeck = buildFixedStarterDeck(fixedClassPool(archetype), personalPool, seed, archetype);
         if (fixedDeck) return fixedDeck;
     }
     const shape = COMBAT_RULES.starterDeckShape;

@@ -1962,7 +1962,7 @@ test('随从（S01）：召唤时不在则以 N 生命召出、在则最大与�
     assert.deepEqual([after.units.hero.hp, after.units.hero.res.minion.hp], [27, 5]);
 });
 
-test('随从攻击与转化（S02、S03）：随从不在时无效；不吃主人攻击力，只加骨甲；可追加随从生命；牺牲换格挡或群伤；魂契使随从失去生命时敌人同步失去', () => {
+test('随从攻击与转化（S02、S03）：随从不在时无效；不吃主人攻击力，只加骨甲；可追加随从生命；牺牲换格挡或群伤；魂契使随从失去生命时敌人同步失去', async () => {
     const poke = free('p', 'attack', [minionHit(4)]);
     const lone = deckOf({ p: poke }, ['p']);
     assert.equal(playIn(lone, instOf(lone, 'p'), 'foe').state.units.foe.hp, 30);
@@ -1990,6 +1990,26 @@ test('随从攻击与转化（S02、S03）：随从不在时无效；不吃主�
     const bb = vsAttacker({ b: bond }, ['b'], 3);
     const bu = endTurn(playIn(bb, instOf(bb, 'b')).state).state;
     assert.deepEqual([bu.units.hero.hp, bu.units.hero.res.minion.hp, bu.units.foe.hp], [30, 2, 27]);
+    const { fixedCard } = await import('../src/combat/fixed-cards/index.js');
+    const { legalActions, targetSpec } = await import('../src/combat/engine.js');
+    const { chooseAllyPlay } = await import('../src/combat/policy.js');
+    const crush = fixedCard('fx-summoner-31');
+    for (const definition of [crush, normalizeCard(crush).value]) {
+        const catalog = { c: call, [definition.id]: { ...definition, innate: true } };
+        const before = deckOf(catalog, ['c', definition.id], 6);
+        const ready = playIn(before, instOf(before, 'c')).state;
+        const inst = instOf(ready, definition.id);
+        assert.equal(targetSpec(cardView(ready, inst).effects[0]), 'enemy');
+        assert.deepEqual(legalActions(ready).filter((a) => a.type === 'play' && a.inst === inst), [{ type: 'play', inst, targetId: 'foe' }]);
+        assert.equal(chooseAllyPlay(ready, 'hero')?.targetId, 'foe');
+        assert.equal(applyAction(ready, { type: 'play', inst }).ok, false, '省略动作目标不能误伤主人');
+        const result = playIn(ready, inst, 'foe');
+        const damage = result.events.filter((e) => e.type === 'damage' && e.kind === 'minion');
+        assert.equal(damage.length, 1);
+        assert.equal(damage[0].target, 'foe');
+        assert.equal(result.state.units.hero.hp, ready.units.hero.hp);
+        assert.equal(result.state.units.foe.hp, ready.units.foe.hp - damage[0].hpLoss);
+    }
 });
 
 test('灾厄（S04、D7）：敌人回合结束时生命不高于灾厄即倒下；首领与精英按最大生命 50% 封顶；规则 v4 无效', () => {
@@ -3233,6 +3253,42 @@ test('v6 起始卡组（G2）：本职业固定池普通 / 罕见先选种类再
             assert.equal(fixed.length, 7, archetype);
             assert.ok(fixed.every((id) => fixedCard(id).id.startsWith(`fx-${archetype}-`) && ['common', 'uncommon'].includes(fixedCard(id).rarity)), archetype);
             assert.ok(fixed.filter((id) => fixedCard(id).type === 'attack').length >= 3 && fixed.filter((id) => fixedCard(id).type === 'skill').length >= 3, archetype);
+            for (const [type, op] of [['attack', 'damage'], ['skill', 'block']]) {
+                const core = fixed.filter((id) => counts.get(id) === 3 && fixedCard(id).type === type).map(fixedCard);
+                assert.equal(core.length, 2, `${archetype} ${i} ${type} 保底种类`);
+                assert.ok(core[0].cost <= 1, `${archetype} ${i} ${type} 低费核心`);
+                for (const card of core) {
+                    assert.ok(Number.isInteger(card.cost) && card.cost <= 2 && !card.ethereal, card.id);
+                    assert.ok(!card.effects.some((e) => ['exhaust-self', 'end-turn', 'requires', 'transmute', 'morph-hand', 'discard-hand'].includes(e.op)
+                        || (['status', 'apply-status'].includes(e.op) && e.status === 'no-draw')
+                        || (e.op === 'create' && /^(status-|curse-)/.test(e.card))), card.id);
+                    if (archetype === 'mage' && card === core[1]) {
+                        assert.ok(card.effects.some(e => e.op === 'channel' && e.orb === (type === 'attack' ? 'lightning' : 'frost')), card.id);
+                        continue;
+                    }
+                    if (archetype === 'priest' && type === 'attack' && card === core[1]) {
+                        assert.ok(Number.isInteger(card.radiance) && card.radiance >= 1 && card.radiance <= 2, card.id);
+                        assert.ok(card.effects.some(e => e.op === 'damage' && e.amount * (e.hits || 1) >= 6), card.id);
+                        continue;
+                    }
+                    assert.equal(card.radiance, undefined, card.id);
+                    const targets = op === 'damage' ? ['enemy', 'all-enemies', 'random-enemy'] : ['self', 'all-allies'];
+                    const direct = card.effects.filter((e) => e.op === op && targets.includes(e.target || (op === 'damage' ? 'enemy' : 'self')))
+                        .reduce((sum, e) => sum + e.amount * (op === 'damage' ? e.hits || 1 : 1), 0);
+                    const loss = card.effects.filter((e) => e.op === 'self-damage').reduce((sum, e) => sum + e.amount, 0);
+                    assert.ok((direct - loss) / Math.max(1, card.cost) >= 3, `${archetype} ${i} ${card.id} 核心净收益不足`);
+                }
+                if (archetype === 'priest' && type === 'skill') {
+                    assert.ok(core.some(card => card.effects.some(e => e.op === 'radiance') && card.effects.some(e => e.op === 'block')), '圣辉消费必须配套可循环来源');
+                }
+            }
+            const support = fixed.map(fixedCard).filter(card => counts.get(card.id) === 2 && card.type === 'power');
+            if (archetype === 'priest') {
+                assert.ok(support.some(card => card.effects.some(e => e.status === 'halo-strike')), '圣辉变动具有输出联动');
+            }
+            if (archetype === 'guardian') {
+                assert.ok(support.some(card => card.effects.some(e => ['dexterity', 'plated'].includes(e.status))), '守护具有持续防御');
+            }
             assert.ok(!deck.some((id) => id.startsWith('basic-')), archetype);
             const result = validateStarterDeck({ classRef: cls.id, personalPool: personal, starterDeck: deck }, cls);
             assert.equal(result.ok, true, `${archetype} ${JSON.stringify(result.errors)}`);

@@ -14,12 +14,13 @@ import { isInscription } from './mechanics/inscription.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
     LOW_HP_RATIO, canAfford, canPlay, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds, playBlock,
-    effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, radianceOf, weakestId,
+    effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, radianceOf, targetSpec, weakestId,
 } from './battle-state.js';
 import { chooseAllyPlay, chooseSkillIntent, pickCards } from './policy.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { ATTRIBUTE_POLICY_VERSION, canAttributeSift, validAttributePolicy } from './attribute-policy.js';
 import { attributeAmount } from './card-attributes.js';
+export { targetSpec };
 
 export const ENGINE_VERSION = 1;
 // 同伴一次出手最多打出的牌数。
@@ -41,9 +42,6 @@ const GROW_MAX = 20;
 const DECAYING_STATUSES = Object.freeze(['vulnerable', 'weak', 'no-draw', 'frail']);
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-// 施加给自己的状态；其余状态默认打在敌人身上。
-const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'artifact']);
-const DEFAULT_TARGETS = Object.freeze({ damage: 'enemy', block: 'self', heal: 'self', 'heal-pct': 'self', 'damage-from-block': 'enemy', cleanse: 'self' });
 // 负面状态：会被「神器」挡掉、被净化清除。
 const DEBUFFS = Object.freeze(['weak', 'vulnerable', 'poison', 'no-draw', 'frail']);
 const PASSIVE_FREE_TRIGGERS = new Set(['turn-start', 'turn-end']);
@@ -166,13 +164,6 @@ function addStatus(ctx, unit, status, stacks, source, attribute = null) {
     // 规则 v5 G20：施加方「使敌人陷入减益后」的被动（被人工制品抵消时不算）。
     const applier = ctx.state.rulesVersion >= 5 && source?.unitId != null ? ctx.state.units[source.unitId] : null;
     if (applier && applier.side !== unit.side) fireBus(ctx, applier, 'debuff-applied', unit.id, { status });
-}
-
-// 效果的目标类型：显式 target 优先，其次按 op/状态推断。
-export function targetSpec(effect) {
-    if (effect.target) return effect.target;
-    if (effect.op === 'status') return SELF_STATUSES.has(effect.status) ? 'self' : 'enemy';
-    return DEFAULT_TARGETS[effect.op] || 'self';
 }
 
 // catalog 可以是 Map 或普通对象，统一成普通对象。

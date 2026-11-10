@@ -7,6 +7,7 @@ import { describeRegistered, statusLabel } from '../../combat/mechanics/registry
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { STATUS_CARD_TEXT } from '../../combat/mechanics/status-cards.js';
 import { INSCRIPTION_LABELS, INSCRIPTION_VALUES as IV, isInscription } from '../../combat/mechanics/inscription.js';
+import { STATUS_TIPS } from './combat-status-tips.js';
 
 // 卡面与立绘占位的纯函数：效果与关键字说明（含可点注释的片段）、卡图纹样（combat-card-motifs.js）、无立绘时的 SVG 剪影。
 // SVG 只来自程序常量与数值，不含任何档案文本；同一张卡永远得到同一张图。
@@ -14,8 +15,8 @@ const STATUS = Object.freeze({ vulnerable: '易伤', weak: '虚弱', strength: '
 const TARGET = Object.freeze({ enemy: '', 'all-enemies': '全体敌人', 'random-enemy': '随机敌人', self: '', ally: '一名队友', 'all-allies': '全体队友', 'other-allies': '其他队友' });
 const DOUBLE_STAT = Object.freeze({ poison: '中毒层数', block: '格挡', strength: '攻击力' });
 const WHEN = Object.freeze({
-    'target-has': (v) => `目标有${STATUS[v] || v}时：`,
-    'self-has': (v) => `自身有${STATUS[v] || v}时：`,
+    'target-has': (v, statusName) => `目标有${statusName(v)}时：`,
+    'self-has': (v, statusName) => `自身有${statusName(v)}时：`,
     'self-hp-below': (v) => `自身生命低于 ${v}% 时：`,
     'cards-played-gte': (v) => `本回合已出 ${v} 张牌时：`,
     'attacks-played-gte': (v) => `本回合已出 ${v} 张攻击牌时：`,
@@ -77,15 +78,16 @@ const plainWord = (key, word) => word;
 function effectText(e, fmt = plainNum, kw = plainWord, path = '') {
     const num = (key, value = e?.[key], legacy = true) => fmt(value, `${path}.${key}`, legacy);
     const sub = (list, key = 'then') => (list || []).map((t, index) => effectText(t, fmt, kw, `${path}.${key}.${index}`)).join('，');
+    const statusName = (key) => kw(`status:${key}`, statusText(key));
     switch (e?.op) {
         case 'damage': return `${on(e.target)}造成 ${num('amount')} 点伤害${e.hits > 1 ? ` ×${e.hits}` : ''}${e.strengthScale > 1 ? `，攻击力 ×${e.strengthScale} 生效` : ''}`;
         case 'block': return `${on(e.target)}获得 ${num('amount')} 点格挡`;
         case 'heal': return `${on(e.target)}回复 ${num('amount')} 点生命`;
         case 'draw': return `抽 ${e.amount} 张牌`;
         case 'energy': return `获得 ${e.amount} 点能量`;
-        case 'status': return `${on(e.target)}施加 ${num('stacks')} 层${STATUS[e.status] || e.status}`;
+        case 'status': return `${on(e.target)}施加 ${num('stacks')} 层${statusName(e.status)}`;
         case 'exhaust-self': return kw('exhaust', '消耗');
-        case 'conditional': return `${(WHEN[e.when?.kind] || (() => ''))(e.when?.value)}${sub(e.then)}`;
+        case 'conditional': return `${(WHEN[e.when?.kind] || (() => ''))(e.when?.value, statusName)}${sub(e.then)}`;
         case 'damage-from-block': return `${on(e.target)}造成等同当前格挡的伤害`;
         case 'self-damage': return `失去 ${e.amount} 点生命`;
         case 'delayed-counter': return `失去 ${e.amount} 点生命，下回合对目标造成所失生命 ${e.mult} 倍的伤害${e.fizzle ? '；对方观望时落空' : ''}`;
@@ -95,7 +97,7 @@ function effectText(e, fmt = plainNum, kw = plainWord, path = '') {
         case 'next-turn':
             if (e.gain === 'energy') return `下回合获得 ${e.amount} 点能量`;
             if (e.gain === 'draw') return `下回合多抽 ${e.amount} 张牌`;
-            return `下回合获得 ${num('stacks', e.stacks, false)} 层${STATUS[e.status] || e.status}`;
+            return `下回合获得 ${num('stacks', e.stacks, false)} 层${statusName(e.status)}`;
         case 'each-turn': return `${e.at === 'turn-end' ? '每回合结束时' : '每回合开始时'}：${sub(e.then)}`;
         case 'hand-cost': return `本回合手牌费用 ${e.amount}`;
         case 'heal-pct': return `${on(e.target)}回复 ${e.pct}% 生命`;
@@ -123,7 +125,7 @@ function effectText(e, fmt = plainNum, kw = plainWord, path = '') {
         // 规则 v5 已登记机制的算子：交给其 describe（同一套数值格式化与关键字标记）；未登记的仍为空串。
         default: return describeRegistered(e, {
             fmt: (value, key = 'amount', legacy = true) => num(key, value, legacy), kw, sub, on, typed, times,
-            statusName: (key) => STATUS[key] || statusLabel(key) || key, pileName: (pile) => PILE[pile] || PILE.hand,
+            statusName, pileName: (pile) => PILE[pile] || PILE.hand,
         });
     }
 }
@@ -212,7 +214,12 @@ export function describeEffectParts(effects, marks, base, { root = 'effects', of
     for (const piece of text.split(/(\u0001\d+\u0002|\u0003\d+\u0004)/)) {
         if (!piece) continue;
         const w = piece.match(/^\u0003(\d+)\u0004$/);
-        if (w) { const [key, word] = words[Number(w[1])]; parts.push({ text: word, tip: KEYWORD_TIPS[key] }); continue; }
+        if (w) {
+            const [key, word] = words[Number(w[1])];
+            const tip = key.startsWith('status:') ? STATUS_TIPS[key.slice(7)] : KEYWORD_TIPS[key];
+            parts.push(tip ? { text: word, tip } : { text: word });
+            continue;
+        }
         const m = piece.match(/^\u0001(\d+)\u0002$/);
         if (!m) { parts.push({ text: piece }); continue; }
         const token = tokens[Number(m[1])];

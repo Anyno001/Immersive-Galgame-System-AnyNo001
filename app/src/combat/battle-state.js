@@ -1,6 +1,6 @@
 // 战斗状态只读查询：存活单位、目标挑选、牌面视图、伤害/格挡估算、意图描述。
 // 这里的函数都不修改 state，引擎与出牌策略共用。行为与 v0.39.0 一致。
-import { damageModifiers, opHandler } from './mechanics/registry.js';
+import { damageModifiers, opHandler, statusDef } from './mechanics/registry.js';
 import { inscribedView } from './mechanics/inscription.js';
 import { attributeAmount, attributeCardView } from './card-attributes.js';
 import { shivFirstBonus } from './mechanics/shadow.js';
@@ -124,17 +124,34 @@ export function playBlock(state, unit, card) {
 // 能否打出：付得起能量与圣辉，且没有被出牌限制挡住。legalActions 与托管共用；validatePlay 另按原因分别拒绝。
 export const canPlay = (state, unit, card) => canAfford(card, unit.energy, radianceOf(state, unit)) && !playBlock(state, unit, card);
 
+const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact']);
+const OFFENSE_OPS = new Set([
+    'damage', 'damage-from-block', 'delayed-counter', 'mutual-damage', 'drain', 'minion-strike',
+    'tally-strike', 'spread-debuff', 'splash', 'seize-card', 'seize-might', 'mark-card', 'draw-to-foe',
+]);
+
+// 静态固定卡可省略 target；出牌判定、托管、面板与结算共用 schema 对应的默认值。
+export function targetSpec(effect) {
+    if (effect.target) return effect.target;
+    if (effect.op === 'status') return SELF_STATUSES.has(effect.status) ? 'self' : 'enemy';
+    if (effect.op === 'apply-status') return statusDef(effect.status)?.debuff ? 'enemy' : 'self';
+    if (effect.op === 'double' && effect.stat === 'poison') return 'enemy';
+    return OFFENSE_OPS.has(effect.op) ? 'enemy' : 'self';
+}
+
 // 效果里是否有需要指定敌方目标的部分。
 export function effectsNeedTarget(effects) {
-    return (effects || []).some((effect) => effect.target === 'enemy'
-        || (effect.op === 'damage' && !effect.target)
+    return (effects || []).some((effect) => targetSpec(effect) === 'enemy'
         || (effect.op === 'conditional' && (effect.when?.kind === 'target-has' || effectsNeedTarget(effect.then)))
+        || (effect.op === 'requires' && effectsNeedTarget(effect.then))
         || (effect.op === 'random-branch' && (effectsNeedTarget(effect.a) || effectsNeedTarget(effect.b))));
 }
 
 // 效果里是否有需要指定友方目标的部分。
 export function effectsPickAlly(effects) {
-    return (effects || []).some((effect) => effect.target === 'ally' || (effect.op === 'conditional' && effectsPickAlly(effect.then)));
+    return (effects || []).some((effect) => targetSpec(effect) === 'ally'
+        || (['conditional', 'requires'].includes(effect.op) && effectsPickAlly(effect.then))
+        || (effect.op === 'random-branch' && (effectsPickAlly(effect.a) || effectsPickAlly(effect.b))));
 }
 
 // 按登记顺序执行一个伤害修正阶段，每一步取整且不低于 0。

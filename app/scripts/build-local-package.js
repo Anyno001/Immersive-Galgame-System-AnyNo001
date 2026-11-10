@@ -11,7 +11,7 @@ const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), '
 const repository = 'Anyno001/Immersive-Galgame-System-AnyNo001';
 const assetRefIndex = process.argv.indexOf('--asset-ref');
 const assetRef = assetRefIndex < 0 ? `v${version}` : process.argv[assetRefIndex + 1];
-if (!/^v\d+\.\d+\.\d+$/.test(assetRef || '')) throw new Error('--asset-ref 需要 vX.Y.Z 格式的静态资源版本。');
+if (!/^(?:v\d+\.\d+\.\d+|[0-9a-f]{40})$/.test(assetRef || '')) throw new Error('--asset-ref 需要 vX.Y.Z 版本标签或完整 40 位十六进制提交 SHA。');
 const assetBase = `https://cdn.jsdelivr.net/gh/${repository}@${assetRef}/app/dist`;
 const assetFile = `${assetBase}/igs.bundle.js`;
 

@@ -237,7 +237,8 @@ test('逐数字提示按效果字段定位，嵌套与弃牌不串位，延迟�
         { op: 'self-damage', amount: 4 },
     ], onDiscard: [{ op: 'damage', amount: 30 }] }, owner);
     const shown = cardScalingView(card);
-    assert.deepEqual(shown.textParts.filter(part => part.tip).map(part => [part.text, part.tip]), [
+    const numericTips = parts => parts.filter(part => part.tip && /^\d+$/.test(part.text));
+    assert.deepEqual(numericTips(shown.textParts).map(part => [part.text, part.tip]), [
         ['28', '智力 ×0.92，30→28（-2）'], ['35', '感知 ×1.16，30→35（+5）'],
         ['28', '智力 ×0.92，30→28（-2）'], ['11', '力量 ×1.12（保守），10→11（+1）'],
         ['0', '智力 ×0.92，最终效能合计后换算'], ['2', '智力 ×0.96（保守），最终效能合计后换算'],
@@ -245,18 +246,37 @@ test('逐数字提示按效果字段定位，嵌套与弃牌不串位，延迟�
     ]);
     const discard = describeKeywordParts(card, attributeNumberOptions(card));
     assert.equal(discard.find(part => part.tip)?.tip, '智力 ×0.92，30→28（-2）');
-    assert.equal(cardSlotView(card, { statuses: {} }, 6).fxParts.filter(part => part.tip).length, 8);
+    assert.equal(numericTips(cardSlotView(card, { statuses: {} }, 6).fxParts).length, 8);
     const legacy = cardScalingView({ effects: [{ op: 'apply-status', status: 'strength', stacks: 10 },
         { op: 'damage', amount: 7 }], scaling: { ability: 'str', required: 12, multiplier: 1.16, base: [6] } });
-    assert.deepEqual(legacy.textParts.filter(part => part.tip).map(part => part.text), ['7']);
+    assert.deepEqual(numericTips(legacy.textParts).map(part => part.text), ['7']);
     assert.match(legacy.scaleNote, /力量要求 12/);
+    const { describeEffectParts, describeEffects } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const { STATUS_TIPS } = await import('../src/visual/igs-ui/combat-status-tips.js');
+    const effects = [
+        { op: 'status', status: 'weak', stacks: 2 },
+        { op: 'apply-status', status: 'arc-boost', stacks: 2 },
+        { op: 'next-turn', gain: 'status', status: 'first-strike', stacks: 1 },
+        { op: 'conditional', when: { kind: 'target-has', value: 'poison' }, then: [{ op: 'damage', amount: 3 }] },
+        { op: 'conditional', when: { kind: 'self-has', value: 'strength' }, then: [{ op: 'draw', amount: 1 }] },
+        { op: 'status', status: 'unknown-status', stacks: 1 },
+    ];
+    const parts = describeEffectParts(effects);
+    assert.deepEqual(parts.filter(part => part.tip).map(part => part.tip),
+        ['weak', 'arc-boost', 'first-strike', 'poison', 'strength'].map(key => STATUS_TIPS[key]));
+    assert.deepEqual(parts.find(part => part.text === 'unknown-status'), { text: 'unknown-status' });
+    assert.equal(parts.map(part => part.text).join(''), describeEffects(effects));
+    assert.doesNotMatch(describeEffects(effects), /[\u0001-\u0004]/);
+    assert.match(describeEffects(effects), /雷涌.*先手/);
 });
 
-test('九套战斗皮肤保留主数字、附加效果与弃牌数字提示，档案文本安全转义', async () => {
+test('九套战斗皮肤保留数字与状态提示，档案文本安全转义', async () => {
     const { battleView } = await import('../src/visual/igs-ui/combat-panel-model.js');
     const { CANVAS_BATTLE } = await import('../src/visual/igs-ui/combat-skin-registry.js');
+    const { STATUS_TIPS } = await import('../src/visual/igs-ui/combat-status-tips.js');
     const card = { id: 'skin-attribute', name: '<img src=x>', type: 'attack', cost: 0, rarity: 'common', archetype: 'mage',
-        effects: [{ op: 'damage', amount: 30, target: 'enemy' }, { op: 'block', amount: 30, target: 'self' }],
+        effects: [{ op: 'damage', amount: 30, target: 'enemy' }, { op: 'block', amount: 30, target: 'self' },
+            { op: 'apply-status', status: 'arc-boost', stacks: 2, target: 'self' }],
         onDiscard: [{ op: 'damage', amount: 6, target: 'enemy' }] };
     const policy = createAttributePolicy({ role: 'assassin', proficiency: 2, scores: { str: 16, dex: 12, con: 10, int: 8, wis: 14, cha: 20 } });
     const created = createBattle({ rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [
@@ -274,17 +294,71 @@ test('九套战斗皮肤保留主数字、附加效果与弃牌数字提示，�
         const tips = [...face.querySelectorAll('[data-scale-tip]')].map(node => node.getAttribute('data-scale-tip'));
         assert.ok(tips.includes('智力 ×0.92，30→28（-2）'), `${skin}/${orient} 主效果`);
         assert.ok(tips.includes('智力 ×0.92，6→6（0）'), `${skin}/${orient} 弃牌效果`);
+        assert.ok(tips.includes(STATUS_TIPS['arc-boost']), `${skin}/${orient} 雷涌`);
         assert.match(face.textContent, /被丢弃时/);
         assert.match(face.textContent, /<img src=x>/);
         assert.equal(face.querySelector('img'), null);
     }
+    const { createCombatPanelController } = await import('../src/visual/igs-ui/combat-panel.js');
+    const dom = new JSDOM('<div id="overlay"></div>', { url: 'http://localhost/' });
+    let actions = 0;
+    const session = { state: () => ({ status: 'battle', battle: created.state, legal: legalActions(created.state), events: [] }),
+        act: () => { actions += 1; return { ok: true }; } };
+    const controller = createCombatPanelController(dom.window.document, { getSession: () => session, reducedMotion: () => true });
+    try {
+        assert.equal(controller.open(dom.window.document.querySelector('#overlay')).ok, true);
+        const anchor = [...dom.window.document.querySelectorAll('[data-scale-tip]')].find(node => node.textContent === '雷涌');
+        assert.ok(anchor);
+        const pointer = (type, pointerType = 'mouse', extra = {}) => anchor.dispatchEvent(Object.assign(
+            new dom.window.Event(type, { bubbles: true }), { pointerType, ...extra }));
+        const tip = () => dom.window.document.querySelector('.igs-combat-scale-tip');
+        pointer('pointerover', 'touch');
+        assert.equal(tip(), null);
+        pointer('pointerover');
+        assert.equal(tip()?.textContent, STATUS_TIPS['arc-boost']);
+        pointer('pointerout');
+        assert.equal(tip(), null);
+        pointer('pointerover');
+        pointer('pointerdown', 'mouse', { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+        pointer('pointermove', 'mouse', { pointerId: 1, clientX: 100, clientY: 100 });
+        pointer('pointerup', 'mouse', { pointerId: 1 });
+        anchor.click();
+        pointer('pointerout');
+        assert.equal(tip()?.textContent, STATUS_TIPS['arc-boost'], '点击固定悬停说明');
+        anchor.click();
+        assert.equal(tip(), null);
+        anchor.click();
+        assert.equal(tip()?.textContent, STATUS_TIPS['arc-boost'], '触屏点击路径同样可打开');
+        assert.equal(controller.view().selected, null);
+        assert.equal(actions, 0, '提示不触发拖牌、出牌或写入');
+        controller.refresh();
+        assert.equal(tip(), null);
+    } finally {
+        controller.close();
+        assert.equal(dom.window.document.querySelector('.igs-combat-scale-tip'), null);
+        dom.window.close();
+    }
 });
 
-test('牌组数字提示只打开明细，重复点击、滚动、切页和关闭均清理，不触发写入', async (t) => {
+test('牌组提示支持悬停与点击固定，触屏不悬停，滚动、切页和关闭均清理且不写入', async (t) => {
     const f = await uiFixture(t);
     const before = await f.hero();
     const number = f.doc.querySelector('.igs-deck-card p [data-scale-tip]');
     assert.ok(number);
+    const pointer = (type, pointerType = 'mouse', relatedTarget = null) =>
+        number.dispatchEvent(Object.assign(new f.dom.window.Event(type, { bubbles: true }), { pointerType, relatedTarget }));
+    pointer('pointerover', 'touch');
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
+    pointer('pointerover');
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip').textContent, number.getAttribute('data-scale-tip'));
+    pointer('pointerout');
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
+    pointer('pointerover');
+    number.click();
+    pointer('pointerout');
+    assert.ok(f.doc.querySelector('.igs-deck-scale-tip'), '悬停后点击固定说明');
+    number.click();
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
     number.click();
     assert.equal(f.doc.querySelector('.igs-deck-scale-tip').textContent, number.getAttribute('data-scale-tip'));
     number.click();

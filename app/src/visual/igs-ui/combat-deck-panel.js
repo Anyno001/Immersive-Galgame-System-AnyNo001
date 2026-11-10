@@ -909,12 +909,27 @@ export function createCombatDeckPanelController(doc, options = {}) {
         node.style.setProperty('--tip-y', `${Math.round(top)}px`);
     }
 
+    function onTipOver(event) {
+        if (event.pointerType === 'touch' || scaleTip) return;
+        const anchor = event.target?.closest?.('[data-scale-tip]');
+        if (!anchor || !root?.contains?.(anchor)) return;
+        showScaleTip(anchor);
+        scaleTip.hover = true;
+    }
+
+    function onTipOut(event) {
+        if (scaleTip?.hover && !scaleTip.anchor.contains?.(event.relatedTarget) && !scaleTip.node.contains?.(event.relatedTarget)) hideScaleTip();
+    }
+
     function onClick(event) {
         event.stopPropagation?.();
         const tipAnchor = event.target?.closest?.('[data-scale-tip]');
         if (tipAnchor && root?.contains?.(tipAnchor)) {
             event.preventDefault?.();
-            if (scaleTip?.anchor === tipAnchor) hideScaleTip(); else showScaleTip(tipAnchor);
+            if (scaleTip?.anchor === tipAnchor) {
+                if (scaleTip.hover) delete scaleTip.hover;
+                else hideScaleTip();
+            } else showScaleTip(tipAnchor);
             return;
         }
         hideScaleTip();
@@ -953,6 +968,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         body.className = 'igs-deck-body';
         root.appendChild(body);
         root.addEventListener('click', onClick);
+        root.addEventListener('pointerover', onTipOver);
+        root.addEventListener('pointerout', onTipOut);
         root.addEventListener('scroll', hideScaleTip, true);
         root.addEventListener('input', onInput);
         offCardArt = typeof options.subscribeCardImages === 'function' ? options.subscribeCardImages(() => { if (root) render(); }) : null;
@@ -978,6 +995,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
         root.removeEventListener?.('click', onClick);
+        root.removeEventListener?.('pointerover', onTipOver);
+        root.removeEventListener?.('pointerout', onTipOut);
         root.removeEventListener?.('scroll', hideScaleTip, true);
         root.removeEventListener?.('input', onInput);
         try { if (typeof offCardArt === 'function') offCardArt(); } catch (error) { /* 宿主已卸载 */ }

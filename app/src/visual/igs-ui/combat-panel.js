@@ -2062,7 +2062,10 @@ export function createCombatPanelController(doc, options = {}) {
         const tipAnchor = event.target?.closest?.('[data-scale-tip]');
         if (tipAnchor && root?.contains?.(tipAnchor)) {
             event.preventDefault?.();
-            if (scaleTip?.anchor === tipAnchor) hideScaleTip(); else showScaleTip(tipAnchor);
+            if (scaleTip?.anchor === tipAnchor) {
+                if (scaleTip.hover) delete scaleTip.hover;
+                else hideScaleTip();
+            } else showScaleTip(tipAnchor);
             return;
         }
         // 点在头像详情浮层里（可滚动阅读）不收起；点特性圆球或头像时由它们自己切换详情（再点同一个收起），不先收起。
@@ -2142,6 +2145,7 @@ export function createCombatPanelController(doc, options = {}) {
     function onPointerDown(event) {
         dragClickUntil = 0;
         if (drag || event.isPrimary === false || (event.button ?? 0) !== 0) return;
+        if (event.target?.closest?.('[data-scale-tip]')) return;
         const el = event.target?.closest?.(DRAG_SOURCES);
         if (!el || !root?.contains?.(el)) return;
         // 待选阶段不拖：点候选牌走点击切换已选。
@@ -2282,9 +2286,15 @@ export function createCombatPanelController(doc, options = {}) {
         if (event.pointerType === 'touch') return;
         const el = event.target?.closest?.(`${SEL.hand} [data-combat-act="card"]`);
         setHover(el && root?.contains?.(el) ? el.getAttribute('data-combat-id') || '' : '');
+        const anchor = event.target?.closest?.('[data-scale-tip]');
+        if (!drag && anchor && root?.contains?.(anchor) && !scaleTip) {
+            showScaleTip(anchor);
+            if (scaleTip) scaleTip.hover = true;
+        }
     }
     function onPointerOut(event) {
         const to = event.relatedTarget;
+        if (scaleTip?.hover && !scaleTip.anchor.contains?.(to) && !scaleTip.node.contains?.(to)) hideScaleTip();
         if (!to || !root?.contains?.(to)) setHover('');
     }
 

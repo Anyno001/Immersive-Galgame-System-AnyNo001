@@ -1,4 +1,4 @@
-// 战斗平衡模拟（计划 5.6 / S10）：托管策略（policy.js 的 chooseAllyPlay / pickCards）驾驶模板卡组主角，对战模板敌人，
+// 战斗平衡模拟：托管策略驾驶经真实生成、账本与建局链装配的 v6 起始卡组，对战模板敌人，
 // 按主角等级 × 相对档 × 遭遇档位 × 难度统计胜率与胜利时主角损失生命。只读调用战斗模块，不进 bundle、不进测试门禁；
 // 种子确定，同参数重跑结果一致。结果只反映托管策略的强度，真人操作通常更好。满血开战。
 // 用法：node scripts/combat-balance.mjs [--runs 20] [--levels 1,5,10] [--count 1] [--tiers normal,elite,boss]
@@ -6,7 +6,8 @@
 //       [--try normal=1.2x1.5,gap=0.05x0.1x3,lv=0.08]（试调，不改规则表：在 setup 上把该档位敌人生命 × 前值、伤害倍率 × 后值；
 //       gap 把规则表的 levelGap 换成生命 / 伤害每级系数（第三项为等级差上限）；lv 把 tierScalePerLevel 换成该值；
 //       affix=精英去掉数x首领去掉数，从末尾去掉难度表给的常驻效果）
-//       [--archetypes all|warrior,mage]（规则 v5：按职业生成模板卡组并分职业输出；缺省为战士固定卡组）
+//       [--archetypes all|warrior,mage] [--deck-seeds 1,2,3,4] [--inspect-decks]
+// 个人牌使用本地模板夹具；职业牌由 assembleDeck 的固定池抽取。不同 deck-seed 使用独立角色 ID，不读写用户数据。
 import { writeFileSync } from 'node:fs';
 import { applyAction, createBattle, legalActions } from '../src/combat/engine.js';
 import { chooseAllyPlay, pickCards } from '../src/combat/policy.js';
@@ -15,16 +16,21 @@ import { deckProfileEntities, generateEntities, generationWrites, skillProfileEn
 import { enemyFillSkills } from '../src/combat/enemy-loadout.js';
 import { attributeViewFor, buildAllocEntries, createCombatLedger, normalizeSnapshot } from '../src/combat/ledger.js';
 import { ABILITY_KEYS } from '../src/combat/abilities.js';
-import { weakestId } from '../src/combat/battle-state.js';
+import { cardView, weakestId } from '../src/combat/battle-state.js';
 import { buildSetup } from '../src/combat/session.js';
 import { hash32 } from '../src/combat/random.js';
 import { ARCHETYPE_FAMILIES, heroSkillFromTemplate, solveCardTemplate, templatesFor } from '../src/combat/card-templates.js';
+import { fixedCard, fixedCardGroup } from '../src/combat/fixed-cards/index.js';
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : fallback; };
 // 逗号分隔的筛选：缺省取全部，未知键忽略。
 const only = (name, all, keyOf = (k) => k) => { const want = String(arg(name, '')).split(',').filter(Boolean); return want.length ? all.filter((k) => want.includes(keyOf(k))) : all; };
 const RUNS = Math.max(1, Number(arg('--runs', 20)) || 20);
 const LEVELS = String(arg('--levels', '1,5,10')).split(',').map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= COMBAT_RULES.maxLevel);
+const DECK_SEEDS = [...new Set(String(arg('--deck-seeds', '')).split(',').map(seed => seed.trim()))];
+const INSPECT_DECKS = process.argv.includes('--inspect-decks');
+const TRACE = process.argv.includes('--trace');
+const TRACE_STEPS = Math.min(100, Math.max(1, Number(arg('--trace-steps', 40)) || 40));
 const COUNT = Math.min(COMBAT_RULES.maxEnemies, Math.max(1, Number(arg('--count', 1)) || 1));
 const HERO_SKILL = process.argv.includes('--hero-skill');
 // --generated：敌人换成「生成敌人」近似形状（技能全部按模板在档位伤害上限求解、数量取 skillTarget，generated 不为 false），
@@ -49,7 +55,7 @@ const DIFFS = only('--diffs', Object.keys(COMBAT_RULES.difficulty));
 // 计划 5.6 的标准档校准目标：[胜率下限, 上限, 胜利时损失生命下限, 上限]（%）。
 const TARGET = { 'normal|even': [85, 95, 25, 45], 'elite|even': [70, 85, 45, 65], 'boss|even': [55, 70, 60, 85], 'normal|stronger': [65, 80, 45, 70], 'normal|formidable': [50, 65, 45, 70] };
 
-// 模板卡组：与 generation 测试同一组模板键（职业 11 张 + 个人 4 张）；费用、稀有度与数值由组装层按规则求解。
+// 本地生成回复夹具；当前 assembleClass 忽略旧职业牌字段，职业牌来自 v6 固定池。
 const CLASS_VALUE = { className: '剑士', archetype: 'warrior', passive: ['锋锐', 'opening-strength'],
     cards: [['斩一', 'strike', 1], ['斩二', 'strike', 1], ['守三', 'guard', 1], ['守四', 'guard', 1], ['破五', 'bash', 2], ['裂六', 'rend', 1], ['守七', 'brace', 1], ['势八', 'might', 2], ['斩九', 'strike'], ['斩十', 'strike'], ['斩终', 'strike']] };
 // 人物技能须取本职业允许的模板（规则 v5 职业白名单）；flurry 属刺客族，战士改用通用族的 twin。
@@ -65,7 +71,7 @@ const ARCHETYPES = (() => {
     return picked.length ? picked : null;
 })();
 const CLASS_RARITIES = ['common', 'uncommon', 'rare', 'epic'];
-// 按职业生成模板卡组：每个费用槽轮流取该职业允许、且在所需稀有度下都可解的模板；人物技能取第一个可作人物技能的允许模板。
+// 个人牌按费用槽选本职业可解模板；人物技能取第一个允许的模板。
 function archetypeValue(entity, archetype) {
     const keys = Object.keys(templatesFor(archetype));
     const slotsOf = (count) => {
@@ -98,14 +104,36 @@ function memoryTables(profile) {
     return t;
 }
 
-async function heroProfiles(archetype = null) {
-    const entities = deckProfileEntities({ name: HERO, role: 'protagonist', classes: [] });
+async function heroProfiles(archetype = null, deckSeed = '') {
+    const id = deckSeed ? `pc-balance-${hash32(`deck:${deckSeed}`).toString(16)}` : undefined;
+    const entities = deckProfileEntities({ name: HERO, ...(id ? { id } : {}), role: 'protagonist', classes: [] });
     if (ALLY) entities.push(skillProfileEntity({ name: ALLY, role: 'ally' }));
     const fixedValue = (e) => (e.kind === 'class' ? CLASS_VALUE : e.kind === 'profile-skill' ? ALLY_VALUE : DECK_VALUE);
     const request = async (req) => JSON.stringify({ entities: JSON.parse(req.user).entities.map((e) => ({ key: e.key, value: archetype ? archetypeValue(e, archetype) : fixedValue(e) })) });
     const result = await generateEntities(entities, { request, llm: { source: 'tavern' } });
-    if (!result.ok) throw new Error(`模板卡组组装失败${archetype ? `（${archetype}）` : ''}：${JSON.stringify(result.rejected).slice(0, 300)}`);
-    return generationWrites(result, { createdAt: 1 }).profiles;
+    if (!result.ok) throw new Error(`起始卡组组装失败：${JSON.stringify(result.rejected).slice(0, 300)}`);
+    const profiles = generationWrites(result, { createdAt: 1 }).profiles;
+    const hero = profiles.find(row => row.definition.kind === 'deck-character')?.definition;
+    const cls = profiles.find(row => row.id === hero?.classRef)?.definition;
+    const shape = COMBAT_RULES.starterDeckShapeV6;
+    const total = Object.values(shape).flat().reduce((sum, n) => sum + n, 0);
+    const personal = new Set(hero?.personalPool?.map(card => card.id));
+    const counts = new Map();
+    for (const cardId of hero?.starterDeck || []) counts.set(cardId, (counts.get(cardId) || 0) + 1);
+    const fixedCount = [...counts].filter(([cardId]) => fixedCardGroup(cardId) === cls?.archetype).reduce((sum, [, n]) => sum + n, 0);
+    const personalCount = [...counts].filter(([cardId]) => personal.has(cardId)).reduce((sum, [, n]) => sum + n, 0);
+    if (hero?.starterDeck?.length !== total || cls?.classPool?.length !== 0 || fixedCount !== total - shape.personal[0] || personalCount !== shape.personal[0]) {
+        throw new Error(`非 v6 起始卡组：${JSON.stringify({ archetype, deckSeed, fixedCount, personalCount, total: hero?.starterDeck?.length })}`);
+    }
+    if (INSPECT_DECKS) {
+        const cards = [...counts].map(([cardId, copies]) => {
+            const card = fixedCard(cardId) || hero.personalPool.find(card => card.id === cardId);
+            const direct = op => card.effects.filter(effect => effect.op === op).reduce((sum, effect) => sum + effect.amount * (op === 'damage' ? effect.hits || 1 : 1), 0);
+            return { id: cardId, name: card.name, type: card.type, cost: card.cost, copies, damage: direct('damage'), block: direct('block') };
+        });
+        console.log(JSON.stringify({ archetype: cls.archetype, deckSeed, fixedCount, personalCount, cards }));
+    }
+    return profiles;
 }
 
 // 属性提升点：主擅长、次擅长依次加到上限，再按其余属性顺序；每条不超过 2 点（buildAllocEntries 的单条上限），模拟玩家正常加点。
@@ -170,7 +198,7 @@ function nextAction(s) {
 }
 
 // 托管动作被引擎拒收时改用同一张牌的第一个合法动作，仍不行就结束回合；拒收次数计入报告。动作数用尽记超时，不伪造胜负。
-function runBattle(setup, seed) {
+function runBattle(setup, seed, trace = false) {
     const created = createBattle(setup, seed);
     if (!created.ok) return { outcome: 'error', reason: created.error?.reason || 'create-failed' };
     let s = created.state;
@@ -178,6 +206,13 @@ function runBattle(setup, seed) {
     for (let n = 0; n < MAX_ACTIONS && !s.outcome; n += 1) {
         let action = nextAction(s);
         let r = applyAction(s, action);
+        if (trace && n < TRACE_STEPS) {
+            const card = action.inst ? cardView(s, action.inst) : null;
+            console.log(JSON.stringify({ step: n, turn: s.turn, action: { ...action, ...(card ? { cardId: card.id, name: card.name } : {}) },
+                units: s.order.map(id => { const u = s.units[id]; return { id, hp: u.hp, block: u.block, energy: u.energy, statuses: u.statuses, res: u.res }; }),
+                events: (r.events || []).filter(e => ['damage', 'block', 'summon', 'minion-loss', 'defeated', 'status'].includes(e.type)),
+                outcome: r.state?.outcome, error: r.error }));
+        }
         if (!r.ok) {
             rejects += 1;
             action = legalActions(s).find((a) => a.type === 'play' && a.inst === action.inst) || { type: 'end-turn' };
@@ -242,7 +277,7 @@ function simulateCell(world, level, rel, relLabel, tier, diff) {
         cell.heroHp = built.setup.units.find((u) => u.id === world.hero.id).maxHp;
         cell.enemyHp.push(mean(built.setup.units.filter((u) => u.side === 'enemy').map((u) => u.maxHp)));
         if (attr) cell.enemyLevel.push(attr.level);
-        const r = runBattle(built.setup, hash32(`balance|${level}|${rel}|${tier}|${diff}|${run}`));
+        const r = runBattle(built.setup, hash32(`balance|${level}|${rel}|${tier}|${diff}|${run}`), TRACE && run === 0);
         cell.rejects += r.rejects || 0;
         if (r.outcome === 'victory') { cell.win += 1; cell.lost.push(r.lost); cell.turns.push(r.turn); }
         else if (r.outcome === 'defeat') { cell.defeat += 1; cell.turns.push(r.turn); }
@@ -295,20 +330,23 @@ function report(cells) {
 
 const t0 = Date.now();
 const cells = [];
-for (const archetype of ARCHETYPES || [null]) {
-    const profiles = await heroProfiles(archetype);
+for (const archetype of ARCHETYPES || [null]) for (const deckSeed of DECK_SEEDS) {
+    const profiles = await heroProfiles(archetype, deckSeed);
     for (const level of LEVELS) for (const [rel, relLabel] of RELS) {
         const world = await buildWorld(profiles, level, rel);
-        for (const tier of TIERS) for (const diff of DIFFS) cells.push({ ...simulateCell(world, level, rel, relLabel, tier, diff), archetype });
+        for (const tier of TIERS) for (const diff of DIFFS) cells.push({ ...simulateCell(world, level, rel, relLabel, tier, diff), archetype, deckSeed });
     }
 }
 // 分职业时每个职业各出一份报告（--brief 每行前缀职业键）。
 const text = ARCHETYPES
     ? ARCHETYPES.map((a) => {
-        const mine = cells.filter((c) => c.archetype === a);
-        return process.argv.includes('--brief') ? report(mine).split('\n').map((line) => `${a} ${line}`).join('\n') : `## 职业 ${a}\n\n${report(mine)}`;
+        return DECK_SEEDS.map(seed => {
+            const mine = cells.filter(c => c.archetype === a && c.deckSeed === seed);
+            const label = `${a}${seed ? ` seed=${seed}` : ''}`;
+            return process.argv.includes('--brief') ? report(mine).split('\n').map(line => `${label} ${line}`).join('\n') : `## 职业 ${label}\n\n${report(mine)}`;
+        }).join('\n');
     }).join('\n')
-    : report(cells);
+    : DECK_SEEDS.map(seed => report(cells.filter(c => c.deckSeed === seed))).join('\n');
 console.log(text);
 console.log(`用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 if (OUT) writeFileSync(OUT, OUT.endsWith('.json') ? JSON.stringify(cells, null, 2) : `${text}\n`, 'utf8');
