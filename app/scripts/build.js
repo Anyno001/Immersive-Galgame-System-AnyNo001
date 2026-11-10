@@ -329,7 +329,7 @@ function buildModuleGraph(rootFile, prebundled = new Map()) {
         const id = moduleId(absolute);
         if (modules.has(id)) return;
         if (prebundled.has(absolute)) {
-            modules.set(id, prebundled.get(absolute));
+            modules.set(id, { ...prebundled.get(absolute), id });
             return;
         }
         const source = fs.readFileSync(absolute, 'utf8').replace(/\r\n?/g, '\n');
