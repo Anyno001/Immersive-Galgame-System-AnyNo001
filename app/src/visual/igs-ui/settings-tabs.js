@@ -92,6 +92,7 @@ const IMAGE_SOURCE_TEMPLATE = `
         {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
         {{autoNaiTransportField}}
       </div>
+      {{autoNaiQuotaPanel}}
       {{modelProfileImageRow}}
       <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
         {{naiSpriteTransparentField}}

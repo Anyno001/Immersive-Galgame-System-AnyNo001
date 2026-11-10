@@ -1,3 +1,4 @@
+import { renderNaiQuota } from './settings-nai-quota.js';
 import { renderTtsVoiceLibrary } from './tts-voice-library-view.js';
 import { renderTtsVoicePoolGroups, ttsVoiceSelectInput } from './tts-voice-options.js';
 import { renderTtsVoiceSearch } from './tts-voice-search.js';
@@ -541,6 +542,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + field('bridge.autoIllustration.nai.cloudQueue.endpoint', '队列地址', textInput('bridge.autoIllustration.nai.cloudQueue.endpoint', auto.nai.cloudQueue.endpoint, '填写后生效'), '多人共用同一密钥时使用，各方须填写同一地址。')
                     + field('bridge.autoIllustration.nai.cloudQueue.timeoutMs', '最长排队（毫秒）', numberInput('bridge.autoIllustration.nai.cloudQueue.timeoutMs', auto.nai.cloudQueue.timeoutMs, 10000, 900000)),
                 autoNaiEndpointField: field('bridge.autoIllustration.nai.endpoint', 'NAI API 地址', textInput('bridge.autoIllustration.nai.endpoint', auto.nai.endpoint, '留空使用官方，或填写中转生图接口')),
+                autoNaiQuotaPanel: renderNaiQuota(asyncState.naiQuota),
                 autoNaiKeyField: field('bridge.autoIllustration.nai.apiKey', 'API Key', secretInput('bridge.autoIllustration.nai.apiKey', auto.nai.apiKey, '填写官方或中转服务的 Key')),
                 autoNaiModelField: field('bridge.autoIllustration.nai.model', '模型', modelPicker('bridge.autoIllustration.nai.model', auto.nai.model, asyncState.naiModels, 'fetch-nai-models', 'nai-diffusion-4-5-full')),
                 autoNaiEffortField: hasEffortModel ? field('bridge.autoIllustration.nai.effort', 'V5 Full 档位', selectInput('bridge.autoIllustration.nai.effort', directMedium ? 'medium' : auto.nai.effort, [['high', 'High（原档位）'], ['medium', 'Medium（14 步省算力）']], directMedium), directMedium ? '当前直接选择了 Medium 专模；要切回 High，请先把模型选为 nai-diffusion-5-full。' : '仅对实际使用的 V5 Full 及其局部重绘生效。Medium 固定 14 步和 Euler Ancestral；其它型号仍用原参数，切回 High 保留原设置。') : '',

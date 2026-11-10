@@ -1,3 +1,4 @@
+import { clearNaiQuota, syncNaiQuota, querySettingsNaiQuota, renderNaiQuota } from './settings-nai-quota.js';
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
 import { updateCharCounts } from './prompt-entries-fields.js';
@@ -213,6 +214,7 @@ export function createSettingsHost(deps) {
             return { ok: false, reason: 'settings-not-open' };
         }
         state.activeSettings.reuseNormalized = Boolean(renderOptions && renderOptions.draftUnchanged === true);
+        syncNaiQuota(state.activeSettings);
         const snapshot = buildSettingsSnapshot(state.activeSettings);
         state.activeSettings.snapshot = snapshot;
         updateMountedSettings(snapshot);
@@ -304,6 +306,7 @@ export function createSettingsHost(deps) {
             }
             return { ok: true, pending: true, completion: current.asyncState.closingRecovery };
         }
+        clearNaiQuota(current);
         cancelSearchIndexPrebuild(current);
         state.live2dEditor?.close(true);
         settingsDialogs.cancel();
@@ -510,6 +513,11 @@ export function createSettingsHost(deps) {
         if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
         touchDraft();
         const draft = state.activeSettings.draft;
+        if (/^bridge\.autoIllustration\.nai\.(apiKey|endpoint|transport)$/.test(path)) {
+            clearNaiQuota(state.activeSettings);
+            const quota = state.activeSettings.dom?.root?.querySelector('[data-nai-quota]');
+            if (quota) quota.outerHTML = renderNaiQuota();
+        }
 
         if (path === 'bridge.openMode') {
             const nextMode = normalizeReaderMode(value, draft.bridge);
@@ -1004,6 +1012,7 @@ export function createSettingsHost(deps) {
     }
 
     function handleSettingsAction(action) {
+        if (action === 'query-nai-quota') return querySettingsNaiQuota({ state, options, rerenderSettings });
         if (action === 'anchor-cg-viewport') return Promise.resolve(anchorCgViewport());
         if (String(action).startsWith('origin-op:')) return runOriginOp(String(action).slice('origin-op:'.length));
         if (action === 'origin-chat-pause') return runOriginOp('pause');
