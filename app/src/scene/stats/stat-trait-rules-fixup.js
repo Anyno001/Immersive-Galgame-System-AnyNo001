@@ -215,7 +215,7 @@ function deadTraitHook(state, api) {
         // 贤惠：其在场时，主角进食回复体力略多。
         if (has('贤惠') && here.has(name)) for (const c of heroStaminaGain) next = moveBar(next, HERO, 'stamina', STAMINA_SMALL, '贤惠', ctx.changes);
     }
-    // 百毒不侵：宿醉、中毒挂上即摘下；酒仙：宿醉挂上即摘下（状态定义表里没有的不动，下一楼起生效）。
+    // 百毒不侵：宿醉、中毒挂上即摘下；酒仙：宿醉挂上即摘下（下一楼起生效）。
     for (const name of [HERO, ...Object.keys(next.characters)]) {
         if (api.has(next, name, '百毒不侵')) purgeStatus(next, api, name, ['中毒', '宿醉'], '百毒不侵');
         if (api.has(next, name, '酒仙')) purgeStatus(next, api, name, ['宿醉'], '酒仙');
