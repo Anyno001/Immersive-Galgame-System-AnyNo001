@@ -124,13 +124,10 @@ ${P} .igs-deck-card-side{display:flex;align-items:center;gap:12px;margin-left:au
 ${P} .igs-deck-card-stats{display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
 ${P} .igs-deck-card-stats .igs-deck-count{flex:none;white-space:nowrap;}
 ${P} .igs-deck-card-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;}
-${P} .igs-deck-req{color:var(--igs-rp-text-soft);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
-${P} .igs-deck-req.is-up{color:var(--igs-rp-accent);font-weight:600;}
-${P} .igs-deck-req.is-down{color:var(--igs-rp-text-faint);}
-${P} .igs-deck-pool{padding:12px 14px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);min-width:0;}
-${P} .igs-deck-pool>summary{cursor:pointer;color:var(--igs-rp-text-soft);font-size:13px;overflow-wrap:anywhere;}
-${P} .igs-deck-pool .igs-deck-help{margin:8px 0;}
-${P} .igs-deck-pool .igs-deck-card{background:var(--igs-rp-fill-hover);}
+${P} .igs-scale-up{color:var(--igs-rp-accent);font-weight:600;}
+${P} .igs-scale-down{color:var(--igs-rp-text-faint);}
+${P} [data-scale-tip]{cursor:help;text-decoration:underline dotted;text-underline-offset:2px;}
+${P}>.igs-deck-scale-tip{position:absolute;left:var(--tip-x,50%);top:var(--tip-y,50%);translate:-50% 0;z-index:6;max-width:min(260px,calc(100% - 16px));max-height:calc(100% - 16px);overflow:auto;box-sizing:border-box;padding:8px 12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-solid,var(--igs-rp-bg));box-shadow:var(--igs-rp-pane-edge);color:var(--igs-rp-text);font-size:12px;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none;}
 ${P} .igs-generation-form{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);min-width:0;}
 ${P} .igs-generation-form p{font-size:12px;color:var(--igs-rp-text-soft);margin:4px 0;}
 ${P} .igs-generation-form textarea,${P} .igs-generation-form select{display:block;box-sizing:border-box;width:100%;padding:9px;margin:5px 0;background:var(--igs-rp-fill-hover);color:inherit;border:0;border-radius:var(--igs-rp-radius-m);font:inherit;resize:vertical;}

@@ -5,7 +5,7 @@ import { COMBAT_RULES, cardCopyLimit } from '../../combat/rules.js';
 import { hash32 } from '../../combat/random.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { AWAKEN_TYPE_NAMES, injuryLevel } from '../../combat/report.js';
-import { CARD_TYPE_LABELS, KEYWORD_TIPS, cardArtSvg, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
+import { CARD_TYPE_LABELS, KEYWORD_TIPS, attributeNumberOptions, attributeScalingTip, cardArtSvg, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
 import { INSCRIPTION_TIPS } from './combat-card-art.js';
 import { INSCRIPTION_LABELS, isInscription } from '../../combat/mechanics/inscription.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
@@ -17,6 +17,13 @@ import { briefRegistered, statusLabel } from '../../combat/mechanics/registry.js
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
 export function cardScalingView(card) {
+    if (Array.isArray(card?.attributeScaling)) {
+        const notes = [...new Set(card.attributeScaling.map(attributeScalingTip).filter(Boolean))];
+        return {
+            textParts: describeEffectParts(card.effects, undefined, undefined, attributeNumberOptions(card)),
+            ...(notes.length ? { scaleNote: notes.join('；') } : {}),
+        };
+    }
     const s = card?.scaling;
     if (!s) return {};
     // 手牌经 cardView 后 upgraded 为布尔值；图鉴卡上的 upgraded 是升级形态对象，不代表当前是升级形态。
@@ -102,15 +109,35 @@ function slotFxText(effects, main, value, hits) {
 export function cardSlotView(card, hero, rulesVersion) {
     const effects = Array.isArray(card?.effects) ? card.effects : [];
     const main = mainEffect(effects);
-    if (!main) return { value: null, unit: '', fxText: slotFxText(effects, null, 0, 1) };
+    const marked = Array.isArray(card?.attributeScaling);
+    const options = attributeNumberOptions(card);
+    const fxView = (value, hits) => {
+        const fxText = slotFxText(effects, main, value, hits);
+        if (!marked) return { fxText };
+        const groups = effects.flatMap((effect, index) => {
+            if (effect.op === 'exhaust-self') return [];
+            if (effect !== main || !defaultTarget(effect)) return [describeEffectParts([effect], undefined, undefined, { ...options, offset: index })];
+            if (hits > 1) return [[{ text: `${hits} 段，共 ${value * hits} 点` }]];
+            return effect.op === 'damage' && effect.strengthScale > 1 ? [[{ text: `攻击力 ×${effect.strengthScale} 生效` }]] : [];
+        });
+        const discard = describeKeywordParts({ onDiscard: card.onDiscard }, options);
+        if (discard.length) groups.push(discard);
+        return { fxText, fxParts: groups.flatMap((parts, index) => [...(index ? [{ text: '，' }] : []), ...parts]) };
+    };
+    if (!main) return { value: null, unit: '', ...fxView(0, 1) };
     const briefs = effects.filter((e) => e !== main && e.op !== 'exhaust-self').map(effectBrief).filter(Boolean);
     const extra = briefs.length ? `${briefs[0]}${briefs.length > 1 ? '…' : ''}` : '';
     const st = hero?.statuses || {};
+    const mainPath = `effects.${effects.indexOf(main)}.${main.op === 'status' ? 'stacks' : 'amount'}`;
+    const attributeTip = attributeScalingTip(card.attributeScaling?.find(mark => mark.path === mainPath));
     const finish = (value, baseValue, unit, hits, parts) => {
         const bonusNote = value !== baseValue ? `${parts.join('，')}，合计 ${value} 点${TOTAL_UNITS[main.op]}` : '';
-        return { value, baseValue, unit, ...(hits > 1 ? { hits } : {}), ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, value, hits), ...(bonusNote ? { bonusNote } : {}) };
+        const valueTip = [attributeTip, bonusNote].filter(Boolean).join('；');
+        return { value, baseValue, unit, ...(hits > 1 ? { hits } : {}), ...(extra ? { extra } : {}), ...fxView(value, hits),
+            ...(bonusNote ? { bonusNote } : {}), ...(attributeTip ? { valueTip } : {}) };
     };
-    if (main.op === 'status') return { value: main.stacks, baseValue: main.stacks, unit: COMBAT_STATUS_NAMES[main.status] || statusLabel(main.status) || undefined, ...(extra ? { extra } : {}), fxText: slotFxText(effects, main, main.stacks, 1) };
+    if (main.op === 'status') return { value: main.stacks, baseValue: main.stacks, unit: COMBAT_STATUS_NAMES[main.status] || statusLabel(main.status) || undefined,
+        ...(extra ? { extra } : {}), ...fxView(main.stacks, 1), ...(attributeTip ? { valueTip: attributeTip } : {}) };
     if (main.op === 'heal') return finish(main.amount, main.amount, '回复', 1, []);
     const baseValue = main.amount;
     if (main.op === 'block') {
@@ -357,7 +384,7 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
         const mine = plays.filter((a) => a.inst === inst);
         const targets = mine.map((a) => a.targetId).filter((t) => t !== undefined);
         // v4：关键字与被弃时说明（keywordParts 带可点注释）、临时牌标记、减费前的原费用；没有时不写字段，旧手牌视图形状不变。
-        const keywordParts = describeKeywordParts(card);
+        const keywordParts = describeKeywordParts(card, attributeNumberOptions(card));
         const keywords = keywordParts.map((p) => p.text).join('');
         return {
             inst, id: card.id, name: card.name, type: card.type, cost: card.cost, upgraded: card.upgraded, rarity: card.rarity || '',
@@ -432,8 +459,10 @@ function challengeBattleView(view, challenge = true) {
     return {
         ...view,
         hand: view.hand.map((card) => ({
-            ...words(card, ['text', 'keywords', 'scaleNote', 'bonusNote', 'fxText', 'extra']),
+            ...words(card, ['text', 'keywords', 'scaleNote', 'bonusNote', 'valueTip', 'fxText', 'extra']),
             ...(card.textParts ? { textParts: card.textParts.map((part) => ({ ...part, text: challengeWords(part.text), ...(part.tip ? { tip: challengeWords(part.tip) } : {}) })) } : {}),
+            ...(card.fxParts ? { fxParts: card.fxParts.map((part) => ({ ...part, text: challengeWords(part.text), ...(part.tip ? { tip: challengeWords(part.tip) } : {}) })) } : {}),
+            ...(card.keywordParts ? { keywordParts: card.keywordParts.map((part) => ({ ...part, text: challengeWords(part.text), ...(part.tip ? { tip: challengeWords(part.tip) } : {}) })) } : {}),
         })),
         heroSkill: view.heroSkill ? words(view.heroSkill, ['text']) : null,
         items: view.items.map((item) => words(item, ['text'])),
@@ -553,24 +582,6 @@ export function challengeLobbyView(session) {
         enemies: [{ name: foe.name, count: 1, templated: false, tier: 'normal', art: null }],
         absent: [], downed: [], skipped: [], canEscape: setup.canEscape !== false,
     };
-}
-
-// 升级三选一：新卡从图鉴里未满同名上限的非基础卡中按 seed 确定性抽 3 张；升级选有升级形态且还有未升级副本的卡；始终可跳过。
-export function rewardChoices(view, level, seedKey = '') {
-    if (!view || view.kind !== 'deck-character' || !view.pendingRewards?.includes(level)) return null;
-    // 专属卡只靠剧情解锁与精进，不进新卡池，也不出现在升级选项里。
-    const pool = [...view.catalog.values()].filter((c) => c.rarity !== 'basic' && c.rarity !== 'signature' && (view.owned.get(c.id) || 0) < cardCopyLimit(c.rarity))
-        .sort((a, b) => (a.id < b.id ? -1 : 1));
-    const cards = [];
-    let h = hash32(`${seedKey}|${view.id}|${level}`);
-    while (pool.length && cards.length < COMBAT_REWARD_CARD_COUNT) {
-        h = hash32(`${h}`);
-        const [card] = pool.splice(h % pool.length, 1);
-        cards.push({ cardId: card.id, name: card.name, type: card.type, cost: card.cost });
-    }
-    const upgrades = [...view.owned.entries()].filter(([id, n]) => n > (view.upgraded.get(id) || 0) && view.catalog.get(id)?.upgraded && view.catalog.get(id).rarity !== 'signature')
-        .map(([id]) => ({ targetId: id, name: view.catalog.get(id).name }));
-    return { level, cards, upgrades };
 }
 
 // 引擎事件 → fx-battle 的标签形状。每次出手取对各目标的结果，只保留最后几招，避免托管与敌方阶段的演出过长。

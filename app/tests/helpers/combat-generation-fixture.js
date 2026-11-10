@@ -5,16 +5,18 @@ import { createCombatTables } from '../../src/data/shujuku/combat-tables.js';
 import { deckProfileEntities, generateEntities, generationWrites } from '../../src/combat/generation.js';
 import { createCombatGenerationMaterials } from '../../src/host/combat-generation-materials.js';
 import { createLedgerMockHost, userInventorySheet } from './combat-mock-host-ledger.js';
+import { createMemoryStorage } from '../../src/storage/preset-store.js';
 
 export function modelReply(prompt) {
     const payload = JSON.parse(prompt.user);
     return JSON.stringify({ entities: payload.entities.map((e) => {
         const cards = (n) => Array.from({ length: n }, (_, i) => [`雷刃${i + 1}`, 'strike']);
         let value;
-        if (e.kind === 'class') value = { className: e.key.includes('respec') ? '雷剑客' : '剑士', archetype: 'warrior', passive: ['剑势', 'opening-strength'], cards: cards(11) };
+        if (e.kind === 'class') value = { className: e.key.includes('respec') ? '雷剑客' : '剑士', archetype: 'warrior' };
         else if (e.kind === 'profile-deck') value = { passive: ['雷脉', 'opening-guard'], skill: ['雷刃', 'strike'], cards: cards(4) };
         else if (e.kind === 'class-tier') value = { tierName: '御雷', cards: cards(3) };
         else if (e.kind === 'profile-gear') value = { gear: [['长剑', 'weapon', 'common']] };
+        else if (e.kind === 'draw-card') value = { card: ['雷光斩', 'strike'] };
         return { key: e.key, value };
     }) });
 }
@@ -37,7 +39,7 @@ export async function createGenerationFixture({ seedHero = true } = {}) {
     let reply = modelReply;
     const requests = [];
     const services = createCombatServices({
-        global: host, getChatId: () => chatId, getUserName: () => '艾拉', getWallet: () => 5000,
+        global: host, storage: createMemoryStorage(), getChatId: () => chatId, getUserName: () => '艾拉', getWallet: () => 5000,
         getReaderSettings: () => ({ combatExpansion: { enabled: true } }),
         getAutoIllustration: () => ({ llm: { source: 'custom', endpoint: 'https://example.invalid/v1', apiKey: 'fixture', model: 'fixture' } }),
         readGenerationMaterials: createCombatGenerationMaterials(host),

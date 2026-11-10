@@ -1,19 +1,13 @@
 // 科幻皮肤 · 战斗中画面：照搬概念稿 gal/战斗界面设计稿/概念/第二轮/tech/common.js 与 定稿.html 的标记，假数据换成真实视图 v.battle。
 // 样式在 combat-skin-tech-concept-style.js（由设计稿 CSS 生成）与本文件末尾的接线样式。动作照旧走 data-combat-act / data-combat-id。
 import { esc } from './reader-value-utils.js';
+import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, needsHold, ringVars } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_TECH_CONCEPT_CSS } from './combat-skin-tech-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
-
-const partHtml = (p) => {
-    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
-    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
-    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
-};
-const cardTextHtml = (c) => (Array.isArray(c.textParts) ? c.textParts.map(partHtml).join('') : esc(c.text || ''));
 
 // 概念稿定稿.html 的 TECHKIT.init 参数
 const CFG = {
@@ -102,10 +96,10 @@ function cardHtml(c, i, pos, v, picks, energy) {
     // 角标位：待选勾 > 叠加 ×N；强化改用独立的「强」标记
     const bdg = c.choosable ? `<span class="bdg">${chosen ? '✓' : '○'}</span>` : c.stack ? `<span class="bdg">×${esc(c.stack)}</span>` : '';
     const upg = c.upgraded ? '<i class="upg">强</i>' : '';
-    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const valTip = sel && (c.valueTip || c.bonusNote) ? ` data-scale-tip="${esc(c.valueTip || c.bonusNote)}"` : '';
     const val = Number.isFinite(c.value) ? `<span class="val"><b${valTip}>${esc(c.value)}</b>${ut}</span>` : `<span class="val no-num">${MOTIF[t]}</span>${ut}`;
     const tb = c.hits > 1 ? `<i class="tb segs">${'<i></i>'.repeat(Math.min(c.hits, 8))}</i>` : '<i class="tb"></i>';
-    const fx = sel ? esc(c.fxText ?? c.text ?? '') : '';
+    const fx = sel ? cardFxHtml(c) : '';
     const rise = c.baseCost !== undefined && c.cost > c.baseCost;
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;

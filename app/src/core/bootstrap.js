@@ -588,6 +588,7 @@ export function bootstrapIGS(options = {}) {
         unlockCombatTraitSlot: () => combatServices.unlockTraitSlot(),
         inscribeCombatRelic: (opts) => combatServices.inscribeRelic(opts),
         drawCombatCard: (opts) => combatServices.drawCard(opts),
+        upgradeCombatCard: (opts) => combatServices.upgradeCard(opts),
         flipCombatCard: (opts) => combatServices.flipCard(opts),
         pickCombatCard: (opts) => combatServices.pickCard(opts),
         setCombatGear: typeof combatServices.setGear === 'function' ? (name, gearId, equip, slotIndex) => combatServices.setGear(name, gearId, equip, null, slotIndex) : undefined,

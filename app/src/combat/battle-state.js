@@ -2,6 +2,8 @@
 // 这里的函数都不修改 state，引擎与出牌策略共用。行为与 v0.39.0 一致。
 import { damageModifiers, opHandler } from './mechanics/registry.js';
 import { inscribedView } from './mechanics/inscription.js';
+import { attributeAmount, attributeCardView } from './card-attributes.js';
+import { shivFirstBonus } from './mechanics/shadow.js';
 // 规则 v5 机制登记入口：导入即登记，保证估算与结算前机制已就位。
 import './mechanics/index.js';
 // 规则 v6 G5c 虚弱 / 易伤百分比（relic-modify 由登记入口最后导入，其钩子排在其他机制之后）。
@@ -42,16 +44,12 @@ export function lowestRatioId(state, side) {
     return best;
 }
 
-// 牌实例的当前面貌：合并升级、成长、临时标记与费用修正。找不到定义返回 null。
-// 返回新对象，不改 state（catalog 与 cards 里的对象只读）。
-export function cardView(state, inst) {
-    const entry = state.cards[inst];
-    const def = entry && state.catalog[entry.owner]?.[entry.cardId];
+export function cardFaceView(def, entry, owner, rulesVersion, state = null) {
     if (!def) return null;
     const { upgraded, ...base } = def;
-    const owner = state.units?.[entry.owner];
+    const inst = entry.inst;
     // 规则 v5 E20 降级：登记的 card-upgrade 阶段返回 false 时，本单位的牌按未升级处理。
-    const lifted = entry.upgraded && upgraded && !(state.rulesVersion >= 5 && owner && damageModifiers('card-upgrade').some((mod) => mod.fn(state, owner) === false));
+    const lifted = entry.upgraded && upgraded && !(rulesVersion >= 5 && state && owner && damageModifiers('card-upgrade').some((mod) => mod.fn(state, owner) === false));
     let view = !lifted
         ? { ...base, inst, upgraded: false }
         : { ...base, inst, upgraded: true, cost: upgraded.cost ?? def.cost, effects: upgraded.effects ?? def.effects };
@@ -69,7 +67,17 @@ export function cardView(state, inst) {
             : effect.op === 'block' && block ? { ...effect, amount: Math.min(99, effect.amount + block) } : effect)) };
     }
     // 规则 v5 P5b：本张副本的刻印（mechanics/inscription.js）合并到牌面。
-    if (state.rulesVersion >= 5 && entry.inscription) view = inscribedView(view, entry);
+    if (rulesVersion >= 5 && entry.inscription) view = inscribedView(view, entry);
+    return attributeCardView(view, owner);
+}
+
+// 牌实例的当前面貌；目录与实例保持只读。
+export function cardView(state, inst) {
+    const entry = state.cards[inst];
+    const def = entry && state.catalog[entry.owner]?.[entry.cardId];
+    if (!def) return null;
+    const owner = state.units?.[entry.owner];
+    let view = cardFaceView(def, { ...entry, inst }, owner, state.rulesVersion, state);
     if (entry.temp) view.temp = true;
     // 规则 v5 E19 牌面附着（mechanics/foe-restrict.js 的 foe-mark）：只在 v5 战斗合并；附加虚无即按虚无牌处理。
     if (state.rulesVersion >= 5 && Array.isArray(entry.marks) && entry.marks.length) {
@@ -254,7 +262,8 @@ export function estimateDamage(state, attacker, target, effects, aimId, card) {
         if (effect.op === 'damage') {
             const aim = effect.target || 'enemy';
             if (aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id)) {
-                total += (effect.hits || 1) * computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion, shown);
+                const first = attacker?.attributePolicy ? shivFirstBonus(attacker, shown?.id) : 0;
+                total += (effect.hits || 1) * (computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion, shown) + first);
             }
         } else if (effect.op === 'damage-from-block') {
             const aim = effect.target || 'enemy';
@@ -267,7 +276,7 @@ export function estimateDamage(state, attacker, target, effects, aimId, card) {
             // 已登记机制的算子按其自身估算；未登记或未提供估算的为 0。
             const handler = opHandler(effect?.op);
             if (handler?.estimateDamage) {
-                const kit = { state, attacker, target, aimId, computeDamage, conditionHolds, estimate: (list) => estimateDamage(state, attacker, target, list, aimId) };
+                const kit = { state, attacker, target, aimId, computeDamage, conditionHolds, attributeAmount, estimate: (list) => estimateDamage(state, attacker, target, list, aimId, attacker?.attributePolicy ? card : undefined) };
                 total += Math.max(0, Number(handler.estimateDamage(effect, kit)) || 0);
             }
         }
@@ -276,12 +285,12 @@ export function estimateDamage(state, attacker, target, effects, aimId, card) {
 }
 
 // 一组效果能给自己叠多少格挡；已登记机制的算子按其自身估算。rulesVersion 为战局规则版本，origin 同 computeBlock。
-export function estimateBlock(unit, effects, rulesVersion, origin) {
+export function estimateBlock(unit, effects, rulesVersion, origin, state, aimId) {
     const blockOf = (source, amount, target, version) => computeBlock(source, amount, target, version, origin);
     return (effects || []).reduce((total, effect) => {
         if (effect.op === 'block') return total + blockOf(unit, effect.amount, unit, rulesVersion);
         const handler = opHandler(effect?.op);
-        return handler?.estimateBlock ? total + Math.max(0, Number(handler.estimateBlock(effect, { unit, rulesVersion, computeBlock: blockOf, estimate: (list) => estimateBlock(unit, list, rulesVersion, origin) })) || 0) : total;
+        return handler?.estimateBlock ? total + Math.max(0, Number(handler.estimateBlock(effect, { unit, rulesVersion, state, aimId, attributeAmount, computeBlock: blockOf, estimate: (list) => estimateBlock(unit, list, rulesVersion, origin, state, aimId) })) || 0) : total;
     }, 0);
 }
 

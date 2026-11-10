@@ -49,17 +49,20 @@ function minionLoss(ctx, owner, amount, kit) {
     return lost;
 }
 
-// 随从攻击（S02、S03）：随从不在时无效；伤害 = 基础 + 骨甲层数（+ 随从当前或最大生命），目标易伤 ×1.5，不吃主人的攻击力与虚弱。
-function minionStrike(ctx, owner, effect, targets, kit) {
+const minionDamage = (owner, target, effect) => {
     const minion = minionOf(owner);
-    if (!minion) return;
+    if (!minion) return 0;
     const bonus = effect.bonus === 'hp' ? minion.hp : effect.bonus === 'max' ? minion.maxHp : 0;
     const base = effect.amount + st(owner, 'minion-might') + bonus;
+    return st(target, 'vulnerable') > 0 ? Math.floor(base * 1.5) : base;
+};
+// 随从攻击（S02、S03）：随从不在时无效；伤害 = 基础 + 骨甲层数（+ 随从当前或最大生命），目标易伤 ×1.5，不吃主人的攻击力与虚弱。
+function minionStrike(ctx, owner, effect, targets, kit) {
+    if (!minionOf(owner)) return;
     kit.emit(ctx, { type: 'minion-strike', unitId: owner.id });
     for (const target of targets) {
         if (!target?.alive || ctx.state.outcome) continue;
-        const value = st(target, 'vulnerable') > 0 ? Math.floor(base * 1.5) : base;
-        kit.dealDamage(ctx, target, value, minionSource(owner), 'minion', true);
+        kit.dealDamage(ctx, target, minionDamage(owner, target, effect), minionSource(owner), 'minion', true);
     }
     // 规则 v6 G5b：随从出手后（主人的被动）。
     if (ctx.state.rulesVersion >= 6) kit.fireBus(ctx, owner, 'minion-act', null);
@@ -132,6 +135,7 @@ registerMechanic({
             brief: (e) => `召唤${e.amount}`,
         },
         'minion-strike': {
+            attribute: { ability: 'cha', key: 'amount', tier: 'support', timing: 'static' },
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount', 'target', 'bonus'], path, state);
                 const at = (key) => kit.joinPath(path, key);
@@ -146,7 +150,13 @@ registerMechanic({
                 minionStrike(ctx, unit, effect, kit.targets(), kit);
             },
             value: (e) => e.amount * areaFactor(e.target) * 0.9 + (e.bonus ? 6 : 0),
-            describe: (e, kit) => `随从${kit.on(e.target)}造成 ${e.amount} 点伤害${BONUS_TEXT[e.bonus] || ''}（随从不在时无效）`,
+            estimateDamage: (e, kit) => {
+                if (!kit.attacker?.attributePolicy) return 0;
+                const aim = e.target || 'enemy';
+                return aim === 'all-enemies' || (aim === 'enemy' && kit.aimId === kit.target.id)
+                    ? minionDamage(kit.attacker, kit.target, e) : 0;
+            },
+            describe: (e, kit) => `随从${kit.on(e.target)}造成 ${kit.fmt(e.amount, 'amount', false)} 点伤害${BONUS_TEXT[e.bonus] || ''}（随从不在时无效）`,
             brief: (e) => `随从${e.amount}`,
         },
         sacrifice: {

@@ -1,6 +1,7 @@
 // 水墨（武侠）皮肤 · 战斗中画面：照搬概念稿 gal/战斗界面设计稿/概念/第二轮/ink/_common.js 的标记，假数据换成真实视图 v.battle。
 // 样式在 combat-skin-ink-concept-style.js（由设计稿 _base.css、定稿.css、卡面.css 生成）与本文件末尾的接线样式。动作照旧走 data-combat-act / data-combat-id。
 import { esc } from './reader-value-utils.js';
+import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
@@ -95,14 +96,14 @@ function cardHtml(c, i, pos, v, picks, energy, land = false) {
     const p = pos[i];
     const showExtra = Boolean(c.extra) && !sel;
     const cols = !sel && [...c.name].length > 5;
-    const fx = sel ? esc(c.fxText ?? c.text ?? '') : '';
+    const fx = sel ? cardFxHtml(c) : '';
     const cls = `card t-${k}${r}${c.temp ? ' temp' : ''}${c.stack ? (c.stack > 2 ? ' stack stack2' : ' stack') : ''}${c.upgraded ? ' has-up' : ''}${showExtra ? ' has-st' : ''}${sel && !fx ? ' no-fx' : ''}${live && c.cost <= energy ? '' : ' poor'}${sel ? ' sel' : ''}${chosen ? ' picked' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`;
     // 关键字墨印：放大牌列全部关键字（单字印，可点开解释），窄签只露一枚且不带解释（临时已有虚线框）。
     const names = sel ? (c.keywordNames || []) : [cardMainKeyword(c.keywordNames)].filter(Boolean);
     const seals = names.length ? `<div class="kseals">${names.map((n) => `<i class="kseal"${sel ? ` data-scale-tip="${esc(KEYWORD_NAME_TIPS[n] || n)}"` : ''}>${esc(KEYWORD_CHAR[n] || n)}</i>`).join('')}</div>` : '';
     const delta = cardValueDelta(c);
     const hits = c.hits > 1 ? `<i class="hits" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 6))}</i>` : '';
-    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const valTip = sel && (c.valueTip || c.bonusNote) ? ` data-scale-tip="${esc(c.valueTip || c.bonusNote)}"` : '';
     return `<button type="button" class="${cls}" data-i="${i}" style="left:${p.left}px;z-index:${p.z};--ty:${p.ty}px;--rot:${p.rot}deg" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
         + `<div class="cost">${cut || raised ? `<s>${esc(c.baseCost)}</s>` : ''}<b class="${cut ? 'cut' : raised ? 'up' : ''}">${esc(c.cost)}</b></div><div class="name${[...c.name].length > 3 ? ' n4' : ''}${[...c.name].length > 4 ? ' n5' : ''}${cols ? ' cols' : ''}">${cols ? nameCols(c.name) : esc(c.name)}</div><div class="art">${MOTIF[k]}</div>`

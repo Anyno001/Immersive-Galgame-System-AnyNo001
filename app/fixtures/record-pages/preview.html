@@ -310,7 +310,8 @@ function openSettingsScene() {
   return { close: () => opened.controller?.close?.() };
 }
 // 战斗面板预览：内存战斗表与存档；?combat=battle 直接开战，?combat=end 打到结束。
-const combatPreview = createCombatPreview();
+const attributePreview = new URLSearchParams(location.search).get('attributes') === '1';
+const combatPreview = createCombatPreview({ attributes: attributePreview });
 // ?res=mage|mage3|bard|priest|warrior|summoner|all：给主战者叠一组假资源，只改面板读到的快照，不写引擎状态，用于看资源条排版。
 const RES_PREVIEW = {
   mage: { orbs: { slots: 10, list: ['lightning', 'frost', 'dark', 'plasma', 'glass', 'lightning', 'frost'].map(kind => ({ kind })) }, focus: 2 },
@@ -511,9 +512,10 @@ const deckLedger = !INSCRIBE_PREVIEW.length && !cardDrawParam && !sealParam ? co
   return { ...st, characters: new Map([...st.characters].map(([id, c]) => [id, view(c)])) };
 } };
 const deckNoop = async () => ({ ok: false, reason: 'combat-generate-unavailable' });
+const freeUpgradeParam = new URLSearchParams(location.search).get('freeupgrade') || '';
 const deckFull = createCombatDeckPanelController(document, {
   getLedger: () => deckLedger, getSession: () => combatPreview.session,
-  regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop, drawCard: deckNoop,
+  regenerateDeck: deckNoop, respecClass: deckNoop, ascendClass: deckNoop, drawTrait: deckNoop, pickTrait: deckNoop, unlockTraitSlot: deckNoop, drawCard: deckNoop, upgradeCard: deckNoop,
   flipCard: cardDrawParam ? async ({ position }) => { await new Promise((r) => setTimeout(r, 450)); cardDrawPreview.flipped = position; return { ok: true, position }; } : deckNoop,
   pickCard: cardDrawParam ? async ({ pick }) => { await new Promise((r) => setTimeout(r, 200)); cardDrawPreview.done = true; return { ok: true, pick }; } : deckNoop,
   inscribeRelic: sealParam ? async ({ copyId }) => { await new Promise((r) => setTimeout(r, 200)); sealPreview.copyId = copyId; return { ok: true, copyId }; } : deckNoop,
@@ -524,6 +526,17 @@ async function openDeckFull() {
   for (let i = 0; i < 80 && deckFull.view()?.status !== 'ready'; i += 1) await new Promise(r => setTimeout(r, 25));
   const want = new URLSearchParams(location.search).get('deckpage');
   if (want) deckFull.invoke('page', want);
+  if (cardDrawParam === 'confirm') deckFull.invoke('draw-open');
+  if (freeUpgradeParam) {
+    deckFull.invoke('upgrade-open');
+    const first = deckFull.view()?.detail?.upgradeCards?.[0];
+    if (freeUpgradeParam === 'pick' && first) deckFull.invoke('upgrade-pick', first.copyId);
+  }
+  if (new URLSearchParams(location.search).get('tip') === '1') {
+    const tipAnchor = document.querySelector('#igs-combat-deck-panel .igs-deck-card p [data-scale-tip]');
+    tipAnchor?.scrollIntoView({ block: 'center' });
+    tipAnchor?.click();
+  }
   if (sealParam === 'pick') {
     deckFull.invoke('inscribe-open', SEAL_KEY);
     const first = deckFull.view()?.detail?.relicInscribe?.[0]?.copies?.[0];

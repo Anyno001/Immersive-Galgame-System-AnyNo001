@@ -15,7 +15,7 @@ import { createMahjongPointsRound } from '../scene/points/mahjong-points-round.j
 import { createPointsIntents } from '../storage/points-intents.js';
 import { createCombatMaterialContext } from './combat-material-context.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
-import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, vitalsForName } from '../combat/ledger.js';
+import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, upgradableRows, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
 import { withFloorNote } from '../combat/floor-note.js';
@@ -1312,12 +1312,17 @@ export function createCombatServices(options = {}) {
     }
 
     // 规则 v6 积分抽卡：程序按种子定候选（本职业固定 2 + 随机 1），副 LLM 只给随机卡起名选模板；生成成功后才写 card-draw 扣费，失败或取消不扣费。
-    async function drawCard({ signal } = {}) {
+    async function drawCard({ signal, free } = {}) {
         const context = await heroActionContext('drawCard', 'card-draw');
         if (!context.ok) return context;
         const { ledgerImpl, state, hero } = context;
         if (hero.pendingDraw) return { ok: false, reason: 'combat-card-draw-pending' };
-        if ((hero.points || 0) < CARD_DRAW_COST) return { ok: false, reason: 'combat-points-insufficient' };
+        if (free !== undefined && (!free || typeof free !== 'object' || Array.isArray(free)
+            || Object.keys(free).some(key => key !== 'level') || !hero.freeDraws?.includes(free.level))) {
+            return { ok: false, reason: 'combat-card-draw-free-unavailable' };
+        }
+        const freeDraw = free === undefined ? null : { level: free.level };
+        if (!freeDraw && (hero.points || 0) < CARD_DRAW_COST) return { ok: false, reason: 'combat-points-insufficient' };
         const plan = planCardDraw(hero);
         if (!plan) return { ok: false, reason: 'combat-card-draw-pool-empty' };
         const llm = resolveCombatLlm(getLlm());
@@ -1333,9 +1338,21 @@ export function createCombatServices(options = {}) {
         if (!card) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-card-draw-generation-failed' };
         const choices = plan.fixedIds.map((id) => JSON.parse(JSON.stringify(fixedCard(id))));
         choices.splice(plan.randomAt, 0, card);
-        const written = await ledgerImpl.drawCard(hero.id, { drawId: plan.drawId, choices });
+        const written = await ledgerImpl.drawCard(hero.id, { drawId: plan.drawId, choices, ...(freeDraw ? { free: freeDraw } : {}) });
         if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
-        return { ok: true, id: hero.id, drawId: plan.drawId, choices, cost: CARD_DRAW_COST };
+        return { ok: true, id: hero.id, drawId: plan.drawId, choices, cost: freeDraw ? 0 : CARD_DRAW_COST };
+    }
+
+    async function upgradeCard({ level, copyId } = {}) {
+        const context = await heroActionContext('upgradeCard', 'card-upgrade', { needLlm: false });
+        if (!context.ok) return context;
+        const { ledgerImpl, hero } = context;
+        if (!hero.freeUpgrades?.includes(level)) return { ok: false, reason: 'combat-card-upgrade-free-unavailable' };
+        const row = upgradableRows(hero).find(item => item.copyId === copyId);
+        if (!row) return { ok: false, reason: 'combat-card-upgrade-invalid' };
+        const written = await ledgerImpl.upgradeCard(hero.id, { level, copyId, cardId: row.cardId });
+        return written?.ok === true ? { ok: true, id: hero.id, level, copyId }
+            : { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
     }
 
     // 翻牌：position 为背面朝上的位置 0–2，每抽只能翻一张；翻开后再决定加入卡组或放弃。
@@ -1645,7 +1662,7 @@ export function createCombatServices(options = {}) {
     return {
         getSession, getLedger, ensureTables, statsTables, inventoryTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
         originStore, points, gamePointsRounds, mahjongPointsRounds, ensurePointsFloor, pointsSpendingGate, readSharedPoints, readOriginWallet, pointsSnapshot, withPointsLock,
-        drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
+        drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, upgradeCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,
         heroInventory, setHeroGear, sellHeroItem, takeoverInventory,

@@ -24,6 +24,8 @@ const living = (state) => state.order.map((id) => state.units[id]).filter((unit)
 const foesOf = (state, unit) => living(state).filter((other) => other.side !== unit.side);
 // 出牌计数键与 battle-state.js 的 cardCountKey 一致（机制文件不引用其他战斗模块）。
 const SHIV_COUNT_KEY = `c:${SHIV_ID}`;
+export const shivFirstBonus = (unit, cardId) => cardId === SHIV_ID && !(unit?.turnStats?.byCard?.[SHIV_COUNT_KEY] > 0)
+    ? unit?.res?.shiv?.first || 0 : 0;
 
 function shivCard(shiv) {
     return {
@@ -155,6 +157,8 @@ registerMechanic({
         },
         // 暗刃强化：增伤、群攻、保留、首刃，改写本单位暗刃定义，手中暗刃随之变化。
         'hone-shiv': {
+            attribute: effect => effect.mode === 'first'
+                ? { ability: 'str', key: 'amount', tier: 'normal', timing: 'static', max: HONE_AMOUNT.first } : null,
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'mode', 'amount'], path, state);
                 const at = (key) => kit.joinPath(path, key);
@@ -178,7 +182,7 @@ registerMechanic({
                 kit.emit(ctx, { type: 'hone-shiv', unitId: unit.id, mode: effect.mode });
             },
             value: (e) => (e.mode === 'edge' ? 4 + e.amount * 1.5 : e.mode === 'first' ? 2 + e.amount * 1.2 : e.mode === 'fan' ? 6 : 4),
-            describe: (e) => HONE_TEXT[e.mode](e.amount),
+            describe: (e, kit) => HONE_TEXT[e.mode](e.mode === 'first' ? kit.fmt(e.amount, 'amount', false) : e.amount),
             brief: (e) => (e.mode === 'edge' ? `刃+${e.amount}` : e.mode === 'first' ? `首刃${e.amount}` : e.mode === 'fan' ? '刃群' : '刃留'),
         },
     },
@@ -188,8 +192,7 @@ registerMechanic({
             const { source, kind } = payload;
             if (kind !== 'attack' || source?.kind !== 'card' || source.id !== SHIV_ID || !ctx.inst) return;
             const attacker = ctx.state.units[source.unitId];
-            const first = attacker?.res?.shiv?.first || 0;
-            if (first && !(attacker.turnStats?.byCard?.[SHIV_COUNT_KEY] > 0)) payload.amount += first;
+            payload.amount += shivFirstBonus(attacker, source.id);
         },
     },
     report(event, kit) {

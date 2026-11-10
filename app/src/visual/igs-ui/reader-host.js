@@ -5407,6 +5407,7 @@ ${row.key}`;
             pickTrait: typeof options.pickCombatTrait === 'function' ? (opts) => options.pickCombatTrait(opts) : null,
             unlockTraitSlot: typeof options.unlockCombatTraitSlot === 'function' ? () => options.unlockCombatTraitSlot() : null,
             drawCard: typeof options.drawCombatCard === 'function' ? (opts) => options.drawCombatCard(opts) : null,
+            upgradeCard: typeof options.upgradeCombatCard === 'function' ? (opts) => options.upgradeCombatCard(opts) : null,
             flipCard: typeof options.flipCombatCard === 'function' ? (opts) => options.flipCombatCard(opts) : null,
             pickCard: typeof options.pickCombatCard === 'function' ? (opts) => options.pickCombatCard(opts) : null,
             inscribeRelic: typeof options.inscribeCombatRelic === 'function' ? (opts) => options.inscribeCombatRelic(opts) : null,

@@ -5,6 +5,10 @@ import { createGenerationFixture, modelReply } from './helpers/combat-generation
 import { createCombatDeckPanelController } from '../src/visual/igs-ui/combat-deck-panel.js';
 import { deckDetailView } from '../src/visual/igs-ui/combat-deck-panel-model.js';
 import { renderCombatDeckPanelHtml } from '../src/visual/igs-ui/combat-deck-panel-render.js';
+import { cardFaceView, cardView, estimateDamage } from '../src/combat/battle-state.js';
+import { createAttributePolicy } from '../src/combat/attribute-policy.js';
+import { buildSetup } from '../src/combat/session.js';
+import { applyAction, createBattle, legalActions } from '../src/combat/engine.js';
 
 const settle = async () => { for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r)); };
 
@@ -40,7 +44,13 @@ test('重建、AI 转职和升阶：提示与素材进入真实生成请求，�
             assert.equal(request.context.generationHint, '雷系连击，保留雷刃');
             assert.equal(request.context.characterMaterials.mvu[0].value.雷刃.等级, 3);
             assert.equal(request.context.characterMaterials.tables[0].rows[0].技能, '雷步');
-            assert.equal((await f.hero()).points, before.points - cost);
+            const after = await f.hero();
+            assert.equal(after.points, before.points - cost);
+            assert.ok(after.profile.personalPool.every(card => card.archetype === 'warrior'));
+            assert.equal(after.classProfile.classPool.length, method === 'ascendClass' ? 3 : 0);
+            assert.ok(after.classProfile.classPool.every(card => card.archetype === 'warrior'));
+            assert.ok(request.entities.filter(entity => entity.kind === 'class').every(entity => !Object.hasOwn(entity.input, 'costSlots')));
+            assert.equal(before.catalog.get(before.deck[0]).archetype, after.catalog.get(before.deck[0]).archetype);
         });
     }
 });
@@ -88,6 +98,10 @@ async function uiFixture(t, extra = {}) {
         regenerateDeck: f.services.regenerateDeck,
         respecClass: f.services.respecClass,
         ascendClass: f.services.ascendClass,
+        drawCard: f.services.drawCard,
+        flipCard: f.services.flipCard,
+        pickCard: f.services.pickCard,
+        upgradeCard: f.services.upgradeCard,
         ...(typeof extra === 'function' ? extra(f) : extra),
     });
     t.after(() => { controller.close(); dom.window.close(); f.dispose(); });
@@ -121,6 +135,9 @@ test('六张个人卡池重建会保存新牌，v6 初始组只取一种个人�
     assert.deepEqual(hero.profile.heroSkill, before.profile.heroSkill);
     assert.ok(hero.profile.personalPool.every((c) => c.id.includes('-r') && c.name.startsWith('新招')));
     const rows = [...f.doc.querySelectorAll('.igs-deck-card')];
+    assert.equal(rows.length, hero.owned.size);
+    assert.ok(f.controller.view().detail.owned.every(card => card.owned > 0));
+    assert.equal(f.doc.querySelector('.igs-deck-pool'), null);
     const personal = rows.filter((r) => r.textContent.includes('个人牌'));
     assert.ok(personal.length > 0);
     assert.ok(personal.every((r) => /新招/.test(r.textContent) && /点伤害/.test(r.querySelector('.igs-deck-effect').textContent)));
@@ -149,13 +166,148 @@ test('牌面预览包含 X 费规则、属性换算、升级和弃牌效果；�
     assert.match(row.textContent, /<img src=x>/);
     assert.match(row.querySelector('p').textContent, /每点能量结算一次.*保留.*被丢弃时：抽 1 张牌.*4 点伤害/);
     assert.match(row.querySelector('details').textContent, /升级后.*5 点伤害/);
+    assert.equal(row.querySelector('p .igs-scale-up').getAttribute('data-scale-tip'), '力量 ×1.3，3→4（+1）');
+    assert.equal(row.querySelector('details .igs-scale-up').getAttribute('data-scale-tip'), '力量 ×1.3，4→5（+1）');
     assert.equal(row.querySelector('button[data-deck-act="add"]'), null);
     assert.equal(row.querySelector('button[data-deck-act="remove"]'), null);
     assert.equal(card.effects[0].amount, 3);
     assert.equal(f.requests.length, 0);
 });
 
-test('已有属性初始化后转职：新职业名与被动可见，职业池供预览，旧卡不丢且不重复扣费', async (t) => {
+test('卡组、免费升级与御印复用实战牌面：跨职业归属、共享与独立成长、刻印后只换算一次', async (t) => {
+    const f = await uiFixture(t);
+    const base = await f.hero();
+    const card = { id: 'preview-growth', name: '异职术式', archetype: 'mage', type: 'attack', cost: 0, rarity: 'common',
+        effects: [{ op: 'damage', amount: 30, target: 'enemy' }], upgraded: { effects: [{ op: 'damage', amount: 40, target: 'enemy' }] } };
+    const rows = [{ cardId: card.id, copyId: 'preview:0', upgraded: false, bonus: { damage: 2 }, inscription: 'sharp' },
+        { cardId: card.id, copyId: 'preview:1', upgraded: true, bonus: { damage: 2 }, inscription: 'sharp', localGrowth: true }];
+    const character = { ...base, attributes: { ...base.attributes, proficiency: 2, scores: { str: 16, dex: 16, con: 10, int: 8, wis: 14, cha: 20 } },
+        classProfile: { ...base.classProfile, archetype: 'assassin' }, catalog: new Map([[card.id, card]]),
+        deck: rows.map(row => row.cardId), deckEntries: rows, copies: rows, owned: new Map([[card.id, 2]]), upgraded: new Map([[card.id, 1]]),
+        battleGrowth: { cards: { [card.id]: { damage: 3, block: 0 } } },
+        relicInscribe: [{ relic: { relicId: 'rl-s-18', model: 'original' }, inscription: 'instinct', copies: [rows[0].copyId] }] };
+    const detail = deckDetailView(character);
+    const built = buildSetup({ heroId: character.id, controllable: [character.id], allies: [character], enemies: new Map() }, { enemies: [], tier: 'normal' });
+    assert.equal(built.ok, true, JSON.stringify(built));
+    const unit = built.setup.units.find(unit => unit.id === character.id);
+    const owner = { attributePolicy: createAttributePolicy(character) };
+    const tips = parts => parts.filter(part => part.tip?.includes('→')).map(part => [part.text, part.tip]);
+    for (const entry of unit.deck) {
+        const expected = cardFaceView(unit.catalog[card.id], entry, owner, 6);
+        const variant = detail.owned[0].variants.find(row => tips(row.textParts)[0]?.[0] === String(expected.effects[0].amount));
+        assert.ok(variant, `缺少副本预览：${entry.copyId}`);
+        assert.deepEqual(tips(variant.textParts), [[String(expected.effects[0].amount), `智力 ×0.92，${expected.attributeScaling[0].base}→${expected.effects[0].amount}（-${expected.attributeScaling[0].base - expected.effects[0].amount}）`]]);
+    }
+    const upgrade = detail.upgradeCards[0];
+    assert.deepEqual(tips(upgrade.textParts), [['35', '智力 ×0.92，38→35（-3）']]);
+    assert.deepEqual(tips(upgrade.after.textParts), [['44', '智力 ×0.92，48→44（-4）']]);
+    assert.deepEqual(tips(detail.relicInscribe[0].copies[0].after.textParts), [['64', '智力 ×0.92，70→64（-6）']]);
+    const engineUnit = { ...unit, deck: Array.from({ length: 5 }, (_, index) => ({ ...unit.deck[index % unit.deck.length], copyId: `engine:${index}` })) };
+    const enemy = { id: 'preview-foe', name: '靶子', side: 'enemy', kind: 'skill', maxHp: 999, speed: 1,
+        skills: [{ id: 'idle', name: '等待', intent: 'buff', effects: [{ op: 'heal', amount: 1, target: 'self' }] }] };
+    const created = createBattle({ ...built.setup, units: [engineUnit, enemy] }, 3);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const state = created.state;
+    const inst = state.piles[unit.id].hand[0];
+    const face = cardView(state, inst);
+    assert.ok(detail.owned[0].variants.some(row => tips(row.textParts)[0]?.[0] === String(face.effects[0].amount)));
+    const estimated = estimateDamage(state, state.units[unit.id], state.units[enemy.id], face.effects, enemy.id, face);
+    const action = legalActions(state).find(action => action.type === 'play' && action.inst === inst && action.targetId === enemy.id);
+    assert.ok(action);
+    const played = applyAction(state, action);
+    assert.equal(played.ok, true, JSON.stringify(played.error));
+    assert.equal(played.events.filter(event => event.type === 'damage' && event.target === enemy.id).reduce((sum, event) => sum + event.amount, 0), estimated);
+
+    assert.equal(card.effects[0].amount, 30);
+});
+
+test('逐数字提示按效果字段定位，嵌套与弃牌不串位，延迟效能不冒充已结算金额', async () => {
+    const { attributeCardView } = await import('../src/combat/card-attributes.js');
+    const { cardScalingView, cardSlotView } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const { attributeNumberOptions, describeKeywordParts } = await import('../src/visual/igs-ui/combat-card-art.js');
+    const owner = { attributePolicy: createAttributePolicy({ role: 'assassin', proficiency: 2,
+        scores: { str: 16, dex: 12, con: 10, int: 8, wis: 14, cha: 20 } }) };
+    const card = attributeCardView({ id: 'tips-mage', archetype: 'mage', effects: [
+        { op: 'conditional', when: { kind: 'self-has', value: 'strength' }, then: [{ op: 'damage', amount: 30 }] },
+        { op: 'random-branch', a: [{ op: 'heal', amount: 30 }], b: [{ op: 'block', amount: 30 }] },
+        { op: 'apply-status', status: 'strength', stacks: 10 },
+        { op: 'tally-guard', amount: 0, per: 3, source: 'strength', max: 10 },
+        { op: 'channel', orb: 'lightning', amount: 2 },
+        { op: 'minion-strike', amount: 10 },
+        { op: 'self-damage', amount: 4 },
+    ], onDiscard: [{ op: 'damage', amount: 30 }] }, owner);
+    const shown = cardScalingView(card);
+    assert.deepEqual(shown.textParts.filter(part => part.tip).map(part => [part.text, part.tip]), [
+        ['28', '智力 ×0.92，30→28（-2）'], ['35', '感知 ×1.16，30→35（+5）'],
+        ['28', '智力 ×0.92，30→28（-2）'], ['11', '力量 ×1.12（保守），10→11（+1）'],
+        ['0', '智力 ×0.92，最终效能合计后换算'], ['2', '智力 ×0.96（保守），最终效能合计后换算'],
+        ['12', '魅力 ×1.15（保守），10→12（+2）'],
+    ]);
+    const discard = describeKeywordParts(card, attributeNumberOptions(card));
+    assert.equal(discard.find(part => part.tip)?.tip, '智力 ×0.92，30→28（-2）');
+    assert.equal(cardSlotView(card, { statuses: {} }, 6).fxParts.filter(part => part.tip).length, 8);
+    const legacy = cardScalingView({ effects: [{ op: 'apply-status', status: 'strength', stacks: 10 },
+        { op: 'damage', amount: 7 }], scaling: { ability: 'str', required: 12, multiplier: 1.16, base: [6] } });
+    assert.deepEqual(legacy.textParts.filter(part => part.tip).map(part => part.text), ['7']);
+    assert.match(legacy.scaleNote, /力量要求 12/);
+});
+
+test('九套战斗皮肤保留主数字、附加效果与弃牌数字提示，档案文本安全转义', async () => {
+    const { battleView } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const { CANVAS_BATTLE } = await import('../src/visual/igs-ui/combat-skin-registry.js');
+    const card = { id: 'skin-attribute', name: '<img src=x>', type: 'attack', cost: 0, rarity: 'common', archetype: 'mage',
+        effects: [{ op: 'damage', amount: 30, target: 'enemy' }, { op: 'block', amount: 30, target: 'self' }],
+        onDiscard: [{ op: 'damage', amount: 6, target: 'enemy' }] };
+    const policy = createAttributePolicy({ role: 'assassin', proficiency: 2, scores: { str: 16, dex: 12, con: 10, int: 8, wis: 14, cha: 20 } });
+    const created = createBattle({ rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [
+        { id: 'hero', name: '主角', kind: 'deck', side: 'ally', maxHp: 50, attributePolicy: policy, deck: Array(5).fill(card.id), catalog: { [card.id]: card } },
+        { id: 'foe', name: '靶子', kind: 'skill', side: 'enemy', maxHp: 999, skills: [{ id: 'idle', name: '等待', intent: 'buff', effects: [{ op: 'heal', amount: 1 }] }] },
+    ] }, 3);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    const battle = battleView(created.state, legalActions(created.state));
+    const selected = battle.hand[0].inst;
+    assert.equal(Object.keys(CANVAS_BATTLE).length, 9);
+    for (const [skin, render] of Object.entries(CANVAS_BATTLE)) for (const orient of ['port', 'land']) {
+        const fragment = JSDOM.fragment(render({ status: 'battle', battle, selected, chosen: [] }, orient));
+        const face = [...fragment.querySelectorAll('[data-combat-act="card"]')].find(node => node.getAttribute('data-combat-id') === selected);
+        assert.ok(face, `${skin}/${orient}`);
+        const tips = [...face.querySelectorAll('[data-scale-tip]')].map(node => node.getAttribute('data-scale-tip'));
+        assert.ok(tips.includes('智力 ×0.92，30→28（-2）'), `${skin}/${orient} 主效果`);
+        assert.ok(tips.includes('智力 ×0.92，6→6（0）'), `${skin}/${orient} 弃牌效果`);
+        assert.match(face.textContent, /被丢弃时/);
+        assert.match(face.textContent, /<img src=x>/);
+        assert.equal(face.querySelector('img'), null);
+    }
+});
+
+test('牌组数字提示只打开明细，重复点击、滚动、切页和关闭均清理，不触发写入', async (t) => {
+    const f = await uiFixture(t);
+    const before = await f.hero();
+    const number = f.doc.querySelector('.igs-deck-card p [data-scale-tip]');
+    assert.ok(number);
+    number.click();
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip').textContent, number.getAttribute('data-scale-tip'));
+    number.click();
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
+    number.click();
+    number.dispatchEvent(new f.dom.window.Event('scroll'));
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
+    number.click();
+    f.controller.invoke('page', 'status');
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
+    f.controller.invoke('page', 'deck');
+    f.doc.querySelector('.igs-deck-card p [data-scale-tip]').click();
+    f.controller.close();
+    assert.equal(f.doc.querySelector('.igs-deck-scale-tip'), null);
+    const after = await f.hero();
+    assert.deepEqual([after.deckEntries, after.points, after.freeDraws, after.freeUpgrades], [before.deckEntries, before.points, before.freeDraws, before.freeUpgrades]);
+    assert.equal(f.requests.length, 0);
+});
+
+
+
+
+test('已有属性初始化后转职：新职业名与被动可见，只显示已拥有牌，旧卡不丢且不重复扣费', async (t) => {
     const f = await uiFixture(t);
     const ledger = f.services.getLedger();
     const init = await ledger.writeInit('艾拉', { className: '剑士', role: 'warrior', major: 'str', minor: 'dex', weak: 'cha' });
@@ -170,7 +322,7 @@ test('已有属性初始化后转职：新职业名与被动可见，职业池�
     f.controller.invoke('respec-open');
     f.controller.invoke('respec-pick', '');
     await settle();
-    assert.match(f.doc.body.textContent, /保留已有卡组.*不会直接获得/);
+    assert.match(f.doc.body.textContent, /保留已有卡组.*职业阶数重置为一阶/);
     const result = await f.controller.invoke('respec-confirm');
     assert.equal(result.ok, true, JSON.stringify(result));
     const hero = await f.hero();
@@ -184,11 +336,9 @@ test('已有属性初始化后转职：新职业名与被动可见，职业池�
     assert.deepEqual(hero.attributes.scores, before.attributes.scores);
     assert.equal(hero.points, before.points - 150);
     assert.equal(f.controller.view().detail.className, '雷剑客');
-    const pool = f.doc.querySelector('.igs-deck-pool');
-    assert.match(pool.querySelector('summary').textContent, /雷剑客.*11 种/);
-    assert.equal(pool.querySelectorAll('.igs-deck-card').length, 11);
-    assert.equal(pool.querySelector('button'), null);
-    assert.ok([...pool.querySelectorAll('.igs-deck-card')].every((r) => /未拥有/.test(r.textContent) && /点伤害/.test(r.textContent)));
+    assert.deepEqual(hero.classProfile.classPool, []);
+    assert.equal(f.doc.querySelector('.igs-deck-pool'), null);
+    assert.ok(f.controller.view().detail.owned.every(card => card.owned > 0));
     assert.match(f.doc.body.textContent, /职业被动/);
     assert.match(f.doc.body.textContent, /战意/);
     assert.doesNotMatch(f.doc.body.textContent, /雷势/);
@@ -333,4 +483,101 @@ test('御印在人物状态页选定副本：先看刻印前后再确认，取�
     assert.equal(hero.deckEntries.find((e) => e.copyId === copyId).inscription, 'sovereign');
     assert.equal(f.controller.view().seal, null);
     assert.doesNotMatch(f.doc.body.textContent, /待刻印/);
+});
+
+test('等级免费抽卡沿用翻牌与加入流程，免费升级按副本确认，取消和切页保留额度', async (t) => {
+    const f = await uiFixture(t);
+    const before = await f.hero();
+    const level = before.freeDraws[0];
+    assert.ok(level && before.freeUpgrades.includes(level));
+    assert.match(f.doc.querySelector('[data-deck-act="draw-open"]').textContent, /免费抽卡/);
+    assert.equal(f.controller.invoke('draw-open').ok, true);
+    assert.deepEqual(f.controller.view().draw.free, { level });
+    assert.match(f.doc.querySelector('[data-deck-act="draw-confirm"]').textContent, /确认免费抽卡/);
+    f.controller.invoke('draw-cancel');
+    assert.equal(f.requests.length, 0);
+    assert.deepEqual((await f.hero()).freeDraws, before.freeDraws);
+
+    assert.equal(f.controller.invoke('upgrade-open').ok, true);
+    assert.equal(f.doc.querySelector('[data-deck-act="upgrade-confirm"]').getAttribute('aria-disabled'), 'true');
+    assert.equal(f.controller.invoke('upgrade-pick', 'missing:0').reason, 'combat-card-upgrade-invalid');
+    const copyId = f.controller.view().detail.upgradeCards[0].copyId;
+    assert.equal(f.controller.invoke('upgrade-pick', copyId).ok, true);
+    assert.match(f.doc.body.textContent, /升级前/);
+    assert.match(f.doc.body.textContent, /升级后/);
+    f.controller.invoke('upgrade-cancel');
+    assert.deepEqual((await f.hero()).freeUpgrades, before.freeUpgrades);
+    f.controller.invoke('upgrade-open');
+    f.controller.invoke('upgrade-pick', copyId);
+    f.controller.invoke('page', 'status');
+    assert.equal(f.controller.view().freeUpgrade, null);
+    f.controller.invoke('page', 'deck');
+
+    f.controller.invoke('draw-open');
+    const drawn = await f.controller.invoke('draw-confirm');
+    assert.equal(drawn.ok, true, JSON.stringify(drawn));
+    assert.equal(drawn.cost, 0);
+    let hero = await f.hero();
+    assert.deepEqual(hero.freeDraws, before.freeDraws.slice(1));
+    assert.deepEqual(hero.freeUpgrades, before.freeUpgrades);
+    assert.equal(hero.points, before.points);
+    assert.equal(hero.cardDraws, before.cardDraws + 1);
+    assert.equal(hero.deck.length, before.deck.length);
+    assert.equal(f.doc.querySelectorAll('[data-deck-act="card-flip"]').length, 3);
+    const requests = f.requests.length;
+    assert.equal((await f.services.drawCard({ free: { level: hero.freeDraws[0] } })).reason, 'combat-card-draw-pending');
+    assert.equal(f.requests.length, requests);
+    assert.equal((await f.controller.invoke('card-flip', '0')).ok, true);
+    assert.ok(f.doc.querySelector('[data-deck-act="draw-keep"]'));
+    assert.equal(hero.deck.length, (await f.hero()).deck.length, '翻开仍未加入');
+    assert.equal((await f.controller.invoke('draw-keep')).ok, true);
+    hero = await f.hero();
+    assert.equal(hero.deck.length, before.deck.length + 1);
+    assert.equal(hero.pendingDraw, null);
+    assert.equal(hero.points, before.points);
+
+    f.controller.invoke('upgrade-open');
+    assert.equal(f.controller.invoke('upgrade-pick', copyId).ok, true);
+    assert.equal((await f.controller.invoke('upgrade-confirm')).ok, true);
+    hero = await f.hero();
+    assert.deepEqual(hero.freeUpgrades, before.freeUpgrades.slice(1));
+    assert.equal(hero.deckEntries.find(row => row.copyId === copyId).upgraded, true);
+    assert.equal(hero.points, before.points);
+    assert.equal(f.requests.length, requests, '升级不调用模型');
+    assert.equal(f.controller.view().freeUpgrade, null);
+    const view = f.controller.view();
+    const dom = new JSDOM(renderCombatDeckPanelHtml({ ...view, detail: { ...view.detail, upgradeCards: [] } }));
+    assert.equal(dom.window.document.querySelector('[data-deck-act="upgrade-open"]').getAttribute('aria-disabled'), 'true');
+    dom.window.close();
+});
+
+test('免费抽卡生成失败或中止不消耗额度，免费升级只读拒写且重读清空选择', async (t) => {
+    for (const mode of ['failure', 'abort']) {
+        await t.test(mode, async (t) => {
+            const f = await createGenerationFixture();
+            t.after(f.dispose);
+            const before = await f.hero();
+            const control = new AbortController();
+            if (mode === 'failure') f.setFailure(true);
+            else f.setCallback(() => control.abort());
+            const result = await f.services.drawCard({ free: { level: before.freeDraws[0] }, signal: control.signal });
+            assert.equal(result.ok, false);
+            const after = await f.hero();
+            assert.deepEqual([after.freeDraws, after.freeUpgrades, after.points, after.cardDraws, after.pendingDraw],
+                [before.freeDraws, before.freeUpgrades, before.points, before.cardDraws, before.pendingDraw]);
+        });
+    }
+    let busy = null;
+    const f = await uiFixture(t, { getSession: () => ({ state: () => busy }) });
+    const before = await f.hero();
+    f.controller.invoke('upgrade-open');
+    f.controller.invoke('upgrade-pick', f.controller.view().detail.upgradeCards[0].copyId);
+    await f.controller.invoke('reload');
+    assert.equal(f.controller.view().freeUpgrade, null);
+    busy = { status: 'battle' };
+    f.controller.invoke('page', 'deck');
+    assert.equal(f.controller.invoke('upgrade-open').reason, 'combat-deck-readonly');
+    assert.equal(f.doc.querySelector('[data-deck-act="upgrade-open"]').getAttribute('aria-disabled'), 'true');
+    assert.deepEqual((await f.hero()).freeUpgrades, before.freeUpgrades);
+    assert.equal(f.requests.length, 0);
 });

@@ -49,6 +49,14 @@ const optionalFn = (value) => value === undefined || isFn(value);
 const SCALE_ABILITIES = Object.freeze(['phys', 'str', 'dex', 'con', 'int', 'wis', 'cha']);
 const validScale = (spec) => spec === undefined || (spec !== null && typeof spec === 'object' && SCALE_ABILITIES.includes(spec.ability)
     && typeof spec.key === 'string' && /^[a-zA-Z]{1,20}$/.test(spec.key) && Number.isInteger(spec.max) && spec.max >= 1 && spec.max <= 99);
+export const validAttributeSpec = (spec) => Boolean(spec && typeof spec === 'object'
+    && ['damage', 'block', 'heal', 'str', 'dex', 'int', 'wis', 'cha'].includes(spec.ability)
+    && typeof spec.key === 'string' && /^[a-zA-Z]{1,20}$/.test(spec.key)
+    && ['normal', 'support'].includes(spec.tier)
+    && ['static', 'deferred'].includes(spec.timing)
+    && (spec.max === undefined || (Number.isInteger(spec.max) && spec.max > 0)));
+const validAttribute = (spec) => spec === undefined || isFn(spec) || validAttributeSpec(spec);
+
 // 算子可选的函数字段：估值、技能伤害上限、托管估算、牌面说明、面板短写、手牌待选（choice(state, unit, effect, kit) → { options, count } | null）。
 const HANDLER_FNS = Object.freeze(['value', 'damage', 'estimateDamage', 'estimateBlock', 'describe', 'brief', 'choice']);
 function invalid(key, reason) {
@@ -69,7 +77,7 @@ export function registerMechanic(def) {
     const ops = Object.entries(def.ops || {});
     for (const [op, handler] of ops) {
         if (!isKey(op) || RESERVED_OPS.has(op) || OP_OWNERS.has(op)) invalid(key, `op:${op}`);
-        if (!isFn(handler?.validate) || !isFn(handler.apply) || !HANDLER_FNS.every((name) => optionalFn(handler[name])) || !validScale(handler.scale)) invalid(key, `op-handler:${op}`);
+        if (!isFn(handler?.validate) || !isFn(handler.apply) || !HANDLER_FNS.every((name) => optionalFn(handler[name])) || !validScale(handler.scale) || !validAttribute(handler.attribute)) invalid(key, `op-handler:${op}`);
     }
     const statuses = def.statuses ?? [];
     if (!Array.isArray(statuses)) invalid(key, 'statuses');
@@ -91,7 +99,7 @@ export function registerMechanic(def) {
     const unitKinds = Object.freeze([...def.unitKinds]);
     const mechanic = Object.freeze({ key, family: def.family, archetypes: Object.freeze([...def.archetypes]), unitKinds, describe: def.describe, report: def.report });
     MECHANICS.set(key, mechanic);
-    for (const [op, handler] of ops) OP_OWNERS.set(op, Object.freeze({ ...handler, ...(handler.scale ? { scale: Object.freeze({ ...handler.scale }) } : {}), op, mechanic: key, unitKinds }));
+    for (const [op, handler] of ops) OP_OWNERS.set(op, Object.freeze({ ...handler, ...(handler.scale ? { scale: Object.freeze({ ...handler.scale }) } : {}), ...(handler.attribute && !isFn(handler.attribute) ? { attribute: Object.freeze({ ...handler.attribute }) } : {}), op, mechanic: key, unitKinds }));
     for (const status of statuses) STATUS_OWNERS.set(status.key, Object.freeze({ key: status.key, label: status.label?.trim() || null, debuff: Boolean(status.debuff), decay: Boolean(status.decay), mechanic: key }));
     for (const [point, run] of hooks) HOOKS.get(point).push(Object.freeze({ mechanic: key, run }));
     for (const [stage, fn] of modifiers) DAMAGE_MODS.get(stage).push(Object.freeze({ mechanic: key, fn }));

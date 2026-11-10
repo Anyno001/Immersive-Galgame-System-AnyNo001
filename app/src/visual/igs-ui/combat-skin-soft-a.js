@@ -1,6 +1,7 @@
 // 圆润·方案A（野餐小卡）· 战斗中画面：照搬概念稿 gal/战斗界面设计稿/概念/第二轮/soft/ 的 data.js 与 common.js 的标记，假数据换成真实视图 v.battle。
 // 方案A 与方案C 的标记完全相同（只有样式不同），共用部分写在本文件导出，combat-skin-soft-c.js 引用。
 import { esc } from './reader-value-utils.js';
+import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
@@ -81,7 +82,7 @@ function cardHtml(c, p, v, picks, energy) {
     const costUp = c.baseCost !== undefined && c.cost > c.baseCost;
     const delta = cardValueDelta(c);
     const dots = c.hits > 1 ? `<i class="dots" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 5))}</i>` : '';
-    const tip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const tip = sel && (c.valueTip || c.bonusNote) ? ` data-scale-tip="${esc(c.valueTip || c.bonusNote)}"` : '';
     const val = Number.isFinite(c.value)
         ? `<div class="val"><b${boosted ? ' class="up"' : ''}${tip}>${esc(c.value)}</b><em${delta ? ' class="hd"' : ''}>${UNIT[c.unit] || ''}${delta ? `<u class="dl">${esc(delta)}</u>` : ''}</em>${dots}</div>` : `<div class="val no-num"><b><svg viewBox="0 0 24 24" aria-hidden="true">${PAT[t]}</svg></b></div>`;
     // 关键字单字圆章：放大牌列全部（临时已有虚线框，不出章），可点开解释；窄签信息行只露一枚，后接第一条附加效果。
@@ -96,7 +97,7 @@ function cardHtml(c, p, v, picks, energy) {
     return `<button type="button" class="${cls}" style="width:${p.w}px;height:${p.h}px;left:${p.left}px;top:${p.top}px;z-index:${p.z};transform:${sel ? 'none' : `rotate(${p.rot}deg)`};--rot:${p.rot}deg" data-combat-act="card" data-combat-id="${esc(c.inst)}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}`
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}"><i class="win"></i>`
         + `<div class="top"><i class="cost${cut ? ' down' : ''}${costUp ? ' up' : ''}">${esc(c.cost)}</i>${c.baseCost !== undefined ? `<s class="was">${esc(c.baseCost)}</s>` : ''}<span class="name">${esc(c.name)}</span></div>`
-        + `${badge}${chosen ? '<i class="pk">已选</i>' : ''}<div class="pat"><svg viewBox="0 0 24 24">${PAT[t]}</svg></div>${val}<p class="desc">${sel ? esc(c.fxText ?? c.text ?? '') : ''}</p>${row}<div class="kws">${kws}</div></button>`;
+        + `${badge}${chosen ? '<i class="pk">已选</i>' : ''}<div class="pat"><svg viewBox="0 0 24 24">${PAT[t]}</svg></div>${val}<p class="desc">${sel ? cardFxHtml(c) : ''}</p>${row}<div class="kws">${kws}</div></button>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {

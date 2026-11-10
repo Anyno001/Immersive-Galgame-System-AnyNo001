@@ -6,7 +6,7 @@ import { BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, combatSpeedFor, signatu
 import {
     ARCHETYPE_FAMILIES, CARD_TEMPLATES, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, PASSIVE_TEMPLATES, SKILL_TEMPLATES, cardFromValues, gearPassiveFromTemplate,
     heroSkillFromTemplate, itemAtRarity, itemFromTemplate, fixedTemplateCost, nearestTemplateCost, passiveAtRarity, passiveFromTemplate,
-    skillFromTemplate, solveCardTemplate, templateAllowedFor, templatesFor,
+    skillFromTemplate, solveCardTemplate, templateAllowedFor, templateFamily, templatesFor,
 } from './card-templates.js';
 import { forbiddenCombos } from './combos.js';
 import { GEAR_BONUS_BY_RARITY, GEAR_SLOTS, REWARD_ORIGIN_MAX, effectsDamage, gearIdFor, itemIdFor, profileIdFor } from './schema.js';
@@ -86,25 +86,11 @@ const cleanAliases = (value) => (Array.isArray(value)
     ? [...new Set(value.filter((item) => typeof item === 'string').map((item) => item.trim().slice(0, 20)).filter(Boolean))].slice(0, 5)
     : []);
 
-// 职业 11 张卡的稀有度分配：7 普通 + 4 罕见，按职业名做确定性洗牌
-export function classRaritiesFor(seed = '') {
-    const rarities = [...Array(7).fill('common'), ...Array(4).fill('uncommon')];
-    let state = hash32(`rarities:class:${seed}`);
-    for (let i = rarities.length - 1; i > 0; i -= 1) {
-        const step = nextRandom(state);
-        state = step.state;
-        const j = Math.floor(step.value * (i + 1));
-        [rarities[i], rarities[j]] = [rarities[j], rarities[i]];
-    }
-    return rarities;
-}
-
 // 费用最大值（0 到 3，X 费另算）
 const MAX_CARD_COST = 3;
 
 // 各类卡牌的固定费用槽位（每张卡的费用由槽位决定，模型填的费用只做提示）
 export const CARD_COST_SLOTS = Object.freeze({
-    class: Object.freeze([0, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3]),
     personal: Object.freeze([1, 1, 2, 2]),
     signature: Object.freeze([2, 3]),
     tier: Object.freeze([1, 2, 3]),
@@ -114,7 +100,6 @@ const isBlank = (value) => value === null || value === undefined || value === ''
 
 // 需要按种子随机分布费用的槽位形状：size 张卡，counts 是每个费用（0..3）的 [最少, 最多] 张数
 const SLOT_SHAPES = Object.freeze({
-    class: Object.freeze({ size: 11, counts: Object.freeze([[0, 1], [4, 6], [3, 4], [1, 3]]) }),
     personal: Object.freeze({ size: 4, counts: Object.freeze([[0, 0], [1, 2], [1, 2], [0, 1]]) }),
 });
 
@@ -178,6 +163,13 @@ function checkCrossFamily(cards, path, collector, archetype, limit = 1) {
     });
 }
 
+function cardArchetype(template, archetype) {
+    const family = templateFamily(template);
+    const owners = Object.keys(ARCHETYPE_FAMILIES).filter(key => ARCHETYPE_FAMILIES[key].includes(family));
+    if (owners.length === 1) return owners[0];
+    return knownArchetype(archetype) ? archetype : 'general';
+}
+
 // 组装一张卡：名字 + 模板 + 费用 -> 完整卡牌。
 // paths 依次是 [名字路径, 模板路径, 费用路径]；options.slot 给定时费用以槽位为准；
 // options.values 给定时按模型给出的数值反解，否则由模板按稀有度解算默认数值。
@@ -210,7 +202,7 @@ function buildCard(nameValue, templateValue, costValue, paths, collector, option
     const combos = forbiddenCombos({ cost: solvedCost, effects: card.effects, onDiscard: card.onDiscard });
     if (combos.length) return collector.fail(paths[1], 'forbidden-combo', { combos });
     const { type, effects, upgraded, ...rest } = card;
-    return { id, name, type, cost: solvedCost, rarity, ...rest, effects, ...(upgraded ? { upgraded } : {}) };
+    return { id, name, type, cost: solvedCost, rarity, ...rest, archetype: cardArchetype(template, options.archetype), effects, ...(upgraded ? { upgraded } : {}) };
 }
 
 // 卡牌三元组 [名字, 模板, 费用]（数组或对象）-> 卡
@@ -252,8 +244,8 @@ const passivesField = (raw) => raw.passives ?? (raw.passive !== undefined && raw
 const hpValue = (value, path, collector, [min, max]) => clampedInt(value, path, collector, min, max, Math.round((min + max) / 2));
 
 // 一组卡：rarity 可为数组（逐张稀有度）；slots 给定时按槽位循环取费用；序号从 1 起
-const cardList = (value, path, collector, min, max, owner, tag, rarity, slots, fixedCost = false, table) => mapList(value, path, collector, min, max, (item, itemPath, index) => cardFromTriple(item, itemPath, collector, {
-    id: `${owner}-${tag}${index + 1}`,
+const cardList = (value, path, collector, min, max, owner, tag, rarity, slots, fixedCost = false, table, archetype) => mapList(value, path, collector, min, max, (item, itemPath, index) => cardFromTriple(item, itemPath, collector, {
+    id: `${owner}-${tag}${index + 1}`, archetype,
     rarity: Array.isArray(rarity) ? rarity[index] : rarity,
     fixedCost,
     ...(table ? { table } : {}),
@@ -354,8 +346,8 @@ export function buildStarterDeck(classPool, personalPool, seed = '', archetype) 
     ];
 }
 
-// 职业：职业名、流派、职业被动、11 张职业牌（固定费用模板）
-export function assembleClass(raw, { key, owner = key, fixed = {}, input = {} } = {}) {
+// 职业：职业名、原型与固定职业被动。
+export function assembleClass(raw, { key, fixed = {} } = {}) {
     const invalid = expectObject(raw);
     if (invalid) return invalid;
     const collector = createCollector(key);
@@ -366,8 +358,7 @@ export function assembleClass(raw, { key, owner = key, fixed = {}, input = {} } 
     if (!className) return finish(collector, null);
     const id = profileIdFor('class', className);
     const classPassive = fixedClassPassive(archetype, 1, `${id}-p1`);
-    const classPool = cardList(raw.cards, 'cards', collector, 11, 11, id, 'c', classRaritiesFor(owner), validSlots(input?.costSlots, CARD_COST_SLOTS.class), true, archetypeTable(archetype));
-    return finish(collector, { kind: 'class', id, className, archetype, classPassive, classPassiveVersion: CLASS_PASSIVE_VERSION, classPool });
+    return finish(collector, { kind: 'class', id, className, archetype, classPassive, classPassiveVersion: CLASS_PASSIVE_VERSION, classPool: [] });
 }
 
 // 职业进阶档：档名 + 3 张卡（id 可由 fixed.cardIds 指定）
@@ -378,7 +369,7 @@ export function assembleClassTier(raw, { key, fixed = {}, input = {} } = {}) {
     const tierName = requiredText(raw.tierName, 'tierName', collector, 12);
     const cardIds = Array.isArray(fixed.cardIds) ? fixed.cardIds : [];
     const slots = validSlots(input?.costSlots, CARD_COST_SLOTS.tier);
-    const cards = mapList(raw.cards, 'cards', collector, 3, 3, (item, itemPath, index) => cardFromTriple(item, itemPath, collector, { id: cardIds[index], rarity: input?.rarity, slot: slots[index % slots.length], table: archetypeTable(input?.archetype) }));
+    const cards = mapList(raw.cards, 'cards', collector, 3, 3, (item, itemPath, index) => cardFromTriple(item, itemPath, collector, { id: cardIds[index], rarity: input?.rarity, slot: slots[index % slots.length], table: archetypeTable(input?.archetype), archetype: input?.archetype }));
     return collector.errors.length ? { errors: collector.errors } : { value: { tierName, cards }, diagnostics: collector.diagnostics };
 }
 
@@ -398,11 +389,11 @@ export function assembleDeck(raw, { key, fixed, cls, input = {} }) {
         base: { hp: hpValue(raw.hp, 'hp', collector, hpRange), speed: combatSpeedFor({ archetype: cls.archetype, id }) },
         growth: { hpPerLevel: clampedInt(raw.hpPerLevel, 'hpPerLevel', collector, 1, 8, 4) },
         personalPassive: requiredPassive(raw.passive, 'passive', collector, `${id}-p1`),
-        personalPool: cardList(raw.cards, 'cards', collector, 4, 8, id, 'm', 'personal', validSlots(input?.costSlots, CARD_COST_SLOTS.personal)),
+        personalPool: cardList(raw.cards, 'cards', collector, 4, 8, id, 'm', 'personal', validSlots(input?.costSlots, CARD_COST_SLOTS.personal), false, undefined, cls.archetype),
         heroSkill: buildHeroSkill(raw.skill, 'skill', collector, `${id}-h1`, heroTableFor(cls.archetype)),
     };
     checkCrossFamily(raw.cards, 'cards', collector, cls.archetype);
-    const signature = cardList(raw.signature, 'signature', collector, 0, COMBAT_RULES.signatureLimit, id, 'g', 'signature', CARD_COST_SLOTS.signature);
+    const signature = cardList(raw.signature, 'signature', collector, 0, COMBAT_RULES.signatureLimit, id, 'g', 'signature', CARD_COST_SLOTS.signature, false, undefined, cls.archetype);
     if (Array.isArray(signature) && signature.length) profile.signatureCards = signature;
     if (!collector.errors.length) profile.starterDeck = buildStarterDeck(cls.classPool, profile.personalPool, id, cls.archetype);
     return finish(collector, profile);
@@ -419,7 +410,7 @@ export function assembleSignature(raw, { key, fixed, input = {} }) {
     const slots = Array.isArray(input.slots) ? input.slots : [];
     const costs = validSlots(input.costSlots, slots.map((slot) => CARD_COST_SLOTS.signature[slot - 1] ?? CARD_COST_SLOTS.signature[0]));
     const cards = mapList(raw.cards, 'cards', collector, slots.length, slots.length, (item, itemPath, index) => cardFromTriple(item, itemPath, collector, {
-        id: `${profile.id}-g${slots[index]}`, rarity: 'signature', slot: costs[index % costs.length],
+        id: `${profile.id}-g${slots[index]}`, rarity: 'signature', slot: costs[index % costs.length], archetype: input.archetype,
     }));
     const seen = new Set((profile.signatureCards || []).map((card) => card.name));
     (Array.isArray(cards) ? cards : []).forEach((card, index) => {
@@ -519,7 +510,7 @@ export function assembleGrowth(raw, { key, input }) {
         ? { id: undefined, rarity: input.rarity, table: restrictTable(CARD_TEMPLATES, input.templates), ...(raw.values !== undefined ? { values: raw.values } : {}) }
         : { id: undefined, rarity: 'personal' };
     const result = input.output === 'card'
-        ? buildCard(name, raw.template, raw.cost, ['name', 'template', 'cost'], collector, cardOptions)
+        ? buildCard(name, raw.template, raw.cost, ['name', 'template', 'cost'], collector, { ...cardOptions, archetype: input.archetype })
         : buildSkill(name, raw.template, ['name', 'template'], collector, undefined, COMBAT_RULES.allySkillDamageCap);
     if (collector.errors.length) return { errors: collector.errors };
     return { value: { [input.output]: result, ...(raw.targetId !== undefined ? { targetId: raw.targetId } : {}) }, diagnostics: collector.diagnostics };
@@ -658,7 +649,7 @@ function buildRewardEntry(value, path, collector, slot, seed) {
         // 规则 v6 三选一槽（rewards.js 的 withCardCandidates）：随机卡只能用本职业允许的模板，与程序定的固定卡一起按 randomAt 排成 choices。
         const fixedIds = Array.isArray(slot.fixedIds) ? slot.fixedIds : null;
         const table = fixedIds ? archetypeTable(slot.archetype) : CARD_TEMPLATES;
-        const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost, table });
+        const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost, table, archetype: slot.archetype });
         if (!card) return undefined;
         const fixed = (fixedIds || []).map((id) => fixedCard(id));
         if (fixed.some((item) => !item)) return collector.fail(path, 'reward-choice-invalid');
@@ -731,7 +722,7 @@ export function assembleDrawCard(raw, { key, fixed = {} } = {}) {
     const fields = fieldsOf(raw.card, 'card', collector, ['name', 'template']);
     if (!fields) return { errors: collector.errors };
     const card = buildCard(fields[0], fields[1], undefined, [indexPath('card', 0), indexPath('card', 1), 'card.cost'], collector, {
-        id: fixed.cardId, rarity: fixed.rarity, slot: fixed.cost, table: archetypeTable(fixed.archetype),
+        id: fixed.cardId, rarity: fixed.rarity, slot: fixed.cost, table: archetypeTable(fixed.archetype), archetype: fixed.archetype,
     });
     return card && !collector.errors.length ? { value: card, diagnostics: collector.diagnostics } : { errors: collector.errors };
 }

@@ -1,5 +1,6 @@
 import { renderCombatGenerationForm } from './combat-generation-form.js';
 import { esc } from './reader-value-utils.js';
+import { cardTextHtml } from './combat-card-text.js';
 import { combatReasonText } from './combat-panel-render.js';
 import { recordPageHeadHtml } from './record-page-shell.js';
 import { renderSettingsThemeSwitch } from './settings-theme.js';
@@ -92,9 +93,20 @@ const REASON_TEXT = Object.freeze({
     'combat-trait-slot-kind-mismatch': '只有卡组角色可以解锁特性槽',
     'combat-trait-slot-no-floor': '当前聊天没有楼层，无法解锁特性槽',
     'combat-card-draw-unavailable': '当前无法抽卡',
+    'combat-card-draw-free-unavailable': '免费抽卡额度已变化，请重试',
+    'combat-card-draw-free-level-invalid': '该等级没有免费抽卡额度',
+    'combat-card-draw-free-level-unreached': '尚未达到免费抽卡所需等级',
+    'combat-card-draw-free-used': '该等级的免费抽卡已使用',
+    'combat-card-upgrade-free-unavailable': '免费升级额度已变化，请重试',
+    'combat-card-upgrade-free-level-invalid': '该等级没有免费升级额度',
+    'combat-card-upgrade-free-level-unreached': '尚未达到免费升级所需等级',
+    'combat-card-upgrade-free-used': '该等级的免费升级已使用',
+    'combat-card-upgrade-none': '没有可升级的卡组副本',
+    'combat-card-upgrade-invalid': '这张牌不能升级，请重选',
+    'combat-card-upgrade-copy-missing': '卡组里已没有这张副本',
     'combat-card-draw-pending': '先从抽到的牌里选一张或放弃',
     'combat-card-draw-pool-empty': '本职业没有可抽的牌',
-    'combat-card-draw-generation-failed': '抽卡生成失败，未扣积分',
+    'combat-card-draw-generation-failed': '抽卡生成失败，未扣积分或消耗免费额度',
     'combat-card-draw-no-floor': '当前聊天没有楼层，无法抽卡',
     'combat-card-draw-kind-mismatch': '只有卡组角色可以抽卡',
     'combat-card-draw-choices-invalid': '候选牌不合规，请重试',
@@ -131,7 +143,7 @@ const initial = (name) => esc(Array.from(String(name || '?'))[0] || '?');
 const personBtn = (act, id, name, sub, current) => `<button type="button" class="igs-deck-person" data-deck-act="${act}" data-deck-id="${esc(id)}" aria-pressed="${current}">`
     + `<span class="igs-deck-avatar" aria-hidden="true">${initial(name)}</span><span class="igs-deck-person-meta"><span>${esc(name)}</span><small>${esc(sub)}</small></span></button>`;
 function rosterHtml(v) {
-    const people = v.roster.map((r) => personBtn('select', r.id, r.name, `${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}`, !v.selectedBuild && r.id === v.selectedId));
+    const people = v.roster.map((r) => personBtn('select', r.id, r.name, `${r.kindLabel} · ${expText(r)}${r.needsAdjust ? ' · 需调整' : ''}${r.freeRewards ? ` · 免费 ${r.freeRewards} 次` : ''}`, !v.selectedBuild && r.id === v.selectedId));
     const builds = (v.builds || []).map((b) => personBtn('select-build', b.name, b.name, '待建档', b.name === v.selectedBuild));
     return `<nav class="igs-deck-roster" aria-label="角色">${[...people, ...builds].join('')}</nav>`;
 }
@@ -153,20 +165,15 @@ function artAction(c, readonly) {
 function cardRow(c, readonly, editable = !readonly) {
     const err = c.errors.length ? `<span class="igs-deck-err">${esc(c.errors.map((r) => CARD_ERROR[r] || r).join('、'))}</span>` : '';
     const up = c.upgraded ? ` · 已升级 ${c.upgraded}` : '';
-    // 卡牌属性性能预览：要求属性与要求值，倍率高于 1 青绿、低于 1 灰色。
-    const sc = c.scaling;
-    const scale = sc ? `<span class="igs-deck-req${sc.multiplier > 1 ? ' is-up' : sc.multiplier < 1 ? ' is-down' : ''}" data-ability="${esc(sc.ability)}">${esc(sc.label)} ${esc(sc.required)} · ×${esc(sc.multiplier)}</span>` : '';
-    const effectText = (text, cost) => `${cost === 'X' ? '消耗全部能量，每点能量结算一次：' : ''}${text || '暂无效果资料'}`;
-    const upgraded = c.upgradedText ? `<details class="igs-deck-effect"><summary>升级后 · ${esc(c.upgradedCost)} 费</summary>${esc(effectText(c.upgradedText, c.upgradedCost))}</details>` : '';
-    const effect = effectText(c.text, c.cost);
+    const upgraded = c.upgradedText ? `<details class="igs-deck-effect"><summary>升级后 · ${esc(c.upgradedCost)} 费</summary>${effectHtml({ cost: c.upgradedCost, text: c.upgradedText, textParts: c.upgradedTextParts })}</details>` : '';
     // 同名牌中带成长或刻印的副本：每种差异一枚标签，数量与卡组计数同格式（草稿未保存时只给拥有张数）。
-    const variants = (c.variants || []).length ? `<div class="igs-deck-tags">${c.variants.map((x) => `<span class="igs-deck-tag"${x.tip ? ` title="${esc(x.tip)}"` : ''}>${esc(`${x.label} · ${x.inDeck === null ? `×${x.owned}` : `${x.inDeck}/${x.owned}`}`)}</span>`).join('')}</div>` : '';
-    // 一张卡一块：费用、卡面、名称与效果在左；来源、属性要求、数量与操作收在右侧一栏（窄屏整栏移到下方），不与下一张卡混在一起。
+    const variants = (c.variants || []).map((x) => `<details class="igs-deck-effect"><summary${x.tip ? ` title="${esc(x.tip)}"` : ''}>${esc(`${x.label} · ${x.inDeck === null ? `×${x.owned}` : `${x.inDeck}/${x.owned}`}`)}</summary>${effectHtml(x)}</details>`).join('');
+    // 一张卡一块：费用、卡面、名称与效果在左；数量与操作收在右侧一栏（窄屏整栏移到下方）。
     const count = `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>`;
     const acts = artAction(c, readonly) + (readonly || !editable ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`);
     return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
-        + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${esc(effect)}</p>${variants}${upgraded}${err}</div>`
-        + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${scale}${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
+        + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${effectHtml(c)}</p>${variants}${upgraded}${err}</div>`
+        + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
         + '</li>';
 }
 
@@ -185,7 +192,7 @@ function rebuildHtml(v, d) {
 // 翻开后「加入卡组」收下这张，或「放弃（不退还）」；翻前也可放弃。
 const DRAW_BACK = '<span class="igs-deck-reveal-back igs-deck-draw-back" aria-hidden="true"><i class="igs-deck-draw-sigil"></i></span>';
 const drawFace = (c) => `<span class="igs-deck-reveal-face"><span class="igs-deck-reveal-tag">${esc([TRAIT_RARITY_LABELS[c.rarity] || '', c.cost === '' ? '' : `${c.cost}费`].filter(Boolean).join(' · '))}</span>`
-    + `<span class="igs-deck-reveal-name">${esc(c.name)}</span><span class="igs-deck-draw-text">${esc(c.text || '')}</span></span>`;
+    + `<span class="igs-deck-reveal-name">${esc(c.name)}</span><span class="igs-deck-draw-text">${effectHtml(c)}</span></span>`;
 function drawOpenHtml(v, w) {
     const fresh = v.drawShown?.drawId === w.drawId && v.drawShown.fresh === true;
     const busy = v.readonly || Boolean(v.pending);
@@ -213,10 +220,28 @@ function drawHtml(v, d) {
         return `<section class="igs-deck-reveal igs-deck-draw" data-phase="back"${v.reduced ? ' data-still' : ''}><div class="igs-deck-draw-row">${backs}</div><p class="igs-deck-reveal-state">${esc(v.pending === 'card-flip' ? '翻牌中' : '翻开一张')}</p>${skip}</section>`;
     }
     if (v.readonly || !v.canDrawCard) return '';
+    const free = v.draw ? Boolean(v.draw.free) : Boolean(d.freeDraws?.length);
+    const label = free ? `免费抽卡（剩 ${d.freeDraws.length} 次）` : `抽卡（消耗${CARD_DRAW_COST}积分）`;
+    const confirm = free ? '确认免费抽卡' : `确认抽卡 · ${CARD_DRAW_COST} 积分`;
     const inner = v.draw
-        ? btn('draw-confirm', v.pending === 'card-draw' ? '生成中' : `确认抽卡 · ${CARD_DRAW_COST} 积分`, { primary: true, disabled: busy }) + btn('draw-cancel', '取消', { disabled: busy })
-        : btn('draw-open', `抽卡（消耗${CARD_DRAW_COST}积分）`, { disabled: busy || (d.points || 0) < CARD_DRAW_COST });
+        ? btn('draw-confirm', v.pending === 'card-draw' ? '生成中' : confirm, { primary: true, disabled: busy }) + btn('draw-cancel', '取消', { disabled: busy })
+        : btn('draw-open', label, { disabled: busy || (!free && (d.points || 0) < CARD_DRAW_COST) });
     return `<div class="igs-deck-actions">${inner}</div>`;
+}
+
+function freeUpgradeHtml(v, d) {
+    if (!d.canSell || d.kind !== 'deck-character' || !v.canUpgradeCard || !d.freeUpgrades?.length) return '';
+    const busy = v.readonly || Boolean(v.pending);
+    const cards = d.upgradeCards || [];
+    if (!v.freeUpgrade) return `<div class="igs-deck-actions">${btn('upgrade-open', `免费升级（剩 ${d.freeUpgrades.length} 次）`, { disabled: busy || !cards.length })}</div>`;
+    const picked = cards.find(card => card.copyId === v.freeUpgrade.copyId);
+    const picks = cards.map(card => btn('upgrade-pick', `${card.name} · 第 ${card.nth} 张`, { id: card.copyId, pressed: picked?.copyId === card.copyId, disabled: busy })).join('');
+    const preview = picked
+        ? row('升级前', faceLineHtml(picked)) + row('升级后', faceLineHtml(picked.after))
+        : '';
+    const actions = btn('upgrade-confirm', v.pending === 'card-upgrade' ? '升级中' : '确认免费升级', { primary: true, disabled: busy || !picked })
+        + btn('upgrade-cancel', '取消', { disabled: busy });
+    return `${row('免费升级', `<div class="igs-deck-actions">${picks}</div>`)}${preview}<div class="igs-deck-actions">${actions}</div>`;
 }
 
 // 转职与职业升阶（只主角、不在战斗中且注入了对应能力时显示）：转职展开后列出其他已登记职业与「新职业」，选定后确认或取消；
@@ -229,7 +254,7 @@ function classActionsHtml(v, d) {
         const picks = v.classes.filter((c) => c.id !== d.classRef).map((c) => btn('respec-pick', c.name, { id: c.id, pressed: v.respec.picked && v.respec.classRef === c.id, disabled: busy })).join('')
             + btn('respec-pick', '新职业', { pressed: v.respec.picked && !v.respec.classRef, disabled: busy });
         const confirm = v.respec.picked ? btn('respec-confirm', v.pending === 'respec' ? '转职中' : `确认转职 · ${RESPEC_COST} 积分`, { primary: true, disabled: busy }) : '';
-        return `<p class="igs-deck-help">转职切换职业和职业被动，保留已有卡组；新职业牌进入候选池，不会直接获得。职业阶数重置为一阶。</p>${row('转职', picks)}${v.respec.picked && !v.respec.classRef ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : ''}<div class="igs-deck-actions">${confirm}${btn('respec-cancel', '取消', { disabled: busy })}</div>`;
+        return `<p class="igs-deck-help">转职切换职业和职业被动，保留已有卡组，职业阶数重置为一阶。</p>${row('转职', picks)}${v.respec.picked && !v.respec.classRef ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : ''}<div class="igs-deck-actions">${confirm}${btn('respec-cancel', '取消', { disabled: busy })}</div>`;
     }
     if (v.ascend && v.canAscend && next) {
         return `${renderCombatGenerationForm(v.generationForm, Boolean(v.pending))}<div class="igs-deck-actions">${btn('ascend-confirm', v.pending === 'ascend' ? '生成中' : `确认升阶 · ${next.cost} 积分`, { primary: true, disabled: busy })}${btn('ascend-cancel', '取消', { disabled: busy })}</div>`;
@@ -253,10 +278,8 @@ function deckHtml(v, d) {
     const sig = locked.length
         ? row('专属', locked.map((s) => `<span class="igs-deck-chip is-locked" data-rarity="signature">??? · Lv${esc(s.level)} 解锁</span>`).join(''))
         : '';
-    const candidates = d.classCandidates || [];
-    const pool = candidates.length ? `<details class="igs-deck-pool"><summary>${esc(d.className)} · 未拥有的职业牌（${candidates.length} 种）</summary><p class="igs-deck-help">以下是候选，并非已持有。可在升级奖励三选一中抽到；转职保留旧牌，不自动换牌。重建基础卡组会按当前职业重新组牌，另收页面标示的费用。</p><ul class="igs-deck-cards">${candidates.map((x) => cardRow(x, true)).join('')}</ul></details>` : '';
     const passive = d.classPassive ? row('职业被动', chip(`${d.classPassive.name}：${d.classPassive.text}`)) : '';
-    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}${drawHtml(v, d)}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly, editable)).join('')}</ul>${pool}${actions ? `<div class="igs-deck-actions">${actions}</div>` : ''}${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
+    return `<section class="igs-deck-build">${row('卡组', summary)}${passive}${drawHtml(v, d)}${freeUpgradeHtml(v, d)}<p class="igs-deck-help">数量为「卡组中 / 拥有」。效果按当前属性预览，实战还受增益、减益和目标状态影响。</p>${sig}<ul class="igs-deck-cards">${d.owned.map((x) => cardRow(x, v.readonly, editable)).join('')}</ul>${actions ? `<div class="igs-deck-actions">${actions}</div>` : ''}${rebuildHtml(v, d)}${classActionsHtml(v, d)}</section>`;
 }
 
 // 装备栏：四个部位各一行内的标签，已装备的可卸下（卸下后进背包页）；道具只列余量。
@@ -351,7 +374,9 @@ function traitsHtml(v, d) {
 }
 
 // 规则 v6 御印（只主角）：待刻的遗物刻印。「选定刻印」后在原处列出可刻副本（同名副本带序号），点一张显示刻印前后的费用与说明，再确认或取消；战斗进行中只列待刻项。
-const costText = (cost, text) => [cost === '' ? '' : `${cost}费`, text].filter(Boolean).join(' · ');
+const effectHtml = (card) => `${card.cost === 'X' ? '消耗全部能量，每点能量结算一次：' : ''}${cardTextHtml(card) || '暂无效果资料'}`;
+const faceLineHtml = (card) => `<span class="igs-deck-count">${card.cost === '' ? '' : `${esc(card.cost)}费 · `}${effectHtml(card)}</span>`;
+
 function sealHtml(v, d) {
     const busy = v.readonly || Boolean(v.pending);
     const items = d.relicInscribe.map((item) => {
@@ -364,7 +389,7 @@ function sealHtml(v, d) {
         const pick = item.copies.find((c) => c.copyId === v.seal.copyId);
         const detail = pick
             ? `<div class="igs-deck-seal-detail">${row('', chip([pick.name, pick.label].filter(Boolean).join(' · ')))}`
-                + `${row('刻印前', `<span class="igs-deck-count">${esc(costText(pick.cost, pick.text))}</span>`)}${row('刻印后', `<span class="igs-deck-count">${esc(costText(pick.after.cost, pick.after.text))}</span>`)}</div>`
+                + `${row('刻印前', faceLineHtml(pick))}${row('刻印后', faceLineHtml(pick.after))}</div>`
             : '';
         const acts = btn('inscribe-confirm', v.pending === 'inscribe' ? '刻印中' : '确认刻印', { primary: true, disabled: busy || !pick })
             + btn('inscribe-cancel', '取消', { disabled: Boolean(v.pending) });

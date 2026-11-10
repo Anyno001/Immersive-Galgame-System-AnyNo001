@@ -8,6 +8,7 @@ registerMechanic({
     key: 'drain', family: 'general', archetypes: [], unitKinds: ['deck', 'skill'],
     ops: {
         drain: {
+            attribute: { ability: 'damage', key: 'amount', tier: 'normal', timing: 'static' },
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount', 'hits', 'target'], path, state);
                 const at = (key) => kit.joinPath(path, key);

@@ -1,6 +1,18 @@
 // 规则 v5 通用状态的施加算子 apply-status（G01–G06、G21 的统一入口）；状态本身由各机制文件登记。
 import { registerMechanic } from './registry.js';
 
+export function statusAttributeSpec(status, max) {
+    const ability = ['strength', 'flex', 'vigor', 'shackle', 'atk-down'].includes(status) ? 'str'
+        : ['poison', 'hunt-mark', 'doom', 'garrote'].includes(status) ? 'damage'
+        : ['regen', 'halo-strike', 'halo-mend', 'steady-mend'].includes(status) ? 'wis'
+        : ['minion-might', 'stance-ward', 'calm-guard', 'scry-ward'].includes(status) ? 'cha' : null;
+    const tier = ['halo-strike', 'halo-mend', 'stance-ward'].includes(status) ? 'normal' : 'support';
+    if (['storm-heart', 'static-shell'].includes(status)) {
+        return { ability: 'int', key: 'stacks', tier: 'support', timing: 'deferred' };
+    }
+    return ability ? { ability, key: 'stacks', tier, timing: 'static', ...(max === undefined ? {} : { max }) } : null;
+}
+
 // 可施加的状态：debuff 决定默认目标与可选目标，max 为单次层数上限，value 为每层估值。
 export const APPLY_STATUSES = Object.freeze({
     flex: Object.freeze({ max: 10, value: 3.5 }),
@@ -121,6 +133,7 @@ registerMechanic({
     key: 'apply-status', family: 'general', archetypes: [], unitKinds: ['deck', 'skill'],
     ops: {
         'apply-status': {
+            attribute: effect => statusAttributeSpec(effect.status, APPLY_STATUSES[effect.status]?.max),
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'status', 'stacks', 'target'], path, state);
                 const at = (key) => kit.joinPath(path, key);
@@ -135,10 +148,10 @@ registerMechanic({
                 };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
-                for (const target of kit.targets()) kit.addStatus(ctx, target, effect.status, effect.stacks, source);
+                for (const target of kit.targets()) kit.addStatus(ctx, target, effect.status, effect.stacks, source, effect._attribute);
             },
             value: (effect) => effect.stacks * (APPLY_STATUSES[effect.status]?.value || 0) * targetFactor(effect.target),
-            describe: (e, kit) => `${kit.on(e.target)}施加 ${e.stacks} 层${kit.statusName(e.status)}`,
+            describe: (e, kit) => `${kit.on(e.target)}施加 ${kit.fmt(e.stacks, 'stacks', false)} 层${kit.statusName(e.status)}`,
             brief: (e, kit) => `${kit.statusName(e.status)}${e.stacks}`,
         },
     },

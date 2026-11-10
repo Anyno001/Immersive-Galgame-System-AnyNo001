@@ -2,6 +2,7 @@ import { createCombatSession } from '../../../src/combat/session.js';
 import { createCombatLedger } from '../../../src/combat/ledger.js';
 import { enemyIdFor } from '../../../src/combat/generation.js';
 import { createMemoryStorage } from '../../../src/storage/preset-store.js';
+import { abilityMod } from '../../../src/combat/abilities.js';
 
 // 战斗面板预览：内存战斗表 + 内存存档 + 本地聊天快不出网。
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -18,13 +19,33 @@ const enemyDef = (name, amount) => ({ kind: 'enemy', id: enemyIdFor(name, 'norma
     skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount }] }, { id: 'e2', name: '低吼', intent: 'debuff', effects: [{ op: 'status', status: 'weak', stacks: 1 }] }] });
 const row = (def, createdAt) => ({ id: def.id, name: def.name || def.className, kind: def.kind, className: def.className || '', version: 1, createdAt, definition: def });
 
-export function createCombatPreview() {
+export function createCombatPreview({ attributes = false } = {}) {
     const chat = [{ mes: '出发', is_user: true }, { mes: '桥头传来低吼。\n[igs-combat:start|月下桥头|野狼*2]', swipe_id: 0, is_user: false }];
     const stats = { sends: 0 };
     const t = { profile: [row(classDef, 1), row(heroDef, 2), row(enemyDef('野狼', 5), 3)], ledger: [] };
     t.read = () => ({ ok: true, missing: [], diagnostics: [], profile: clone(t.profile), ledger: clone(t.ledger) });
     t.append = async (kind, records) => { for (const r of records) t[kind].push(clone(r)); return { ok: true, written: records.map((r) => r.id), present: [], rejected: [], pending: [] }; };
-    const ledger = createCombatLedger({ tables: t, chat: () => chat, userName: '主角', now: () => 1 });
+    const baseLedger = createCombatLedger({ tables: t, chat: () => chat, userName: '主角', now: () => 1 });
+    const ledger = !attributes ? baseLedger : { ...baseLedger, async effectiveState(...args) {
+        const state = await baseLedger.effectiveState(...args);
+        if (!state.ok) return state;
+        const scores = { str: 16, dex: 16, con: 10, int: 8, wis: 14, cha: 20 };
+        const enhance = (character) => {
+            if (character.kind !== 'deck-character') return character;
+            const catalog = new Map(character.catalog);
+            for (const [id, card] of catalog) {
+                const effects = id === 'c1' ? [{ op: 'damage', amount: 30, target: 'enemy' }]
+                    : id === 'c2' ? [{ op: 'damage', amount: 30, target: 'enemy' }, { op: 'block', amount: 6, target: 'self' }]
+                        : card.effects;
+                catalog.set(id, { ...card, effects, ...(id === 'c2' ? { archetype: 'mage' } : {}),
+                    upgraded: { effects: effects.map(effect => ['damage', 'block'].includes(effect.op) ? { ...effect, amount: effect.amount + 3 } : effect) } });
+            }
+            return { ...character, catalog, level: 2, points: 500, freeDraws: [2], freeUpgrades: [2],
+                attributes: { ...character.attributes, level: 2, initialized: true, table: 'ok', proficiency: 2, scores,
+                    mods: Object.fromEntries(Object.entries(scores).map(([key, value]) => [key, abilityMod(value)])) } };
+        };
+        return { ...state, characters: new Map([...state.characters].map(([id, character]) => [id, enhance(character)])) };
+    } };
     const send = async (text) => { stats.sends += 1; chat.push({ mes: text, is_user: true }); return { ok: true, messageId: chat.length - 1 }; };
     const session = createCombatSession({ ledger, tables: t, llm: { source: 'tavern' }, send, storage: createMemoryStorage(),
         chat: () => chat, getChatId: 'preview-chat', userName: '主角', now: () => 2 });

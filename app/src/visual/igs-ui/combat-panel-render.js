@@ -1,4 +1,6 @@
 import { esc } from './reader-value-utils.js';
+import { cardTextHtml, partHtml } from './combat-card-text.js';
+export { cardTextHtml } from './combat-card-text.js';
 import { CARD_TYPE_LABELS, describeEffects, describeKeywords, intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
@@ -329,19 +331,6 @@ function cardSlotHtml(c) {
     const kw = names.length ? `<span class="igs-combat-card-kwfull" aria-hidden="true">${names.map((n) => `<i>${esc(n)}</i>`).join('')}</span>` : '';
     const bonus = c.bonusNote ? `<span class="igs-combat-card-bonus" aria-hidden="true">${esc(c.bonusNote)}</span>` : '';
     return value + stack + kw + bonus;
-}
-
-// 牌面说明片段：增强的数字青绿、减弱的数字灰色；带 tip 的数字与关键字（固有、消耗等）带 data-scale-tip，点开由面板弹出加成详情或关键字注释。
-function partHtml(p) {
-    const tip = p.tip ? ` data-scale-tip="${esc(p.tip)}"` : '';
-    if (p.mark === 'up' || p.mark === 'down') return `<span class="igs-scale-${p.mark}"${tip}>${esc(p.text)}</span>`;
-    return tip ? `<span${tip}>${esc(p.text)}</span>` : esc(p.text);
-}
-
-// 没有 textParts 时按原文本输出。
-export function cardTextHtml(c) {
-    if (!Array.isArray(c.textParts)) return esc(c.text || '');
-    return c.textParts.map(partHtml).join('');
 }
 
 // 战前对阵（格斗游戏式）：铺满面板，顶部是遭遇名斜切横幅（带档位），中间 我方 · VS · 敌方（横屏左右、竖屏敌上我下，由样式层按面板方向切换），底部「跳过」与大号「开始战斗」。
@@ -716,15 +705,6 @@ const restartCtl = (v) => (v.restartArmed
     ? `<span class="igs-combat-restart">${btn('restart', v.pending === 'restart' ? '重开中' : '确认重新开始', { primary: true, disabled: Boolean(v.pending) })}${btn('restart-cancel', '取消', { disabled: Boolean(v.pending) })}</span>`
     : `<span class="igs-combat-restart">${iconBtn('restart', '重新开始', RECORD_ICONS.restart, { disabled: Boolean(v.pending) })}</span>`);
 
-function rewardHtml(r, pending) {
-    if (!r) return '';
-    const cards = r.cards.map((c) => btn('reward', `${c.name}·${c.cost}`, { id: `card:${c.cardId}`, disabled: Boolean(pending) })).join('');
-    const ups = r.upgrades.map((u) => btn('reward', `升级 ${u.name}`, { id: `upgrade:${u.targetId}`, disabled: Boolean(pending) })).join('');
-    return `<section class="igs-combat-reward" data-level="${r.level}"><div class="igs-combat-label">${esc(r.name)} 升至 Lv${r.level}</div>`
-        + `<div class="igs-combat-row">${cards}</div>${ups ? `<div class="igs-combat-row">${ups}</div>` : ''}`
-        + `<div class="igs-combat-actions">${btn('reward', '跳过', { id: 'skip', disabled: Boolean(pending) })}</div></section>`;
-}
-
 // 准备中：三点动画 + 状态文字 + 取消（close 会中止进行中的准备请求）。
 const loadingHtml = (text) => `<div class="igs-combat-loading" role="status" aria-busy="true"><span class="igs-combat-loading-dots" aria-hidden="true"><i></i><i></i><i></i></span><p class="igs-combat-state">${text}</p><div class="igs-combat-actions">${btn('close', '取消')}</div></div>`;
 
@@ -818,7 +798,7 @@ function renderCombatPanelBody(v) {
     else if (status === 'blocked') main = `<div class="igs-combat-blocked"><p class="igs-combat-state">${esc(combatReasonText(v.reason))}${v.cause ? `：${esc(generationCauseText(v.cause))}` : ''}</p>${blockedHtml(v)}</div>`;
     else if (status === 'stale') main = `<p class="igs-combat-state">${esc(combatReasonText(v.reason))}</p>`;
     else if (status === 'send-failed') main = `<p class="igs-combat-state">${STATUS_LINE['send-failed']}</p>${lootHtml(v)}<div class="igs-combat-actions">${lootBlocksSend(v.flip) ? '' : btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) })}</div>`;
-    else if (status === 'done') main = `<p class="igs-combat-state">${STATUS_LINE.done}</p>${rewardHtml(v.rewards, v.pending)}`;
+    else if (status === 'done') main = `<p class="igs-combat-state">${STATUS_LINE.done}</p>`;
     else if (status === 'preparing') main = loadingHtml(STATUS_LINE.preparing);
     else main = STATUS_LINE[status] ? `<p class="igs-combat-state">${STATUS_LINE[status]}</p>` : '';
     // 状态行已经说明同一原因时不再重复提示条。

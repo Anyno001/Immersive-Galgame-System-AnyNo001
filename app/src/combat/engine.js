@@ -18,6 +18,8 @@ import {
 } from './battle-state.js';
 import { chooseAllyPlay, chooseSkillIntent, pickCards } from './policy.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
+import { ATTRIBUTE_POLICY_VERSION, canAttributeSift, validAttributePolicy } from './attribute-policy.js';
+import { attributeAmount } from './card-attributes.js';
 
 export const ENGINE_VERSION = 1;
 // 同伴一次出手最多打出的牌数。
@@ -89,10 +91,40 @@ function shuffle(holder, list) {
 }
 
 // stacks 大于 0 才保留该状态，否则删除。
-function setStatus(unit, status, stacks) {
+function setStatus(unit, status, stacks, attribute) {
+    const previous = unit.statuses[status] || 0;
+    const stored = unit.res?.attributeStatuses?.[status];
+    if (stored || (attribute?.timing === 'deferred' && stacks > previous)) {
+        const groups = stored ? stored.map(group => ({ ...group })) : previous > 0 ? [{ stacks: previous }] : [];
+        let delta = stacks - previous;
+        if (delta > 0 && attribute === undefined && groups.length) {
+            const originals = groups.slice();
+            for (let i = 0; delta > 0; i += 1) {
+                const group = originals[i % originals.length];
+                const amount = Math.min(delta, group.stacks);
+                groups.push({ ...group, stacks: amount });
+                delta -= amount;
+            }
+        } else if (delta > 0) groups.push({ stacks: delta, ...(attribute?.timing === 'deferred' ? { _attribute: { ...attribute } } : {}) });
+        while (delta < 0 && groups.length) {
+            const last = groups[groups.length - 1];
+            const removed = Math.min(last.stacks, -delta);
+            last.stacks -= removed;
+            delta += removed;
+            if (!last.stacks) groups.pop();
+        }
+        unit.res ||= {};
+        unit.res.attributeStatuses ||= {};
+        if (groups.length) unit.res.attributeStatuses[status] = groups;
+        else delete unit.res.attributeStatuses[status];
+        if (!Object.keys(unit.res.attributeStatuses).length) delete unit.res.attributeStatuses;
+        if (!Object.keys(unit.res).length) delete unit.res;
+    }
     if (stacks > 0) unit.statuses[status] = stacks;
     else delete unit.statuses[status];
 }
+const statusSources = (unit, status) => unit.res?.attributeStatuses?.[status]
+    || [{ stacks: unit.statuses[status] || 0 }];
 
 // 规则 v5 时机钩子：只在 v5 战斗调用，v3/v4 重放不进入。钩子按登记顺序执行，嵌套深度不超过 MAX_DEPTH；
 // payload 里的单位是工作副本，改动其他单位须经 ctx.state.units[id] 取得。
@@ -119,13 +151,13 @@ const isDebuff = (status) => DEBUFFS.includes(status) || Boolean(statusDef(statu
 const isStatusCard = (cardId) => typeof cardId === 'string' && cardId.startsWith('status-');
 
 // 施加状态；负面状态先被神器抵消一层。
-function addStatus(ctx, unit, status, stacks, source) {
+function addStatus(ctx, unit, status, stacks, source, attribute = null) {
     if (isDebuff(status) && (unit.statuses.artifact || 0) > 0) {
         setStatus(unit, 'artifact', unit.statuses.artifact - 1);
         emit(ctx, { type: 'artifact', source, target: unit.id, status });
         return;
     }
-    setStatus(unit, status, (unit.statuses[status] || 0) + stacks);
+    setStatus(unit, status, (unit.statuses[status] || 0) + stacks, attribute);
     emit(ctx, { type: 'status', source, target: unit.id, status, stacks });
     // 规则 v6 G5b：获得状态后（被动可按 status 过滤）。
     if (ctx.state.rulesVersion >= 6) fireBus(ctx, unit, 'status-gained', null, { status });
@@ -160,11 +192,12 @@ function traitsInvalid(traits) {
         || (t.skill !== undefined && (t.kind !== 'active' || !validId(t.skill?.id) || !Array.isArray(t.skill.effects) || !t.skill.effects.length || !TRAIT_SKILL_COSTS.includes(t.skill.cost))));
 }
 
-function validateUnit(unit, path) {
+function validateUnit(unit, path, attributeRules) {
     const fail = (reason) => ({ reason, detail: { path } });
     if (!SIDES.includes(unit.side)) return fail('invalid-side');
     if (!UNIT_KINDS.includes(unit.kind)) return fail('invalid-kind');
     if (unit.side === 'enemy' && unit.kind !== 'skill') return fail('enemy-must-use-skills');
+    if (attributeRules && unit.kind === 'deck' && !validAttributePolicy(unit.attributePolicy)) return fail('invalid-attribute-policy');
     if (!intInRange(unit.maxHp, 1, 9999)) return fail('invalid-hp');
     if (unit.hp !== undefined && !intInRange(unit.hp, 1, unit.maxHp)) return fail('invalid-hp');
     const badScale = unit.damageScale !== undefined && !(typeof unit.damageScale === 'number' && unit.damageScale > 0 && unit.damageScale <= 5);
@@ -206,6 +239,7 @@ function itemsInvalid(items) {
 function validateSetup(setup) {
     if (!setup || typeof setup !== 'object' || !Array.isArray(setup.units)) return { reason: 'invalid-setup' };
     if (setup.rulesVersion !== undefined && !isCompatibleRulesVersion(setup.rulesVersion)) return { reason: 'rules-version-mismatch', detail: { expected: COMBAT_RULES.version, actual: setup.rulesVersion } };
+    if (setup.attributeRules !== undefined && (setup.attributeRules !== ATTRIBUTE_POLICY_VERSION || setup.rulesVersion !== 6)) return { reason: 'invalid-attribute-rules' };
     if (setup.awaken !== undefined && awakenInvalid(setup.awaken)) return { reason: 'invalid-awaken' };
     if (setup.items !== undefined && itemsInvalid(setup.items)) return { reason: 'invalid-items' };
     if (setup.overkill !== undefined && typeof setup.overkill !== 'boolean') return { reason: 'invalid-setup' };
@@ -227,7 +261,7 @@ function validateSetup(setup) {
         const path = `units[${index}]`;
         if (!unit || typeof unit.id !== 'string' || !ID_PATTERN.test(unit.id) || FORBIDDEN_KEYS.has(unit.id) || ids.has(unit.id)) return { reason: 'invalid-unit-id', detail: { path } };
         ids.add(unit.id);
-        const problem = validateUnit(unit, path);
+        const problem = validateUnit(unit, path, setup.attributeRules);
         if (problem) return problem;
     }
     const enemyCount = setup.units.filter((unit) => unit.side === 'enemy').length;
@@ -742,7 +776,7 @@ function takeEncore(ctx, unit) {
     return true;
 }
 const engineKit = (targets) => ({
-    emit, dealDamage, addStatus, setStatus, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, resOf, ownCatalog, targets,
+    emit, dealDamage, addStatus, setStatus, statusSources, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, attributeAmount, resOf, ownCatalog, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
     // 规则 v5 B08 加演（mechanics/cadence.js）：只登记，行动顺序由本文件处理。
@@ -783,7 +817,7 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             emit(ctx, { type: 'energy', unitId: unit.id, amount: effect.amount });
             return;
         case 'status':
-            for (const target of targets()) addStatus(ctx, target, effect.status, effect.stacks, source);
+            for (const target of targets()) addStatus(ctx, target, effect.status, effect.stacks, source, effect._attribute);
             return;
         case 'exhaust-self':
             if (source.kind === 'card') ctx.exhaust = true;
@@ -837,7 +871,7 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             }
             return;
         case 'next-turn':
-            unit.nextTurn.push(effect.gain === 'status' ? { gain: 'status', status: effect.status, stacks: effect.stacks } : { gain: effect.gain, amount: effect.amount });
+            unit.nextTurn.push(effect.gain === 'status' ? { gain: 'status', status: effect.status, stacks: effect.stacks, ...(effect._attribute ? { _attribute: { ...effect._attribute } } : {}) } : { gain: effect.gain, amount: effect.amount });
             emit(ctx, { type: 'next-turn', unitId: unit.id, gain: effect.gain });
             return;
         case 'each-turn':
@@ -963,7 +997,7 @@ function strike(ctx, unit, effect, aimId, source) {
 
 // 抽牌：被「禁抽」时不抽；手牌满了停止；抽牌堆空了把弃牌堆洗回来。
 function drawCards(ctx, unit, amount) {
-    if ((unit.statuses['no-draw'] || 0) > 0) return;
+    if ((unit.statuses['no-draw'] || 0) > 0) return 0;
     const pile = ctx.state.piles[unit.id];
     const drawnInsts = [];
     for (let i = 0; i < amount; i += 1) {
@@ -986,6 +1020,7 @@ function drawCards(ctx, unit, amount) {
         runHooks(ctx, 'draw', { unit, insts: drawnInsts });
         if (ctx.state.rulesVersion >= 5) fireBus(ctx, unit, 'draw', null);
     }
+    return drawnInsts.length;
 }
 
 const newTurnStats = () => ({ attack: 0, skill: 0, power: 0, discards: 0, temps: 0, byCard: {} });
@@ -1288,7 +1323,7 @@ function startUnitTurn(ctx, unit) {
             unit.energy += gain.amount;
             emit(ctx, { type: 'energy', unitId: unit.id, amount: gain.amount });
         } else if (gain.gain === 'status') {
-            addStatus(ctx, unit, gain.status, gain.stacks, { unitId: unit.id, kind: 'next-turn', id: gain.status });
+            addStatus(ctx, unit, gain.status, gain.stacks, { unitId: unit.id, kind: 'next-turn', id: gain.status }, gain._attribute);
         } else if (gain.gain === 'counter') {
             const foe = state.units[gain.targetId];
             emit(ctx, { type: 'counter', unitId: unit.id, target: gain.targetId, amount: gain.amount, fizzled: gain.fizzled === true });
@@ -1404,7 +1439,22 @@ function playCard(ctx, unit, inst, aimId) {
         exhaustOnPlay = before.exhaust === true;
     }
     state.play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: aimId ?? null, runs, run: 0, index: 0, exhaust: exhaustOnPlay };
+    if (unit.attributePolicy && unit.id === state.controlledId) state.play.active = true;
     resolvePlay(ctx);
+}
+
+const playEffect = (play, index) => {
+    const effect = play.effects[index];
+    return play.run === 0 && index === play.siftDiscardIndex && play.siftExtra > 0
+        ? { ...effect, amount: effect.amount + play.siftExtra } : effect;
+};
+function siftDiscardIndex(effects, from) {
+    for (let index = from + 1; index < effects.length; index += 1) {
+        const effect = effects[index];
+        if (effect.op === 'discard-hand') return -1;
+        if (effect.op === 'discard') return effect.mode === 'choose' && effect.amount > 0 ? index : -1;
+    }
+    return -1;
 }
 
 // 推进 state.play：逐个效果结算；遇到需要玩家选牌的效果就挂起（pending）并返回，选完再续。
@@ -1419,7 +1469,20 @@ function resolvePlay(ctx) {
     ctx.recur = play.recur;
     while (play.run < play.runs && !state.outcome && unit.alive) {
         while (play.index < play.effects.length && !state.outcome && unit.alive) {
-            const effect = play.effects[play.index];
+            const effect = playEffect(play, play.index);
+            if (effect.op === 'draw' && play.active && play.run === 0 && !unit.turnStats?.attributeSift && canAttributeSift(unit)) {
+                const discardIndex = siftDiscardIndex(play.effects, play.index);
+                if (discardIndex >= 0) {
+                    const drawn = drawCards(ctx, unit, effect.amount + 1);
+                    if (drawn > effect.amount) {
+                        turnStatsOf(unit).attributeSift = true;
+                        play.siftDiscardIndex = discardIndex;
+                        play.siftExtra = drawn - effect.amount;
+                    }
+                    play.index += 1;
+                    continue;
+                }
+            }
             const choice = isHero ? pendingChoiceFor(state, unit, effect) : null;
             play.index += 1;
             if (choice) {
@@ -1736,7 +1799,7 @@ function endPlayerTurn(ctx) {
 // ---------- 建局 ----------
 
 // 由 setup 里的单位定义建出运行时单位。外部传入的定义深拷贝一份，之后引擎只读它们。
-function buildUnit(def) {
+function buildUnit(def, attributeRules) {
     const unit = {
         id: def.id,
         name: typeof def.name === 'string' && def.name ? def.name : def.id,
@@ -1765,6 +1828,7 @@ function buildUnit(def) {
     // 每次出手连用技能次数（只技能单位）：大于 1 时才写字段，旧战斗形状不变。
     if (def.kind === 'skill' && Number.isInteger(def.actions) && def.actions > 1) unit.actions = def.actions;
     if (def.kind === 'deck') {
+        if (attributeRules) unit.attributePolicy = deepCopy(def.attributePolicy);
         unit.energy = 0;
         unit.energyPerTurn = def.energy ?? COMBAT_RULES.energyPerTurn;
         unit.drawPerTurn = def.draw ?? COMBAT_RULES.drawPerTurn;
@@ -1816,7 +1880,7 @@ export function createBattle(setup, seed) {
     const ctx = newCtx(state, true);
     for (const def of setup.units) {
         if (!reserve.has(def.id)) state.order.push(def.id);
-        state.units[def.id] = buildUnit(def);
+        state.units[def.id] = buildUnit(def, setup.attributeRules);
         state.cooldowns[def.id] = {};
         state.history[def.id] = [];
         if (def.kind !== 'deck') continue;
@@ -1888,7 +1952,7 @@ function resolveChoice(ctx, insts) {
     ctx.exhaust = play.exhaust;
     ctx.chosen = insts.slice();
     ctx.recur = play.recur;
-    applyEffect(ctx, unit, play.effects[play.index - 1], play.targetId, { unitId: unit.id, kind: 'card', id: play.cardId });
+    applyEffect(ctx, unit, playEffect(play, play.index - 1), play.targetId, { unitId: unit.id, kind: 'card', id: play.cardId });
     ctx.chosen = null;
     play.exhaust = ctx.exhaust;
     if (ctx.recur) play.recur = ctx.recur;

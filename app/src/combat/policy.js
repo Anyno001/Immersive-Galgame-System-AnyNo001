@@ -71,7 +71,7 @@ export function chooseAllyPlay(state, unitId) {
     const perCost = (card, value) => (value * runTimes(card, unit.energy, state.rulesVersion)) / Math.max(0.5, spentCost(card, unit.energy));
 
     if (incomingDamage(state, unitId) > unit.block) {
-        const guard = bestBy(playable, (card) => perCost(card, estimateBlock(unit, card.effects, state.rulesVersion, 'card')));
+        const guard = bestBy(playable, (card) => perCost(card, estimateBlock(unit, card.effects, state.rulesVersion, 'card', unit.attributePolicy ? state : undefined)));
         if (guard) return playFor(state, unit, guard);
     }
 

@@ -18,6 +18,26 @@ import { createInventoryTables } from '../src/data/shujuku/inventory-tables.js';
 import { createLedgerMockHost, userInventorySheet } from './helpers/combat-mock-host-ledger.js';
 import { equippedGear, placeGear, removeGear, slotGearList } from '../src/combat/gear-slots.js';
 import { traitLinks } from '../src/combat/traits.js';
+import { attributeMultiplier, cardAbility, createAttributePolicy, policyOf, scalePositive, canAttributeSift } from '../src/combat/attribute-policy.js';
+
+test('卡牌属性策略：普通与保守倍率、舍入、冻结职业、非法策略拒收和筛牌资格', () => {
+    const attributes = { role: 'warrior', scores: { str: 16, dex: 16, con: 10, int: 8, wis: 14, cha: 20 }, proficiency: 2 };
+    const policy = createAttributePolicy({ attributes, classProfile: { archetype: 'mage' } });
+    assert.equal(policy.role, 'mage');
+    for (const [key, normal, support] of [['str', 1.24, 1.12], ['int', 0.92, 0.96], ['wis', 1.16, 1.08], ['cha', 1.3, 1.15]]) {
+        assert.equal(attributeMultiplier(policy, key), normal);
+        assert.equal(attributeMultiplier(policy, key, 'support'), support);
+    }
+    assert.deepEqual([scalePositive(30, 1.24), scalePositive(6, 1.24), scalePositive(1, 0.7), scalePositive(0, 1.3), scalePositive(-2, 1.3)], [37, 7, 1, 0, -2]);
+    assert.equal(attributeMultiplier({ ...policy, proficiency: 9 }, 'int'), 1.3);
+    assert.equal(cardAbility(policy, 'assassin', 'damage'), 'str');
+    assert.equal(cardAbility(policy, 'mage', 'block'), 'int');
+    assert.equal(cardAbility(policy, 'general', 'damage'), 'int');
+    assert.equal(cardAbility(policy, 'general', 'block'), 'dex');
+    assert.equal(canAttributeSift({ attributePolicy: policy }), true);
+    assert.equal(policyOf({}), null);
+    assert.throws(() => policyOf({ attributePolicy: { ...policy, version: 99 } }), /invalid-attribute-policy/);
+});
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const codes = (result) => result.diagnostics.map((item) => item.code);
@@ -35,6 +55,456 @@ function start(units, extra = {}) {
     assert.equal(result.ok, true, JSON.stringify(result.error));
     return result.state;
 }
+
+test('属性快照：仅显式 v6 新局启用、策略冻结深拷贝、非法快照拒收，旧局逐事件重放不变', () => {
+    const policy = createAttributePolicy({ attributes: { scores: { str: 16, dex: 12, con: 10, int: 8, wis: 14, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'warrior' } });
+    const units = () => [hero(filler, { attributePolicy: clone(policy) }), foe()];
+    const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: units() };
+    const created = createBattle(setup, SEED);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    assert.deepEqual(created.state.units.hero.attributePolicy, policy);
+    assert.notEqual(created.state.units.hero.attributePolicy, setup.units[0].attributePolicy);
+    assert.notEqual(created.state.units.hero.attributePolicy.scores, setup.units[0].attributePolicy.scores);
+    setup.units[0].attributePolicy.scores.str = 30;
+    assert.equal(created.state.units.hero.attributePolicy.scores.str, 16);
+    assert.equal(created.state.units.foe.attributePolicy, undefined);
+    for (const attributeRules of [0, 2, '1', true, null]) {
+        assert.equal(createBattle({ ...setup, attributeRules }, SEED).error?.reason, 'invalid-attribute-rules');
+    }
+    for (const rulesVersion of [undefined, 3, 4, 5]) {
+        assert.equal(createBattle({ ...setup, rulesVersion }, SEED).error?.reason, 'invalid-attribute-rules');
+    }
+    for (const invalid of [undefined, null, {}, { ...policy, version: 99 }, { ...policy, role: 'general' },
+        { ...policy, proficiency: 1 }, { ...policy, proficiency: 10 }, { ...policy, proficiency: 2.5 },
+        ...[0, 31, 10.5, '16', undefined].map(str => ({ ...policy, scores: { ...policy.scores, str } }))]) {
+        assert.equal(createBattle({ ...setup, units: [hero(filler, { attributePolicy: invalid }), foe()] }, SEED).error?.reason, 'invalid-attribute-policy');
+    }
+    const legacy = { rulesVersion: 6, controlledId: 'hero', units: [hero(filler), foe()] };
+    const mixed = { ...legacy, units: [hero(filler, { attributePolicy: { version: 99 } }), foe({ attributePolicy: policy })] };
+    const base = createBattle(legacy, SEED);
+    const ignored = createBattle(mixed, SEED);
+    assert.deepEqual(ignored, base);
+    let a = base.state;
+    let b = ignored.state;
+    const actions = [{ type: 'play', inst: a.piles.hero.hand[0] }, { type: 'end-turn' }];
+    for (const action of actions) {
+        const expected = applyAction(a, action);
+        const actual = applyAction(b, action);
+        assert.equal(expected.ok, true, JSON.stringify(expected.error));
+        assert.deepEqual(actual.events, expected.events);
+        assert.deepEqual(actual.state, expected.state);
+        a = expected.state;
+        b = actual.state;
+    }
+    assert.deepEqual(replayBattle(mixed, SEED, actions).state, a);
+    assert.deepEqual(replayBattle(legacy, SEED, actions).state, a);
+});
+
+test('卡牌逐效果倍率：跨职业读取自身六维，成长与刻印先合并，预估和实际结算一致且不重复缩放', async () => {
+    const { cardView, estimateDamage, estimateBlock } = await import('../src/combat/battle-state.js');
+    const { attributeCardView } = await import('../src/combat/card-attributes.js');
+    const policy = createAttributePolicy({ attributes: { scores: { str: 16, dex: 12, con: 30, int: 8, wis: 14, cha: 20 }, proficiency: 2 }, classProfile: { archetype: 'assassin' } });
+    for (const [archetype, hit, block] of [['warrior', 37, 32], ['guardian', 37, 32], ['assassin', 37, 32], ['ranger', 37, 32], ['mage', 28, 28], ['priest', 35, 35], ['summoner', 39, 39], ['bard', 39, 39], ['general', 37, 32]]) {
+        const card = { id: 'attribute-card', name: '双式', type: 'attack', cost: 0, rarity: 'common', archetype, effects: [dmg(30), { op: 'block', amount: 30 }] };
+        const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [hero(Array(5).fill(card.id), { attributePolicy: policy, catalog: { [card.id]: card } }), foe({ maxHp: 999 })] };
+        const created = createBattle(setup, SEED);
+        assert.equal(created.ok, true, JSON.stringify(created.error));
+        const state = created.state;
+        const inst = state.piles.hero.hand[0];
+        const view = cardView(state, inst);
+        assert.deepEqual(view.effects.map(e => e.amount), [hit, block], archetype);
+        assert.deepEqual(cardView(state, inst), view);
+        assert.equal(attributeCardView(view, state.units.hero), view);
+        const expectedHit = estimateDamage(state, state.units.hero, state.units.foe, view.effects, 'foe', view);
+        const expectedBlock = estimateBlock(state.units.hero, view.effects, 6, 'card', state, 'foe');
+        const action = { type: 'play', inst, targetId: 'foe' };
+        const played = applyAction(state, action);
+        assert.equal(played.ok, true, JSON.stringify(played.error));
+        assert.equal(played.events.filter(e => e.type === 'damage' && e.target === 'foe').reduce((sum, e) => sum + e.amount, 0), expectedHit);
+        assert.equal(played.state.units.hero.block, expectedBlock);
+        assert.deepEqual(replayBattle(setup, SEED, [action]).state, played.state);
+        assert.deepEqual(card.effects.map(e => e.amount), [30, 30]);
+    }
+    const card = { id: 'grown-card', name: '成长斩', type: 'attack', cost: 0, rarity: 'common', archetype: 'warrior', effects: [dmg(6)], upgraded: { effects: [dmg(30)] } };
+    const created = createBattle({ rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [hero(Array(5).fill({ cardId: card.id, upgraded: true, bonus: { damage: 3 }, inscription: 'sharp' }), { attributePolicy: policy, catalog: { [card.id]: card } }), foe({ maxHp: 999 })] }, SEED);
+    const view = cardView(created.state, created.state.piles.hero.hand[0]);
+    assert.equal(view.effects[0].amount, 45);
+    assert.equal(view.attributeScaling[0].base, 36);
+    const effects = [
+        { op: 'conditional', when: { kind: 'self-has', value: 'strength' }, then: [dmg(30)] },
+        { op: 'random-branch', a: [{ op: 'heal', amount: 30 }], b: [{ op: 'block', amount: 30 }] },
+        { op: 'status', status: 'strength', stacks: 10 }, { op: 'status', status: 'weak', stacks: 2 },
+        { op: 'next-turn', gain: 'status', status: 'poison', stacks: 10 },
+        { op: 'self-damage', amount: 4 }, { op: 'draw', amount: 3 },
+    ];
+    const nested = attributeCardView({ ...card, effects, onDiscard: [dmg(30)] }, { attributePolicy: policy });
+    assert.equal(nested.effects[0].then[0].amount, 37);
+    assert.deepEqual([nested.effects[1].a[0].amount, nested.effects[1].b[0].amount], [35, 32]);
+    assert.deepEqual(nested.effects.slice(2).map(e => e.stacks ?? e.amount), [11, 2, 11, 4, 3]);
+    assert.equal(nested.onDiscard[0].amount, 37);
+    assert.equal(attributeCardView(card, {}), card);
+});
+
+test('卡牌计数倍率：原始合计只舍入一次，攻击力不重复换算，估算与结算共用金额', async () => {
+    const { cardView, estimateDamage, estimateBlock } = await import('../src/combat/battle-state.js');
+    const policy = createAttributePolicy({ attributes: { scores: { str: 16, dex: 16, con: 10, int: 10, wis: 16, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'warrior' } });
+    for (const [op, expected] of [['tally-strike', 15], ['tally-guard', 15], ['tally-heal', 15]]) {
+        const card = { id: 'tally-card', name: '计数', type: 'skill', cost: 0, rarity: 'common', archetype: 'warrior', effects: [{ op, amount: 1, per: 3, max: 10, source: 'strength', ...(op === 'tally-strike' ? { target: 'enemy' } : {}) }] };
+        const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [hero(Array(5).fill(card.id), { hp: 1, attributePolicy: policy, catalog: { [card.id]: card }, passives: [{ id: 'strength-passive', trigger: 'battle-start', effects: [{ op: 'status', status: 'strength', stacks: 3, target: 'self' }] }] }), foe({ maxHp: 999 })] };
+        const state = createBattle(setup, SEED).state;
+        const inst = state.piles.hero.hand[0];
+        const view = cardView(state, inst);
+        assert.equal(view.effects[0].amount, 1);
+        assert.equal(state.units.hero.statuses.strength, 3);
+        const damage = estimateDamage(state, state.units.hero, state.units.foe, view.effects, 'foe', view);
+        const block = estimateBlock(state.units.hero, view.effects, 6, 'card', state, 'foe');
+        const action = { type: 'play', inst, ...(op === 'tally-strike' ? { targetId: 'foe' } : {}) };
+        const played = applyAction(state, action);
+        assert.equal(played.ok, true, JSON.stringify(played.error));
+        if (op === 'tally-strike') assert.equal(played.events.find(e => e.type === 'damage' && e.target === 'foe').amount, damage);
+        if (op === 'tally-guard') assert.equal(played.state.units.hero.block, block);
+        const amount = op === 'tally-strike' ? played.events.find(e => e.type === 'damage' && e.target === 'foe').amount
+            : op === 'tally-guard' ? played.state.units.hero.block : played.state.units.hero.hp - 1;
+        assert.equal(amount, op === 'tally-strike' ? expected : expected - 3);
+        assert.deepEqual(replayBattle(setup, SEED, [action]).state, played.state);
+    }
+});
+
+test('卡牌来源边界：持续与弃牌效果只换算一次，人物技能与职业装备特性被动保持原值', async () => {
+    const { cardView } = await import('../src/combat/battle-state.js');
+    const policy = createAttributePolicy({ attributes: { scores: { str: 16, dex: 16, con: 10, int: 10, wis: 16, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'warrior' } });
+    const power = { id: 'attribute-power', name: '恒守', type: 'power', cost: 0, rarity: 'common', archetype: 'warrior', effects: [{ op: 'each-turn', then: [{ op: 'block', amount: 30 }] }] };
+    const discarded = { id: 'attribute-discard', name: '弃守', type: 'skill', cost: 0, rarity: 'common', archetype: 'warrior', effects: [{ op: 'energy', amount: 1 }], onDiscard: [{ op: 'block', amount: 30 }] };
+    const toss = { id: 'attribute-toss', name: '弃手', type: 'skill', cost: 0, rarity: 'common', effects: [{ op: 'discard-hand' }] };
+    const passives = ['class', 'personal', 'gear', 'trait'].map(source => ({ id: `boundary-${source}`, source, trigger: 'battle-start', effects: [{ op: 'status', status: 'strength', stacks: 2, target: 'self' }] }));
+    const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [hero([power.id, discarded.id, toss.id], {
+        draw: 3, attributePolicy: policy, passives, catalog: { [power.id]: power, [discarded.id]: discarded, [toss.id]: toss },
+        heroSkill: { id: 'boundary-hero', name: '人物技', effects: [dmg(30)] },
+    }), foe({ maxHp: 999 })] };
+    const created = createBattle(setup, SEED);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    assert.equal(created.state.units.hero.statuses.strength, 8);
+    let state = created.state;
+    const instOf = id => Object.keys(state.cards).find(inst => state.cards[inst].cardId === id);
+    const actions = [];
+    const act = action => {
+        actions.push(action);
+        const result = applyAction(state, action);
+        assert.equal(result.ok, true, JSON.stringify(result.error));
+        state = result.state;
+        return result;
+    };
+    assert.equal(cardView(state, instOf(discarded.id)).onDiscard[0].amount, 37);
+    const skill = act({ type: 'hero-skill', targetId: 'foe' });
+    assert.equal(skill.events.find(e => e.type === 'damage' && e.target === 'foe').amount, 38);
+    act({ type: 'play', inst: instOf(power.id) });
+    const tossed = act({ type: 'play', inst: instOf(toss.id) });
+    assert.equal(tossed.events.find(e => e.type === 'block' && e.source?.kind === 'on-discard').amount, 37);
+    assert.equal(state.units.hero.powers[0].effects[0].amount, 37);
+    const next = act({ type: 'end-turn' });
+    assert.equal(next.events.find(e => e.type === 'block' && e.source?.kind === 'power').amount, 37);
+    assert.equal(state.units.hero.powers[0].effects[0].amount, 37);
+    assert.deepEqual(replayBattle(setup, SEED, actions).state, state);
+    assert.equal(power.effects[0].then[0].amount, 30);
+    assert.equal(discarded.onDiscard[0].amount, 30);
+});
+
+test('卡牌机制倍率：法珠冻结来源、蚀珠只缩放蓄积，霜晶效能与源珠次数不变', () => {
+    const policy = createAttributePolicy({ attributes: { scores: { str: 8, dex: 30, con: 10, int: 18, wis: 10, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'mage' } });
+    for (const [orb, expected] of [['lightning', [9, 16]], ['frost', [6, 9]], ['dark', [17]], ['glass', [8, 13]], ['plasma', [1, 2]]]) {
+        const channel = { id: 'orb-card', name: '凝珠', type: 'skill', cost: 0, rarity: 'common', archetype: 'mage', effects: [{ op: 'channel', orb, amount: 1 }] };
+        const pulse = { id: 'orb-pulse-card', name: '引珠', type: 'skill', cost: 0, rarity: 'common', archetype: 'mage', effects: [{ op: 'orb-pulse', amount: 1 }, { op: 'evoke', amount: 1 }] };
+        const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [hero([channel.id, pulse.id], {
+            attributePolicy: policy, draw: 2, catalog: { [channel.id]: channel, [pulse.id]: pulse },
+            passives: [{ id: 'orb-focus', trigger: 'battle-start', effects: [{ op: 'focus', amount: 3 }, { op: 'apply-status', status: 'arc-core', stacks: 2 }, { op: 'apply-status', status: 'arc-boost', stacks: 1 }] }],
+        }), foe({ maxHp: 999 })] };
+        let state = createBattle(setup, SEED).state;
+        const actions = [];
+        const play = id => {
+            const inst = state.piles.hero.hand.find(key => state.cards[key].cardId === id);
+            const action = { type: 'play', inst };
+            actions.push(action);
+            const result = applyAction(state, action);
+            assert.equal(result.ok, true, JSON.stringify(result.error));
+            state = result.state;
+            return result.events;
+        };
+        play(channel.id);
+        const frozen = clone(state);
+        const stored = state.units.hero.res.orbs.list[0];
+        assert.equal(Boolean(stored._attribute), orb !== 'plasma');
+        if (orb === 'dark') assert.equal(stored.charge, 7);
+        const events = play(pulse.id);
+        const type = orb === 'frost' ? 'block' : orb === 'plasma' ? 'energy' : 'damage';
+        assert.deepEqual(events.filter(e => e.type === type && (type !== 'damage' || e.target === 'foe')).map(e => e.amount), expected, orb);
+        assert.equal(events.filter(e => e.type === 'evoke').length, 1);
+        assert.equal(state.units.hero.res?.orbs?.list.length, 0);
+        assert.deepEqual(replayBattle(setup, SEED, actions).state, state);
+        assert.equal(frozen.units.hero.res.orbs.list.length, 1);
+    }
+});
+
+test('卡牌机制来源：雷心与静电混合人物技能增量不继承倍率，旧局来源与逐事件重放保持一致', () => {
+    const policy = createAttributePolicy({ attributes: { scores: { str: 10, dex: 10, con: 10, int: 18, wis: 10, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'mage' } });
+    for (const status of ['storm-heart', 'static-shell']) {
+        const power = { id: 'source-power', name: '法阵', type: 'power', cost: 0, rarity: 'common', effects: [{ op: 'apply-status', status, stacks: 1 }] };
+        const trigger = { id: 'source-trigger', name: '启阵', type: 'power', cost: 0, rarity: 'common', effects: [{ op: 'energy', amount: 1 }] };
+        const units = [hero([power.id, trigger.id], {
+            draw: 2, attributePolicy: policy, catalog: { [power.id]: power, [trigger.id]: trigger },
+            heroSkill: { id: 'source-skill', name: '人物阵', effects: [{ op: 'apply-status', status, stacks: 1 }] },
+        }), foe({ maxHp: 999, skills: [claw(1)] })];
+        const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units };
+        let state = createBattle(setup, SEED).state;
+        const actions = [];
+        const act = action => {
+            actions.push(action);
+            const result = applyAction(state, action);
+            assert.equal(result.ok, true, JSON.stringify(result.error));
+            state = result.state;
+            return result;
+        };
+        const instOf = id => state.piles.hero.hand.find(inst => state.cards[inst].cardId === id);
+        act({ type: 'play', inst: instOf(power.id) });
+        const before = clone(state);
+        act({ type: 'hero-skill' });
+        const groups = state.units.hero.res.attributeStatuses[status];
+        assert.deepEqual(groups.map(group => [group.stacks, Boolean(group._attribute)]), [[1, true], [1, false]]);
+        assert.deepEqual(before.units.hero.res.attributeStatuses[status].map(group => group.stacks), [1]);
+        if (status === 'storm-heart') act({ type: 'play', inst: instOf(trigger.id) });
+        else act({ type: 'end-turn' });
+        assert.deepEqual(state.units.hero.res.orbs.list.map(orb => Boolean(orb._attribute)), [true, false]);
+        assert.deepEqual(replayBattle(setup, SEED, actions).state, state);
+        const legacy = { ...setup };
+        delete legacy.attributeRules;
+        const old = replayBattle(legacy, SEED, actions);
+        assert.equal(old.ok, true, JSON.stringify(old.error));
+        assert.equal(old.state.units.hero.res.attributeStatuses, undefined);
+        assert.deepEqual(old.state.units.hero.res.orbs.list.map(orb => Boolean(orb._attribute)), [false, false]);
+    }
+});
+
+function attributeBattleRun(cards, policy, extra = {}, enemy = {}) {
+    const setup = { rulesVersion: 6, attributeRules: 1, controlledId: 'hero', units: [hero(cards.map(card => card.id), {
+        draw: cards.length, attributePolicy: policy, catalog: Object.fromEntries(cards.map(card => [card.id, card])), ...extra,
+    }), foe({ maxHp: 999, ...enemy })] };
+    const created = createBattle(setup, SEED);
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    let state = created.state;
+    const actions = [];
+    const act = action => {
+        const result = applyAction(state, action);
+        assert.equal(result.ok, true, JSON.stringify(result.error));
+        actions.push(action);
+        state = result.state;
+        return result;
+    };
+    return {
+        get state() { return state; },
+        act,
+        play(id, targetId) { return act({ type: 'play', inst: state.piles.hero.hand.find(inst => state.cards[inst].cardId === id), ...(targetId ? { targetId } : {}) }); },
+        replay() { assert.deepEqual(replayBattle(setup, SEED, actions).state, state); },
+    };
+}
+
+test('卡牌机制随从：基础攻击与骨甲新增量各换算一次，当前和最大生命派生量、牺牲不缩放', async () => {
+    const { cardView, estimateDamage } = await import('../src/combat/battle-state.js');
+    const policy = createAttributePolicy({ attributes: { scores: { str: 8, dex: 8, con: 10, int: 10, wis: 10, cha: 18 }, proficiency: 2 }, classProfile: { archetype: 'summoner' } });
+    for (const bonus of ['hp', 'max']) {
+        const buff = { id: 'minion-buff', name: '骨甲', type: 'skill', cost: 0, rarity: 'common', archetype: 'summoner', effects: [{ op: 'apply-status', status: 'minion-might', stacks: 4 }] };
+        const hit = { id: 'minion-hit', name: '随从击', type: 'attack', cost: 0, rarity: 'common', archetype: 'summoner', effects: [{ op: 'minion-strike', amount: 10, target: 'enemy', bonus }] };
+        const sacrifice = { id: 'minion-end', name: '牺牲', type: 'skill', cost: 0, rarity: 'common', effects: [{ op: 'sacrifice', mode: 'nova' }] };
+        const run = attributeBattleRun([buff, hit, sacrifice], policy, { passives: [{ id: 'minion-passive', trigger: 'battle-start', effects: [{ op: 'summon', amount: 12 }, { op: 'apply-status', status: 'minion-might', stacks: 2 }] }] });
+        run.play(buff.id);
+        assert.equal(run.state.units.hero.statuses['minion-might'], 7);
+        const inst = run.state.piles.hero.hand.find(key => run.state.cards[key].cardId === hit.id);
+        const view = cardView(run.state, inst);
+        assert.equal(view.effects[0].amount, 12);
+        const estimated = estimateDamage(run.state, run.state.units.hero, run.state.units.foe, view.effects, 'foe', view);
+        const result = run.play(hit.id, 'foe');
+        assert.equal(result.events.find(e => e.type === 'damage' && e.kind === 'minion').amount, 31);
+        assert.equal(estimated, 31);
+        const end = run.play(sacrifice.id);
+        assert.equal(end.events.find(e => e.type === 'damage' && e.kind === 'minion').amount, 12);
+        run.replay();
+    }
+});
+
+
+test('卡牌机制圣辉：辉击辉愈与恒愈只换算新增量，非卡牌层数和X圣辉次数不变', () => {
+    const policy = createAttributePolicy({ attributes: { scores: { str: 8, dex: 8, con: 10, int: 8, wis: 18, cha: 8 }, proficiency: 2 }, classProfile: { archetype: 'priest' } });
+    const blessing = { id: 'halo-buff', name: '圣环', type: 'power', cost: 0, rarity: 'common', archetype: 'priest', effects: [
+        { op: 'apply-status', status: 'halo-strike', stacks: 4 }, { op: 'apply-status', status: 'halo-mend', stacks: 3 }, { op: 'apply-status', status: 'steady-mend', stacks: 4 },
+    ] };
+    const strike = { id: 'halo-x', name: '圣辉击', type: 'attack', cost: 0, radiance: 'X', rarity: 'common', archetype: 'priest', effects: [dmg(10)] };
+    const run = attributeBattleRun([blessing, strike], policy, { hp: 1, passives: [{ id: 'halo-passive', trigger: 'battle-start', effects: [
+        { op: 'radiance', amount: 3 }, { op: 'apply-status', status: 'halo-strike', stacks: 2 }, { op: 'apply-status', status: 'halo-mend', stacks: 1 }, { op: 'apply-status', status: 'steady-mend', stacks: 1 },
+    ] }] });
+    run.play(blessing.id);
+    assert.deepEqual(['halo-strike', 'halo-mend', 'steady-mend'].map(key => run.state.units.hero.statuses[key]), [7, 5, 6]);
+    const spent = run.play(strike.id, 'foe');
+    assert.deepEqual(spent.events.filter(e => e.type === 'damage' && e.kind === 'attack').map(e => e.amount), [13, 13, 13]);
+    assert.equal(spent.events.find(e => e.type === 'damage' && e.kind === 'halo').amount, 7);
+    assert.equal(spent.events.find(e => e.type === 'heal' && e.source?.id === 'halo-mend').amount, 5);
+    assert.equal(run.state.units.hero.res.radiance, 0);
+    const next = run.act({ type: 'end-turn' });
+    assert.equal(next.events.find(e => e.type === 'heal' && e.source?.id === 'steady-mend').amount, 6);
+    assert.equal(run.state.units.hero.statuses['steady-mend'], 6);
+    run.replay();
+});
+
+
+test('卡牌机制乐势：心盾止水观兆只换算卡牌新增量，心境能量与门槛不变', () => {
+    const policy = createAttributePolicy({ attributes: { scores: { str: 8, dex: 8, con: 10, int: 8, wis: 8, cha: 18 }, proficiency: 2 }, classProfile: { archetype: 'bard' } });
+    const buff = { id: 'cadence-buff', name: '乐盾', type: 'power', cost: 0, rarity: 'common', archetype: 'bard', effects: [
+        { op: 'apply-status', status: 'stance-ward', stacks: 4 }, { op: 'apply-status', status: 'calm-guard', stacks: 4 }, { op: 'apply-status', status: 'scry-ward', stacks: 4 },
+    ] };
+    const calm = { id: 'cadence-calm', name: '静心', type: 'skill', cost: 0, rarity: 'common', effects: [{ op: 'enter-stance', stance: 'calm' }, { op: 'foresee', amount: 1 }] };
+    const ascend = { id: 'cadence-ascend', name: '神临', type: 'skill', cost: 0, rarity: 'common', effects: [{ op: 'momentum', amount: 5 }, { op: 'momentum', amount: 5 }] };
+    const run = attributeBattleRun([buff, calm, ascend], policy, { passives: [{ id: 'cadence-passive', trigger: 'battle-start', effects: [
+        { op: 'apply-status', status: 'stance-ward', stacks: 2 }, { op: 'apply-status', status: 'calm-guard', stacks: 2 }, { op: 'apply-status', status: 'scry-ward', stacks: 2 },
+    ] }] });
+    run.play(buff.id);
+    assert.deepEqual(['stance-ward', 'calm-guard', 'scry-ward'].map(key => run.state.units.hero.statuses[key]), [7, 7, 7]);
+    const entered = run.play(calm.id);
+    assert.deepEqual(entered.events.filter(e => e.type === 'block').map(e => e.amount), [7, 7]);
+    const ended = run.act({ type: 'end-turn' });
+    assert.equal(ended.events.find(e => e.type === 'block' && e.source?.id === 'calm-guard').amount, 7);
+    const ascended = run.play(ascend.id);
+    assert.deepEqual(ascended.events.filter(e => e.type === 'momentum').map(e => e.delta), [5, 5]);
+    assert.deepEqual(ascended.events.filter(e => e.type === 'energy').map(e => e.amount), [2, 3]);
+    assert.equal(run.state.units.hero.res.stance, 'divinity');
+    assert.equal(run.state.units.hero.res.momentum, 0);
+    run.replay();
+});
+
+test('卡牌机制猎印与临时攻防：本次增量换算、已有状态和引弦派生伤害不重复倍率', () => {
+    const policy = createAttributePolicy({ attributes: { scores: { str: 18, dex: 8, con: 10, int: 8, wis: 8, cha: 8 }, proficiency: 2 }, classProfile: { archetype: 'ranger' } });
+    const mark = { id: 'mark-card', name: '猎印', type: 'skill', cost: 0, rarity: 'common', archetype: 'ranger', effects: [{ op: 'apply-status', status: 'hunt-mark', stacks: 4, target: 'enemy' }, { op: 'apply-status', status: 'flex', stacks: 4 }] };
+    const hit = { id: 'mark-hit', name: '引弦', type: 'attack', cost: 0, rarity: 'common', archetype: 'ranger', effects: [dmg(10), { op: 'loose' }] };
+    const run = attributeBattleRun([mark, hit], policy, { passives: [{ id: 'mark-passive', trigger: 'battle-start', effects: [{ op: 'apply-status', status: 'flex', stacks: 2 }, { op: 'apply-status', status: 'hunt-mark', stacks: 2, target: 'enemy' }] }] });
+    run.play(mark.id, 'foe');
+    assert.equal(run.state.units.hero.statuses.flex, 7);
+    assert.equal(run.state.units.foe.statuses['hunt-mark'], 7);
+    const result = run.play(hit.id, 'foe');
+    assert.deepEqual(result.events.filter(e => e.type === 'damage').map(e => [e.kind, e.amount]), [['attack', 20], ['hunt-mark', 7]]);
+    run.act({ type: 'end-turn' });
+    assert.equal(run.state.units.hero.statuses.flex, undefined);
+    run.replay();
+});
+
+
+test('卡牌机制暗刃：动态牌按刺客力量换算，首击卡牌增量与人物技能增量各自入池，估算和重放一致', async () => {
+    const { cardView, estimateDamage } = await import('../src/combat/battle-state.js');
+    const policy = createAttributePolicy({ attributes: { scores: { str: 16, dex: 10, con: 10, int: 30, wis: 10, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'mage' } });
+    const tune = { id: 'shiv-tune', name: '磨刃', type: 'power', cost: 0, rarity: 'common', archetype: 'assassin', effects: [{ op: 'hone-shiv', mode: 'edge', amount: 4 }, { op: 'hone-shiv', mode: 'first', amount: 5 }] };
+    const create = { id: 'shiv-create', name: '取刃', type: 'skill', cost: 0, rarity: 'common', archetype: 'assassin', effects: [{ op: 'shiv', amount: 2 }] };
+    const run = attributeBattleRun([tune, create], policy, { heroSkill: { id: 'shiv-skill', name: '人物磨刃', effects: [{ op: 'hone-shiv', mode: 'first', amount: 2 }] } });
+    run.play(tune.id);
+    assert.deepEqual(run.state.units.hero.res.shiv, { edge: 4, first: 6 });
+    run.act({ type: 'hero-skill' });
+    assert.equal(run.state.units.hero.res.shiv.first, 8);
+    run.play(create.id);
+    assert.equal(run.state.catalog.hero['shadow-shiv'].effects[0].amount, 8);
+    for (const expected of [18, 10]) {
+        const inst = run.state.piles.hero.hand.find(key => run.state.cards[key].cardId === 'shadow-shiv');
+        const view = cardView(run.state, inst);
+        assert.equal(view.archetype, 'assassin');
+        assert.equal(view.effects[0].amount, 10);
+        const estimated = estimateDamage(run.state, run.state.units.hero, run.state.units.foe, view.effects, 'foe', view);
+        const hit = run.act({ type: 'play', inst, targetId: 'foe' });
+        assert.equal(hit.events.find(e => e.type === 'damage' && e.kind === 'attack').amount, expected);
+        assert.equal(estimated, expected);
+    }
+    assert.equal(run.state.units.hero.res.shiv.first, 8);
+    run.replay();
+});
+
+
+const siftPolicy = dex => createAttributePolicy({ attributes: { scores: { str: 10, dex, con: 10, int: 10, wis: 10, cha: 10 }, proficiency: 2 }, classProfile: { archetype: 'mage' } });
+const siftCard = (id, extra = {}) => ({ id, name: id, type: 'skill', cost: 0, rarity: 'common', innate: true, effects: [{ op: 'draw', amount: 3 }, { op: 'discard', amount: 1, mode: 'choose' }], ...extra });
+function siftRun(cards, { dex = 16, reserve = 20, draw = cards.length, ...extra } = {}) {
+    return attributeBattleRun(cards, siftPolicy(dex), { deck: [...cards.map(card => card.id), ...Array(reserve).fill('basic-defend')], draw, catalog: { ...BASIC_CARDS, ...Object.fromEntries(cards.map(card => [card.id, card])) }, ...extra });
+}
+const drawnCount = result => result.events.filter(e => e.type === 'draw' && e.unitId === 'hero').reduce((sum, e) => sum + e.count, 0);
+function chooseSift(run, keep = []) {
+    const { count, options } = run.state.pending;
+    return run.act({ type: 'choose', insts: options.filter(inst => !keep.includes(run.state.cards[inst].cardId)).slice(0, count) });
+}
+
+test('敏捷筛牌：抽3弃1变抽4选弃2，挂起恢复只领一次，同回合第二张不触发而下回合恢复', () => {
+    const cards = [siftCard('sift-one'), siftCard('sift-two')];
+    const run = siftRun(cards);
+    const first = run.play(cards[0].id);
+    assert.equal(drawnCount(first), 4);
+    assert.equal(run.state.pending.count, 2);
+    assert.equal(run.state.play.siftExtra, 1);
+    assert.equal(run.state.units.hero.turnStats.attributeSift, true);
+    const suspended = clone(run.state);
+    assert.equal(applyAction(run.state, { type: 'choose', insts: [] }).error?.reason, 'invalid-choice');
+    assert.deepEqual(run.state, suspended);
+    run.replay();
+    const picked = chooseSift(run, [cards[1].id]);
+    assert.equal(picked.events.filter(e => e.type === 'discard').length, 2);
+    assert.equal(drawnCount(picked), 0);
+    assert.deepEqual(suspended.pending.count, 2);
+    const second = run.play(cards[1].id);
+    assert.equal(drawnCount(second), 3);
+    assert.equal(run.state.pending.count, 1);
+    chooseSift(run);
+    run.act({ type: 'end-turn' });
+    assert.equal(run.state.units.hero.turnStats?.attributeSift, undefined);
+    run.replay();
+});
+
+
+test('敏捷筛牌边界：敏捷15、随机弃牌、整手重抽与未实际多抽到牌不追加弃牌', () => {
+    const base = siftCard('sift-boundary');
+    for (const [label, card, options, expectedDraw, expectedDiscard] of [
+        ['dex15', base, { dex: 15 }, 3, 1],
+        ['random', { ...base, effects: [{ op: 'draw', amount: 3 }, { op: 'discard', amount: 1, mode: 'random' }] }, {}, 3, 1],
+        ['redraw', { ...base, effects: [{ op: 'discard-hand', redraw: true }] }, { draw: 3 }, 2, 2],
+        ['no-draw', base, { passives: [{ id: 'stop-draw', trigger: 'battle-start', effects: [{ op: 'status', status: 'no-draw', stacks: 1, target: 'self' }] }], draw: 3 }, 0, 1],
+        ['hand-limit', base, { draw: COMBAT_RULES.handLimit }, 1, 1],
+        ['empty', base, { reserve: 2, draw: 3 }, 0, 1],
+        ['only-base', base, { reserve: 5, draw: 3 }, 3, 1],
+    ]) {
+        const run = siftRun([card], options);
+        const played = run.play(card.id);
+        assert.equal(drawnCount(played), expectedDraw, label);
+        assert.equal(run.state.units.hero.turnStats?.attributeSift, undefined, label);
+        const chosen = run.state.pending ? chooseSift(run) : played;
+        assert.equal(chosen.events.filter(e => e.type === 'discard').length, expectedDiscard, label);
+        run.replay();
+    }
+});
+
+test('敏捷筛牌重演与恢复：首轮额外抽弃，重演及免费狡黠不领取，下一自身回合恢复', () => {
+    const recurring = siftCard('sift-recurring', { retain: true, replay: 1, effects: [{ op: 'draw', amount: 3 }, { op: 'discard', amount: 1, mode: 'choose' }, { op: 'recur', to: 'hand' }] });
+    const run = siftRun([recurring], { draw: 3 });
+    assert.equal(drawnCount(run.play(recurring.id)), 4);
+    assert.equal(run.state.pending.count, 2);
+    const repeat = chooseSift(run);
+    assert.equal(drawnCount(repeat), 3);
+    assert.equal(run.state.pending.count, 1);
+    chooseSift(run);
+    run.act({ type: 'end-turn' });
+    assert.equal(drawnCount(run.play(recurring.id)), 4);
+    assert.equal(run.state.pending.count, 2);
+    chooseSift(run);
+    chooseSift(run);
+    run.replay();
+    const sly = siftCard('sift-sly', { sly: true });
+    const toss = siftCard('sift-toss', { effects: [{ op: 'discard', amount: 1, mode: 'choose' }] });
+    const free = siftRun([sly, toss], { draw: 3 });
+    free.play(toss.id);
+    const slyInst = free.state.pending.options.find(inst => free.state.cards[inst].cardId === sly.id);
+    const result = free.act({ type: 'choose', insts: [slyInst] });
+    assert.equal(drawnCount(result), 3);
+    assert.equal(free.state.units.hero.turnStats.attributeSift, undefined);
+    assert.equal(free.state.pending, undefined);
+    free.replay();
+});
+
 
 test('开局先手计入行动条：速度快的主角首轮不再连动两回合，旧 setup 行为不变，顺序槽与实际一致', () => {
     const units = () => [hero(filler, { speed: 150 }), foe({ speed: 100 })];
@@ -374,6 +844,87 @@ function ledgerSetup(profiles, initial) {
 }
 const heroOf = (state) => state.characters.get('pc-hero');
 
+test('卡牌归属：新字段校验、旧牌回退、固定与临时牌解析，开战还原不修改账本目录', async () => {
+    const { normalizeCard } = await import('../src/combat/schema.js');
+    const { solveCardTemplate } = await import('../src/combat/card-templates.js');
+    const { cardArchetypeOf } = await import('../src/combat/card-origin.js');
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const base = { ...solveCardTemplate('strike', 1, 'common'), id: 'origin-card', name: '旧斩', cost: 1, rarity: 'common' };
+    assert.equal(normalizeCard(base).ok, true);
+    assert.equal(normalizeCard({ ...base, archetype: 'mage' }).value.archetype, 'mage');
+    assert.equal(normalizeCard({ ...base, archetype: 'unknown' }).ok, false);
+    assert.equal(cardArchetypeOf(base), 'general');
+    assert.equal(cardArchetypeOf(base, { 'origin-card': 'priest' }), 'priest');
+    assert.equal(cardArchetypeOf({ ...base, archetype: 'mage' }, { 'origin-card': 'warrior' }), 'mage');
+    for (const [id, role] of [['fx-mage-01', 'mage'], ['fx-general-01', 'general'], ['shadow-shiv', 'assassin'], ['forge-blade', 'warrior'], ['summon-soul', 'summoner'], ['token-miracle', 'bard'], ['token-boulder', 'warrior']]) {
+        assert.equal(cardArchetypeOf({ id }), role);
+    }
+    assert.throws(() => cardArchetypeOf({ ...base, archetype: 'unknown' }), /invalid-card-archetype/);
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [user('出发')]);
+    const me = heroOf(await ledger.effectiveState());
+    const before = clone([...me.catalog]);
+    const setup = buildSetup({ heroId: me.id, controllable: [me.id], allies: [me], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) }, { enemies: [{ name: '狼', count: 1 }], tier: 'normal' }).setup;
+    const catalog = setup.units.find(unit => unit.id === me.id).catalog;
+    assert.equal(catalog.c1.archetype, 'warrior');
+    assert.equal(catalog.m1.archetype, 'general');
+    assert.equal(catalog['basic-strike'].archetype, 'general');
+    assert.deepEqual(clone([...me.catalog]), before);
+    assert.equal(me.catalog.get('c1').archetype, undefined);
+    const current = {
+        ...me, classProfile: { ...me.classProfile, archetype: 'mage' },
+        attributes: { ...me.attributes, role: 'assassin', scores: { str: 16, dex: 12, con: 10, int: 18, wis: 14, cha: 10 }, proficiency: 2 },
+        battleGrowth: { cards: { c1: { damage: 3, block: 0 } }, hpMax: 0 },
+    };
+    const frozen = buildSetup({ heroId: me.id, controllable: [me.id], allies: [current], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) }, { enemies: [{ name: '狼', count: 1 }], tier: 'normal' }).setup;
+    const frozenHero = frozen.units.find(unit => unit.id === me.id);
+    assert.equal(frozen.attributeRules, 1);
+    assert.equal(frozenHero.attributePolicy.role, 'mage');
+    assert.equal(frozenHero.attributePolicy.proficiency, 2);
+    assert.equal(frozenHero.catalog.c1.archetype, 'warrior');
+    assert.equal(frozenHero.catalog.c1.effects[0].amount, me.catalog.get('c1').effects[0].amount + 3);
+    assert.deepEqual(frozenHero.catalog.m1.effects, me.catalog.get('m1').effects);
+    assert.equal(frozenHero.catalog.c1.scaling, undefined);
+    current.attributes.scores.int = 1;
+    assert.equal(frozenHero.attributePolicy.scores.int, 18);
+    const battle = createBattle(frozen, SEED);
+    assert.equal(battle.ok, true, JSON.stringify(battle.error));
+    assert.deepEqual(battle.state.units[me.id].attributePolicy, frozenHero.attributePolicy);
+    assert.deepEqual(replayBattle(frozen, SEED, []).state, battle.state);
+    const { assembleClass, assembleGrowth } = await import('../src/combat/generation-assembly.js');
+    for (const [archetype, expected] of [['mage', 'mage'], [undefined, 'general']]) {
+        const grown = assembleGrowth({ name: '新斩', template: 'strike', cost: 1 }, { key: 'origin-growth', input: { output: 'card', rarity: 'common', templates: ['strike'], archetype } });
+        assert.equal(grown.value?.card.archetype, expected, JSON.stringify(grown));
+    }
+    const cls = classDef('cls-blade');
+    cls.classPool[1].archetype = 'mage';
+    const upgrades = ledgerSetup([row(cls, 1), row(heroDef(), 2)], ['斩c1', '斩c2', '斩m1'].map(name => ai(`[igs-combat:upgrade|我|${name}|精进]`)));
+    const scan = await upgrades.ledger.scan();
+    const pending = scan.pendingGeneration.filter(item => item.kind === 'upgrade');
+    assert.equal(pending.length, 3);
+    const targets = ['c1', 'c2', 'm1'];
+    const entries = pending.map((item, index) => ({
+        id: ledgerEntryId('upgrade', 'pc-hero', item.anchor), type: 'upgrade', character: 'pc-hero', anchor: item.anchor,
+        payload: { targetId: targets[index], card: { ...base, id: `up-${index}`, archetype: 'bard' } }, createdAt: 7,
+    }));
+    assert.equal((await upgrades.ledger.append(entries)).ok, true);
+    const upgraded = heroOf(await upgrades.ledger.effectiveState());
+    assert.deepEqual(targets.map(id => upgraded.catalog.get(id).archetype), [undefined, 'mage', undefined]);
+    assert.deepEqual(targets.map(id => cardArchetypeOf(upgraded.catalog.get(id), upgraded.cardOrigins)), ['warrior', 'mage', 'general']);
+    const nextClass = assembleClass({ className: '灵契师', archetype: 'summoner' }, { key: 'empty-class' }).profile;
+    const tables = memoryTables([row(classDef('cls-blade'), 1), row(nextClass, 2), row(heroDef(), 3)]);
+    const switchedLedger = createCombatLedger({ tables, chat: () => [ai('转职')], userName: '主角', wallet: () => 1000, now: () => 7 });
+    const oldHero = heroOf(await switchedLedger.effectiveState());
+    assert.equal((await switchedLedger.respecClass(oldHero.id, nextClass.id)).ok, true);
+    const switched = heroOf(await switchedLedger.effectiveState());
+    assert.deepEqual(switched.classProfile.classPool, []);
+    assert.deepEqual(switched.deckEntries, oldHero.deckEntries);
+    assert.deepEqual([...switched.owned], [...oldHero.owned]);
+    assert.equal(switched.catalog.get('c1').archetype, undefined, '旧目录不补写归属');
+    assert.equal(cardArchetypeOf(switched.catalog.get('c1'), switched.cardOrigins), 'warrior');
+    assert.equal(switched.classProfile.archetype, 'summoner');
+    assert.deepEqual((await switchedLedger.effectiveState()).diagnostics, []);
+});
+
 test('专属卡按等级解锁：Lv5 / Lv10 解锁对应槽位、等级退回重新锁上；剧情提前解锁不重复计；档案没有该槽位时记待生成，写新版本档案后解锁', async () => {
     // 旧档案预生成的专属卡（ID 不带槽位后缀）占第 1 槽，沿用旧规则：升级不自动解锁、不记待生成，只由剧情 learn 解锁。
     const legacy = { id: 'g1', name: '天翔一闪', type: 'attack', cost: 2, rarity: 'signature', effects: [{ op: 'damage', amount: 14 }] };
@@ -408,6 +959,7 @@ test('专属卡按等级解锁：Lv5 / Lv10 解锁对应槽位、等级退回重
     assert.equal(result.ok, true, JSON.stringify(result.rejected));
     const writes = generationWrites(result, { createdAt: 9 });
     assert.deepEqual([writes.profiles.length, writes.entries.length, writes.profiles[0].version], [1, 0, 2]);
+    assert.ok(writes.profiles[0].definition.signatureCards.every(card => card.archetype === 'warrior'));
     fresh.tables.profile.push(clone(writes.profiles[0]));
     state = await fresh.ledger.effectiveState();
     assert.deepEqual(['pc-hero-g1', 'pc-hero-g2'].map((id) => heroOf(state).owned.get(id)), [1, 1]);
@@ -487,6 +1039,7 @@ test('多敌建局（v6 G3b）：胜场阶梯烘焙生命与伤害并保存 crow
     }
     for (const rulesVersion of [3, 4, 5, 6]) {
         const saved = { ...make(2, 10), rulesVersion };
+        delete saved.attributeRules;
         delete saved.crowd;
         delete saved.foeCap;
         delete saved.trackHpLoss;
@@ -847,7 +1400,11 @@ test('单张副本（P5a）：起始卡组每张一个副本；带 copyId 的永
         const inst = Object.keys(created.state.cards).find((key) => created.state.cards[key].copyId === copyId);
         return cardView(created.state, inst).effects[0].amount;
     };
-    assert.equal(amountOf(c1[1]) - amountOf(c1[0]), 3);
+    const frozen = built.setup.units.find(unit => unit.id === me.id);
+    const raw = frozen.catalog.c1.effects[0].amount;
+    const multiplier = attributeMultiplier(frozen.attributePolicy, 'str');
+    assert.equal(amountOf(c1[0]), scalePositive(raw, multiplier));
+    assert.equal(amountOf(c1[1]), scalePositive(raw + 3, multiplier));
     assert.equal(amountOf(c1[2]), amountOf(c1[0]));
 
     ref.chat = [floor('r9'), floor('r2')];
@@ -858,15 +1415,16 @@ test('单张副本（P5a）：起始卡组每张一个副本；带 copyId 的永
 
 test('同模型并卡（P5a）：带 merge 的学牌记录与已持有牌模型一致时并为那张牌的一张副本，不新建目录条目；不带标记的旧记录与模型不同的牌照旧新建', async () => {
     const tag = (skill) => ai(`剑光乍起。\n[igs-combat:learn|我|${skill}|习得]`);
-    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [tag('新斩'), tag('旧斩'), tag('重斩')]);
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [tag('新斩'), tag('旧斩'), tag('重斩'), tag('异源斩')]);
     const pending = (await ledger.scan()).pendingGeneration.filter((p) => p.kind === 'learn');
-    assert.equal(pending.length, 3);
+    assert.equal(pending.length, 4);
     const learnAt = (p, card, merge) => ({ id: ledgerEntryId('learn', 'pc-hero', p.anchor), type: 'learn', character: 'pc-hero', anchor: p.anchor, payload: { card, ...(merge ? { merge: true } : {}) }, createdAt: 7 });
     const same = (id, name) => ({ ...attack(id), name });
     const written = await ledger.append([
         learnAt(pending[0], same('lc-a', '新斩'), true),
         learnAt(pending[1], same('lc-b', '旧斩'), false),
         learnAt(pending[2], { ...attack('lc-c'), type: 'skill', name: '重斩' }, true),
+        learnAt(pending[3], { ...same('lc-d', '异源斩'), archetype: 'mage' }, true),
     ]);
     assert.equal(written.ok, true, JSON.stringify(written));
     const state = await ledger.effectiveState();
@@ -874,7 +1432,8 @@ test('同模型并卡（P5a）：带 merge 的学牌记录与已持有牌模型�
     assert.equal(me.owned.get('c1'), 4);
     assert.equal(me.catalog.has('lc-a'), false);
     assert.equal(me.copies.filter((r) => r.cardId === 'c1').length, 4);
-    assert.deepEqual(['lc-b', 'lc-c'].map((id) => [me.catalog.has(id), me.owned.get(id)]), [[true, 1], [true, 1]]);
+    assert.deepEqual(['lc-b', 'lc-c', 'lc-d'].map((id) => [me.catalog.has(id), me.owned.get(id)]), [[true, 1], [true, 1], [true, 1]]);
+    assert.equal(me.catalog.get('lc-d').archetype, 'mage');
     assert.equal(state.diagnostics.some((d) => d.code === 'combat-card-id-collision'), false);
 });
 
@@ -1160,6 +1719,7 @@ test('规则 v6 卡牌三选一：本职业固定 2 + 随机 1 按种子定，�
     if (foreign) assert.ok(assembleReward({ slots: [['裂空斩', foreign, '']] }, { key: 'k', input: { seed: 's', slots: [found.slot] } }).errors);
     const cardSlot = assembled.value.slots[0];
     assert.equal(cardSlot.choices.length, 3);
+    assert.equal(cardSlot.card.archetype, 'warrior');
     assert.equal(cardSlot.choices[found.slot.randomAt].id, cardSlot.card.id);
     assert.deepEqual(cardSlot.choices.filter((_, i) => i !== found.slot.randomAt).map((c) => [c.id, c.model]), found.slot.fixedIds.map((id) => [id, 'fixed']));
 
@@ -1510,11 +2070,87 @@ test('规则 v6 积分抽卡：150 抽 3 张本职业候选（固定 2 + 随机 
     // 随机候选请求只给本职业模板，稀有度、费用与 ID 由程序定。
     const entity = drawCardEntity({ character: me, plan: planCardDraw(me) });
     assert.deepEqual([entity.kind, entity.fixed.archetype, entity.input.allowedTemplates.includes('strike')], ['draw-card', 'warrior', true]);
+    const { assembleDrawCard } = await import('../src/combat/generation-assembly.js');
+    const drawn = assembleDrawCard({ card: ['裂岩斩', 'strike'] }, { key: entity.key, fixed: { ...entity.fixed, cost: 1, rarity: 'common' } });
+    assert.equal(drawn.value?.archetype, 'warrior', JSON.stringify(drawn));
     // 金钱不足拒写。
     const poor = createCombatLedger({ tables: memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]), chat: () => [ai('正文')], userName: '主角', now: () => 7, wallet: () => 100 });
     const p0 = planCardDraw(heroOf(await poor.effectiveState()));
     assert.equal((await poor.drawCard('pc-hero', { drawId: p0.drawId, choices: choicesOf(p0, randomCard(p0.cardId)) })).reason, 'combat-points-insufficient');
 });
+
+test('等级免费额度：抽卡与升级独立、零扣费、非法或重复拒收、胜场机会保留、回退恢复', async () => {
+    const { planCardDraw } = await import('../src/combat/rewards.js');
+    const { fixedCard } = await import('../src/combat/fixed-cards/index.js');
+    const { upgradableRows } = await import('../src/combat/ledger.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const env = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [
+        ai(`[igs-combat:exp|主角|${expFor(2)}|历练]`), ai('使用额度'),
+    ]);
+    let gates = 0;
+    const ledger = createCombatLedger({ tables: env.tables, chat: () => env.ref.chat, userName: '主角', now: () => 7,
+        spendingGate: async () => { gates += 1; return { ok: false, reason: 'points-settlement-pending' }; } });
+    const scanned = await ledger.scan();
+    assert.equal((await ledger.append(scanned.entries)).ok, true);
+    const before = heroOf(await ledger.effectiveState());
+    assert.deepEqual([before.freeDraws, before.freeUpgrades, before.points], [[2], [2], 0]);
+    const plan = planCardDraw(before);
+    const choices = plan.fixedIds.map(id => clone(fixedCard(id)));
+    choices.splice(plan.randomAt, 0, { id: plan.cardId, name: '免费斩', type: 'attack', cost: 1, rarity: 'common', effects: [{ op: 'damage', amount: 6 }] });
+    const draw = level => ledger.drawCard(before.id, { drawId: plan.drawId, choices, free: { level } });
+    assert.equal((await draw(3)).reason, 'combat-card-draw-free-level-unreached');
+    assert.equal((await draw(4)).reason, 'combat-card-draw-free-level-invalid');
+    assert.equal((await draw(2)).ok, true);
+    let me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.points, me.cardDraws, me.freeDraws, me.freeUpgrades], [0, 1, [], [2]]);
+    assert.notEqual(planCardDraw(me).drawId, plan.drawId, '免费与付费共用抽卡种子序列');
+    assert.equal((await draw(2)).reason, 'combat-card-draw-free-used');
+    assert.equal((await ledger.pickCard(me.id, plan.drawId, 'skip')).ok, true);
+    const target = upgradableRows(me)[0];
+    assert.ok(target);
+    const upgrade = (level, copyId = target.copyId) => ledger.upgradeCard(me.id, { level, copyId, cardId: target.cardId });
+    assert.equal((await upgrade(3)).reason, 'combat-card-upgrade-free-level-unreached');
+    assert.equal((await upgrade(4)).reason, 'combat-card-upgrade-free-level-invalid');
+    assert.equal((await upgrade(2, 'missing:0')).reason, 'combat-card-upgrade-copy-missing');
+    assert.deepEqual(heroOf(await ledger.effectiveState()).freeUpgrades, [2]);
+    assert.equal((await upgrade(2)).ok, true);
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.freeDraws, me.freeUpgrades, me.points, me.upgrade], [[], [], 0, before.upgrade]);
+    assert.equal(me.deckEntries.find(item => item.copyId === target.copyId).upgraded, true);
+    assert.equal((await upgrade(2)).reason, 'combat-card-upgrade-free-used');
+    assert.equal(gates, 0, '零扣费不经过积分支出门禁');
+    const drawEntry = env.tables.ledger.find(entry => entry.type === 'card-draw');
+    const upgradeEntry = env.tables.ledger.find(entry => entry.type === 'card-upgrade');
+    assert.equal(normalizeLedgerEntry({ ...drawEntry, payload: { ...drawEntry.payload, cost: 150 } }).ok, false);
+    assert.equal(normalizeLedgerEntry({ ...upgradeEntry, payload: { ...upgradeEntry.payload, battle: 5, reportId: 'r5' } }).ok, false);
+    assert.deepEqual((await ledger.effectiveState()).diagnostics, []);
+    env.ref.chat.pop();
+    me = heroOf(await ledger.effectiveState());
+    assert.deepEqual([me.freeDraws, me.freeUpgrades, me.cardDraws, me.pendingDraw], [[2], [2], 0, null]);
+    assert.equal(me.deckEntries.find(item => item.copyId === target.copyId).upgraded, false);
+});
+
+test('旧 reward 只允许历史重放，已领等级不再发免费额度，新写入拒绝', async () => {
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const env = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [ai(`[igs-combat:exp|主角|${expFor(2)}|历练]`), ai('旧领奖')]);
+    assert.equal((await env.ledger.append((await env.ledger.scan()).entries)).ok, true);
+    const before = heroOf(await env.ledger.effectiveState());
+    const anchor = { messageId: 1, swipeId: 0, tagHash: 'reward', occurrence: 0 };
+    const entry = { id: ledgerEntryId('reward', before.id, anchor), type: 'reward', character: before.id, anchor,
+        payload: { level: 2, choice: { kind: 'card', cardId: 'c1' } }, createdAt: 7 };
+    assert.equal(normalizeLedgerEntry(entry).ok, true);
+    const rejected = await env.ledger.append(entry);
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.rejected[0].reason, 'combat-reward-retired');
+    assert.equal(env.tables.ledger.some(item => item.type === 'reward'), false);
+    await env.tables.append('ledger', [entry]);
+    const after = heroOf(await env.ledger.effectiveState());
+    assert.deepEqual([after.claimedLevels, after.freeDraws, after.freeUpgrades], [[2], [], []]);
+    assert.equal(after.deck.length, before.deck.length + 1);
+    assert.equal(after.owned.get('c1'), (before.owned.get('c1') || 0) + 1);
+    assert.deepEqual((await env.ledger.effectiveState()).diagnostics, []);
+});
+
 
 test('战斗胜利积分（v6 G5g）：按档位与战斗 ID 定额；锚定胜利战报楼写进主角积分，战报换楼或败北失效；金额越界拒收', async () => {
     const { BATTLE_POINTS_TAG_HASH } = await import('../src/combat/ledger.js');
@@ -1810,8 +2446,8 @@ test('获得时遗物（v6 G5f-4d）：特性真正装上才结算，按装上�
     assert.equal(Object.hasOwn(twinEntry, 'localGrowth'), false, '内部标记不进入战斗存档');
     const original = unit.deck.find((e) => e.cardId === markedTwin.cardId && e.copyId !== markedTwin.copyId);
     assert.deepEqual(original.bonus, { damage: 6, block: 4 }, '原副本共享与独立成长只叠一次');
-    const { scaleCard } = await import('../src/combat/card-scaling.js');
-    assert.deepEqual(unit.catalog[markedTwin.cardId].effects, scaleCard(markedHero.catalog.get(markedTwin.cardId), markedHero.attributes).effects);
+    assert.equal(built.setup.attributeRules, 1);
+    assert.deepEqual(unit.catalog[markedTwin.cardId].effects, markedHero.catalog.get(markedTwin.cardId).effects, '目录保留原值，副本的成长、刻印与属性在牌面合并');
 
     // 御印通过真实服务写口落到模拟宿主表，重建服务后仍可回读，不需要模型参与。
     const { createCombatServices } = await import('../src/core/combat-services.js');
@@ -2004,7 +2640,7 @@ test('加卡遗物（v6 G5f-4e）：实际新增副本自动升级、每五张�
     assert.equal(normalizeLedgerEntry(at('card-pick', 2, 0, { drawId: 'draw-x', pick: 'skip', added: true })).ok, false);
     assert.equal(normalizeLedgerEntry(at('reward', 2, 0, { level: 2, choice: { kind: 'skip' }, added: true })).ok, false);
 
-    // 公开写口：等级奖励、积分抽卡和人偶镜实际新增副本才触发。
+    // 公开写口：免费／付费积分抽卡和人偶镜实际新增副本才触发。
     const { planCardDraw } = await import('../src/combat/rewards.js');
     const { fixedCard } = await import('../src/combat/fixed-cards/index.js');
     const publicEnv = setup();
@@ -2013,12 +2649,8 @@ test('加卡遗物（v6 G5f-4e）：实际新增副本自动升级、每五张�
     const expScan = await publicEnv.ledger.scan();
     assert.equal((await publicEnv.ledger.append(expScan.entries)).ok, true);
     const publicBefore = await publicEnv.hero();
-    assert.equal((await publicEnv.ledger.claimReward('pc-hero', 2, { kind: 'card', cardId: 'c1' })).ok, true);
-    let publicHero = await publicEnv.hero();
-    assert.equal(publicHero.points - publicBefore.points, 15);
-    const rewardCopy = publicHero.deckEntries.find((entry) => entry.copyId.startsWith('reward|'));
-    assert.ok(rewardCopy && !rewardCopy.upgraded, '无升级形态的牌仍获得积分');
-    assert.equal(publicEnv.tables.ledger.find((entry) => entry.type === 'reward').payload.added, true);
+    assert.deepEqual(publicBefore.freeDraws, [2]);
+    let publicHero = publicBefore;
     // 余额只用于写口扣费验证，不产生额外加卡事件。
     const paidLedger = createCombatLedger({ tables: publicEnv.tables, chat: () => publicEnv.ref.chat, userName: '主角', wallet: () => 10000, now: () => 7 });
     for (const mode of ['fixed', 'random', 'skip']) {
@@ -2026,7 +2658,8 @@ test('加卡遗物（v6 G5f-4e）：实际新增副本自动升级、每五张�
         const plan = planCardDraw(beforePick);
         const choices = plan.fixedIds.map((id) => clone(fixedCard(id)));
         choices.splice(plan.randomAt, 0, fresh(plan.cardId));
-        assert.equal((await paidLedger.drawCard('pc-hero', { drawId: plan.drawId, choices })).ok, true);
+        assert.equal((await paidLedger.drawCard('pc-hero', { drawId: plan.drawId, choices, ...(mode === 'fixed' ? { free: { level: 2 } } : {}) })).ok, true);
+        assert.equal(heroOf(await paidLedger.effectiveState()).deck.length, beforePick.deck.length, '待翻牌不触发加卡');
         const position = mode === 'fixed' ? (plan.randomAt === 0 ? 1 : 0) : plan.randomAt;
         assert.equal((await paidLedger.flipCard('pc-hero', plan.drawId, position)).ok, true);
         const beforeWrite = heroOf(await paidLedger.effectiveState());
@@ -2974,10 +3607,12 @@ test('职业固定被动（v6 G6）：八职业三阶结构合法，新档案忽
             const checked = normalizeProfile({ ...classDef('cls-blade'), archetype, classPassive, classPassiveVersion: 1 });
             assert.equal(checked.ok, true, `${archetype}/${tier}: ${JSON.stringify(checked.errors)}`);
         }
-        const raw = { className: '测试职业', archetype, passive: { effects: [{ op: 'energy', amount: 999 }] },
-            cards: Array.from({ length: 11 }, (_, i) => [`招式${i}`, 'strike']) };
+        const raw = { className: '测试职业', archetype, passive: { effects: [{ op: 'energy', amount: 999 }] } };
         const built = assembleClass(raw, { key: archetype });
         assert.equal(built.errors, undefined, JSON.stringify(built.errors));
+        assert.deepEqual(built.profile.classPool, []);
+        assert.equal(normalizeProfile(built.profile).ok, true);
+        assert.deepEqual(assembleClass({ ...raw, cards: [['过时牌', 'invalid']] }, { key: archetype }).profile, built.profile);
         assert.equal(built.profile.classPassiveVersion, 1);
         assert.deepEqual(built.profile.classPassive, fixedClassPassive(archetype, 1, `${built.profile.id}-p1`));
         delete raw.passive;

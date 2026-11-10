@@ -2,6 +2,7 @@
 // 恐怖两套（A 断帧监控、B 无影灯）标记完全相同，只差装饰层与结束回合键，因此共用标记写在本文件并导出，combat-skin-dark-b.js 引用。
 // 样式：概念稿 common.css + grid.css + A.css（或 B.css）+ minimal.css 由 落盘/gen-skin-css.mjs 生成到 combat-skin-dark-<a|b>-concept-style.js，再加本文件的接线样式。
 import { esc } from './reader-value-utils.js';
+import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
@@ -119,7 +120,7 @@ function cardHtml(c, p, v, picks, energy, picking) {
     const extra = !sel && c.extra ? `<span class="xtra">${esc(c.extra)}</span>` : '';
     const delta = cardValueDelta(c);
     const hits = c.hits > 1 ? `<i class="hits" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 6))}</i>` : '';
-    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const valTip = sel && (c.valueTip || c.bonusNote) ? ` data-scale-tip="${esc(c.valueTip || c.bonusNote)}"` : '';
     const costNote = c.baseCost !== undefined ? `（原 ${c.baseCost}）` : '';
     const label = `${c.name} 消耗 ${c.cost} 点能量${costNote} ${c.keywords ? `${c.keywords}。` : ''}${c.text || ''}${c.scaleNote ? `。${c.scaleNote}` : ''}`;
     const cls = `card t-${t}${r ? ` r-${r[0]}` : ''}${bd ? ` ${bd}` : ''}${extra ? ' has-st' : ''}${poor ? ' poor' : ''}${lock ? ' lock' : ''}${sel ? ' sel' : ''}${v.hovered === c.inst ? ' is-hover' : ''}`
@@ -131,7 +132,7 @@ function cardHtml(c, p, v, picks, energy, picking) {
         + (!hasVal ? `<div class="val no-num" aria-hidden="true">${MOTIF[t]}</div>` : '')
         + (hasVal ? `<div class="val"><b${valTip}>${esc(c.value)}</b>${hits}<i class="vdir"></i><em class="u" title="${esc(c.unit)}">${UNIT[c.unit] || ''}</em></div><i class="ut">${esc(c.unit)}${delta ? `<span class="delta">${esc(delta)}</span>` : ''}</i>` : '')
         + badge + kwm + extra
-        + `<div class="full"><div class="kws">${kg}${c.stack > 1 ? `<i class="kg sk">×${esc(c.stack)}</i>` : ''}</div><p class="ds">${esc(c.fxText ?? c.text ?? '')}</p>`
+        + `<div class="full"><div class="kws">${kg}${c.stack > 1 ? `<i class="kg sk">×${esc(c.stack)}</i>` : ''}</div><p class="ds">${cardFxHtml(c)}</p>`
         + `${poor && live ? '<p class="sr bad">能量不足</p>' : ''}</div><i class="pk">✓</i></button>`;
 }
 

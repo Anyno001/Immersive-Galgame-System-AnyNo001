@@ -358,6 +358,7 @@ const requiresOp = {
 
 // 溅射：对指定目标造成伤害，再对其余存活敌人各造成一次与目标实际所受伤害相同的伤害。
 const splashOp = {
+    attribute: { ability: 'damage', key: 'amount', tier: 'normal', timing: 'static' },
     validate(effect, path, state, kit) {
         kit.checkKnownFields(effect, ['op', 'amount', 'hits', 'target'], path, state);
         const f = at(path, kit);

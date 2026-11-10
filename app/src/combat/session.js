@@ -17,9 +17,11 @@ import { battlePoints, battleTierOf, weakBattlePoints } from './points.js';
 import { heldOffCombat, winPointsBonus } from './relics/off-combat.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
 import { ABILITY_KEYS, ABILITY_LABELS, wantsAutoInit } from './abilities.js';
-import { scaleCatalog, scaleSkills } from './card-scaling.js';
+import { scaleSkills } from './card-scaling.js';
 import { ledgerEntryId, profileIdFor } from './schema.js';
 import { cardUsesPool, fixedPoolsFor } from './fixed-cards/index.js';
+import { cardArchetypeOf } from './card-origin.js';
+import { ATTRIBUTE_POLICY_VERSION, createAttributePolicy } from './attribute-policy.js';
 import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-templates.js';
 import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
@@ -175,6 +177,23 @@ function withBattleGrowth(catalog, growth, separate = new Set()) {
     return out;
 }
 
+function battleCatalog(character) {
+    const entries = character.catalog instanceof Map ? [...character.catalog] : Object.entries(character.catalog || {});
+    const origins = { ...Object.fromEntries((character.classProfile?.classPool || []).map(card => [card.id, card.archetype ?? character.classProfile.archetype])), ...character.cardOrigins };
+    return Object.fromEntries(entries.map(([id, card]) => [id, { ...card, archetype: cardArchetypeOf(card, origins) }]));
+}
+
+export function deckCardLoadout(character) {
+    const separate = new Set(character.deckEntries.filter((entry) => entry.localGrowth).map((entry) => entry.cardId));
+    const deck = character.deckEntries.map(({ localGrowth, ...entry }) => {
+        const shared = !localGrowth && separate.has(entry.cardId) ? character.battleGrowth?.cards?.[entry.cardId] : null;
+        if (!shared) return entry;
+        const bonus = { damage: Math.min(20, (shared.damage || 0) + (entry.bonus?.damage || 0)), block: Math.min(20, (shared.block || 0) + (entry.bonus?.block || 0)) };
+        return bonus.damage || bonus.block ? { ...entry, bonus } : entry;
+    });
+    return { deck, catalog: withBattleGrowth(battleCatalog(character), character.battleGrowth, separate) };
+}
+
 // 牌组角色 -> 战斗单位
 // 规则 v6：目录里有牌用到本职业 / 无色造牌池（random-card 的 pool）时，开战快照带 pools；否则不写字段，旧快照形状不变。
 function deckUnit(character) {
@@ -184,18 +203,13 @@ function deckUnit(character) {
     const catalogCards = character.catalog instanceof Map ? [...character.catalog.values()] : Object.values(character.catalog || {});
     const pools = catalogCards.some(cardUsesPool) ? fixedPoolsFor(character.classProfile?.archetype) : null;
     // 人偶镜副本不继承共享成长；同名的其他副本改从条目带入共享量，目录不再重复叠加。
-    const separate = new Set(character.deckEntries.filter((entry) => entry.localGrowth).map((entry) => entry.cardId));
-    const deck = character.deckEntries.map(({ localGrowth, ...entry }) => {
-        const shared = !localGrowth && separate.has(entry.cardId) ? character.battleGrowth?.cards?.[entry.cardId] : null;
-        if (!shared) return entry;
-        const bonus = { damage: Math.min(20, (shared.damage || 0) + (entry.bonus?.damage || 0)), block: Math.min(20, (shared.block || 0) + (entry.bonus?.block || 0)) };
-        return bonus.damage || bonus.block ? { ...entry, bonus } : entry;
-    });
+    const { deck, catalog } = deckCardLoadout(character);
     return {
         id: character.id, name: character.name, side: 'ally', kind: 'deck', maxHp: stats.hp,
         energy: character.profile.base.energy, draw: character.profile.base.draw, speed: stats.speed,
         deck,
-        catalog: withBattleGrowth(character.attributes?.scores ? scaleCatalog(character.catalog, character.attributes) : Object.fromEntries(character.catalog), character.battleGrowth, separate),
+        catalog,
+        attributePolicy: createAttributePolicy(character),
         passives: [
             tagSource('class')(character.classProfile?.classPassive),
             tagSource('personal')(kept.includes('passive') ? character.profile.personalPassive : null),
@@ -516,7 +530,7 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     // randomTargets（v0.39.2）：敌人在存活的我方单位中按种子随机选攻击对象。两者都只写进新建 setup，旧战斗按已存 setup 重放。
     // foeCap（规则 v6 敌方编制）：场上普通敌人最多 maxFoesOnField，空出的总位置只给爪牙；只写进新建 setup。
     const setup = {
-        rulesVersion: COMBAT_RULES.version, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
+        rulesVersion: COMBAT_RULES.version, attributeRules: ATTRIBUTE_POLICY_VERSION, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
         openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, crowd, trackHpLoss: true, rewardOwner: lobby.heroId, units: [...allies, ...enemies],
     };
     // 规则 v6 G3d：弱敌战标记只在为真时写进新建 setup，战报、奖励与账本重放只认已存值。

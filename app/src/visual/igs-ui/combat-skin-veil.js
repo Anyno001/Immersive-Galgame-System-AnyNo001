@@ -1,6 +1,7 @@
 // 黑幕皮肤 · 战斗中画面：照搬概念稿 gal/战斗界面设计稿/概念/第二轮/veil/common.js 的标记，假数据换成真实视图 v.battle。
 // 样式在 combat-skin-veil-concept-style.js（由设计稿 CSS 生成）与本文件末尾的接线样式。动作照旧走 data-combat-act / data-combat-id。
 import { esc } from './reader-value-utils.js';
+import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
@@ -84,7 +85,7 @@ function cardHtml(c, i, pos, v, picks, energy) {
     const lines = nameLines(`${c.name}`);
     // 数值居中、单位小字在下方，差值接在单位后；点放大牌的大数值弹出来源说明。
     const delta = cardValueDelta(c);
-    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const valTip = sel && (c.valueTip || c.bonusNote) ? ` data-scale-tip="${esc(c.valueTip || c.bonusNote)}"` : '';
     const val = Number.isFinite(c.value) ? `<div class="val"><b${valTip}>${esc(c.value)}</b><span class="ut">${esc(c.unit || '')}${delta ? `<i class="delta">${esc(delta)}</i>` : ''}</span></div>` : `<div class="val no-num">${MOTIF[t]}</div>`;
     const badge = chosen ? '' : `${c.stack > 1 ? `<i class="bd">×${esc(c.stack)}</i>` : ''}${c.upgraded ? '<i class="bd up">强</i>' : ''}`;
     const dear = c.baseCost !== undefined && c.cost > c.baseCost;
@@ -102,7 +103,7 @@ function cardHtml(c, i, pos, v, picks, energy) {
         + `<div class="plate"><div class="mt">${MOTIF[t]}</div></div>`
         + `<div class="nm">${lines.map((l) => `<span>${esc(l)}</span>`).join('')}</div>`
         + `${val}${kwm}${xtra}<div class="kws">${kws.map((k) => `<span class="kw" data-k="${esc(k)}"${KEYWORD_NAME_TIPS[k] ? ` data-scale-tip="${esc(KEYWORD_NAME_TIPS[k])}"` : ''}>${esc(k)}</span>`).join('')}</div>`
-        + `<div class="ds">${esc(c.fxText ?? c.text ?? '')}</div><div class="tip"></div><i class="ck">✓</i></div>`;
+        + `<div class="ds">${cardFxHtml(c)}</div><div class="tip"></div><i class="ck">✓</i></div>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {

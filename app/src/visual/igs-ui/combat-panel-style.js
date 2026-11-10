@@ -631,12 +631,14 @@ ${C} .igs-combat-card-type::before{content:"";width:6px;height:6px;border-radius
 ${C} .igs-combat-card-text{font-size:11.5px;line-height:1.45;color:var(--igs-cb-ink-soft);}
 ${C} .igs-combat-card-text .igs-scale-up{color:#5fd0b8;font-weight:600;}
 ${C} .igs-combat-card-text .igs-scale-down{color:var(--igs-cb-ink-faint);}
+${C} .igs-cx-canvas .card .igs-scale-up{color:var(--jade,var(--acc,var(--igs-cb-accent)));font-weight:600;}
+${C} .igs-cx-canvas .card .igs-scale-down{color:var(--dim,var(--igs-cb-ink-faint));}
 /* v4 关键字（不能打出、固有、虚无、临时、被丢弃时）单独成行排在效果前；减费的费用球转青绿；临时牌略降饱和度，与正常手牌区分（不加描边）。 */
 ${C} .igs-combat-card-kw{display:block;color:var(--igs-cb-ink);font-weight:600;}
 ${C} .igs-combat-card-cost.is-down{background:#5fd0b8;}
 ${C} .igs-combat-card.is-temp{filter:saturate(.55);}
 /* 带加成 / 减益的数字：虚下划线提示可点；点开的详情浮在面板根节点上（.igs-combat-scale-tip，坐标由面板写入 --tip-x / --tip-y，上方放不下时 data-below 放到数字下方）。 */
-${C} .igs-combat-card-text [data-scale-tip]{cursor:help;text-decoration:underline dotted;text-decoration-thickness:1px;text-underline-offset:2px;}
+${C} :is(.igs-combat-card-text,.igs-cx-canvas .card) [data-scale-tip]{cursor:help;text-decoration:underline dotted;text-decoration-thickness:1px;text-underline-offset:2px;}
 ${C}>.igs-combat-scale-tip{position:absolute;left:var(--tip-x,50%);top:var(--tip-y,50%);z-index:6;translate:-50% calc(-100% - 8px);max-width:min(240px,calc(100% - 16px));padding:6px 10px;box-sizing:border-box;border-radius:var(--igs-cb-r-m);background:${igsUiSurface(IGS_UI_THICKNESS.thick)};color:var(--igs-cb-ink);font-size:12px;line-height:1.5;letter-spacing:.04em;white-space:pre-line;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 10px 24px -10px rgba(0,0,0,.8),${IGS_UI_EDGE_NIGHT};}
 ${C}>.igs-combat-scale-tip[data-below]{translate:-50% 8px;}
 /* 人物特性详情：名称与稀有度（固有为暖色）、主动的能量与次数或被动的触发时机、效果、来历。 */

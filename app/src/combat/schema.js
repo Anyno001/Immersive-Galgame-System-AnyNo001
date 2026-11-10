@@ -19,6 +19,7 @@ import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js
 import { RELIC_MODELS, isCombatModel, relicById } from './relics/index.js';
 import { winPointsBonus } from './relics/off-combat.js';
 import { CLASS_PASSIVE_VERSION } from './class-passives.js';
+import { CARD_ARCHETYPES } from './attribute-policy.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
 
@@ -361,7 +362,7 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     if (!objectField(card, path, state)) return;
     const errorsBefore = state.errors.length;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance', 'model'], path, state);
+    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance', 'model', 'archetype'], path, state);
     const name = textField(card.name, at('name'), state, 20);
     const unplayable = card.unplayable === true;
     const result = {
@@ -374,6 +375,7 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
         flavor: textField(card.flavor, at('flavor'), state, 80, ''),
         skillRef: textField(card.skillRef, at('skillRef'), state, 20, name || ''),
     };
+    if (card.archetype !== undefined) result.archetype = enumField(card.archetype, at('archetype'), state, CARD_ARCHETYPES);
     for (const flag of CARD_FLAGS) {
         if (card[flag] === undefined) continue;
         if (typeof card[flag] !== 'boolean') addIssue(state, at(flag), 'expected-boolean');
@@ -539,7 +541,7 @@ function validateClassProfile(profile, path, state) {
         className: textField(profile.className, joinPath(path, 'className'), state, 12),
         archetype: enumField(profile.archetype, joinPath(path, 'archetype'), state, Object.keys(COMBAT_RULES.archetypes)),
         classPassive: validatePassive(profile.classPassive, joinPath(path, 'classPassive'), state),
-        classPool: arrayField(profile.classPool, joinPath(path, 'classPool'), state, 8, 16, cardValidatorFor(LOOT_RARITIES)),
+        classPool: arrayField(profile.classPool, joinPath(path, 'classPool'), state, 0, 16, cardValidatorFor(LOOT_RARITIES)),
     };
     if (profile.classPassiveVersion !== undefined) result.classPassiveVersion = intField(profile.classPassiveVersion, joinPath(path, 'classPassiveVersion'), state, CLASS_PASSIVE_VERSION, CLASS_PASSIVE_VERSION);
     checkDuplicateIds(result.classPool, joinPath(path, 'classPool'), state);
@@ -1103,10 +1105,18 @@ function validateLedgerPayload(type, payload, path, state) {
         // 规则 v6 积分抽卡：card-draw 付费抽出 REWARD_CARD_CHOICES 张本职业候选（背面朝上待翻），card-flip 翻开其中一张（每抽只能翻一次），
         // card-pick 把翻开的那张加入卡组（pick 为翻开的位置）或 skip 放弃（翻前翻后都可，不退款）。
         case 'card-draw': {
-            checkKnownFields(payload, ['drawId', 'choices', 'cost'], path, state);
+            checkKnownFields(payload, ['drawId', 'choices', 'cost', 'free'], path, state);
             const choices = arrayField(payload.choices, at('choices'), state, CARD_DRAW_CHOICES, CARD_DRAW_CHOICES, (card, cardPath, st) => validateCardEntry(card, cardPath, st, LOOT_RARITIES));
             if (Array.isArray(choices)) checkDuplicateIds(choices, at('choices'), state);
-            return { drawId: idField(payload.drawId, at('drawId'), state), choices, cost: intField(payload.cost, at('cost'), state, 0, 1e5) };
+            const cost = intField(payload.cost, at('cost'), state, 0, 1e5);
+            let free;
+            if (payload.free !== undefined) {
+                const freePath = at('free');
+                checkKnownFields(payload.free, ['level'], freePath, state);
+                free = { level: intField(payload.free?.level, joinPath(freePath, 'level'), state, 2, COMBAT_RULES.maxLevel) };
+                if (cost !== 0) addIssue(state, at('cost'), 'free-cost-not-zero');
+            }
+            return { drawId: idField(payload.drawId, at('drawId'), state), choices, cost, ...(free ? { free } : {}) };
         }
         case 'card-flip': {
             checkKnownFields(payload, ['drawId', 'position'], path, state);
@@ -1117,14 +1127,19 @@ function validateLedgerPayload(type, payload, path, state) {
             const pick = payload.pick === 'skip' ? 'skip' : intField(payload.pick, at('pick'), state, 0, CARD_DRAW_CHOICES - 1);
             return { drawId: idField(payload.drawId, at('drawId'), state), pick, ...addedFlag(payload, path, state, pick !== 'skip') };
         }
-        case 'card-upgrade':
-            checkKnownFields(payload, ['copyId', 'cardId', 'battle', 'reportId'], path, state);
+        case 'card-upgrade': {
+            checkKnownFields(payload, ['copyId', 'cardId', 'battle', 'reportId', 'level'], path, state);
+            const free = payload.level !== undefined;
+            if (free && (payload.battle !== undefined || payload.reportId !== undefined)) addIssue(state, path, 'upgrade-source-conflict');
             return {
                 copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN),
                 cardId: idField(payload.cardId, at('cardId'), state),
-                battle: intField(payload.battle, at('battle'), state, 1, 1e6),
-                reportId: textField(payload.reportId, at('reportId'), state, 40),
+                ...(free ? { level: intField(payload.level, at('level'), state, 2, COMBAT_RULES.maxLevel) } : {
+                    battle: intField(payload.battle, at('battle'), state, 1, 1e6),
+                    reportId: textField(payload.reportId, at('reportId'), state, 40),
+                }),
             };
+        }
         case 'purge':
             checkKnownFields(payload, ['copyId', 'cost', 'battle', 'reportId', 'costVersion'], path, state);
             return {

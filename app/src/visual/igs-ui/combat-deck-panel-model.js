@@ -1,25 +1,37 @@
 import { COMBAT_RULES, cardCopyLimit, signatureCardAt, signatureUnlockLevel, validateDeck } from '../../combat/rules.js';
-import { scaleCard } from '../../combat/card-scaling.js';
+import { cardFaceView } from '../../combat/battle-state.js';
+import { createAttributePolicy } from '../../combat/attribute-policy.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
-import { characterCombatStats, vitalsOf } from '../../combat/session.js';
+import { characterCombatStats, deckCardLoadout, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
-import { INSCRIPTION_TIPS, describeEffects, describeKeywords } from './combat-card-art.js';
-import { INSCRIPTION_LABELS, inscribedView } from '../../combat/mechanics/inscription.js';
+import { INSCRIPTION_TIPS, attributeNumberOptions, describeEffectParts, describeEffects, describeKeywordParts } from './combat-card-art.js';
+import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
 import { TRAIT_SLOT_COSTS, TRAIT_SLOT_MAX, innateTraitIds, keptInnateKinds, traitSlots, traitSwap } from '../../combat/traits.js';
 import { TREASURE_SLOT_MAX, slotGearList } from '../../combat/gear-slots.js';
 import { fixedCardGroup } from '../../combat/fixed-cards/index.js';
 import { relicText, resolveRelic } from '../../combat/relics/draw.js';
+import { upgradableRows } from '../../combat/ledger.js';
 
-const faceText = (c) => [describeKeywords(c), describeEffects(c?.effects)].filter(Boolean).join('。');
-// 复用战斗换算与说明，预览普通版和升级版；固定卡不带倍率。
-function cardPreview(card, attr) {
-    const preview = scaleCard(card, attr);
-    const s = preview?.scaling;
-    return { text: faceText(preview), upgradedText: preview?.upgraded ? faceText({ ...preview, ...preview.upgraded }) : '',
-        upgradedCost: preview?.upgraded?.cost ?? preview?.cost,
-        ...(s ? { scaling: { ability: s.ability, label: ABILITY_LABELS[s.ability] || s.ability, required: s.required, multiplier: s.multiplier } } : {}) };
+function facePresentation(card) {
+    const options = attributeNumberOptions(card);
+    const keywords = describeKeywordParts(card, options);
+    const effects = describeEffectParts(card?.effects, undefined, undefined, options);
+    const textParts = [...keywords, ...(keywords.length && effects.length ? [{ text: '。' }] : []), ...effects];
+    return { cost: card?.cost ?? '', text: textParts.map(part => part.text).join(''), textParts };
+}
+
+function cardPreview(card, character, entry = {}) {
+    if (!card) return facePresentation(null);
+    const { catalog, deck } = deckCardLoadout({ ...character, catalog: new Map([[card.id, card]]), deckEntries: [{ cardId: card.id, ...entry }] });
+    const policy = createAttributePolicy(character);
+    const owner = policy ? { attributePolicy: policy } : {};
+    const preview = cardFaceView(catalog[card.id], deck[0], owner, 6);
+    const after = card.upgraded ? facePresentation(cardFaceView(catalog[card.id], { ...deck[0], upgraded: true }, owner, 6)) : null;
+    return { ...facePresentation(preview), ...(after ? {
+        upgradedText: after.text, upgradedTextParts: after.textParts, upgradedCost: after.cost,
+    } : {}) };
 }
 
 // 卡组构筑面板的纯视图模型：账本归并状态 → 角色列表 / 详情 / 构筑草稿校验；不操作 DOM、不写表。
@@ -100,7 +112,7 @@ export function deckRosterView(state) {
         protagonist: v.attributes?.protagonist === true,
         deckSize: v.kind === 'deck-character' ? v.deck.length : 0,
         needsAdjust: v.kind === 'deck-character' && v.deckNeedsAdjust === true,
-        pendingRewards: v.kind === 'deck-character' ? v.pendingRewards.length : 0,
+        freeRewards: (v.freeDraws?.length || 0) + (v.freeUpgrades?.length || 0),
     }));
     // 卡组角色在前，同类按名字排序，保证列表顺序稳定。
     return list.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, 'zh') : a.kind === 'deck-character' ? -1 : 1));
@@ -122,11 +134,11 @@ const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, 
     ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
     text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : relicText(t.relic) });
 // 规则 v6 积分抽卡：未翻时 3 张背面朝上，只给张数、不透露牌面；翻开一张后给出全部牌面与翻开的位置（flipped），再决定加入卡组或放弃。
-const drawCardView = (card, attr) => ({ cardId: card.id, name: card.name || card.id, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '', ...cardPreview(card, attr) });
-const pendingDrawView = (pending, attr) => {
+const drawCardView = (card, character) => ({ cardId: card.id, name: card.name || card.id, type: card.type || '', rarity: card.rarity || '', ...cardPreview(card, character) });
+const pendingDrawView = (pending, character) => {
     if (!pending) return null;
     const base = { drawId: pending.drawId, count: (pending.choices || []).length };
-    return Number.isInteger(pending.flipped) ? { ...base, flipped: pending.flipped, choices: pending.choices.map((card) => drawCardView(card, attr)) } : base;
+    return Number.isInteger(pending.flipped) ? { ...base, flipped: pending.flipped, choices: pending.choices.map((card) => drawCardView(card, character)) } : base;
 };
 
 // v4 特性槽（助手 10-28，只主角）：slots 为当前槽数、max 为上限；innate 为保留着的固有特性（人物技能 / 个人被动，可被替换）；
@@ -158,14 +170,13 @@ function relicInscribeView(view) {
             const row = rows.get(copyId);
             const card = row ? view.catalog?.get(row.cardId) : null;
             if (!card) return null;
-            const scaled = scaleCard(card, view.attributes) || card;
-            const face = row.upgraded && scaled.upgraded ? { ...scaled, ...scaled.upgraded } : scaled;
-            const after = inscribedView(face, { inscription: item.inscription });
+            const face = cardPreview(card, view, row);
+            const after = cardPreview(card, view, { ...row, inscription: item.inscription });
             const nth = (seen.get(row.cardId) || 0) + 1;
             seen.set(row.cardId, nth);
             const label = [row.upgraded ? '已升级' : '', row.bonus?.damage ? `伤害 +${row.bonus.damage}` : '', row.bonus?.block ? `格挡 +${row.bonus.block}` : ''].filter(Boolean).join(' · ');
             return { copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', rarity: card.rarity || '', nth, label,
-                cost: face.cost ?? '', text: faceText(face), after: { cost: after.cost ?? '', text: faceText(after) } };
+                cost: face.cost, text: face.text, textParts: face.textParts, after: { cost: after.cost, text: after.text, textParts: after.textParts } };
         }).filter(Boolean);
         const twins = new Set(copies.filter((c) => c.nth > 1).map((c) => c.cardId));
         return { key: `${item.relic.relicId}|${item.relic.model}`, relicId: item.relic.relicId, model: item.relic.model, name: relic?.name || item.relic.relicId,
@@ -185,7 +196,7 @@ export function deckDetailView(view, draft) {
         combat, traits: (view.traits || []).map(traitView), pendingTrait: view.pendingTrait ? traitView(view.pendingTrait) : null,
         // 杂物键：账本背包为 lootId；主角背包投影（P7b）为 itemId（同名叠数量）。
         collection: (view.collection || []).map((k) => ({ ...k, key: k.lootId || k.itemId, price: sellPrice(k.rarity, k.lootId || k.itemId, { junk: k.junk === true }) })), points: view.points ?? 0, canSell: view.attributes?.protagonist === true,
-        pendingDraw: pendingDrawView(view.pendingDraw, view.attributes),
+        pendingDraw: pendingDrawView(view.pendingDraw, view),
         relLabel: REL_TIERS[view.attributes?.tier]?.label || '',
         abilities: allocView(view.attributes)?.rows || [] };
     if (view.kind === 'skill-character') {
@@ -208,7 +219,8 @@ export function deckDetailView(view, draft) {
         const label = [row.upgraded ? '已升级' : '', row.bonus?.damage ? `伤害 +${row.bonus.damage}` : '', row.bonus?.block ? `格挡 +${row.bonus.block}` : '',
             inscribed ? `刻印·${INSCRIPTION_LABELS[row.inscription]}` : ''].filter(Boolean).join(' · ');
         const list = variants.get(row.cardId) || new Map();
-        const item = list.get(label) || { label, tip: inscribed ? INSCRIPTION_TIPS[row.inscription] : '', owned: 0, inDeck: draft ? null : 0 };
+        const item = list.get(label) || { label, tip: inscribed ? INSCRIPTION_TIPS[row.inscription] : '', owned: 0, inDeck: draft ? null : 0,
+            ...cardPreview(view.catalog.get(row.cardId), view, row) };
         item.owned += 1;
         if (deckCopyIds.has(row.copyId)) item.inDeck += 1;
         list.set(label, item);
@@ -227,12 +239,10 @@ export function deckDetailView(view, draft) {
             source: personalIds.has(id) ? '个人牌' : isClassCard(id) ? '职业牌' : card?.rarity === 'basic' ? '基础牌' : card?.rarity === 'signature' ? '专属牌' : '其他已持有',
             upgraded: view.upgraded.get(id) || 0, inDeck: inDeck.get(id) || 0, errors: check.byCard.get(id) || [],
             variants: [...(variants.get(id)?.values() || [])],
-            canAdd: (inDeck.get(id) || 0) < n && cardCopyLimit(card?.rarity) > 0, ...cardPreview(card, view.attributes) };
+            canAdd: (inDeck.get(id) || 0) < n && cardCopyLimit(card?.rarity) > 0, ...cardPreview(card, view) };
     };
     const sortCards = (a, b) => (a.cost === b.cost ? a.name.localeCompare(b.name, 'zh') : costRank(a.cost) - costRank(b.cost));
     const owned = [...view.owned.entries()].filter(([, n]) => n > 0).map(([id, n]) => cardView(id, n)).sort(sortCards);
-    // 职业池只供预览，拥有数为零的牌不能在此直接加入卡组；含升阶追加卡，不含锁定专属。
-    const classCandidates = [...classIds].filter((id) => !(view.owned.get(id) > 0)).map((id) => cardView(id, 0)).sort(sortCards);
     const profile = view.profile || {};
     // 专属卡（v0.39.2）：按槽位列出，第 i 张在 signatureUnlockLevels[i] 级解锁；未解锁的不透露名称与效果，只给解锁等级。
     const signature = COMBAT_RULES.signatureUnlockLevels.map((level, i) => {
@@ -245,14 +255,21 @@ export function deckDetailView(view, draft) {
         ...base, gear: gearView(view), className: view.attributes?.className || view.className || '', hpMax: view.hpMax,
         traitSlots: base.canSell ? traitSlotView(view) : null,
         relicInscribe: base.canSell ? relicInscribeView(view) : [],
+        freeDraws: [...(view.freeDraws || [])], freeUpgrades: [...(view.freeUpgrades || [])],
+        upgradeCards: upgradableRows(view).map((row, index) => {
+            const card = view.catalog.get(row.cardId);
+            const preview = cardPreview(card, view, row);
+            return { copyId: row.copyId, name: card.name, nth: index + 1,
+                cost: preview.cost, text: preview.text, textParts: preview.textParts,
+                after: { cost: preview.upgradedCost, text: preview.upgradedText, textParts: preview.upgradedTextParts } };
+        }),
         // 职业阶（P-c）：classTier 一阶起，tierName 为阶名；expLevel 为按 EXP 推导的等级，升阶门槛按它判断（与账本归并一致）。
         classRef: view.classRef ?? null, classTier: view.classTier || 1, tierName: view.tierName || '', expLevel: view.level ?? 1,
         classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,
         personalPassive: profile.personalPassive ? { name: profile.personalPassive.name, text: describeEffects(profile.personalPassive.effects) } : null,
-        owned, classCandidates, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
+        owned, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
         // 规则 v6 卡组即持有：只有旧档案卡组需要调整时才开放加入 / 移出 / 保存。
         deckEditable: view.deckNeedsAdjust === true,
-        pendingRewards: [...view.pendingRewards],
     };
 }
 

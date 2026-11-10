@@ -1,6 +1,7 @@
 // 漫画皮肤 · 战斗中画面：照搬概念稿 gal/战斗界面设计稿/概念/第二轮/comic/common.js 的标记，假数据换成真实视图 v.battle。
 // 样式在 combat-skin-comic-concept-style.js（由设计稿 CSS 生成）与本文件末尾的接线样式。动作照旧走 data-combat-act / data-combat-id。
 import { esc } from './reader-value-utils.js';
+import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
@@ -66,7 +67,7 @@ function cardHtml(c, i, pos, v, picks, energy) {
     const cost = `<div class="cost${cut ? ' cut' : rise ? ' rise' : ''}">${cut || rise ? `<s>${esc(c.baseCost)}</s>` : ''}<b>${esc(c.cost)}</b></div>`;
     // 单位小字在数值下方，差值接在单位后；点放大牌的大数值弹出来源说明。没有数值的牌（能力等）在数值位放该牌型的母题图形，窄签不留空。
     const delta = cardValueDelta(c);
-    const valTip = sel && c.bonusNote ? ` data-scale-tip="${esc(c.bonusNote)}"` : '';
+    const valTip = sel && (c.valueTip || c.bonusNote) ? ` data-scale-tip="${esc(c.valueTip || c.bonusNote)}"` : '';
     const val = Number.isFinite(c.value) ? `<div class="val"><b${valTip}>${esc(c.value)}</b><span class="un">${esc(c.unit || '')}${delta ? `<i class="dl">${esc(delta)}</i>` : ''}</span></div>` : `<div class="val no-num"><b>${MOTIF[t]}</b></div>`;
     const hitbar = c.hits > 1 ? `<i class="hitbar" aria-hidden="true">${'<i></i>'.repeat(Math.min(c.hits, 6))}</i>` : '';
     const upk = c.upgraded ? '<i class="upk">强</i>' : '';
@@ -83,7 +84,7 @@ function cardHtml(c, i, pos, v, picks, energy) {
         + `${live ? '' : ' aria-disabled="true"'}${c.choosable ? ` aria-pressed="${chosen ? 'true' : 'false'}"` : ''} aria-label="${esc(label)}">`
         + `<div class="tab">${cost}<div class="name">${name}</div>${val}${badge}${hitbar}${xtra}${kmk}${upk}</div>`
         + `<div class="full">${cost}<div class="name">${name}</div><div class="motif">${MOTIF[t]}</div>${val}${hitbar}`
-        + `<p class="desc">${esc(c.fxText ?? c.text ?? '')}</p>${kx}${upk}</div></button>`;
+        + `<p class="desc">${cardFxHtml(c)}</p>${kx}${upk}</div></button>`;
 }
 
 function foeHtml(u, i, f, n, L, v, pick) {

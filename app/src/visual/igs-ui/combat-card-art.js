@@ -4,6 +4,7 @@ import { LOW_HP_RATIO } from '../../combat/battle-state.js';
 import { RECORD_ICONS, lineIconSvg } from './record-icons.js';
 import { cardMotifSvg } from './combat-card-motifs.js';
 import { describeRegistered, statusLabel } from '../../combat/mechanics/registry.js';
+import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { STATUS_CARD_TEXT } from '../../combat/mechanics/status-cards.js';
 import { INSCRIPTION_LABELS, INSCRIPTION_VALUES as IV, isInscription } from '../../combat/mechanics/inscription.js';
 
@@ -70,30 +71,31 @@ export const inscriptionLabel = (key) => (isInscription(key) ? INSCRIPTION_LABEL
 
 const on = (target) => (TARGET[target] ? `对${TARGET[target]}` : '');
 
-// fmt 只作用于可被属性换算的数值（伤害、格挡、治疗、状态层数），顺序与 card-scaling 的 effectNumbers 一致；kw 标出带注释的关键字（消耗）。
+// 旧标记沿用 effectNumbers 顺序；新标记按效果字段路径匹配。
 const plainNum = (n) => n;
 const plainWord = (key, word) => word;
-function effectText(e, fmt = plainNum, kw = plainWord) {
-    const sub = (list) => (list || []).map((t) => effectText(t, fmt, kw)).join('，');
+function effectText(e, fmt = plainNum, kw = plainWord, path = '') {
+    const num = (key, value = e?.[key], legacy = true) => fmt(value, `${path}.${key}`, legacy);
+    const sub = (list, key = 'then') => (list || []).map((t, index) => effectText(t, fmt, kw, `${path}.${key}.${index}`)).join('，');
     switch (e?.op) {
-        case 'damage': return `${on(e.target)}造成 ${fmt(e.amount)} 点伤害${e.hits > 1 ? ` ×${e.hits}` : ''}${e.strengthScale > 1 ? `，攻击力 ×${e.strengthScale} 生效` : ''}`;
-        case 'block': return `${on(e.target)}获得 ${fmt(e.amount)} 点格挡`;
-        case 'heal': return `${on(e.target)}回复 ${fmt(e.amount)} 点生命`;
+        case 'damage': return `${on(e.target)}造成 ${num('amount')} 点伤害${e.hits > 1 ? ` ×${e.hits}` : ''}${e.strengthScale > 1 ? `，攻击力 ×${e.strengthScale} 生效` : ''}`;
+        case 'block': return `${on(e.target)}获得 ${num('amount')} 点格挡`;
+        case 'heal': return `${on(e.target)}回复 ${num('amount')} 点生命`;
         case 'draw': return `抽 ${e.amount} 张牌`;
         case 'energy': return `获得 ${e.amount} 点能量`;
-        case 'status': return `${on(e.target)}施加 ${fmt(e.stacks)} 层${STATUS[e.status] || e.status}`;
+        case 'status': return `${on(e.target)}施加 ${num('stacks')} 层${STATUS[e.status] || e.status}`;
         case 'exhaust-self': return kw('exhaust', '消耗');
         case 'conditional': return `${(WHEN[e.when?.kind] || (() => ''))(e.when?.value)}${sub(e.then)}`;
         case 'damage-from-block': return `${on(e.target)}造成等同当前格挡的伤害`;
         case 'self-damage': return `失去 ${e.amount} 点生命`;
         case 'delayed-counter': return `失去 ${e.amount} 点生命，下回合对目标造成所失生命 ${e.mult} 倍的伤害${e.fizzle ? '；对方观望时落空' : ''}`;
         case 'mutual-damage': return `对目标造成 ${e.amount} 点伤害，自己同时失去 ${e.selfAmount ?? e.amount} 点生命`;
-        case 'random-branch': return `随机其一：${sub(e.a) || '无效果'}；${sub(e.b) || '无效果'}`;
+        case 'random-branch': return `随机其一：${sub(e.a, 'a') || '无效果'}；${sub(e.b, 'b') || '无效果'}`;
         case 'double': return `${on(e.target)}${DOUBLE_STAT[e.stat] || e.stat}翻倍`;
         case 'next-turn':
             if (e.gain === 'energy') return `下回合获得 ${e.amount} 点能量`;
             if (e.gain === 'draw') return `下回合多抽 ${e.amount} 张牌`;
-            return `下回合获得 ${e.stacks} 层${STATUS[e.status] || e.status}`;
+            return `下回合获得 ${num('stacks', e.stacks, false)} 层${STATUS[e.status] || e.status}`;
         case 'each-turn': return `${e.at === 'turn-end' ? '每回合结束时' : '每回合开始时'}：${sub(e.then)}`;
         case 'hand-cost': return `本回合手牌费用 ${e.amount}`;
         case 'heal-pct': return `${on(e.target)}回复 ${e.pct}% 生命`;
@@ -120,7 +122,7 @@ function effectText(e, fmt = plainNum, kw = plainWord) {
         }
         // 规则 v5 已登记机制的算子：交给其 describe（同一套数值格式化与关键字标记）；未登记的仍为空串。
         default: return describeRegistered(e, {
-            fmt, kw, sub, on, typed, times,
+            fmt: (value, key = 'amount', legacy = true) => num(key, value, legacy), kw, sub, on, typed, times,
             statusName: (key) => STATUS[key] || statusLabel(key) || key, pileName: (pile) => PILE[pile] || PILE.hand,
         });
     }
@@ -154,7 +156,7 @@ export function describeTrigger(trigger, cardType, filters = {}) {
 }
 
 // 卡牌关键字与被丢弃时效果的说明片段（排在效果说明前）：[{ text, tip? }]，有注释的关键字带 tip；没有关键字时为空数组。
-export function describeKeywordParts(card) {
+export function describeKeywordParts(card, numberOptions) {
     const groups = [];
     const word = (key, text) => groups.push([KEYWORD_TIPS[key] ? { text, tip: KEYWORD_TIPS[key] } : { text }]);
     if (card?.unplayable) word('unplayable', '不能打出');
@@ -165,7 +167,7 @@ export function describeKeywordParts(card) {
     if (card?.radiance !== undefined) word('radiance', `圣辉 ${card.radiance}`);
     if (card?.temp) word('temp', '临时');
     if (isInscription(card?.inscription)) groups.push([{ text: INSCRIPTION_LABELS[card.inscription], tip: INSCRIPTION_TIPS[card.inscription] }]);
-    if (Array.isArray(card?.onDiscard) && card.onDiscard.length) groups.push([{ text: '被丢弃时：' }, ...describeEffectParts(card.onDiscard)]);
+    if (Array.isArray(card?.onDiscard) && card.onDiscard.length) groups.push([{ text: '被丢弃时：' }, ...describeEffectParts(card.onDiscard, undefined, undefined, { ...numberOptions, root: 'onDiscard' })]);
     return groups.flatMap((g, i) => (i ? [{ text: '。' }, ...g] : g));
 }
 
@@ -174,14 +176,38 @@ export function describeKeywords(card) {
     return describeKeywordParts(card).map((p) => p.text).join('');
 }
 
-// 带增减标记的描述片段：marks 为 'up' / 'down' / 'same' 列表（card-scaling 的 scalingMarks），base 为换算前数值（可选，与 marks 同序）；
-// 返回 [{ text, mark?, base?, tip? }]，拼接后与 describeEffects 文本相同；带 mark 的数字在给了 base 时附换算前数值；关键字（消耗）带 tip 注释。渲染层只给带 mark 的数字着色。
-export function describeEffectParts(effects, marks, base) {
+export function attributeScalingTip(mark) {
+    if (!mark) return '';
+    const head = `${ABILITY_LABELS[mark.ability] || mark.ability} ×${mark.multiplier}${mark.tier === 'support' ? '（保守）' : ''}`;
+    if (mark.timing === 'deferred') return `${head}，最终效能合计后换算`;
+    if (!(mark.base > 0) || !Number.isFinite(mark.value)) return '';
+    const delta = mark.value - mark.base;
+    return `${head}，${mark.base}→${mark.value}（${delta > 0 ? '+' : ''}${delta}）`;
+}
+
+export function attributeNumberOptions(card) {
+    const marks = new Map((card?.attributeScaling || []).map(mark => [mark.path, mark]));
+    return { numberPart: ({ path }) => {
+        const mark = marks.get(path);
+        const tip = attributeScalingTip(mark);
+        if (!tip) return null;
+        if (mark.timing === 'deferred') return { tip };
+        const delta = mark.value - mark.base;
+        return { tip, mark: delta > 0 ? 'up' : delta < 0 ? 'down' : 'same' };
+    } };
+}
+
+// numberPart 接收字段路径与显示值；marks/base 仅服务历史整牌缩放。
+export function describeEffectParts(effects, marks, base, { root = 'effects', offset = 0, numberPart } = {}) {
     const tokens = [];
     const words = [];
-    const fmt = (n) => { tokens.push(n); return `\u0001${tokens.length - 1}\u0002`; };
+    let legacyIndex = 0;
+    const fmt = (value, path, legacy = true) => {
+        tokens.push({ value, path, index: legacy ? legacyIndex++ : null });
+        return `\u0001${tokens.length - 1}\u0002`;
+    };
     const kw = (key, word) => { words.push([key, word]); return `\u0003${words.length - 1}\u0004`; };
-    const text = (Array.isArray(effects) ? effects : []).map((e) => effectText(e, fmt, kw)).filter(Boolean).join('。');
+    const text = (Array.isArray(effects) ? effects : []).map((e, index) => effectText(e, fmt, kw, `${root}.${index + offset}`)).filter(Boolean).join('。');
     const parts = [];
     for (const piece of text.split(/(\u0001\d+\u0002|\u0003\d+\u0004)/)) {
         if (!piece) continue;
@@ -189,11 +215,13 @@ export function describeEffectParts(effects, marks, base) {
         if (w) { const [key, word] = words[Number(w[1])]; parts.push({ text: word, tip: KEYWORD_TIPS[key] }); continue; }
         const m = piece.match(/^\u0001(\d+)\u0002$/);
         if (!m) { parts.push({ text: piece }); continue; }
-        const i = Number(m[1]);
-        const mark = Array.isArray(marks) ? marks[i] : undefined;
-        if (mark !== 'up' && mark !== 'down') { parts.push({ text: String(tokens[i]) }); continue; }
-        const from = Array.isArray(base) ? base[i] : undefined;
-        parts.push(Number.isFinite(from) ? { text: String(tokens[i]), mark, base: from } : { text: String(tokens[i]), mark });
+        const token = tokens[Number(m[1])];
+        const part = typeof numberPart === 'function' ? numberPart(token) : null;
+        if (part) { parts.push({ text: String(token.value), ...part }); continue; }
+        const mark = token.index !== null && Array.isArray(marks) ? marks[token.index] : undefined;
+        if (mark !== 'up' && mark !== 'down') { parts.push({ text: String(token.value) }); continue; }
+        const from = Array.isArray(base) ? base[token.index] : undefined;
+        parts.push(Number.isFinite(from) ? { text: String(token.value), mark, base: from } : { text: String(token.value), mark });
     }
     return parts;
 }

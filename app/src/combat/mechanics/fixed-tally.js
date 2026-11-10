@@ -94,11 +94,11 @@ function countFields(effect, path, state, kit) {
 const countText = (e) => `${SOURCE_TEXT[e.source] || e.source}`;
 const limitText = (e) => (maxOf(e) < limitOf(e.source) ? `（至多计 ${e.max} 次）` : '');
 const countOf = (state, unit, e, aimId) => Math.min(maxOf(e), tallyOf(state, unit, e.source, aimId));
-const strikeOf = (e, count) => {
+const strikeOf = (e, count, amountOf = (_effect, value) => value) => {
     const hitsMode = e.mode === 'hits';
     return {
         op: 'damage',
-        amount: Math.min(99, e.amount + (hitsMode ? 0 : e.per * count)),
+        amount: amountOf(e, Math.min(99, e.amount + (hitsMode ? 0 : e.per * count))),
         hits: Math.min(COUNT_MAX, (e.hits ?? 1) + (hitsMode ? e.per * count : 0)),
         target: e.target ?? 'enemy',
     };
@@ -114,6 +114,7 @@ registerMechanic({
     ops: {
         // 按计数加伤（mode damage）或加段（mode hits）。
         'tally-strike': {
+            attribute: { ability: 'damage', key: 'amount', tier: 'normal', timing: 'deferred' },
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount', 'hits', 'mode', 'source', 'per', 'max', 'target'], path, state);
                 const at = (key) => kit.joinPath(path, key);
@@ -127,7 +128,7 @@ registerMechanic({
                 };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
-                kit.strike(ctx, unit, strikeOf(effect, countOf(ctx.state, unit, effect, aimId)), aimId, source);
+                kit.strike(ctx, unit, strikeOf(effect, countOf(ctx.state, unit, effect, aimId), kit.attributeAmount), aimId, source);
             },
             value: (e) => {
                 const s = strikeOf(e, capped(e));
@@ -137,13 +138,14 @@ registerMechanic({
                 const s = strikeOf(e, maxOf(e));
                 return s.amount * s.hits;
             },
-            estimateDamage: (e, kit) => kit.estimate([strikeOf(e, countOf(kit.state, kit.attacker, e, kit.aimId))]),
+            estimateDamage: (e, kit) => kit.estimate([strikeOf(e, countOf(kit.state, kit.attacker, e, kit.aimId), kit.attributeAmount)]),
             describe: (e, kit) => `${kit.on(e.target)}造成 ${kit.fmt(e.amount)} 点伤害${e.hits > 1 ? ` ×${e.hits}` : ''}；${countText(e)}，${e.mode === 'hits' ? `多打 ${e.per} 段` : `伤害 +${e.per}`}${limitText(e)}`,
             brief: (e) => `计数${e.mode === 'hits' ? '连击' : '加伤'}`,
             scale: { ability: 'phys', key: 'amount', max: 40 },
         },
         // 按计数加格挡：amount 为基础格挡（可为 0），每计数 +per。
         'tally-guard': {
+            attribute: { ability: 'block', key: 'amount', tier: 'normal', timing: 'deferred' },
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount', 'source', 'per', 'max', 'target'], path, state);
                 const at = (key) => kit.joinPath(path, key);
@@ -155,16 +157,17 @@ registerMechanic({
                 };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
-                const amount = Math.min(99, (effect.amount || 0) + effect.per * countOf(ctx.state, unit, effect, aimId));
+                const amount = kit.attributeAmount(effect, Math.min(99, (effect.amount || 0) + effect.per * countOf(ctx.state, unit, effect, aimId)));
                 for (const target of kit.targets()) kit.gainBlock(ctx, target, kit.computeBlock(unit, amount, target, ctx.state.rulesVersion, source?.kind), source);
             },
             value: (e) => ((e.amount || 0) + e.per * capped(e)) * 1.6 * targetFactor(e.target),
-            estimateBlock: (e, kit) => kit.computeBlock(kit.unit, Math.min(99, (e.amount || 0) + e.per * countOf(undefined, kit.unit, e)), kit.unit, kit.rulesVersion),
-            describe: (e, kit) => `${kit.on(e.target)}获得 ${e.amount} 点格挡；${countText(e)}，再 +${e.per}${limitText(e)}`,
+            estimateBlock: (e, kit) => kit.computeBlock(kit.unit, kit.attributeAmount(e, Math.min(99, (e.amount || 0) + e.per * countOf(kit.state, kit.unit, e, kit.aimId))), kit.unit, kit.rulesVersion),
+            describe: (e, kit) => `${kit.on(e.target)}获得 ${kit.fmt(e.amount, 'amount', false)} 点格挡；${countText(e)}，再 +${e.per}${limitText(e)}`,
             brief: () => '计数格挡',
         },
         // 规则 v6 G5e 按计数回复：amount 为基础回复（可为 0），每计数 +per，单次至多 HEAL_MAX；v5 及更早不结算。
         'tally-heal': {
+            attribute: { ability: 'heal', key: 'amount', tier: 'normal', timing: 'deferred', max: HEAL_MAX },
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount', 'source', 'per', 'max', 'target'], path, state);
                 const at = (key) => kit.joinPath(path, key);
@@ -177,13 +180,13 @@ registerMechanic({
             },
             apply(ctx, unit, effect, aimId, source, kit) {
                 if (!(ctx.state.rulesVersion >= 6)) return;
-                const amount = Math.min(HEAL_MAX, (effect.amount || 0) + (effect.per ?? 1) * countOf(ctx.state, unit, effect, aimId));
+                const amount = kit.attributeAmount(effect, Math.min(HEAL_MAX, (effect.amount || 0) + (effect.per ?? 1) * countOf(ctx.state, unit, effect, aimId)));
                 if (amount <= 0) return;
                 for (const target of kit.targets()) kit.heal(ctx, target, amount, source);
             },
             // 估值按计数上限（G5e：动态数量的估值与预算按上限算），回复每点 2，单次封顶 HEAL_MAX。
             value: (e) => Math.min(HEAL_MAX, (e.amount || 0) + (e.per ?? 1) * maxOf(e)) * 2 * targetFactor(e.target),
-            describe: (e, kit) => `${kit.on(e.target)}回复 ${e.amount || 0} 点生命；${countText(e)}，再 +${e.per ?? 1}${limitText(e)}`,
+            describe: (e, kit) => `${kit.on(e.target)}回复 ${kit.fmt(e.amount || 0, 'amount', false)} 点生命；${countText(e)}，再 +${e.per ?? 1}${limitText(e)}`,
             brief: () => '计数回复',
         },
     },

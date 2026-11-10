@@ -32,9 +32,10 @@ function orbHit(ctx, unit, target, amount, kind, kit) {
     kit.dealDamage(ctx, target, value, orbSource(unit, kind), 'orb', true);
 }
 // 雷珠：打随机一名敌人；有雷暴（M05）时打全体敌人。
-function lightning(ctx, unit, amount, kit) {
+function lightning(ctx, unit, amount, kit, orb) {
     const foes = foesOf(ctx.state, unit);
     if (ctx.state.rulesVersion >= 6) amount += st(unit, 'arc-core');
+    amount = kit.attributeAmount(orb, amount);
     if (!foes.length || amount <= 0) return;
     const hit = st(unit, 'arc-storm') ? foes : [foes[kit.rollInt(ctx.state, foes.length)]];
     for (const foe of hit) orbHit(ctx, unit, foe, amount, 'lightning', kit);
@@ -52,12 +53,12 @@ function orbBlock(ctx, unit, amount, kit) {
 // 被动（M02）：雷珠打随机敌人、霜珠给格挡、蚀珠蓄积、晶珠打全体并递减（减到 0 不再造成伤害）；源珠给能量，不吃专注。
 function passive(ctx, unit, orb, kit) {
     if (!unit.alive || ctx.state.outcome) return;
-    if (orb.kind === 'lightning') lightning(ctx, unit, valueOf(unit, 3), kit);
-    else if (orb.kind === 'frost') orbBlock(ctx, unit, valueOf(unit, 2), kit);
-    else if (orb.kind === 'dark') orb.charge = Math.min(99, (orb.charge || 0) + valueOf(unit, 6));
+    if (orb.kind === 'lightning') lightning(ctx, unit, valueOf(unit, 3), kit, orb);
+    else if (orb.kind === 'frost') orbBlock(ctx, unit, kit.attributeAmount(orb, valueOf(unit, 2)), kit);
+    else if (orb.kind === 'dark') orb.charge = Math.min(99, (orb.charge || 0) + kit.attributeAmount(orb, valueOf(unit, 6)));
     else if (orb.kind === 'plasma') gainEnergy(ctx, unit, 1, kit);
     else if (orb.kind === 'glass' && (orb.charge || 0) > 0) {
-        const amount = valueOf(unit, orb.charge);
+        const amount = kit.attributeAmount(orb, valueOf(unit, orb.charge));
         for (const foe of foesOf(ctx.state, unit)) orbHit(ctx, unit, foe, amount, 'glass', kit);
         orb.charge -= 1;
     }
@@ -66,19 +67,22 @@ function passive(ctx, unit, orb, kit) {
 function evoke(ctx, unit, orb, kit) {
     if (!unit.alive || ctx.state.outcome) return;
     kit.emit(ctx, { type: 'evoke', unitId: unit.id, orb: orb.kind });
-    if (orb.kind === 'lightning') lightning(ctx, unit, valueOf(unit, 8) + st(unit, 'arc-boost'), kit);
-    else if (orb.kind === 'frost') orbBlock(ctx, unit, valueOf(unit, 5), kit);
+    if (orb.kind === 'lightning') lightning(ctx, unit, valueOf(unit, 8) + st(unit, 'arc-boost'), kit, orb);
+    else if (orb.kind === 'frost') orbBlock(ctx, unit, kit.attributeAmount(orb, valueOf(unit, 5)), kit);
     else if (orb.kind === 'dark') orbHit(ctx, unit, weakestFoe(ctx.state, unit), orb.charge || 0, 'dark', kit);
     else if (orb.kind === 'plasma') gainEnergy(ctx, unit, 2, kit);
-    else if (orb.kind === 'glass') for (const foe of foesOf(ctx.state, unit)) orbHit(ctx, unit, foe, valueOf(unit, 8), 'glass', kit);
+    else if (orb.kind === 'glass') for (const foe of foesOf(ctx.state, unit)) orbHit(ctx, unit, foe, kit.attributeAmount(orb, valueOf(unit, 8)), 'glass', kit);
 }
 // 凝结（M01）：满槽时先引发最早的一颗再放入；蚀珠初始蓄积 6，晶珠初始 4。
-function channel(ctx, unit, kind, kit) {
+function channel(ctx, unit, kind, kit, attribute) {
     const orbs = orbsOf(ctx, unit, kit);
     if (!orbs || !unit.alive || ctx.state.outcome) return;
     if (orbs.list.length >= orbs.slots) evoke(ctx, unit, orbs.list.shift(), kit);
     if (!unit.alive || ctx.state.outcome) return;
-    orbs.list.push(kind === 'dark' ? { kind, charge: 6 } : kind === 'glass' ? { kind, charge: 4 } : { kind });
+    const orb = { kind, ...(attribute && kind !== 'plasma' ? { _attribute: { ...attribute } } : {}) };
+    if (kind === 'dark') orb.charge = kit.attributeAmount(orb, 6);
+    else if (kind === 'glass') orb.charge = 4;
+    orbs.list.push(orb);
     kit.emit(ctx, { type: 'channel', unitId: unit.id, orb: kind });
     // 规则 v6 G5b：凝结法珠后（被动可按 orb 过滤种类）。
     if (ctx.state.rulesVersion >= 6) kit.fireBus(ctx, unit, 'orb-channel', null, { orb: kind });
@@ -119,16 +123,17 @@ registerMechanic({
     ],
     ops: {
         channel: {
+            attribute: effect => effect.orb === 'plasma' ? null : { ability: 'int', key: 'amount', tier: 'support', timing: 'deferred' },
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'orb', 'amount'], path, state);
                 const orb = kit.enumField(effect.orb, kit.joinPath(path, 'orb'), state, ORB_KINDS);
                 return orb ? { op: 'channel', orb, amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 3, 1) } : undefined;
             },
             apply(ctx, unit, effect, aimId, source, kit) {
-                for (let i = 0; i < effect.amount && unit.alive && !ctx.state.outcome; i += 1) channel(ctx, unit, effect.orb, kit);
+                for (let i = 0; i < effect.amount && unit.alive && !ctx.state.outcome; i += 1) channel(ctx, unit, effect.orb, kit, effect._attribute);
             },
             value: (e) => e.amount * (ORB_VALUE[e.orb] || 0),
-            describe: (e) => `凝结 ${e.amount} 颗${ORB_NAME[e.orb]}`,
+            describe: (e, kit) => `凝结 ${kit.fmt(e.amount, 'amount', false)} 颗${ORB_NAME[e.orb]}`,
             brief: (e) => `${ORB_NAME[e.orb]}${e.amount}`,
         },
         evoke: {
@@ -195,19 +200,31 @@ registerMechanic({
         // 雷心（M07）：每打出一张能力牌凝结层数颗雷珠；只算出牌前已有的雷心，带雷心的这张牌本身不触发。
         'play-before'(ctx, { unit, card }, kit) {
             const n = card?.type === 'power' ? st(unit, 'storm-heart') : 0;
-            if (n) kit.resOf(ctx, unit).stormArmed = n;
+            if (n) {
+                const res = kit.resOf(ctx, unit);
+                res.stormArmed = n;
+                const sources = kit.statusSources(unit, 'storm-heart');
+                if (sources.some(group => group._attribute)) res.stormArmedSources = sources.map(group => ({ ...group }));
+            }
         },
         'play-after'(ctx, { unit }, kit) {
             const n = unit.res?.stormArmed || 0;
             if (!n) return;
+            const sources = unit.res.stormArmedSources || [{ stacks: n }];
             delete unit.res.stormArmed;
+            delete unit.res.stormArmedSources;
             if (!Object.keys(unit.res).length) delete unit.res;
-            for (let i = 0; i < n && unit.alive && !ctx.state.outcome; i += 1) channel(ctx, unit, 'lightning', kit);
+            for (const group of sources) {
+                for (let i = 0; i < group.stacks && unit.alive && !ctx.state.outcome; i += 1) channel(ctx, unit, 'lightning', kit, group._attribute);
+            }
         },
         // 静电（M07）：受到未被格挡的攻击伤害时凝结层数颗雷珠。
         'damage-after'(ctx, { target, kind, hpLoss }, kit) {
             const n = kind === 'attack' && hpLoss > 0 && target.kind === 'deck' ? st(target, 'static-shell') : 0;
-            for (let i = 0; i < n && target.alive && !ctx.state.outcome; i += 1) channel(ctx, target, 'lightning', kit);
+            if (!n) return;
+            for (const group of kit.statusSources(target, 'static-shell')) {
+                for (let i = 0; i < group.stacks && target.alive && !ctx.state.outcome; i += 1) channel(ctx, target, 'lightning', kit, group._attribute);
+            }
         },
     },
     report(event, kit) {

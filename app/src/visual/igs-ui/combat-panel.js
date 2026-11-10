@@ -13,7 +13,7 @@ import { createDuelLowGate } from '../../scene/intimate-duel.js';
 import { combatPortraitNames } from '../../scene/creature-battle.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
-import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, rewardChoices, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
+import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
 import { cardTipHtml, combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
 import { autoTargetFor, openTargetPicker, skinPickerVars } from './combat-target-picker.js';
@@ -125,7 +125,7 @@ export function createCombatPanelController(doc, options = {}) {
     let canvasOrient = 'port';
     let controlledId = null;
     let fxSeq = 0;
-    let rewards = null;
+
     let abort = null;
     // 上次渲染时的能量液面（0–1）；重绘后从这里过渡到新液面。
     let lastFill = null;
@@ -366,7 +366,7 @@ export function createCombatPanelController(doc, options = {}) {
         const s = session();
         const cur = s ? s.state() : { status: 'unavailable' };
         // 留档写入失败只提示、不阻断：面板自己没有提示时显示留档原因。
-        const view = { status: cur.status, reason: cur.reason || '', notice: notice || (cur.recordError ? combatReasonText(cur.recordError) : ''), pending, selected, controlledId, rewards, skin: skinOf(), front: frontFoe, orient: canvasOrient, abandonArmed };
+        const view = { status: cur.status, reason: cur.reason || '', notice: notice || (cur.recordError ? combatReasonText(cur.recordError) : ''), pending, selected, controlledId, skin: skinOf(), front: frontFoe, orient: canvasOrient, abandonArmed };
         if (cur.status === 'blocked' && Array.isArray(cur.rejected)) {
             const lead = cur.rejected.find((r) => r?.fallback?.kind === 'blocked') || cur.rejected[0];
             view.cause = lead?.errors?.[0]?.reason || '';
@@ -712,7 +712,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (v?.status === drawnStatus && (v?.recordError || '') === drawnRecordError && flipSig(v) === drawnFlip) return;
         if (settling) return;
         onCardArtUpdated();
-        if (v?.status === 'done') loadRewards();
+
     }
 
     function clearCutins() {
@@ -1559,7 +1559,7 @@ export function createCombatPanelController(doc, options = {}) {
         say(r);
         if (r.session?.lobby) controlledId = r.session.lobby.heroId ?? 'hero';
         render();
-        if (r.session?.status === 'done') loadRewards();
+
         runFollowUp(r.session);
         return r;
     }
@@ -1608,7 +1608,7 @@ export function createCombatPanelController(doc, options = {}) {
         pending = '';
         say(r);
         render();
-        if (r.ok && r.session?.status === 'done') loadRewards();
+
         return r;
     }
 
@@ -1869,39 +1869,6 @@ export function createCombatPanelController(doc, options = {}) {
         return true;
     }
 
-    // 升级三选一：账本里仍有未领取的等级奖励时逐级给出；只接受本次给出的选项。
-    async function loadRewards() {
-        const ledger = typeof options.getLedger === 'function' ? options.getLedger() : null;
-        if (!ledger) return;
-        const my = token;
-        let st;
-        try { st = await ledger.effectiveState(); } catch (error) { st = { ok: false, reason: 'combat-ledger-read-failed' }; }
-        if (my !== token) return;
-        rewards = null;
-        if (!st.ok) notice = combatReasonText(st.reason);
-        else {
-            const seed = session()?.state().reportId || '';
-            for (const view of st.characters.values()) {
-                if (view.kind !== 'deck-character' || !view.pendingRewards.length) continue;
-                rewards = { characterId: view.id, name: view.name, ...rewardChoices(view, view.pendingRewards[0], seed) };
-                break;
-            }
-        }
-        render();
-    }
-
-    async function claimReward(id) {
-        const ledger = typeof options.getLedger === 'function' ? options.getLedger() : null;
-        if (!ledger || !rewards || pending) return { ok: false, reason: pending ? 'combat-busy' : 'combat-reward-unavailable' };
-        const [kind, value = ''] = String(id || '').split(':');
-        const offered = kind === 'card' ? rewards.cards.some((c) => c.cardId === value)
-            : kind === 'upgrade' ? rewards.upgrades.some((u) => u.targetId === value) : kind === 'skip';
-        if (!offered) return { ok: false, reason: 'combat-reward-choice-invalid' };
-        const choice = kind === 'card' ? { kind, cardId: value } : kind === 'upgrade' ? { kind, targetId: value } : { kind: 'skip' };
-        const r = await runAsync('reward', () => ledger.claimReward(rewards.characterId, rewards.level, choice));
-        if (r.ok) await loadRewards();
-        return r;
-    }
 
     // 「重试」：阻断原因来自数据库表（缺表、未载入、建表失败等）时，先经服务再补建一次（清掉上次建表失败的记忆），再重新准备。
     async function retryPrepare() {
@@ -2041,7 +2008,7 @@ export function createCombatPanelController(doc, options = {}) {
                 clearTimeout(abandonTimer);
                 return sendAndLeave(() => s.abandon());
             }
-            case 'reward': return claimReward(id);
+
             default: return { ok: false, reason: 'combat-action-unknown' };
         }
     }
@@ -2363,7 +2330,7 @@ export function createCombatPanelController(doc, options = {}) {
         preview = openOptions.preview && typeof openOptions.preview === 'object' ? openOptions.preview : null;
         historyOpen = openOptions.history === true;
         purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = '';
-        notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; rewards = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
+        notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         frontFoe = '';
         token += 1;
         pageOverlay = overlay;
@@ -2413,8 +2380,7 @@ export function createCombatPanelController(doc, options = {}) {
         // 鞭尸中途关掉面板：重开时敌人已全灭，停顿后照常结束回合判胜。
         maybeFinish();
         if (messageId !== null && !busy && !same) prepare();
-        else if (cur.status === 'done') loadRewards();
-        else runFollowUp(cur);
+        else if (cur.status !== 'done') runFollowUp(cur);
         // 焦点落在面板本身而不是关闭按钮：打开时右上角不画焦点环，按 Tab 仍从关闭按钮开始。
         root.focus?.();
         return { ok: true };
@@ -2480,7 +2446,7 @@ export function createCombatPanelController(doc, options = {}) {
         setStagePauseReason(pageOverlay, PAUSE_REASON, false);
         battleMusic(pageOverlay, false);
         pageOverlay = null;
-        pending = ''; rewards = null; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null; purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = '';
+        pending = ''; selected = null; chosen = []; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null; purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = '';
         const focus = previousFocus;
         previousFocus = null;
         focus?.focus?.();
