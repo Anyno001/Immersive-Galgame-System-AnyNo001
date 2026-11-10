@@ -1126,10 +1126,11 @@ function validateLedgerPayload(type, payload, path, state) {
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
             };
         case 'purge':
-            checkKnownFields(payload, ['copyId', 'cost', 'battle', 'reportId'], path, state);
+            checkKnownFields(payload, ['copyId', 'cost', 'battle', 'reportId', 'costVersion'], path, state);
             return {
                 copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN), cost: intField(payload.cost, at('cost'), state, 0, 1e5), battle: intField(payload.battle, at('battle'), state, 1, 1e6),
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
+                ...(payload.costVersion === undefined ? {} : { costVersion: intField(payload.costVersion, at('costVersion'), state, 1, 1) }),
             };
         // 规则 v6 G5g 战斗胜利积分：锚定胜利战报楼，amount 由程序按档位与战斗 ID 定额（10–30）。
         // G5f-4c：bonus 为写入时持有的加金币遗物特性快照（relics），points / hpMax 必须等于按引用与定额重算的值。

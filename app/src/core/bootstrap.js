@@ -93,6 +93,7 @@ import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-trig
 import { collectPromptContext } from '../host/prompt-context.js';
 import { createCombatServices } from './combat-services.js';
 import { createCombatChatRecord } from '../host/combat-chat-record.js';
+import { createPointsFloorRecord } from '../host/points-floor-record.js';
 import { createCombatGenerationMaterials } from '../host/combat-generation-materials.js';
 import { createCombatStoryContext } from '../host/combat-story-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
@@ -423,6 +424,7 @@ export function bootstrapIGS(options = {}) {
         global: globalObject,
         storage: storageLike,
         chatRecord: createCombatChatRecord(globalObject),
+        pointsFloorRecord: createPointsFloorRecord(globalObject),
         send: (text, options) => typeAndSend(text, options),
         request: (prompt, llm) => secondaryLlm.request(prompt, llm),
         getReaderSettings: () => (getUnifiedSettingsSnapshot() || {}).readerSettings || {},
@@ -560,6 +562,8 @@ export function bootstrapIGS(options = {}) {
         saveUnifiedSettings,
         typeAndSend,
         // 卡牌战斗：只接数据与服务回调，战斗面板界面尚未接入。
+        gamePointsRounds: (game, messageId) => combatServices.gamePointsRounds?.(game, messageId),
+        mahjongPointsRounds: messageId => combatServices.mahjongPointsRounds?.(messageId),
         getCombatSession: () => combatServices.getSession(),
         getChallengeHistory: () => (typeof combatServices.challengeHistory === 'function' ? combatServices.challengeHistory() : null),
         getChallengeQuota: (messageId) => (typeof combatServices.challengePromptQuota === 'function' ? combatServices.challengePromptQuota(messageId) : null),
@@ -888,6 +892,7 @@ export function bootstrapIGS(options = {}) {
         statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
         // 剧情货币是物品表里的一行：与战斗共用背包写口。
         currencyInventory: () => (typeof combatServices.inventoryTables === 'function' ? combatServices.inventoryTables() : null),
+        pointsExchange: () => combatServices.points?.() || null,
         combatPrompt: (type) => {
             const readerSettings = (getUnifiedSettingsSnapshot() || {}).readerSettings;
             if (!combatExpansionEnabled(readerSettings)) return null;
@@ -947,6 +952,7 @@ export function bootstrapIGS(options = {}) {
         readProfiles: () => createModelProfilesStore(globalObject).read(),
         secondaryLlm,
         combatServices,
+        statsRuntime,
         notice: (level, text) => { const notice = app.igsUi && app.igsUi.showImageNotice; if (typeof notice === 'function') notice.call(app.igsUi, level, text); },
         openSettings: () => publicApi.openSettings({ tab: 'origin' }),
         legacyActive: () => originLegacyActive(globalObject),

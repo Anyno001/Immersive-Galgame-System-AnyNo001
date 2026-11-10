@@ -24,7 +24,7 @@ import { defaultHeroSkill, itemEffectsForBattle, ultimateSkill } from './card-te
 import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
 import { hash32 } from './random.js';
-import { extractCombatStart } from '../scene/combat-directives.js';
+import { extractCombatStart, extractGrowthDirectives } from '../scene/combat-directives.js';
 import { parseChallengeStart } from '../scene/challenge-directives.js';
 import { chooseAllyPlay } from './policy.js';
 import { buildChallengeSetup, challengeCombatIdFor, challengeOutcomeOf, challengeResultOf } from './challenge-setup.js';
@@ -1506,7 +1506,39 @@ export function createCombatSession(options = {}) {
     }
 
     // 把战报发进聊天：战报楼已存在则直接收尾；发送失败进入 send-failed 可重试
-    async function deliverReport(report) {
+    function deliverReport(report) {
+        const identity = identityOf(current);
+        const paid = extractGrowthDirectives(report.text, { raw: true }).directives.filter(d =>
+            d.kind === 'purge' || (d.kind === 'loot' && d.set === 'reserve'));
+        const deliver = async () => {
+            if (current.combatId !== identity.combatId || !['ended', 'send-failed'].includes(current.status)) return fail('request-stale');
+            if (!isCurrent(current)) return floorChanged();
+            const existing = findReportFloor(getChat(), current.anchor.messageId, report.reportId);
+            if (existing >= 0) return settleReport(report, existing);
+            if (paid.length) {
+                if (typeof options.pointsSpendingGate === 'function') {
+                    const allowed = await options.pointsSpendingGate();
+                    if (!allowed?.ok) return fail(allowed?.reason || 'points-settlement-pending');
+                }
+                const state = await ledger.effectiveState();
+                if (!state?.ok) return fail(state?.reason || 'combat-ledger-read-failed');
+                const hero = state.characters.get(state.attributes?.heroId);
+                let cost = 0;
+                for (const directive of paid) {
+                    if (directive.kind === 'loot') cost += REROLL_COST;
+                    else {
+                        const chance = purgeChance(hero, report.reportId);
+                        if (!chance.available) return fail(chance.reason);
+                        cost += chance.cost;
+                    }
+                }
+                if ((hero?.points || 0) < cost) return fail('combat-points-insufficient');
+            }
+            return deliverReportOnce(report);
+        };
+        return paid.length && typeof ledger?.withPointsLock === 'function' ? ledger.withPointsLock(deliver) : deliver();
+    }
+    async function deliverReportOnce(report) {
         const existing = findReportFloor(getChat(), current.anchor.messageId, report.reportId);
         if (existing >= 0) return settleReport(report, existing);
         if (sending) return fail('combat-report-sending');

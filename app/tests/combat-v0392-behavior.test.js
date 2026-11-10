@@ -1287,7 +1287,47 @@ test('规则 v6 按场次删卡：第 5 场胜利战报里的删牌标签入账�
     const small = { kind: 'deck-character', battleWins: new Set([1, 2, 3, 4, 5]), purges: 0, purgedAt: new Set(), deck: Array(10).fill('c1') };
     assert.equal(purgeOpportunity(small).reason, 'combat-purge-deck-min');
     assert.equal(purgeOpportunity({ ...small, deck: Array(11).fill('c1') }).available, true);
+    const { purgeCost } = await import('../src/combat/points.js');
+    for (const [used, cost] of [[0, 75], [8, 475], [9, 500], [10, 500], [100, 500]]) {
+        assert.equal(purgeCost(used), cost);
+        assert.equal(purgeOpportunity({ ...small, purges: used, deck: Array(11).fill('c1') }).cost, cost);
+    }
+    assert.equal(purgeCost(9, 0), 525, '历史记录仍按原费用策略重放');
+    assert.equal(tables.ledger.find((e) => e.type === 'purge').payload.costVersion, 1);
 });
+test('删卡费用版本：新记录第十次封顶500，历史第十次525保持原值重放', async () => {
+    const { reportIdFor } = await import('../src/combat/report.js');
+    const { normalizeLedgerEntry } = await import('../src/combat/schema.js');
+    const tables = memoryTables([row(classDef('cls-blade'), 1), row(heroDef(), 2)]);
+    const chat = [ai('启程')];
+    const makeLedger = () => createCombatLedger({ tables, chat: () => chat, userName: '主角', now: () => 7, wallet: () => 10000 });
+    const ledger = makeLedger();
+    for (let n = 1; n <= 10; n += 1) {
+        const target = heroOf(await ledger.effectiveState()).deckEntries.at(-1).copyId;
+        for (let i = 1; i <= 5; i += 1) {
+            const rid = reportIdFor(`cb|capped-purge|${n}|${i}`);
+            chat.push(user(`<igs-combat-report id="${rid}" result="win">终局：我方获胜。</igs-combat-report>\n[igs-combat:exp|主角|5|战斗:${rid}]${i === 5 ? `\n[igs-combat:purge|主角|${rid}|${target}]` : ''}`), ai('继续前行'));
+            const scan = await ledger.scan();
+            assert.equal(scan.ok, true, JSON.stringify(scan));
+            assert.equal(scan.entries.filter(e => e.type === 'purge').length, i === 5 ? 1 : 0, JSON.stringify({ n, i, diagnostics: scan.diagnostics }));
+        }
+    }
+    const purges = tables.ledger.filter(e => e.type === 'purge');
+    assert.deepEqual(purges.map(e => e.payload.cost), [75, 125, 175, 225, 275, 325, 375, 425, 475, 500]);
+    const capped = heroOf(await makeLedger().effectiveState());
+    assert.equal(capped.deck.length, 10);
+    assert.equal(capped.points, 10000 - 2975);
+    assert.equal(capped.purge.cost, 500);
+    const last = purges.at(-1);
+    assert.equal(normalizeLedgerEntry({ ...last, payload: { ...last.payload, costVersion: 2 } }).ok, false);
+    for (const entry of purges) delete entry.payload.costVersion;
+    last.payload.cost = 525;
+    const legacy = heroOf(await makeLedger().effectiveState());
+    assert.equal(legacy.deck.length, 10);
+    assert.equal(legacy.points, 10000 - 3000);
+    assert.equal(legacy.purge.cost, 500);
+});
+
 test('规则 v6 G3c 每 5 场免费升级：与删卡共用胜场、互不占用，跳过过期、弱敌不推进、同副本删升冲突拒收、重复扫描不重复、楼层回退撤销', async () => {
     const { reportIdFor, attachCardUpgrade } = await import('../src/combat/report.js');
     const { upgradeChance, upgradableCard } = await import('../src/combat/ledger.js');
@@ -1783,8 +1823,10 @@ test('获得时遗物（v6 G5f-4d）：特性真正装上才结算，按装上�
     assert.equal((await persisted.append('profile', [row(classDef('cls-blade'), 1), row(heroDef(), 2)])).ok, true);
     const chatRef = { chat: [ai('正文'), ai('装上御印')] };
     let enabled = true;
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
     const serviceOptions = {
         global: { AutoCardUpdaterAPI: host.api, SillyTavern: { getContext: () => ({ chat: chatRef.chat }) } },
+        storage: createMemoryStorage(),
         getChatId: () => 'pickup-seal', getUserName: () => '主角', getWallet: () => 1000,
         getReaderSettings: () => ({ combatExpansion: { enabled } }),
     };

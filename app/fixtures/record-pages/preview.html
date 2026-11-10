@@ -69,6 +69,7 @@ import { chooseCard, emptyPick, flipCard, flipView, pickCardChoice, pickPurgeCho
 import { FIXED_GENERAL_CARDS, fixedClassPool } from '../../src/combat/fixed-cards/index.js';
 import { openWaitStagePreview } from './fixtures/wait-stage.fixture.js';
 import { createStatsPreview } from './fixtures/stats.fixture.js';
+import { openOriginExchangePreview } from './fixtures/origin-exchange.fixture.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -533,6 +534,7 @@ async function openDeckFull() {
 function openPage(page) {
   current?.close?.();
   if (page === 'deck') { current = deckFull; openDeckFull(); }
+  else if (page === 'origin-exchange') current = openOriginExchangePreview(overlay, new URLSearchParams(location.search));
   else if (page === 'wait-stage') current = openWaitStagePreview(overlay, new URLSearchParams(location.search));
   // 设置面板也有 id 为 combat 的页面，page=combat 会先进设置页；战斗面板用 page=combat-panel 打开。
   else if (page === 'combat-panel') { current = combat; openCombat(); }

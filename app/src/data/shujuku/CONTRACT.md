@@ -25,6 +25,9 @@
 
 - Origin 积分日志复用 `combat-tables.js` 的「IGS战斗·日志」写口与缓存客户端。`origin-store.js` 将操作账本编码为带父 revision 的 `set/drop` 差分，记录 ID 为载荷哈希；只追加，经读回确认才对业务发布。重复提交同一意图只确认已存记录；断链、同键冲突、无效记录或残缺分段返回错误，不能当作空账本或零余额。
 - `append(kind, records, { retainOnFailure: false, shouldStart })` 仅让当前调用持有的失败请求退出待写队列，默认战斗请求仍保留；Origin 由引擎持有原意图显式重试，其他写入不得补交它。`matchesIncomplete(kind, record)` 逐项核对已有片段与同一意图的编码，只允许补齐自己的缺段，普通读取仍拒绝残缺记录。Origin 恢复读取先校验原意图，再读取排除 Origin 的外部积分份额；共享消费与恢复使用同一进程内积分锁，旧钱包和战斗净流水不做余额覆盖。
+- 共享积分兑换由 `points-exchange.js` 协调，`points-exchange-log.js` 校验；复用 `points-store.js` 的增减日志与 `points-intents.js` 的写后读回意图存储。`exchange` 记录固定 `sourceId = exchangeId`、聊天／来源、负积分增量、核准时共享余额、`chat:currency` 配置及物品表 `{ before, after }`；`exchange-done` 以扣款记录为父且积分增量为 0。折叠时已确认扣款按聊天计一次，不随来源回退；收益 grants 和 Origin 收入额度不变。意图完全未写且来源失效时丢弃，残缺分段只补原记录。
+- 锁顺序固定为货币队列 → 共享积分锁 → 既有表写队列。货币写前校验固定配置，只接受写前／目标余额，写后回读确认；完成标记失败只补标记。未完成兑换阻止新共享消费，重入、手动重试与下一楼先恢复兑换。普通小游戏待写记录不被货币恢复补交；确认无未完成兑换时不阻断独立剧情货币结算。此协议不提供跨表原子性或跨页面分布式锁。
+
 
 - `client.insertRow(tableName, rowData, options?)`：不传 options 时保持原位置参数调用；成功时宿主返回行号则带 `rowIndex`。`client.getTableTemplate()`、`client.importTemplate()` 统一返回 `{ ok, reason }`，缺方法时为 `missing-api`。
 - 刷新世界书必须显式调用 `refreshDataAndWorldbook()`，不能隐式触发。

@@ -36,7 +36,7 @@ import {
     buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
-import { CURRENCY_ATTEMPTS, CURRENCY_CATEGORY, buildCurrencyRequest, currencyBalanceOf, normalizeCurrencyRecord, normalizeCurrencySettlement, parseCurrencyReply } from '../scene/stats/stat-currency.js';
+import { CURRENCY_ATTEMPTS, CURRENCY_CATEGORY, buildCurrencyRequest, currencyBalanceOf, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement, parseCurrencyReply } from '../scene/stats/stat-currency.js';
 import { WORLDVIEWS } from '../scene/worldview.js';
 
 export const STATS_PROMPT_KEY = 'igs-stats-state';
@@ -134,7 +134,7 @@ export function createStatsRuntime({
     // v0.39 注入点：战斗侧生命/六维来源、数据库表读写通道、战斗提示词输入、战斗扩展是否开启。
     combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
     // 剧情货币所在的物品表读写口（createInventoryTables 的产物：read / changeQuantities）。
-    currencyInventory = () => null,
+    currencyInventory = () => null, pointsExchange = () => null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -339,7 +339,69 @@ export function createStatsRuntime({
         return done;
     }
 
+    const exchangeOf = () => {
+        try { return pointsExchange() || null; } catch { return null; }
+    };
+    const sameCurrency = value => JSON.stringify(normalizeCurrencyConfig(value)) === JSON.stringify(normalizeCurrencyConfig(currency));
+
+    async function creditExchange(exchange, alive) {
+        if (!currency?.seeded || !sameCurrency(exchange.currency)) return { ok: false, reason: 'points-exchange-currency-conflict' };
+        return applyCurrencyDelta(currency, exchange.write, alive);
+    }
+
+    async function recoverExchanges(alive) {
+        const service = exchangeOf();
+        if (!service) return { ok: true, skipped: true };
+        return service.recoverExchanges({ credit: exchange => creditExchange(exchange, alive), shouldStart: alive });
+    }
+
+    function runExchange(task) {
+        ensureLoaded();
+        const alive = currencyLease();
+        return queueCurrency(async () => {
+            if (!alive()) return { ok: false, reason: 'stats-chat-not-enabled' };
+            if (!currency?.seeded) return { ok: false, reason: 'stats-currency-unset' };
+            const service = exchangeOf();
+            if (!service) return { ok: false, reason: 'points-exchange-unavailable' };
+            const recovered = await recoverCurrencyWrites(alive);
+            if (!recovered.ok) return recovered;
+            const result = await task(service, alive);
+            if (alive()) {
+                onChange(currentStatsState(ledger), null);
+                push();
+            }
+            return result;
+        });
+    }
+
+    function exchangeInfo() {
+        if (loadedChat !== chatIdOf(ctx()) || !active()) return { ok: false, reason: 'stats-chat-not-enabled' };
+        if (!currency?.seeded) return { ok: false, reason: 'stats-currency-unset' };
+        return { ok: true, name: currency.name, rate: currency.rate };
+    }
+
+    function quoteExchange(points) {
+        return runExchange(service => service.quoteExchange(points, currency));
+    }
+
+    function exchangePoints(quote) {
+        return runExchange((service, alive) => service.exchange(quote, {
+            shouldStart: alive,
+            credit: exchange => creditExchange(exchange, alive),
+            prepare: async () => {
+                if (!sameCurrency(quote?.currency)) return { ok: false, reason: 'points-exchange-currency-conflict' };
+                const ready = await ensureCurrencyInventory(alive);
+                if (!ready.ok) return ready;
+                const read = readCurrency();
+                if (!read.ok) return read;
+                return { ok: true, write: { before: read.balance, after: read.balance + quote.amount } };
+            },
+        }));
+    }
+
     async function recoverCurrencyWrites(alive, through = Infinity) {
+        const exchanges = await recoverExchanges(alive);
+        if (!exchanges.ok) return exchanges;
         for (const [messageId, swipeId] of [...ledger.active].sort(([a], [b]) => a - b)) {
             if (messageId > through) continue;
             if (!alive()) return { ok: false, reason: 'request-stale' };
@@ -390,7 +452,7 @@ export function createStatsRuntime({
         if (!active() || !inventoryOf()) return null;
         const chatId = chatIdOf(ctx());
         if (currencyJob?.chatId === chatId && currencyJob.epoch === currencyEpoch) return currencyJob.promise;
-        if (currency?.seeded && !force) return null;
+        if (currency?.seeded && !force && !exchangeOf()) return null;
         if (!force && currencyAsked.has(chatId)) return null;
         const alive = currencyLease();
         const request = currency ? null : requester();
@@ -1853,6 +1915,10 @@ export function createStatsRuntime({
         sheetOp: ev(sheetOp),
         relationOp: ev(relationOp),
         retryCurrency: ev(() => { ensureLoaded(true); return ensureCurrency({ force: true }) || Promise.resolve({ ok: false, reason: 'stats-chat-not-enabled' }); }),
+        exchangeInfo: ev(exchangeInfo),
+        quoteExchange: ev(quoteExchange),
+        exchangePoints: ev(exchangePoints),
+        retryExchange: ev(() => runExchange(() => ({ ok: true }))),
         skillOp: ev(skillOp),
         heroOp: ev(heroOp),
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。

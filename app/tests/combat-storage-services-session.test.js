@@ -164,3 +164,37 @@ test('放弃战斗（skip）清掉会话记录并立即落盘', { skip }, async 
     assert.equal(storage.counts.setItem, 1, 'reset 把待写记录落盘');
     assert.equal(timer.pending(), 0);
 });
+
+test('共享积分：付费战报发送共用积分锁和待结算门禁，已落楼恢复不重复发送', async () => {
+    const { reportIdFor } = await import('../src/combat/report.js');
+    const record = buildRecord(21);
+    const reportId = reportIdFor(record.combatId);
+    const report = { reportId, result: 'win', text: `<igs-combat-report id="${reportId}" result="win">胜利</igs-combat-report>\n[igs-combat:loot|我|${reportId}|0|reserve]` };
+    const storage = createCountingStorage({ [sessionKeyFor(CHAT_ID)]: JSON.stringify(record),
+        [outboxKeyFor(CHAT_ID)]: JSON.stringify({ [record.combatId]: report }) });
+    let permitted = false, balance = 0, locked = false, sends = 0, scans = 0;
+    const ledger = { ...stubLedger(),
+        effectiveState: async () => ({ ok: true, offers: new Map(), attributes: { heroId: 'hero' },
+            characters: new Map([['hero', { points: balance }]]) }),
+        withPointsLock: async fn => { locked = true; try { return await fn(); } finally { locked = false; } },
+        scan: async () => { assert.equal(locked, true); scans += 1; return { ok: true }; },
+    };
+    const session = makeSession(createCombatSession, storage, { ledger,
+        pointsSpendingGate: () => { assert.equal(locked, true); return { ok: permitted, reason: 'points-settlement-pending' }; },
+        send: async () => { sends += 1; return { ok: true, messageId: 2 }; },
+    });
+    try {
+        assert.equal(session.resume().ok, true);
+        assert.equal((await session.retrySend()).reason, 'points-settlement-pending');
+        assert.equal(sends, 0);
+        permitted = true;
+        assert.equal((await session.retrySend()).reason, 'combat-points-insufficient');
+        assert.equal(sends, 0);
+        permitted = false;
+        chat.push({ is_user: true, mes: report.text, swipe_id: 0 });
+        const restored = await session.retrySend();
+        assert.equal(restored.ok, true, JSON.stringify(restored));
+        assert.equal(sends, 0);
+        assert.equal(scans, 1);
+    } finally { chat.splice(2); session.dispose(); }
+});

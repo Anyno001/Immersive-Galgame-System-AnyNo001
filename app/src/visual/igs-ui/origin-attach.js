@@ -71,5 +71,6 @@ export function attachedOriginBinding() {
         notice: hooks.notice,
         openSettings: hooks.openSettings,
         saveSetting: hooks.saveSetting,
+        exchange: hooks.exchange,
     };
 }

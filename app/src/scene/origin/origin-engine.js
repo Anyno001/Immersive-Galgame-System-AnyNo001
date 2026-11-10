@@ -10,8 +10,10 @@ import { createCx, applyManual } from './origin-apply.js';
 import { buildInjection, injectInto } from './origin-inject.js';
 import { flatChat, gachaPrompt, rpChatPrompt, shopPrompt, stripHtml, sysChatPrompt, taskPrompt } from './origin-gen.js';
 import {
-    bindPending, buildPath, compact, createLedger, removeFloors, deserializeLedger, dropFloor, getEntry, makeEntry, pendingFor, recordOp, relocateBase, replay, serializeLedger, setEntry, truncate,
+    bindPending, buildPath, compact, createLedger, removeFloors, deserializeLedger, dropFloor, getEntry, makeEntry, pendingFor, recordOp, relocateBase, replay, serializeLedger, setEntry, stepOnce, truncate,
 } from './origin-ledger.js';
+import { collectOriginGrants, economyContext, economyPlan, originCreditText } from './origin-economy.js';
+import { anchorKey, pointFloors } from '../points/points-policy.js';
 
 export const ORIGIN_ENGINE_SYMBOL = Symbol.for('origin.engine');
 const BUSY_MS = 60000;
@@ -33,7 +35,8 @@ export function getSharedOriginEngine(host) {
         const call = (name) => (...args) => { const h = pick(); return h && typeof h[name] === 'function' ? h[name](...args) : undefined; };
         const proxy = {
             getContext: call('getContext'), settings: call('settings'), saveMetadata: call('saveMetadata'), saveSettings: call('saveSettings'),
-            database: call('database'), wallet: call('wallet'), walletSnapshot: call('walletSnapshot'),
+            database: call('database'), wallet: call('wallet'), walletSnapshot: call('walletSnapshot'), spendingGate: call('spendingGate'),
+            pointsEconomy: call('pointsEconomy'), ensurePointsFloor: call('ensurePointsFloor'),
             withPointsLock: (task) => {
                 const h = pick();
                 return typeof h?.withPointsLock === 'function' ? h.withPointsLock(task) : task();
@@ -345,6 +348,15 @@ export function createOriginEngine(host) {
             const wallet = await readWallet();
             if (!ownerAlive() || !requestedPath()) return { ok: false, reason: 'request-stale' };
             if (!wallet.ok) return databaseFailure(wallet);
+            if (host.pointsEconomy?.() === true) {
+                const messages = (ctx() || {}).chat || [];
+                for (const floor of pointFloors(messages).filter(f => !f.floorId)) {
+                    const saved = await host.ensurePointsFloor(floor.messageId);
+                    if (!ownerAlive() || !requestedPath()) return { ok: false, reason: 'request-stale' };
+                    if (!saved?.ok) return databaseFailure(saved || { reason: 'points-floor-save-failed' });
+                }
+            }
+            const pointsBefore = current().rep.state.points;
             const previous = { ledger, meta, cache, known };
             const copy = deserializeLedger(databaseRaw(), chatId);
             if (!copy.ok) return databaseFailure(copy);
@@ -357,6 +369,10 @@ export function createOriginEngine(host) {
                 staging = effects;
                 const result = fn();
                 if (result?.ok === false) return result;
+                if (current().rep.state.points < pointsBefore && typeof host.spendingGate === 'function') {
+                    const allowed = host.spendingGate();
+                    if (allowed?.ok === false) return allowed;
+                }
                 const intent = database.prepare(databaseState, databaseRaw());
                 if (!intent.ok) return intent;
                 const writtenPath = pathLease(true);
@@ -417,6 +433,7 @@ export function createOriginEngine(host) {
         for (const n of res.notes || []) {
             if (n.kind === 'new') notify('task-new', '新任务：' + n.title);
             else if (n.kind === 'done') notify('task-done', '任务完成：' + n.title + (n.reward ? '（奖励：' + n.reward + '）' : ''));
+            else if (n.kind === 'points') notify('info', originCreditText(n));
             else if (n.kind === 'fail') notify('task-fail', '任务失败：' + n.title);
             else if (n.kind === 'broadcast') notify('broadcast', n.text);
             else if (n.kind === 'achieve') notify('achieve', '解锁成就：' + n.name + (n.desc ? '（' + n.desc + '）' : ''));
@@ -432,7 +449,7 @@ export function createOriginEngine(host) {
 
     // ---------- 收块：结算一个 AI 楼的当前 swipe ----------
     // 数据块原文存 message.extra.origin.blocks[swipe]，正文剪掉块；同一 swipe 重算复用种子，抽奖结果不变。
-    function settleAt(idx) {
+    function settleAt(idx, { legacy = false } = {}) {
         const c = ctx();
         const chat = c && c.chat;
         const m = Array.isArray(chat) ? chat[idx] : null;
@@ -458,7 +475,16 @@ export function createOriginEngine(host) {
         }
         const entry = makeEntry(block, prose, existing ? existing.seed : newSeed());
         if (existing && existing.h === entry.h) return { changed: false, entry: existing };
+        if (existing?.economy) return { changed: false, entry: existing };
         if (database) entry.wallet = existing?.wallet ?? walletValue;
+        if (!existing && !legacy && staging && host.pointsEconomy?.() === true) {
+            const anchor = pointFloors(chat).find(f => f.messageId === idx);
+            if (!anchor?.floorId) throw new Error('origin-no-anchor');
+            entry.economy = economyPlan(`origin:${chatId}:${anchorKey(anchor)}`, { floorId: anchor.floorId, swipeId: anchor.swipeId });
+            const before = replay(ledger, buildPath(chat.slice(0, idx), isAiMsg), settings());
+            const grants = collectOriginGrants(ledger, chat, entry.economy.id);
+            stepOnce(before.state, { type: 'floor', id: idx, turn: before.turn + 1, entry }, settings(), { chat, grants });
+        }
         return { changed: true, entry: setEntry(ledger, idx, sw, entry) };
     }
 
@@ -669,10 +695,15 @@ export function createOriginEngine(host) {
         const after = chat.length - 1;
         const seed = newSeed();
         const wallet = database ? walletValue : undefined;
-        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: settings(), random: seededRandom(seed), wallet });
+        const anchor = pointFloors(chat).at(-1);
+        if (staging && host.pointsEconomy?.() === true && !anchor?.floorId) return { ok: false, reason: 'origin-no-anchor' };
+        const economy = staging && host.pointsEconomy?.() === true
+            ? economyPlan(`origin:${chatId}:op:${ledger.nextOpId}`, { floorId: anchor.floorId, swipeId: anchor.swipeId }) : null;
+        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: settings(), random: seededRandom(seed), wallet,
+            economy: economyContext(economy, economy ? { chat, grants: collectOriginGrants(ledger, chat) } : undefined) });
         const r = applyManual(cloneForWrite(rep.state), op, cx);
         if (!r.ok) return { ok: false, reason: r.reason, text: r.text };
-        const rec = recordOp(ledger, op, after, seed, wallet);
+        const rec = recordOp(ledger, op, after, seed, wallet, economy);
         persist();
         emit('op', { opId: rec.id, op: op.type });
         const rep2 = current().rep;
@@ -837,6 +868,7 @@ export function createOriginEngine(host) {
                 const raw = Array.isArray(m.swipes) ? m.swipes[e.swipeId] : null;
                 if (raw == null) continue;
                 const sp = splitBlock(raw);
+                if (e.economy) continue;
                 setEntry(ledger, i, e.swipeId, { ...makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed), ...(e.wallet === undefined ? {} : { wallet: e.wallet }) });
             }
             settleAt(i);
@@ -892,7 +924,7 @@ export function createOriginEngine(host) {
             const ids = new Set([cur, ...Object.keys(ob).map(Number).filter(Number.isInteger)]);
             for (const sw of ids) {
                 if (getEntry(ledger, i, sw)) continue;
-                if (sw === cur) { settleAt(i); if (ob[sw] != null && getEntry(ledger, i, sw) && getEntry(ledger, i, sw).block == null) setEntry(ledger, i, sw, makeEntry(ob[sw], splitBlock(m.mes).text, getEntry(ledger, i, sw).seed)); continue; }
+                if (sw === cur) { settleAt(i, { legacy: true }); if (ob[sw] != null && getEntry(ledger, i, sw) && getEntry(ledger, i, sw).block == null) setEntry(ledger, i, sw, makeEntry(ob[sw], splitBlock(m.mes).text, getEntry(ledger, i, sw).seed)); continue; }
                 const raw = Array.isArray(m.swipes) ? String(m.swipes[sw] || '') : '';
                 const sp = splitBlock(raw);
                 setEntry(ledger, i, sw, makeEntry(ob[sw] != null ? ob[sw] : sp.block, sp.block != null ? sp.text : raw, newSeed()));

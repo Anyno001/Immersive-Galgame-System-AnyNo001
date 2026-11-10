@@ -14,13 +14,18 @@ export const ASCEND_TIERS = Object.freeze({
 export const TRAIT_DRAW_COST = 100;
 // 规则 v6 积分抽卡（D-09）：3 张本职业候选（固定 2 + 随机 1），选一张进卡组或放弃，放弃不退款；单价不递增。
 export const CARD_DRAW_COST = 150;
-// 规则 v6 删卡（D-05 / D-06 / D-07）：每满 PURGE_EVERY 场普通战斗胜利给一次机会，过期作废；费用 75 + 50 × 已删次数。
+// 规则 v6 删卡：每五胜一次机会，费用 min(500, 75 + 50 × 已删次数)；历史记录按原费用策略重放。
 export const PURGE_EVERY = 5;
 // 规则 v6 G3c 升级机会：与删卡共用普通胜场计数，每满 UPGRADE_EVERY 场给一次免费升级，过期作废，与删卡互不占用。
 export const UPGRADE_EVERY = 5;
 export const PURGE_BASE_COST = 75;
 export const PURGE_STEP_COST = 50;
-export const purgeCost = (used) => PURGE_BASE_COST + PURGE_STEP_COST * Math.max(0, Number(used) || 0);
+export const PURGE_MAX_COST = 500;
+export const PURGE_COST_VERSION = 1;
+export function purgeCost(used, version = PURGE_COST_VERSION) {
+    const cost = PURGE_BASE_COST + PURGE_STEP_COST * Math.max(0, Number(used) || 0);
+    return version === 0 ? cost : Math.min(PURGE_MAX_COST, cost);
+}
 // 出售价在基础价上下浮动的比例。
 export const SELL_PRICE_SPREAD = 0.2;
 // 规则 v6 G5g 战斗胜利积分（D-16）：按本场最高敌人档位取区间，以战斗 ID 作种子定额。

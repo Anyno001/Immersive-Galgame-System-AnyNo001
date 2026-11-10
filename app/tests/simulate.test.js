@@ -457,6 +457,247 @@ test('G7 工具栏：关闭小游戏时隐藏按钮并拒绝快捷入口', async
     } finally { h.host.destroy(); uninstallWaitStageGames(root); }
 });
 
+test('G8 小游戏权限：第三方同名玩法只获公共ctx，markDone不能自报积分', async () => {
+    const { registerWaitStageGamePack } = await import('../src/visual/igs-ui/wait-stage-games-api.js');
+    const doc = createFakeDocument(), root = {};
+    installWaitStageGames(root);
+    let received, args, rounds = 0;
+    registerWaitStageGamePack({ id: 'external-test', list: () => ['rps'], start(...values) {
+        args = values; received = values[0]; received.markDone();
+    } });
+    const runtime = createWaitStageRuntime({ doc, timers: { setTimeout: () => 1, clearTimeout() {} },
+        gamePointsRounds: () => () => { rounds += 1; return {}; }, getPointsMessageId: () => 7 });
+    try {
+        const layer = runtime.open(doc.body, { play: true, model: { art: {} }, settings: { games: true } });
+        layer.querySelector('.igs-ws-games').querySelector('button').click();
+        assert.equal(args.length, 1);
+        assert.equal(rounds, 0);
+        for (const key of ['points', 'wallet', 'award', 'rounds', 'gamePointsRounds']) assert.equal(received[key], undefined);
+    } finally { runtime.dispose(); uninstallWaitStageGames(root); }
+});
+
+
+function waitPointsHarness(id, model = {}, options = {}) {
+    const doc = createFakeDocument(), board = doc.createElement('div');
+    doc.body.appendChild(board);
+    const results = [], rounds = [];
+    let done = false, start;
+    const ctx = { id, doc, board, model, random: () => 0, timers: { setTimeout: () => 1, clearTimeout() {} },
+        setNote() {}, onVoice() {}, loadImage: url => url, isSettled: () => done, isExiting: () => false,
+        markDone() { done = true; }, requestClose() {}, ...options };
+    const factory = () => {
+        const own = { results: [] };
+        rounds.push(own);
+        return { finish: async result => {
+            own.results.push(result); results.push(result);
+            return { ok: true, settled: true, approved: 3, amount: 3 };
+        }, retry: async () => ({ ok: true, settled: true, approved: 3, amount: 3 }) };
+    };
+    return { doc, board, ctx, factory, results, rounds, start: async () => {
+        const { createWaitStageGamePack } = await import('../src/visual/igs-ui/wait-stage-games.js');
+        createWaitStageGamePack(fn => { start = fn; });
+        return start(ctx, factory);
+    } };
+}
+
+const waitPointsFlush = () => new Promise(resolve => setImmediate(resolve));
+
+test('G8 小游戏终局：猜拳胜负分开记，首次答题错误后不能改答领奖', async () => {
+    const rps = waitPointsHarness('rps');
+    await rps.start();
+    const hands = rps.board.querySelector('.igs-ws-hands').querySelectorAll('button');
+    hands[0].click(); hands[1].click(); hands[2].click();
+    await waitPointsFlush();
+    assert.deepEqual(rps.results, [{ win: false }, { win: false }, { win: true }]);
+    assert.equal(rps.rounds.length, 3);
+    for (const id of ['whosaid', 'mood']) {
+        const model = { replay: [{ who: '甲', text: '甲的台词' }, { who: '乙', text: '乙的台词' }], names: ['甲', '乙'],
+            art: { sprites: [{ mood: '喜悦', url: 'happy' }, { mood: '悲伤', url: 'sad' }] } };
+        const h = waitPointsHarness(id, model);
+        await h.start();
+        const buttons = h.board.querySelector('.igs-ws-choices').querySelectorAll('button');
+        const answer = id === 'whosaid' ? '甲' : '喜悦';
+        buttons.find(button => button.textContent !== answer).click();
+        buttons.find(button => button.textContent === answer).click();
+        await waitPointsFlush();
+        assert.deepEqual(h.results, [{ win: false, first: true }]);
+        assert.equal(h.rounds.length, 1);
+    }
+});
+
+
+test('G8 小游戏终局：翻牌五关只在完整通关时上报一次', async () => {
+    const h = waitPointsHarness('memory', { art: { pictures: [{ url: 'one-picture' }] } });
+    await h.start();
+    assert.equal(h.rounds.length, 1);
+    for (let level = 1; level <= 5; level += 1) {
+        const grid = h.board.querySelectorAll('.igs-ws-grid').at(-1);
+        for (const card of grid.querySelectorAll('button')) card.click();
+        await waitPointsFlush();
+        if (level < 5) {
+            assert.equal(h.results.length, 0, '中间关不发奖');
+            h.board.querySelectorAll('.igs-ws-next').at(-1).querySelector('button').click();
+        }
+    }
+    assert.deepEqual(h.results, [{ win: true, levels: 5 }]);
+    assert.equal(h.rounds.length, 1);
+});
+
+test('G8 小游戏终局：消消乐两关共用一局，中间关不结算', async () => {
+    const { buildTilesLayout, freeTiles } = await import('../src/visual/igs-ui/wait-stage-tiles.js');
+    const tasks = [];
+    const h = waitPointsHarness('tiles', {}, { timers: { setTimeout(fn) { tasks.push(fn); return tasks.length; }, clearTimeout() {} } });
+    await h.start();
+    for (let level = 1; level <= 2; level += 1) {
+        const layout = buildTilesLayout(() => 0, level);
+        const buttons = h.board.querySelectorAll('.igs-tl-field').at(-1).querySelectorAll('button');
+        const removed = new Set();
+        while (removed.size < layout.tiles.length) {
+            const free = freeTiles(layout.tiles, removed);
+            const group = free.find(tile => free.filter(other => other.kind === tile.kind).length >= 3);
+            assert.ok(group, '本地生成牌堆存在逐组三消路径');
+            for (const tile of free.filter(tile => tile.kind === group.kind).slice(0, 3)) {
+                buttons[tile.id].click(); removed.add(tile.id);
+            }
+        }
+        await waitPointsFlush();
+        if (level === 1) {
+            assert.equal(h.results.length, 0);
+            assert.equal(tasks.length, 1);
+            tasks.shift()();
+        }
+    }
+    assert.deepEqual(h.results, [{ win: true, levels: 2 }]);
+    assert.equal(h.rounds.length, 1);
+});
+
+
+test('G8 小游戏终局：贪吃蛇自然死亡上报实分，再来一局使用新身份', async () => {
+    const tasks = new Map();
+    let seq = 0;
+    const h = waitPointsHarness('snake', {}, { timers: {
+        setTimeout(fn) { tasks.set(++seq, fn); return seq; }, clearTimeout(id) { tasks.delete(id); },
+    } });
+    const game = await h.start();
+    const controls = h.board.querySelector('.igs-snake-ctl');
+    controls.querySelectorAll('button').find(button => button.textContent === '开始').click();
+    assert.equal(h.rounds.length, 1);
+    assert.equal(h.results.length, 0);
+    for (let step = 0; game.state.alive && step < 30; step += 1) {
+        const [id, fn] = tasks.entries().next().value;
+        tasks.delete(id); fn();
+    }
+    await waitPointsFlush();
+    assert.equal(game.state.alive, false);
+    assert.deepEqual(h.results, [{ terminal: true, score: game.state.score, won: false }]);
+    controls.querySelectorAll('button').find(button => button.textContent === '再来一局').click();
+    assert.equal(h.rounds.length, 2);
+    assert.equal(h.results.length, 1, '开新局不复用上一局终局');
+    game.dispose();
+});
+
+test('G8 小游戏回执：失败只显示未入账，明确重试后才显示实发且不重复提交', async () => {
+    const { beginWaitStagePoints } = await import('../src/visual/igs-ui/wait-stage-game-points.js');
+    const h = waitPointsHarness('rps');
+    let finishCalls = 0, retryCalls = 0, release;
+    const points = beginWaitStagePoints(h.ctx, () => ({
+        finish() { finishCalls += 1; return Promise.resolve({ ok: false, reason: 'points-write-unverified' }); },
+        retry() { retryCalls += 1; return new Promise(resolve => { release = resolve; }); },
+    }));
+    await points.finish({ win: true });
+    const node = h.board.querySelector('.igs-ws-points');
+    const text = node.querySelector('span'), retry = node.querySelector('button');
+    assert.match(text.textContent, /未入账/);
+    assert.doesNotMatch(text.textContent, /实发/);
+    assert.equal(retry.hidden, false);
+    retry.click(); retry.click();
+    await waitPointsFlush();
+    assert.equal(retryCalls, 1);
+    release({ ok: true, settled: true, approved: 2, amount: 1, limitReason: 'points-game-limit' });
+    await waitPointsFlush();
+    assert.match(text.textContent, /核准 2，实发 1/);
+    assert.match(text.textContent, /额度限制/);
+    assert.equal(retry.hidden, true);
+    assert.equal(finishCalls, 1);
+});
+
+
+test('G8 小游戏终局：飞行棋只有四枚全部抵达才上报，区分玩家和电脑获胜', async () => {
+    for (const winner of [0, 1]) {
+        const tasks = [];
+        const h = waitPointsHarness('ludo', {}, { timers: {
+            setTimeout(fn) { tasks.push(fn); return tasks.length; }, clearTimeout() {},
+        } });
+        h.doc.defaultView.matchMedia = () => ({ matches: true });
+        const game = await h.start();
+        h.board.querySelector('.igs-ld-setup').querySelectorAll('button').find(button => button.textContent === '开始').click();
+        assert.equal(h.rounds.length, 1);
+        game.state.pieces[winner] = [56, 56, 56, 55];
+        assert.equal(h.results.length, 0, '三枚抵达不算整局获胜');
+        h.board.querySelector('.igs-ld-die').click();
+        for (let step = 0; !h.results.length && tasks.length && step < 20; step += 1) tasks.shift()();
+        await waitPointsFlush();
+        assert.equal(game.state.winner, winner);
+        assert.deepEqual(h.results, [{ win: winner === 0, humans: 1 }]);
+        h.board.querySelector('.igs-ld-die').click();
+        await waitPointsFlush();
+        assert.equal(h.results.length, 1);
+        game.dispose();
+    }
+});
+
+
+test('G8 小游戏贯通：内置胜局经服务读回到账，同楼重开不重复奖励且战斗关闭仍可用', async () => {
+    const { createCombatServices } = await import('../src/core/combat-services.js');
+    const { createCombatTables } = await import('../src/data/shujuku/combat-tables.js');
+    const { createPointsFloorRecord } = await import('../src/host/points-floor-record.js');
+    const { createLedgerMockHost, userInventorySheet } = await import('./helpers/combat-mock-host-ledger.js');
+    const { makeMsg } = await import('./origin-host.js');
+    const db = createLedgerMockHost();
+    db.sheets.sheet_userbag = userInventorySheet();
+    const tables = createCombatTables({ api: db.api });
+    assert.equal((await tables.ensure()).ok, true);
+    const ctx = { chatId: 'game-wire', chat: [makeMsg('开局来源')], saveChat() {} };
+    const global = { AutoCardUpdaterAPI: db.api, SillyTavern: { getContext: () => ctx } };
+    const services = createCombatServices({ global, storage: createMemoryStorage(),
+        pointsFloorRecord: createPointsFloorRecord(global), getChatId: () => ctx.chatId,
+        getWallet: () => 0, getReaderSettings: () => ({ combatExpansion: { enabled: false } }),
+    });
+    const doc = createFakeDocument(), root = {};
+    installWaitStageGames(root);
+    const runtime = createWaitStageRuntime({ doc, random: () => 0,
+        timers: { setTimeout: () => 1, clearTimeout() {} },
+        getPointsMessageId: () => 0, gamePointsRounds: services.gamePointsRounds,
+    });
+    const model = buildWaitStageModel({ turns: [], sceneAssets: {}, random: () => 0 });
+    try {
+        const layer = runtime.open(doc.body, { play: true, model, settings: { games: true } });
+        const play = async () => {
+            const previous = layer.querySelectorAll('.igs-ws-points').at(-1);
+            layer.querySelector('[data-game="rps"]').click();
+            layer.querySelectorAll('.igs-ws-hands').at(-1).querySelectorAll('button')[2].click();
+            for (let i = 0; i < 50; i += 1) {
+                await waitPointsFlush();
+                const receipt = layer.querySelectorAll('.igs-ws-points').at(-1);
+                const text = receipt?.querySelector('span').textContent;
+                if (receipt !== previous && text?.includes('实发')) return text;
+            }
+            assert.fail('内置结果没有取得结算读回');
+        };
+        assert.match(await play(), /核准 2，实发 2/);
+        assert.equal((await services.readSharedPoints()).games, 2);
+        const first = [...services.points().read().rounds.values()][0];
+        assert.equal(first.anchor.floorId, ctx.chat[0].extra.igs_points_uid);
+        layer.querySelectorAll('.igs-ws-close').at(-1).click();
+        assert.match(await play(), /核准 2，实发 0/);
+        assert.equal((await services.readSharedPoints()).balance, 2);
+        assert.equal(services.points().read().rounds.size, 2);
+        ctx.chat[0].swipe_id = 1;
+        assert.equal((await services.readSharedPoints()).games, 0);
+    } finally { runtime.dispose(); uninstallWaitStageGames(root); }
+});
+
+
 function makeAutoPlayReader(raw = '第一段。\n第二段。\n第三段。', readerSettings = {}) {
     const document = createFakeDocument();
     const timers = createAutoPlayClock();

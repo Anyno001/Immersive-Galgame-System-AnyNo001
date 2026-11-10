@@ -1,3 +1,4 @@
+// 2026-11-13：增加逐笔积分结算依据；原牌分计算与付款规则保持不变。
 var roomMgr = require("./roommgr");
 var userMgr = require("./usermgr");
 var mjutils = require('./mjutils');
@@ -633,8 +634,18 @@ function chaJiao(game){
     }
 }
 
+function recordPointsTransfer(game,from,to,type,fan,score){
+    game.pointsSettlement.transfers.push({
+        from:from,
+        to:to,
+        type:type,
+        fan:fan,
+        score:score
+    });
+}
+
 function calculateResult(game,roomInfo){
-    
+    game.pointsSettlement = {version:1,rules:"chengdu",hand:game.gameIndex,transfers:[]};
     var isNeedChaDaJia = needChaDaJiao(game);
     if(isNeedChaDaJia){
         chaJiao(game);
@@ -766,6 +777,7 @@ function calculateResult(game,roomInfo){
                         for(var t = 0; t < ac.targets.length; ++t){
                             var six = ac.targets[t];
                             game.gameSeats[six].score -= acscore * baseScore;
+                            recordPointsTransfer(game,six,i,ac.type,ac.type == "wangang" ? 1 : 2,acscore * baseScore);
                         }                   
                     }
                 }
@@ -782,11 +794,13 @@ function calculateResult(game,roomInfo){
                             for(var t = 0; t < ref.targets.length; ++t){
                                 var six = ref.targets[t];
                                 game.gameSeats[six].score -= acscore * baseScore;
+                                recordPointsTransfer(game,six,i,ac.type,ref.type == "wangang" ? 1 : 2,acscore * baseScore);
                             }                            
                         }
                         else{
                             //如果已经被扣过一次了，则由杠牌这家赔
                             ac.owner.score -= total;
+                            recordPointsTransfer(game,ac.owner.seatIndex,i,ac.type,(ref.type == "wangang" ? 1 : 2) * ref.targets.length,total);
                         }
                         ref.payTimes++;
                         ac.owner = null;
@@ -821,6 +835,7 @@ function calculateResult(game,roomInfo){
                         var six = ac.targets[t];
                         var td = game.gameSeats[six]; 
                         td.score -= score;
+                        recordPointsTransfer(game,six,i,ac.type,Math.min(fan,game.conf.maxFan),score);
                         if(td != sd){
                             if(ac.type == "chadajiao"){
                                 td.numChaJiao ++;
@@ -858,6 +873,7 @@ function calculateResult(game,roomInfo){
                             for(var t = 0; t < ac.targets.length; ++t){
                                 var six = ac.targets[t];
                                 game.gameSeats[six].score -= acscore * baseScore;
+                                recordPointsTransfer(game,six,i,ac.type,ac.type == "wangang" ? 1 : 2,acscore * baseScore);
                             }                   
                         }   
                     }
@@ -896,7 +912,7 @@ function doGameOver(game,userId,forceEnd){
                 });
             }   
         }
-        userMgr.broacastInRoom('game_over_push',{results:results,endinfo:endinfo},userId,true);
+        userMgr.broacastInRoom('game_over_push',{results:results,endinfo:endinfo,points:!forceEnd && game ? game.pointsSettlement : null},userId,true);
         //如果局数已够，则进行整体结算，并关闭房间
         if(isEnd){
             setTimeout(function(){

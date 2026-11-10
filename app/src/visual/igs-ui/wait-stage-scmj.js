@@ -12,6 +12,7 @@ import { mulberry32 } from './scmj/host.js';
 import { createScmjController } from './scmj/controller.js';
 import { createScmjPlayer } from './scmj/player.js';
 import { youlinToCode } from './scmj/profile.js';
+import { createMahjongPointsSession } from './wait-stage-mahjong-points.js';
 
 export const SCMJ_SAVE_KEY = 'igs-wait-mahjong-scmj-v1';
 export const MAHJONG_MODE_KEY = 'igs-wait-mahjong-mode-v1';
@@ -231,7 +232,9 @@ export function scmjResultLabels(row) {
 }
 
 function storageOf(ctx) {
-    return ctx && ctx.storage ? ctx.storage : null;
+    if (ctx?.storage) return ctx.storage;
+    try { return globalThis.localStorage || null; }
+    catch { return null; }
 }
 
 function readSave(storage) {
@@ -245,8 +248,15 @@ function readSave(storage) {
 }
 
 function writeSave(storage, data) {
-    if (!storage || typeof storage.setItem !== 'function') return;
-    storage.setItem(SCMJ_SAVE_KEY, JSON.stringify(data));
+    if (!storage || typeof storage.setItem !== 'function' || typeof storage.getItem !== 'function') return { ok: false, reason: 'points-table-save-failed' };
+    try {
+        const text = JSON.stringify(data);
+        storage.setItem(SCMJ_SAVE_KEY, text);
+        return storage.getItem(SCMJ_SAVE_KEY) === text
+            ? { ok: true } : { ok: false, reason: 'points-table-save-failed' };
+    } catch {
+        return { ok: false, reason: 'points-table-save-failed' };
+    }
 }
 
 function clearSave(storage) {
@@ -790,6 +800,7 @@ export function createScmjMatch(options = {}) {
             return controller.view(human);
         },
         answer(choice) {
+            if (match.canPlay && !match.canPlay()) return;
             humanChoice = choice;
             restoring = false;
             quiet = Boolean(options.quiet);
@@ -797,6 +808,7 @@ export function createScmjMatch(options = {}) {
             tick();
         },
         setFast(value) {
+            if (match.canPlay && !match.canPlay()) return;
             fast = Boolean(value);
             if (fast) tick();
         },
@@ -805,6 +817,7 @@ export function createScmjMatch(options = {}) {
             tick();
         },
         dissolve() {
+            if (match.canDissolve && !match.canDissolve()) return false;
             try {
                 controller.xzdd.doDissolve(controller.host.room.id);
                 controller.host.flush();
@@ -813,6 +826,7 @@ export function createScmjMatch(options = {}) {
             generation = -1;
             if (scmjLive === match) scmjLive = null;
             clearSave(options.storage);
+            return true;
         },
         capture(phase) {
             return { phase: phase || match.phase(), decisions: made.slice(), state: JSON.parse(JSON.stringify(publicState())), hold: atResult() ? 'result' : '' };
@@ -820,7 +834,7 @@ export function createScmjMatch(options = {}) {
     };
 
     function releaseHand() {
-        if (!atResult()) return false;
+        if (!atResult() || (match.canPlay && !match.canPlay())) return false;
         const over = lastRows(controller);
         if (over && over.results) hands.push(over.results.map((row) => row.score));
         for (const seat of controller.seats) controller.invoke('setReady', seat.userId);
@@ -840,7 +854,7 @@ export function createScmjMatch(options = {}) {
 
     function drive() {
         paced = false;
-        if (generation < 0) return;
+        if (generation < 0 || (match.canPlay && !match.canPlay())) return;
         let guard = 0;
         while (guard < 4000) {
             guard += 1;
@@ -849,7 +863,7 @@ export function createScmjMatch(options = {}) {
             if (atResult()) {
                 const more = cursor < planned.length;
                 if (more || (options.policy && !options.hold)) {
-                    releaseHand();
+                    if (!releaseHand()) return match;
                     continue;
                 }
                 return match;
@@ -898,7 +912,7 @@ const CARD_KEYS = /^(win\.|pattern\.|dealIn|robbed|tsumoed|react\.big|chajiao|be
 
 export function openScmjTable(ctx, cast, saved, options = {}) {
     const doc = ctx.doc;
-    const board = ctx.board;
+    let board = ctx.board;
     board.innerHTML = '';
     const names = (cast || []).map((person) => person.name);
     const bare = new Set([...(saved && saved.nude || []), ...(options.nude || [])]);
@@ -931,17 +945,97 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
     const heads = [];
     const winKey = (win) => `${match.hands.length}:${win.seat}:${win.key}`;
     const shownWins = new Set(match.wins.map(winKey));
+    let host = ctx;
+    let pointsFactory = options.pointsRounds;
+    const evidence = () => match.controller.trace.flatMap(step => step.messages
+        .filter(msg => msg.event === 'game_over_push' && msg.userId === match.controller.host.userIds[0])
+        .map(msg => msg.data));
+    let syncKey = '';
+    let leaving = false;
+    const points = createMahjongPointsSession({
+        factory: identity => pointsFactory?.(identity), saved: saved || (pointsFactory ? null : { version: 1 }),
+        evidence, terminal: () => match.phase() === 'final', persist,
+        changed() {
+            if (match.generation < 0) return;
+            const { result, error, busy } = points.state;
+            if (!error && !busy && points.state.inactive) {
+                finishLeaving();
+                return;
+            }
+            if (!leaving && !error && !busy && result?.settled && (result.round?.closeReason === 'insufficient' || points.state.exitRequested)) {
+                finishLeaving();
+                return;
+            }
+            paint();
+        },
+    });
+    match.points = points;
+    match.canPlay = () => !leaving && points.allowed() && (!points.state.enabled || !host.isSettled?.());
+    match.canDissolve = () => !points.state.enabled
+        || Boolean(!points.state.error && (points.state.inactive || points.state.result?.settled));
+    const atBoundary = () => ['result', 'final'].includes(match.phase());
+
+    function confirmPoints() {
+        if (!points.state.enabled) return;
+        const key = `${evidence().length}:${match.phase() === 'final'}`;
+        if (key === syncKey) return;
+        syncKey = key;
+        void points.sync();
+    }
+
+    function pointsStatus(parent) {
+        if (!points.state.enabled) return;
+        const { busy, error, result } = points.state;
+        const status = el(doc, 'div', 'igs-ws-status igs-scmj-points');
+        status.setAttribute('aria-live', 'polite');
+        status.appendChild(el(doc, 'span', '', busy ? '积分确认中'
+            : error ? `积分未确认：${error}`
+                : result?.settled ? `本桌积分已结算 ${result.amount > 0 ? '+' : ''}${result.amount}`
+                    : `本桌待结算 ${result?.amount || 0} 积分`));
+        if (error && !busy) {
+            const retry = button(doc, 'igs-ws-chip igs-scmj-retry', '重试结算');
+            retry.addEventListener('click', () => { void points.retry(); paint(); });
+            status.appendChild(retry);
+        }
+        parent.appendChild(status);
+    }
+
+    async function leaveTable(next) {
+        if (leaving || match.generation < 0) return;
+        view.stopHold();
+        if (points.state.enabled) {
+            if (!atBoundary() || points.state.busy) { persist(); return; }
+            leaving = true;
+            const result = await points.exit();
+            if (!result?.ok || !result.settled || points.state.error) { leaving = false; paint(); return; }
+        }
+        finishLeaving(next);
+    }
+
+    function finishLeaving(next) {
+        if (match.generation < 0) return;
+        view.stopHold();
+        if (!match.dissolve()) return;
+        if (typeof next === 'function') next();
+        else {
+            board.innerHTML = '';
+            host.requestClose?.();
+        }
+    }
 
     function persist() {
-        if (match.generation < 0) return;
-        writeSave(storageOf(ctx), {
-            version: 1,
+        if (match.generation < 0) return points.state.result?.settled || points.state.inactive
+            ? { ok: true, unchanged: true }
+            : { ok: false, reason: 'points-round-stale' };
+        return writeSave(storageOf(host), {
+            version: points.state.enabled ? 2 : 1,
             seed: match.seed,
             decisions: match.decisions,
             hold: match.phase() === 'result' ? 'result' : '',
             cast: names.map((name) => ({ name })),
             nude: [...bare],
-            finished: match.phase() === 'final',
+            finished: match.phase() === 'final' && (!points.state.enabled || Boolean(points.state.result?.settled && !points.state.error)),
+            ...(points.state.enabled && { points: points.state.identity, pointsExit: points.state.exitRequested }),
         });
     }
 
@@ -1071,7 +1165,11 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
     }
 
     function paint() {
+        if (match.generation < 0) return;
+        points.checkpoint();
+        confirmPoints();
         const phase = match.phase();
+        end.disabled = points.state.enabled && (!atBoundary() || points.state.busy);
         const pendingNow = `${match.hands.length}:${match.view().pending || ''}`;
         if (pendingNow !== selectedFor) {
             selected = [];
@@ -1206,7 +1304,7 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
                             .filter(([name, outfit]) => name && outfit));
                     },
                     onStrip(names) { for (const name of names) bare.add(name); },
-                    onDone(final) { if (!final) { match.continueHand(); paint(); } },
+                    onDone(final) { if (!final && points.allowed()) { match.continueHand(); paint(); } },
                 });
             }
             if (phase === 'final' && over && over.endinfo) {
@@ -1232,11 +1330,13 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
                     card.appendChild(el(doc, 'div', 'igs-scmj-endinfo', `${names[index]} 自摸${info.numzimo} 接炮${info.numjiepao} 点炮${info.numdianpao} 暗杠${info.numangang} 明杠${info.numminggang} 被查叫${info.numchadajiao} 总分${over.results[index].totalscore}`));
                 });
                 const again = button(doc, 'igs-ws-chip igs-scmj-again', '再来一局');
-                again.addEventListener('click', () => openScmjTable(ctx, cast, null, {
-                    present: Boolean(options.present), seed: freshSeed(), nude: [...bare], onPicker: options.onPicker,
-                }));
+                again.disabled = points.state.enabled && (points.state.busy || Boolean(points.state.error) || !points.state.result?.settled);
+                again.addEventListener('click', () => { void leaveTable(() => openScmjTable(host, cast, null, {
+                    ...options, pointsRounds: pointsFactory, seed: freshSeed(), nude: [...bare],
+                })); });
                 const swap = button(doc, 'igs-ws-chip igs-scmj-switch', '换对手');
-                swap.addEventListener('click', () => { match.dissolve(); if (typeof options.onPicker === 'function') options.onPicker(); });
+                swap.disabled = again.disabled;
+                swap.addEventListener('click', () => { void leaveTable(() => options.onPicker?.(host, pointsFactory)); });
                 view.foot.appendChild(again);
                 view.foot.appendChild(swap);
                 const album = view.album(view.banner, () => {
@@ -1246,16 +1346,25 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
                 if (album) view.foot.appendChild(album);
             } else {
                 const next = button(doc, 'igs-ws-chip igs-scmj-next', '继续');
+                next.disabled = !points.allowed();
                 next.addEventListener('click', () => { match.continueHand(); paint(); });
                 view.foot.appendChild(next);
+            }
+            pointsStatus(card);
+            if (points.state.enabled) {
+                const exit = button(doc, 'igs-ws-chip igs-scmj-settle', '结算并退出');
+                exit.disabled = points.state.busy || Boolean(points.state.error);
+                exit.addEventListener('click', () => { void leaveTable(); });
+                view.foot.appendChild(exit);
             }
             view.sealCard(card);
             view.clearActions();
         } else {
             view.clearBanner();
-            paintActions(player);
+            if (points.allowed()) paintActions(player);
+            else view.clearActions();
+            pointsStatus(sceneTop);
         }
-        persist();
         // 一次操作可能连着重绘两回，第二回没有新动作；看 beat 会把上一回装好的计时器清掉，AI 就停住不打了。
         // 只在牌局为了节奏停下时才续，推进不了的局面不装计时器，免得每 450ms 空转重绘。
         // 刚有人胡，多停一会儿让人看清胡的哪张。
@@ -1263,19 +1372,22 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
     }
 
     end.addEventListener('click', () => {
-        view.stopHold();
-        match.dissolve();
-        board.innerHTML = '';
-        if (typeof ctx.requestClose === 'function') ctx.requestClose();
+        void leaveTable();
     });
     close.addEventListener('click', () => {
         view.stopHold();
         persist();
-        if (typeof ctx.requestClose === 'function') ctx.requestClose();
+        host.requestClose?.();
     });
-    match.reattach = (next) => {
+    match.reattach = (next, rounds) => {
         if (!next || !next.board || match.generation < 0) return;
+        view.stopHold();
+        host = next;
+        board = next.board;
+        pointsFactory = rounds;
         view.attach(next);
+        syncKey = `${evidence().length}:${match.phase() === 'final'}`;
+        void points.reconnect();
         paint();
     };
     if (saved && saved.decisions) {

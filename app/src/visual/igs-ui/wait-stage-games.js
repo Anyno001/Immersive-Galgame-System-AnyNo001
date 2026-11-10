@@ -5,6 +5,7 @@ import { SNAKE_STYLE, startSnake } from './wait-stage-snake.js';
 import { LUDO_STYLE, startLudo } from './wait-stage-ludo.js';
 import { TILES_STYLE, startTiles } from './wait-stage-tiles.js';
 import { WAIT_STAGE_GAME_LINES, waitStageGameLine } from './wait-stage-game-lines.js';
+import { beginWaitStagePoints } from './wait-stage-game-points.js';
 export { WAIT_STAGE_GAME_LINES, waitStageGameLine };
 
 export const WAIT_STAGE_GAMES = Object.freeze(['rps', 'mahjong', 'tiles', 'snake', 'ludo', 'whosaid', 'memory', 'mood']);
@@ -269,20 +270,22 @@ function say(ctx, status, text, lineKey) {
     try { ctx.onVoice(null); } catch (error) { /* 语气音失败不影响这一局 */ }
 }
 
-function startRps(ctx) {
+function startRps(ctx, rounds) {
     const status = gameShell(ctx, WAIT_STAGE_GAME_LABELS.rps);
     status.textContent = '出什么？';
     ctx.setNote(waitStageGameLine('start', ctx.random));
     chipRow(ctx, 'igs-ws-hands', RPS_HANDS.map((hand) => ({ id: hand.id, label: hand.label })), (hand) => {
         if (ctx.isExiting() && ctx.isSettled()) return;
+        const points = beginWaitStagePoints(ctx, rounds);
         const foe = RPS_HANDS[Math.floor(ctx.random() * RPS_HANDS.length)];
         const outcome = rpsOutcome(hand.id, foe.id);
         say(ctx, status, `你出${hand.label}，对方出${foe.label}。`, rpsLineKey(outcome));
         ctx.markDone();
+        void points.finish({ win: outcome === 1 });
     });
 }
 
-function startWhoSaid(ctx) {
+function startWhoSaid(ctx, rounds) {
     const model = ctx.model || {};
     const round = buildWhoSaidRound(model.replay, ctx.random, model.names);
     const status = gameShell(ctx, WAIT_STAGE_GAME_LABELS.whosaid);
@@ -290,12 +293,14 @@ function startWhoSaid(ctx) {
         say(ctx, status, '能回放的台词还不够，多聊几句再来。');
         return;
     }
+    const points = beginWaitStagePoints(ctx, rounds);
     status.textContent = `「${round.text}」`;
     chipRow(ctx, 'igs-ws-choices', round.options.map((name) => ({ id: name, label: name })), (item) => {
         if (ctx.isSettled()) return;
         const right = item.id === round.answer;
         say(ctx, status, right ? `是${round.answer}。` : `是${round.answer}说的。`, right ? 'right' : 'wrong');
         ctx.markDone();
+        void points.finish({ win: right, first: true });
     });
 }
 
@@ -309,7 +314,8 @@ function showImage(ctx, image, url) {
     Promise.resolve(value).then((src) => { if (src) image.src = src; }, () => {});
 }
 
-function startMemory(ctx) {
+function startMemory(ctx, rounds) {
+    const points = beginWaitStagePoints(ctx, rounds);
     const model = ctx.model || {};
     const pictures = model.art && model.art.pictures;
     const levels = MEMORY_LEVEL_PAIRS.length;
@@ -371,6 +377,7 @@ function startMemory(ctx) {
                     if (level + 1 >= levels) {
                         status.textContent = `全部通关，最后一关 ${moves} 手。`;
                         ctx.markDone();
+                        void points.finish({ win: true, levels });
                         return;
                     }
                     status.textContent = `第 ${level + 1} 关通过，${moves} 手。`;
@@ -399,7 +406,7 @@ function startMemory(ctx) {
     renderLevel(0);
 }
 
-function startMood(ctx) {
+function startMood(ctx, rounds) {
     const model = ctx.model || {};
     const round = buildMoodRound(model.art && model.art.sprites, { random: ctx.random });
     const status = gameShell(ctx, WAIT_STAGE_GAME_LABELS.mood);
@@ -413,12 +420,14 @@ function startMood(ctx) {
     image.alt = '';
     face.appendChild(image);
     ctx.board.appendChild(face);
+    const points = beginWaitStagePoints(ctx, rounds);
     status.textContent = '这是什么心情？';
     chipRow(ctx, 'igs-ws-choices', round.options.map((mood) => ({ id: mood, label: mood })), (item) => {
         if (ctx.isSettled()) return;
         const right = item.id === round.answer;
         say(ctx, status, right ? `是${round.answer}。` : `其实是${round.answer}。`, right ? 'right' : 'wrong');
         ctx.markDone();
+        void points.finish({ win: right, first: true });
     });
 }
 
@@ -446,8 +455,15 @@ export function ensureWaitStageGameStyle(doc, style = WAIT_STAGE_GAME_STYLE_TEXT
     if (node.textContent !== style) node.textContent = style;
 }
 
-export function createWaitStageGamePack() {
-    return {
+export function createWaitStageGamePack(bindTrustedStart) {
+    const start = (ctx, rounds) => {
+        const starter = STARTERS[ctx && ctx.id];
+        if (!starter || !ctx.doc || !ctx.board) return;
+        ensureWaitStageGameStyle(ctx.doc);
+        return starter(ctx, rounds);
+    };
+    if (typeof bindTrustedStart === 'function') bindTrustedStart(start);
+    return Object.freeze({
         id: 'igs-wait-games',
         style: WAIT_STAGE_GAME_STYLE_TEXT,
         list(model) {
@@ -470,10 +486,7 @@ export function createWaitStageGamePack() {
             ensureWaitStageGameStyle(doc, this.style);
         },
         start(ctx) {
-            const starter = STARTERS[ctx && ctx.id];
-            if (!starter || !ctx.doc || !ctx.board) return;
-            ensureWaitStageGameStyle(ctx.doc, this.style);
-            starter(ctx);
+            return start(ctx);
         },
-    };
+    });
 }

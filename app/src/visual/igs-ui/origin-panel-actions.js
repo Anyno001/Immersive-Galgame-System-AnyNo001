@@ -43,7 +43,39 @@ const REASON_TEXT = Object.freeze({
     paused: '系统已暂停。',
     disabled: '随身系统未开启。',
     'no-result': '没有生成出结果，请重试或手动添加。',
+    'points-exchange-invalid': '请输入正整数积分',
+    'points-exchange-too-small': '这些积分不足以兑换 1 单位剧情货币',
+    'points-insufficient': '共享积分不足',
+    'stats-chat-not-enabled': '本聊天数值系统未启用',
+    'stats-currency-unset': '剧情货币尚未就绪',
+    'points-floor-missing': '没有可绑定的剧情楼层',
+    'request-stale': '聊天或来源已变化，请重新确认',
+    'points-intent-pending': '有待确认的积分记录',
+    'points-settlement-pending': '请先完成待处理的积分结算',
+    'inventory-quantity-conflict': '剧情货币余额已变化，未覆盖外部修改',
 });
+
+async function runExchangeAction(name, ctx) {
+    if (!ctx.exchange) return { ok: false, reason: 'points-exchange-unavailable' };
+    const report = result => {
+        if (!result?.ok) ctx.notice('warn', `兑换未完成：${REASON_TEXT[result?.reason] || result?.reason || 'unknown'}。可在更多菜单中重试兑换。`);
+        return result;
+    };
+    ctx.closeMenu();
+    if (name === 'exchange-retry') return report(await ctx.exchange.retry());
+    const info = ctx.exchange.info?.();
+    if (!info?.ok) return report(info || { ok: false, reason: 'points-exchange-unavailable' });
+    const value = await ctx.modal.prompt(`当前比例：1 积分 = ${info.rate} ${info.name}\n消耗多少共享积分？`, '');
+    if (value === null) return { ok: true, cancelled: true };
+    const points = Number(value);
+    if (!Number.isSafeInteger(points) || points <= 0) return report({ ok: false, reason: 'points-exchange-invalid' });
+    const quote = await ctx.exchange.quote(points);
+    if (!quote?.ok) return report(quote);
+    if (!await ctx.modal.confirm(`消耗 ${quote.points} 积分，兑换 ${quote.amount} ${quote.currency.name}？`)) return { ok: true, cancelled: true };
+    const result = report(await ctx.exchange.confirm(quote));
+    if (result?.ok && result.done && !result.present) ctx.notice('info', `已兑换${result.amount} ${result.name}`);
+    return result;
+}
 
 const intOr = (value, fallback) => {
     const n = Number.parseInt(value, 10);
@@ -70,6 +102,8 @@ export async function runOriginAction(name, el, ctx) {
     const generate = async (fn) => report(await fn.call(engine));
 
     switch (name) {
+    case 'exchange':
+    case 'exchange-retry': return runExchangeAction(name, ctx);
     case 'tab': ctx.setTab(id); return { ok: true };
     case 'close': ctx.close(); return { ok: true };
     case 'settings': ctx.openSettings(); return { ok: true };

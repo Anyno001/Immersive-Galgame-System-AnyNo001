@@ -9,8 +9,9 @@ import { createMahjongFelt } from './wait-stage-mahjong-felt.js';
 import { avatarCrop, createMahjongTable, cropInto, faceFor, openMahjongAlbum, pictureBrief, setMahjongImageLoader } from './wait-stage-mahjong-table.js';
 export { avatarCrop };
 import { bindScmjFace, openScmjTable, readMahjongMode, readScmjSave, scmjLiveMatch, writeMahjongMode } from './wait-stage-scmj.js';
+import { createMahjongPointsSession } from './wait-stage-mahjong-points.js';
+import { riichiPointsEvidence, riichiPointsHand } from './riichi-points-settlement.js';
 
-bindScmjFace((doc, code) => tileSvg(doc, code));
 import { ORIGINAL_READER_ICONS as ICONS } from './reader-icons.js';
 
 const WIND = ['东', '南', '西', '北'];
@@ -698,8 +699,13 @@ function readSave(storage) {
 }
 
 function writeSave(storage, data) {
-    if (!storage || typeof storage.setItem !== 'function') return;
-    try { storage.setItem(MAHJONG_SAVE_KEY, JSON.stringify(data)); } catch (error) { /* 存满了就只留在这一页。 */ }
+    const failed = { ok: false, reason: 'points-table-save-failed' };
+    if (!storage || typeof storage.setItem !== 'function' || typeof storage.getItem !== 'function') return failed;
+    try {
+        const text = JSON.stringify(data);
+        storage.setItem(MAHJONG_SAVE_KEY, text);
+        return storage.getItem(MAHJONG_SAVE_KEY) === text ? { ok: true } : failed;
+    } catch { return failed; }
 }
 
 function clearSave(storage) {
@@ -862,6 +868,7 @@ function playerId(model, seat) {
 
 // options.nude：上一场被成人向惩罚的角色，这一场换裸体立绘；没有裸体立绘就照旧用默认那套。
 export function openMahjongView(ctx) {
+    bindScmjFace(tileSvg);
     return createMahjongTable(ctx, {
         el, button, tileNode, liveFace, iconTool, toolBar, hostTools, labelTool,
         createMahjongFelt, createMahjongSound, ICONS, BAR_ICONS,
@@ -880,6 +887,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     const stripped = new Set();
     const { root, table, scene, felt, sceneTop, actions, end, close, leave, banner, crowd } = view;
     let host = ctx;
+    let rounds = options.pointsRounds;
     const names = cast.map((item) => item.name);
     const feed = revived && revived.feed ? revived.feed.slice() : [];
     const match = {
@@ -889,15 +897,17 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         feed,
         root,
         game: null,
-        reattach(next) {
+        reattach(next, nextRounds) {
             const nextBoard = next && next.board;
             if (!nextBoard || match.generation < 0) return;
             host = next;
+            rounds = nextRounds;
             view.attach(next);
             match.parked = false;
             watchModel(next, true);
             armWatch();
-            paint();
+            if (points.state.enabled) void points.reconnect();
+            else { resumePlay(); paint(); }
         },
     };
 
@@ -910,6 +920,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         last: null,
         foot: null,
         replaying: false,
+        started: Boolean(revived?.started ?? revived?.game?.paipu),
     };
     const human = new HumanPlayer({
         choose(player, offer) { choose(player, offer); },
@@ -928,6 +939,91 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     game._model.player = names.slice();
     match.game = game;
     remember(match);
+    const queuedReplies = new Map();
+    let syncKey = '', leaving = false;
+    const evidence = () => riichiPointsEvidence(game._paipu);
+    const points = createMahjongPointsSession({
+        factory: identity => rounds?.(identity, 'riichi'), saved: revived || (rounds ? null : { version: 1 }),
+        evidence, adapt: riichiPointsHand, terminal: () => match.finished, persist,
+        changed() {
+            if (match.generation < 0) return;
+            const { error, busy, inactive, result, exitRequested } = points.state;
+            if (!leaving && !error && !busy && (inactive || (result?.settled
+                && (exitRequested || result.round?.closeReason === 'insufficient')))) {
+                finishMatch(); host.board.innerHTML = ''; host.requestClose?.(); return;
+            }
+            if (!error && !busy) resumePlay();
+            paint();
+        },
+    });
+    match.points = points;
+    match.canPlay = canPlay;
+    const status = el(doc, 'div', 'igs-ws-status igs-mj-points');
+    status.setAttribute('aria-live', 'polite');
+    function canPlay() {
+        return alive() && !leaving && !match.parked && !session.replaying && points.allowed()
+            && (!points.state.enabled || !host.isSettled?.());
+    }
+    function deliverReply(id, callback, reply) {
+        if (!alive()) return;
+        if (!canPlay()) { queuedReplies.set(id, () => deliverReply(id, callback, reply)); return; }
+        callback(reply);
+        if (points.state.enabled && !points.checkpoint().ok) { game.stop(); paint(); }
+    }
+    function resumePlay() {
+        if (!canPlay()) return;
+        if (!session.started) { session.started = true; game.kaiju(0); }
+        for (const [id, deliver] of [...queuedReplies]) {
+            if (!canPlay()) break;
+            queuedReplies.delete(id); deliver();
+        }
+        if (canPlay() && !match.finished) game.start();
+    }
+    function confirmPoints() {
+        if (!points.state.enabled || session.replaying) return;
+        const key = `${evidence().length}:${match.finished}`;
+        if (syncKey === key) return;
+        syncKey = key;
+        void points.sync();
+    }
+    function paintPoints() {
+        if (!points.state.enabled) return;
+        const { busy, error, result } = points.state;
+        status.replaceChildren(el(doc, 'span', '', busy ? '积分确认中' : error ? `积分未确认：${error}`
+            : result?.settled ? `本桌积分已结算 ${result.amount > 0 ? '+' : ''}${result.amount}`
+                : `本桌待结算 ${result?.amount || 0} 积分`));
+        if (error && !busy) {
+            const retry = button(doc, 'igs-ws-chip igs-mj-retry', '重试结算');
+            retry.addEventListener('click', () => { void points.retry(); paint(); });
+            status.appendChild(retry);
+        }
+        (session.foot || actions).appendChild(status);
+        if (session.next) session.next.disabled = !canPlay();
+        if (session.exit) session.exit.disabled = busy || Boolean(error) || leaving;
+        for (const node of session.rematchButtons || []) node.disabled = busy || Boolean(error) || !result?.settled;
+        end.disabled = !atBoundary() || busy || Boolean(error);
+        labelTool(end, '结算并退出');
+    }
+    function atBoundary() { return Boolean(session.wait || match.finished); }
+    async function leaveTable(next) {
+        if (leaving || !alive()) return;
+        if (points.state.enabled) {
+            if (!atBoundary() || points.state.busy || points.state.error) return;
+            if (!points.state.result?.settled) {
+                leaving = true;
+                const result = await points.exit();
+                leaving = false;
+                if (!result?.ok || !result.settled || points.state.error) { paint(); return; }
+            }
+        }
+        finishMatch();
+        if (typeof next === 'function') next();
+        else { host.board.innerHTML = ''; host.requestClose?.(); }
+    }
+    leave.group.addEventListener('click', event => {
+        if (!event.target.closest('button')) return;
+        if (!park()?.ok && points.state.enabled) { event.preventDefault(); event.stopImmediatePropagation(); paint(); }
+    }, true);
     const offPersonas = personas.subscribe(() => {
         if (match.generation < 0) return offPersonas();
         rivals.forEach((ai, index) => ai.setPersona(personas.get(cast[index + 1] && cast[index + 1].name)));
@@ -977,19 +1073,23 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         const player = game._players[id];
         const play = player.action.bind(player);
         player.action = (msg, callback) => {
+            if (!alive()) return;
             if (match.generation > 0) feed.push({ id, msg: JSON.parse(JSON.stringify(msg)) });
-            return play(msg, id && callback ? thinkReply(player, callback) : callback);
+            const answer = callback ? reply => deliverReply(id, callback, reply) : callback;
+            return play(msg, id && answer ? thinkReply(player, answer) : answer);
         };
     }
     human.view = {
         kaiju() { paint(); },
         redraw() {
+            if (session.replaying) return;
             session.last = null;
             clearBanner();
             paint();
             openingLine();
         },
         update(msg) {
+            if (session.replaying) return;
             session.last = msg || null;
             react(msg);
             paint();
@@ -1315,23 +1415,32 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function persist() {
-        if (match.generation < 0 || match.finished) return;
-        writeSave(bucket(host), {
-            version: 1,
-            finished: false,
+        if (match.generation < 0) return points.state.result?.settled || points.state.inactive
+            ? { ok: true, unchanged: true } : { ok: false, reason: 'points-round-stale' };
+        if (!points.state.enabled && match.finished) return { ok: true, unchanged: true };
+        return writeSave(bucket(host), {
+            version: points.state.enabled ? 2 : 1,
+            finished: Boolean(match.finished && points.state.result?.settled && !points.state.error),
+            tableEnded: match.finished,
+            started: session.started,
             cast: storedCast(cast),
             nude: [...bare],
             feed,
             waiting: session.pending ? 'choose' : (session.wait ? 'pause' : ''),
             pendingMsg: session.pendingMsg || null,
             game: snapshotGame(game),
+            ...(session.rematch && { rematch: session.rematch }),
+            ...(points.state.enabled && { points: points.state.identity, pointsExit: points.state.exitRequested }),
         });
     }
 
     function park() {
+        const saved = points.checkpoint();
+        game.stop();
+        if (points.state.enabled && !saved.ok) { paint(); return saved; }
         clearInterval(session.watch);
         match.parked = true;
-        persist();
+        return saved;
     }
 
     function finishMatch() {
@@ -1343,29 +1452,25 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         offPersonas();
         offModel();
         clearInterval(session.watch);
-        if (!ended) clearSave(bucket(host));
+        if (!ended || points.state.inactive) clearSave(bucket(host));
         if (liveMatch === match) forgetMahjongTable();
         try { game.stop(); } catch (error) { /* 牌局已经结束时不用再停。 */ }
-        const pending = session.pending;
-        const wait = session.wait;
         session.pending = null;
         session.wait = null;
         session.offer = null;
-        if (pending) pending({});
-        if (wait) wait();
+        queuedReplies.clear();
     }
 
     close.addEventListener('click', () => {
-        park();
+        if (!park().ok && points.state.enabled) return;
         host.requestClose();
     });
     end.addEventListener('click', () => {
-        finishMatch();
-        host.requestClose();
+        void leaveTable();
     });
 
     function send(reply) {
-        if (!session.pending) return;
+        if (!session.pending || !canPlay()) return;
         const pending = session.pending;
         const body = reply || {};
         session.pending = null;
@@ -1393,22 +1498,32 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         let sent = false;
         // 结算停在这里等玩家点「继续」，不替玩家往下走。
         const finish = () => {
-            if (sent) return;
+            if (sent || !canPlay()) return;
             sent = true;
             session.wait = null;
+            if (session.next) session.next.disabled = true;
             done();
         };
         session.wait = finish;
-        setTimeout(persist, 0);
         const next = button(doc, 'igs-ws-chip', '继续');
+        session.next = next;
         next.addEventListener('click', finish);
         banner.hidden = false;
         (session.foot || banner).appendChild(next);
+        if (points.state.enabled) {
+            const exit = button(doc, 'igs-ws-chip igs-mj-settle', '结算并退出');
+            exit.addEventListener('click', () => { void leaveTable(); });
+            (session.foot || banner).appendChild(exit);
+            session.exit = exit;
+        }
+        paint();
     }
 
     function clearBanner() {
         view.clearBanner();
         session.foot = null;
+        session.next = null;
+        session.exit = null;
     }
 
     function openCard(kind, title) {
@@ -1553,7 +1668,8 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function showSummary(paipu) {
-        if (!paipu) return;
+        if (!paipu || session.replaying || session.summaryShown) return;
+        session.summaryShown = true;
         const card = openCard('end', '终局');
         const order = paipu.player.map((name, id) => id).sort((a, b) => (paipu.rank[a] || 0) - (paipu.rank[b] || 0));
         card.appendChild(view.rank(order.map((id) => {
@@ -1575,16 +1691,10 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         saveRematch();
         refreshRematchNote();
         addPenalty(card, 'final', order.map((id) => ({ id, score: paipu.defen[id] || 0 })));
-        const leave = (next) => {
-            match.generation = -1;
-            felt.destroy();
-            if (liveMatch === match) forgetMahjongTable();
-            next();
-        };
         const again = button(doc, 'igs-ws-chip', '再来一局');
-        again.addEventListener('click', () => leave(() => openMahjongTable(host, seats, null, { nude: [...stripped] })));
+        again.addEventListener('click', () => { void leaveTable(() => openMahjongTable(host, seats, null, { nude: [...stripped], pointsRounds: rounds })); });
         const swap = button(doc, 'igs-ws-chip', '换对手');
-        swap.addEventListener('click', () => leave(() => startMahjong(host)));
+        swap.addEventListener('click', () => { void leaveTable(() => startMahjong(host, rounds)); });
         session.foot.appendChild(again);
         session.foot.appendChild(swap);
         session.album = view.album(banner, () => {
@@ -1593,16 +1703,20 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         });
         if (session.album) session.foot.appendChild(session.album);
         sealCard(card);
+        session.rematchButtons = [again, swap];
+        paint();
     }
 
     // 终局后存下这一桌、各自的衣装和要换裸体的角色：「再来一局」直接用，离开后再开时选人界面按它预选。
     function saveRematch() {
         const rivals = seats.slice(1);
-        writeSave(bucket(host), { version: 1, finished: true, rematch: {
+        session.rematch = {
             names: rivals.map((person) => person.name),
             outfits: Object.fromEntries(rivals.filter((person) => person.outfit).map((person) => [person.name, person.outfit])),
             nude: [...stripped],
-        } });
+        };
+        return points.state.enabled ? persist()
+            : writeSave(bucket(host), { version: 1, finished: true, rematch: session.rematch });
     }
 
     function refreshRematchNote() {
@@ -1614,7 +1728,11 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function paint() {
-        if (!alive()) return;
+        if (!alive() || session.replaying) return;
+        if (points.state.enabled) {
+            if (!points.checkpoint().ok) game.stop();
+            confirmPoints();
+        }
         const model = human.model;
         const self = Number.isInteger(human._menfeng) ? human._menfeng : 0;
         view.ensureFelt();
@@ -1624,6 +1742,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         sceneTop.appendChild(selfNode(model, self));
         paintHeads();
         paintActions();
+        paintPoints();
     }
 
     function feltScene(model, self) {
@@ -1688,7 +1807,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             side: tile.called,
         })));
         return view.selfRail({
-            live: Boolean(session.offer && session.offer.dapai.length),
+            live: Boolean(canPlay() && session.offer && session.offer.dapai.length),
             tiles,
             backs: hand.backs,
             melds,
@@ -1696,7 +1815,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     }
 
     function handEntry(code, zimoSlot, key) {
-        const reply = discardCode(code, session.offer, zimoSlot);
+        const reply = canPlay() ? discardCode(code, session.offer, zimoSlot) : '';
         return {
             code,
             button: Boolean(reply),
@@ -1718,7 +1837,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             }
             if (offer.lizhi.length) {
                 box.appendChild(view.actButton(offer.riichi ? '取消立直' : '立直', `is-riichi${offer.riichi ? ' is-on' : ''}`, null, () => {
-                    if (!session.offer) return;
+                    if (!session.offer || !canPlay()) return;
                     session.offer.riichi = !session.offer.riichi;
                     paint();
                 }));
@@ -1728,6 +1847,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
             }
             if (offer.pass) box.appendChild(view.actButton('跳过', 'is-skip', null, () => send({})));
         }, Boolean(offer && offer.replies && offer.replies.length));
+        for (const node of actions.querySelectorAll('button')) node.disabled = !canPlay();
     }
 
     function redecide(player, msg) {
@@ -1744,19 +1864,15 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         clearInterval(match.watch);
         session.watch = setInterval(() => {
             if (!root.parentNode) {
-                clearInterval(session.watch);
-                match.parked = true;
-                persist();
+                park();
             }
         }, 1000);
         match.watch = session.watch;
     }
 
-    paint();
     if (revived && revived.game) applyGameSnapshot(game, revived.game);
-    else game.kaiju(0);
 
-    if (revived && revived.feed) {
+    if (session.started && revived && revived.feed) {
         const dummy = {
             choose(player) { player.finish({}); },
             pause(done) { done(); },
@@ -1770,7 +1886,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         }
         session.replaying = false;
         human.table = previous;
-        human._callback = (reply) => game.reply(human._id, reply);
+        human._callback = (reply) => deliverReply(human._id, value => game.reply(human._id, value), reply);
         // 收起时对手可能还在想，回复没进存档：照它收到的最后一条消息再想一次。
         if (game._status) {
             for (let id = 1; id < 4; id += 1) {
@@ -1778,22 +1894,23 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
                 const last = revived.feed.filter((item) => item.id === id && !item.msg.kaigang).pop();
                 const player = game._players[id];
                 if (!last) continue;
-                player._callback = thinkReply(player, (reply) => game.reply(id, reply));
+                player._callback = thinkReply(player, (reply) => deliverReply(id, value => game.reply(id, value), reply));
                 redecide(player, last.msg);
             }
         }
         const msg = revived.pendingMsg;
-        if (revived.waiting === 'choose' && msg) {
+        if (revived.tableEnded) {
+            showSummary(game._paipu);
+        } else if (revived.waiting === 'choose' && msg) {
             redecide(human, msg);
         } else if (revived.waiting === 'pause') {
             showNote('这一局还在，点继续接着打。');
             pause(() => human.finish());
-        } else {
-            paint();
-            if (game._status && game._reply.filter(Boolean).length === 4) game.start();
         }
     }
     armWatch();
+    if (!points.state.enabled) resumePlay();
+    paint();
     return game;
 }
 
@@ -2088,7 +2205,7 @@ function hostTools(doc) {
     };
 }
 
-function openMahjongPicker(ctx, cast, rematch) {
+function openMahjongPicker(ctx, cast, rematch, rounds) {
     const { doc, board } = ctx;
     board.innerHTML = '';
     const root = el(doc, 'div', 'igs-mj igs-mj-picker');
@@ -2290,8 +2407,8 @@ function openMahjongPicker(ctx, cast, rematch) {
         const seatedNames = picked.filter(Boolean).map((person) => person.name);
         if (seatedNames.length) void personas.ensure(seatedNames, { rules: mode === 'scmj' ? 'chengdu' : 'riichi', cast: seatedNames });
         const seated = [{ name: '你', url: '' }, ...rivals];
-        if (mode === 'scmj') openScmjTable(ctx, seated, null, { present: true, nude, personas: personaStoreFor(ctx), onPicker: () => openMahjongPicker(ctx, listMahjongCast(ctx.model), null) });
-        else openMahjongTable(ctx, seated, null, { nude });
+        if (mode === 'scmj') openScmjTable(ctx, seated, null, { present: true, nude, pointsRounds: rounds, personas: personaStoreFor(ctx), onPicker: (host, factory) => openMahjongPicker(host, listMahjongCast(host.model), null, factory) });
+        else openMahjongTable(ctx, seated, null, { nude, pointsRounds: rounds });
     });
     render();
     lineup.appendChild(slots);
@@ -2307,39 +2424,39 @@ function openMahjongPicker(ctx, cast, rematch) {
     return null;
 }
 
-export function startMahjong(ctx) {
+export function startMahjong(ctx, rounds) {
     if (!ctx || !ctx.doc || !ctx.board) return null;
     setMahjongImageLoader(ctx.loadImage);
     if (readMahjongMode(bucket(ctx)) === 'scmj') {
         const playing = scmjLiveMatch();
         if (playing && typeof playing.reattach === 'function') {
-            playing.reattach(ctx);
+            playing.reattach(ctx, rounds);
             return playing;
         }
         const scmjSaved = readScmjSave(bucket(ctx));
         if (scmjSaved && !scmjSaved.finished && Array.isArray(scmjSaved.decisions)) {
             const cast = resolveCast(ctx.model, scmjSaved.cast);
-            return openScmjTable(ctx, cast, scmjSaved, { present: true, personas: personaStoreFor(ctx), onPicker: () => openMahjongPicker(ctx, listMahjongCast(ctx.model), null) });
+            return openScmjTable(ctx, cast, scmjSaved, { present: true, pointsRounds: rounds, personas: personaStoreFor(ctx), onPicker: (host, factory) => openMahjongPicker(host, listMahjongCast(host.model), null, factory) });
         }
     }
     const held = liveMatch && liveMatch.generation > 0 ? liveMatch : null;
     if (held && typeof held.reattach === 'function') {
-        held.reattach(ctx);
+        held.reattach(ctx, rounds);
         return held.game;
     }
     const saved = readSave(bucket(ctx));
     if (saved && !saved.finished && saved.game && Array.isArray(saved.feed)) {
         const cast = resolveCast(ctx.model, saved.cast);
-        return openMahjongTable(ctx, cast, saved);
+        return openMahjongTable(ctx, cast, saved, { pointsRounds: rounds });
     }
     const cast = listMahjongCast(ctx.model);
-    if (cast.length) return openMahjongPicker(ctx, cast, saved && saved.finished ? saved.rematch : null);
+    if (cast.length || readMahjongMode(bucket(ctx)) === 'scmj') return openMahjongPicker(ctx, cast, saved && saved.finished ? saved.rematch : null, rounds);
     return openMahjongTable(ctx, [
         { name: '你', url: '' },
         { name: '路人甲', url: '' },
         { name: '路人乙', url: '' },
         { name: '路人丙', url: '' },
-    ]);
+    ], null, { pointsRounds: rounds });
 }
 
 function resolveCast(model, saved) {

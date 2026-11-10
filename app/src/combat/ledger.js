@@ -23,7 +23,7 @@ import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extract
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportHpLostOf, reportIdFor, reportIdOf, reportWeakOf } from './report.js';
 import { parseChallengeReport } from './challenge-report.js';
-import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
+import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_COST_VERSION, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { CLASS_PASSIVE_VERSION, fixedClassPassive } from './class-passives.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
@@ -39,6 +39,8 @@ import { isRelicPassive } from './relics/draw.js';
 import { heldOffCombat, offCombatModel, refsHeld, relicRefKey } from './relics/off-combat.js';
 import { rewardCardMarks } from './reward-cards.js';
 import { isOriginRecord, mergeOriginRecords, originPointsOf } from '../scene/origin/origin-log.js';
+import { foldPointsRecords, isPointsRecord } from '../scene/points/points-log.js';
+import { POINTS_FLOOR_KEY } from '../scene/points/points-policy.js';
 
 // 正文里「我 / {{user}} / 主角」都指用户本人。
 export const PROTAGONIST_ALIASES = Object.freeze(['我', '{{user}}', '主角']);
@@ -134,7 +136,7 @@ export function normalizeSnapshot(read) {
     const entries = [];
     const ids = new Set();
     for (const row of read.ledger || []) {
-        if (isOriginRecord(row)) continue;
+        if (isOriginRecord(row) || isPointsRecord(row)) continue;
         const parsed = normalizeLedgerEntry(row);
         if (!parsed.ok) {
             diagnostics.push({ code: 'combat-entry-invalid', id: row?.id ?? null, errors: parsed.errors.slice(0, 5) });
@@ -163,7 +165,10 @@ export function normalizeSnapshot(read) {
     const origin = diagnostics.some((item) => item.kind === 'ledger' && String(item.key || '').startsWith('or|'))
         ? { ok: false, reason: 'origin-database-invalid' }
         : mergeOriginRecords(read.ledger || []);
-    return { ok: true, profiles, entries, ids, attributes, attributeIds, attributeTable, diagnostics, origin };
+    const points = diagnostics.some(item => item.kind === 'ledger' && String(item.key || '').startsWith('pt|'))
+        ? { ok: false, reason: 'points-log-incomplete' }
+        : { ok: true, rows: (read.ledger || []).filter(isPointsRecord) };
+    return { ok: true, profiles, entries, ids, attributes, attributeIds, attributeTable, diagnostics, origin, points };
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,7 +1093,7 @@ const handlers = Object.freeze({
         if (heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         const opportunity = purgeOpportunity(state);
         if (!opportunity.available || payload.battle !== opportunity.battle) return 'combat-purge-unavailable';
-        if (payload.cost !== opportunity.cost) return 'combat-purge-cost-invalid';
+        if (payload.cost !== purgeCost(state.purges || 0, payload.costVersion ?? 0)) return 'combat-purge-cost-invalid';
         const at = state.deckCopies.indexOf(payload.copyId);
         if (at < 0 || !state.copies.has(payload.copyId)) return 'combat-purge-copy-missing';
         state.copies.delete(payload.copyId);
@@ -1603,8 +1608,11 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
     const attributes = { table: attributeContext.table, heroId, heroLevel: attributeContext.heroLevel, fold: folded.fold, inactive: folded.inactive };
     const origin = originPointsOf(snapshot.origin || { ok: true, raw: null }, chat);
     if (!origin.ok) return origin;
+    if (snapshot.points?.ok === false) return snapshot.points;
+    const points = foldPointsRecords(snapshot.points?.rows || [], chat, options.chatId || '');
+    if (!points.ok) return points;
     return {
-        ok: true, characters, classes: index.classes, enemies: index.enemies, originPoints: origin.balance,
+        ok: true, characters, classes: index.classes, enemies: index.enemies, originPoints: origin.balance, gamePoints: points.balance,
         profileMeta: new Map([...snapshot.profiles].map(([id, meta]) => [id, { version: meta.version, createdAt: meta.createdAt }])),
         unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals,
     };
@@ -1724,7 +1732,7 @@ function buildPurgeEntry(effective, index, directive, anchor, report, text, user
     if (!(character.deckEntries || []).some((row) => row.copyId === directive.copyId)) return { ok: false, reason: 'combat-purge-copy-missing' };
     const normalized = normalizeLedgerEntry({
         id: ledgerEntryId('purge', key, anchor), type: 'purge', character: key, anchor,
-        payload: { copyId: directive.copyId, cost: chance.cost, battle: chance.battle, reportId: directive.reportId }, createdAt: now,
+        payload: { copyId: directive.copyId, cost: chance.cost, costVersion: PURGE_COST_VERSION, battle: chance.battle, reportId: directive.reportId }, createdAt: now,
     });
     return normalized.ok ? { ok: true, entry: normalized.value } : { ok: false, reason: 'combat-entry-invalid', errors: normalized.errors.slice(0, 5) };
 }
@@ -2184,22 +2192,25 @@ export function buildHeroPanelEntry(snapshot, chat, effective, characterId, acti
 // 正文直接存字符串引用比较（引用相同时 === 是 O(1)，不同时多数在首个字符就分出结果）。
 function floorSignature(floors) {
     const texts = new Array(floors.length);
+    const pointsIds = new Array(floors.length);
     const swipes = new Array(floors.length);
     const kinds = new Array(floors.length); // 0 非对象楼，1 AI 楼，2 用户楼
     for (let at = 0; at < floors.length; at += 1) {
         const floor = floors[at];
         if (!isObject(floor)) { texts[at] = ''; swipes[at] = 0; kinds[at] = 0; continue; }
         texts[at] = messageText(floor);
+        pointsIds[at] = floor.extra?.[POINTS_FLOOR_KEY] || '';
         swipes[at] = swipeOf(floor);
-        kinds[at] = floor.is_user === true ? 2 : 1;
+        kinds[at] = floor.is_system === true ? 3 : floor.is_user === true ? 2 : 1;
     }
-    return { texts, swipes, kinds };
+    return { texts, swipes, kinds, pointsIds };
 }
 
 function sameSignature(a, b) {
     if (a.texts.length !== b.texts.length) return false;
     for (let at = 0; at < a.texts.length; at += 1) {
         if (a.kinds[at] !== b.kinds[at] || a.swipes[at] !== b.swipes[at] || a.texts[at] !== b.texts[at]) return false;
+        if (a.pointsIds[at] !== b.pointsIds[at]) return false;
     }
     return true;
 }
@@ -2231,8 +2242,9 @@ const LEDGER_KINDS = Object.freeze(['profile', 'ledger', 'attribute']);
 //   - 快照读取：同一表戳只读一次，并发调用共用同一个 Promise；
 //   - 有效状态：同一快照 + 楼层集合签名 + 用户名 + 来源过滤 + 背包表戳 + 难度只重放一次。
 // read()/effectiveState() 返回的对象在调用方之间共享，必须视为只读，不要原地修改。
-export function createCombatLedger({ tables, chat, userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null, wallet = 0 } = {}) {
+export function createCombatLedger({ tables, chat, chatId = '', userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null, wallet = 0, spendingGate } = {}) {
     const getChat = () => (typeof chat === 'function' ? chat() : chat) || [];
+    const getChatId = () => String((typeof chatId === 'function' ? chatId() : chatId) || '');
     const getUserName = () => (typeof userName === 'function' ? userName() : userName);
     const getSourceFilter = () => (typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter);
     // 数值侧金钱（同步取值，取不到按 0）；只用于 effectiveState() 的主角余额与主角面板写口的预检。
@@ -2252,7 +2264,7 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     }
     // 重放选项。withInventory 为 false 时不带背包（扫描、初始化沿用 v0.39 的不带背包算法）。
     function replayOptions(withInventory = true) {
-        const base = { sourceFilter: getSourceFilter(), userName: getUserName() };
+        const base = { sourceFilter: getSourceFilter(), userName: getUserName(), chatId: getChatId() };
         if (!withInventory || !inventory || typeof inventory.read !== 'function') return base;
         return { ...base, heroInventory: readInventoryView() };
     }
@@ -2298,16 +2310,16 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         const signature = floorSignature(floors);
         const memo = hasInventory ? stateMemos.with : stateMemos.without;
         if (cacheable && memo && memo.snapshot === snapshot && memo.userName === name && memo.sourceFilter === filter
-            && memo.healScale === healScale && sameSignature(memo.signature, signature)
+            && memo.chatId === getChatId() && memo.healScale === healScale && sameSignature(memo.signature, signature)
             && (!hasInventory || sameStamp(memo.inventoryStamp, inventoryStamp))) {
             stats.stateHits += 1;
             return { state: memo.state, options: memo.options };
         }
-        const options = { sourceFilter: filter, userName: name, ...(hasInventory ? { heroInventory: readInventoryView() } : {}) };
+        const options = { sourceFilter: filter, userName: name, chatId: getChatId(), ...(hasInventory ? { heroInventory: readInventoryView() } : {}) };
         stats.stateComputes += 1;
         const state = computeEffectiveState(snapshot, floors, options);
         if (cacheable && state.ok) {
-            stateMemos[hasInventory ? 'with' : 'without'] = { snapshot, signature, userName: name, sourceFilter: filter, healScale, inventoryStamp, options, state };
+            stateMemos[hasInventory ? 'with' : 'without'] = { snapshot, signature, chatId: getChatId(), userName: name, sourceFilter: filter, healScale, inventoryStamp, options, state };
         }
         return { state, options };
     }
@@ -2322,14 +2334,14 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
         if (!snapshot.ok) return snapshot;
         const state = computeEffectiveState({ ...snapshot, origin: { ok: true, raw: null } }, getChat(), replayOptions(false));
         if (!state.ok) return state;
-        const balance = Number(state.characters.get(state.attributes?.heroId)?.points) || 0;
+        const balance = (Number(state.characters.get(state.attributes?.heroId)?.points) || 0) + state.gamePoints;
         return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
     }
 
     // 主角的 points 并入数值侧金钱（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
     const walletViews = new WeakMap();
     function withWallet(state) {
-        const extra = getWallet() + (state?.originPoints || 0);
+        const extra = getWallet() + (state?.originPoints || 0) + (state?.gamePoints || 0);
         if (!extra || !state || state.ok !== true) return state;
         const heroId = state.attributes && state.attributes.heroId;
         const hero = heroId ? state.characters.get(heroId) : null;
@@ -2806,11 +2818,15 @@ export function createCombatLedger({ tables, chat, userName = '', sourceFilter, 
     // 主角面板操作：先算出记录，再把它加进去试重放，没有被判失效或产生诊断才写入。
     function heroPanelAction(characterId, action, payload) {
         return queueAction(async () => {
+            if (payload?.cost > 0 && typeof spendingGate === 'function') {
+                const allowed = await spendingGate();
+                if (!allowed?.ok) return allowed || { ok: false, reason: 'points-settlement-pending' };
+            }
             const snapshot = await readSnapshot();
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
-            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet() + (state.originPoints || 0));
+            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet() + (state.originPoints || 0) + (state.gamePoints || 0));
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
             const trialDiagnostic = trial.ok ? trial.diagnostics.find((item) => item.id === built.entry.id) : null;

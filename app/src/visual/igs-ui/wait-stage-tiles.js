@@ -1,5 +1,6 @@
 // 等待过场小游戏「消消乐」：叠层牌堆，只有没被压住的牌能点，进底槽凑三消。牌面沿用麻将牌的字形。
 import { waitStageGameLine } from './wait-stage-game-lines.js';
+import { beginWaitStagePoints } from './wait-stage-game-points.js';
 
 export const TILES_SLOT_SIZE = 7;
 export const TILES_BOARD = Object.freeze({ bw: 16, bh: 16, tileW: 2, tileH: 2.5 });
@@ -230,7 +231,8 @@ function fillFace(doc, node, id, emote) {
     }
 }
 
-export function startTiles(ctx) {
+export function startTiles(ctx, rounds) {
+    const points = beginWaitStagePoints(ctx, rounds);
     const { doc, board } = ctx;
     board.innerHTML = '';
     const head = doc.createElement('div');
@@ -325,6 +327,7 @@ export function startTiles(ctx) {
             ctx.setNote(waitStageGameLine(won ? 'right' : 'wrong', ctx.random));
             try { ctx.onVoice(null); } catch (error) { /* 语气音失败不影响这一局 */ }
             ctx.markDone();
+            void points.finish({ win: won, levels: level });
         };
 
         for (const tile of tiles) {

@@ -7,7 +7,7 @@
 - `server/game_server/gamemgr_xzdd.js` sha256 `1d0c39bbf37d8e4230199280dec73321c23ae281a9c0441942449aa22cb8a072`
 - `server/game_server/mjutils.js` sha256 `7293fd10b36cc020ce20edf349d5594718674e3fb3e0f396c1ebb867b5f9ed3e`
 
-两个文件按上游原样保存（CRLF，逐字节不改）。下面的版权声明、免责声明和开源协议转录自该提交的 `docs/幼麟棋牌-四川麻将版权声明.docx`。
+以上为上游文件的参考哈希。`mjutils.js` 保持上游原文；本仓库的 `gamemgr_xzdd.js` 在原结算分支增加逐笔积分依据，修改日期及范围见下文，保留 CRLF。下面的版权声明、免责声明和开源协议转录自该提交的 `docs/幼麟棋牌-四川麻将版权声明.docx`。
 
 2026-10-23：按 `plan/v0.37.0-成都麻将血战到底-开发指导.md` 把这两份原文件纳入等待小游戏。该指导写明，原文件进入发布包即表示接受下方协议，并且发布的作品要允许第三方作为整体按该协议免费使用。
 
@@ -37,14 +37,16 @@
 
 ## 构建时对原程序做了什么
 
-日期：2026-10-23。
+日期：2026-10-23；积分依据扩展：2026-11-13。
 
-`app/scripts/gen-scmj-vendor.mjs` 把上面两个原文件的原文包进 `scmj/xzdd-factory.generated.js` 的工厂函数 `createXzdd(host)`。每次调用工厂得到独立实例。工厂把 `require`、`module`、`exports`、`setTimeout`、`setInterval`、`console`、`Math` 换成调用方传入的宿主垫片。
+`app/scripts/gen-scmj-vendor.mjs` 把本仓库的两份规则源文件包进 `scmj/xzdd-factory.generated.js` 的工厂函数 `createXzdd(host)`。每次调用工厂得到独立实例。工厂把 `require`、`module`、`exports`、`setTimeout`、`setInterval`、`console`、`Math` 换成调用方传入的宿主垫片；生成后抽出并逐字核对规则源文件。
 
-对 `gamemgr_xzdd.js` 原文的唯一追加，是工厂函数末尾这一行（原文内部函数没有 export，电脑的价值函数要调用它们）：
+工厂末尾导出电脑价值函数所需的内部接口：
 
 ```js
 exports.__internals = { checkCanTingPai, calculateResult, computeFanScore, getMJType, isTinged };
 ```
 
-除此之外没有改动原文的任何一条规则。
+2026-11-13：`gamemgr_xzdd.js` 的 `calculateResult` 在实际收付分支记录 `{ from, to, type, fan, score }`，随 `game_over_push.points` 输出。本地胡牌判定、原牌分与付款对象保持原算法；强制解散不输出有效积分终局。
+
+胡牌与查叫记录实际结算番数，零番保留零番；杠按弯杠 1、暗杠及点杠 2 记录，呼叫转移沿原杠付款分支转移。积分层按每名对手的本局净番数分别封顶并记账，原牌分仅用于收付守恒核对与牌桌显示。

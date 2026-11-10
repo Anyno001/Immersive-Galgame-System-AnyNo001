@@ -487,6 +487,9 @@ export function createIgsReaderHost(options = {}) {
         waitStageLeases?.releaseAll();
     }
     const waitStage = createWaitStageRuntime({
+        gamePointsRounds: options.gamePointsRounds,
+        mahjongPointsRounds: options.mahjongPointsRounds,
+        getPointsMessageId: () => currentTurnMessageId(state.activeReader || {}),
         penalty: waitStagePenalty,
         persona: waitStagePersona,
         loadImage: (url) => loadWaitStageImage(url),

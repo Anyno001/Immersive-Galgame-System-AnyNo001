@@ -50,16 +50,18 @@ export function renderOriginHead(state, settings, ui) {
     const expMax = num(state.expMax, 100) || 100;
     return `<div class="igs-or-head" data-or-drag="1">${hbtn('close', '收起', ui.icons.close)}<span class="igs-or-name">${esc(settings.sysName)}</span>`
         + `<span class="igs-or-hside">${ui.canOpenSettings ? hbtn('settings', '设置', ui.icons.gear) : ''}${hbtn('menu', '更多', ui.icons.more, ` aria-haspopup="menu" aria-expanded="${ui.menuOpen ? 'true' : 'false'}"`)}</span></div>`
-        + (ui.menuOpen ? renderMenu(state, settings) : '')
+        + (ui.menuOpen ? renderMenu(state, settings, ui) : '')
         + `<div class="igs-or-stats" title="经验${num(state.exp)}/${expMax}"><span class="igs-or-stat-k">积分</span><b class="igs-or-stat-v">${num(state.points)}</b>`
+        + (ui.canExchange ? link('exchange', '兑换金钱') : '')
         + `<span class="igs-or-stat-lv">Lv.${num(state.level, 1)}</span>${bar(num(state.exp) / expMax * 100)}</div>`;
 }
 
 // ⋯ 菜单：三个二级页（模块关掉的不显示），其后是暂停 / 恢复与清空对话。
-function renderMenu(state, settings) {
+function renderMenu(state, settings, ui) {
     const item = (action, label, id = '') => `<button type="button" role="menuitem" class="igs-or-mitem" data-oa="${action}"${id ? ` data-id="${id}"` : ''}>${esc(label)}</button>`;
     const pages = visibleOriginMenuPages(settings).map((p) => item('page', p.label, p.id)).join('');
-    const tools = item('pause', state.paused ? '恢复系统' : '暂停系统')
+    const tools = (ui.canExchange ? item('exchange-retry', '重试兑换') : '')
+        + item('pause', state.paused ? '恢复系统' : '暂停系统')
         + (visibleOriginTabs(settings).some((t) => t.id === 'chat') ? item('chat-clear', originBoundRole(settings) ? '清空私聊' : '清空对话') : '');
     return `<div class="igs-or-menu" role="menu">${pages}${pages ? '<i class="igs-or-msep"></i>' : ''}${tools}</div>`;
 }

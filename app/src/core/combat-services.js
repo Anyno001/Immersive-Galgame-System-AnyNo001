@@ -7,6 +7,12 @@
 //   - 同一事件内账本有效状态只取一次并传递。
 import { createCachedTableClient, createCombatTables } from '../data/shujuku/combat-tables.js';
 import { createOriginStore } from '../data/shujuku/origin-store.js';
+import { createPointsStore } from '../data/shujuku/points-store.js';
+import { GAME_IDS, newPointsId, pointFloors, pointsFloorId, pointsSwipe } from '../scene/points/points-policy.js';
+import { createPointsEngine } from '../scene/points/points-engine.js';
+import { createGamePointsRound } from '../scene/points/game-points-round.js';
+import { createMahjongPointsRound } from '../scene/points/mahjong-points-round.js';
+import { createPointsIntents } from '../storage/points-intents.js';
 import { createCombatMaterialContext } from './combat-material-context.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, vitalsForName } from '../combat/ledger.js';
@@ -58,6 +64,9 @@ function chatSignature(chat) {
         const swipe = Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
         const length = String(message?.mes ?? '').length;
         hash = Math.imul(hash ^ ((message?.is_user ? 1 : 0) + swipe * 2 + length * 64), 16777619) >>> 0;
+        const floorId = pointsFloorId(message);
+        for (let at = 0; at < floorId.length; at += 1) hash = Math.imul(hash ^ floorId.charCodeAt(at), 16777619) >>> 0;
+        if (message?.is_system) hash = Math.imul(hash ^ 31, 16777619) >>> 0;
     }
     return `${chat.length}:${hash}`;
 }
@@ -208,11 +217,13 @@ export function createCombatServices(options = {}) {
             const raw = createCombatTables({ api, client });
             const inventory = createInventoryTables({ api, client, serial: raw.serial });
             bundleGeneration += 1;
-            bundle = { api, client, raw, impl: wrapTables(raw), inventory, origin: createOriginStore({ tables: raw }), generation: bundleGeneration };
+            bundle = { api, client, raw, impl: wrapTables(raw), inventory, origin: createOriginStore({ tables: raw }),
+                points: createPointsStore({ tables: raw, chat: getChat, chatId: getChatId }), generation: bundleGeneration };
             ledger = createCombatLedger({
-                tables: bundle.impl, chat: getChat, userName: getUserName, sourceFilter: getSourceFilter,
+                tables: bundle.impl, chat: getChat, chatId: getChatId, userName: getUserName, sourceFilter: getSourceFilter,
                 difficulty: () => settings().difficulty, inventory,
-                // 数值侧金钱并入主角余额（积分与金钱合并成一个钱包）。
+                spendingGate: () => points().spendingGate(),
+                // 旧 bars.money 是只读积分份额，剧情货币不进入此处。
                 wallet: () => (typeof options.getWallet === 'function' ? options.getWallet() : 0),
             });
             ensureFailure = null;
@@ -250,6 +261,7 @@ export function createCombatServices(options = {}) {
             session = createCombatSession({
                 ledger, tables: bundle.impl, request, send, storage, global, chat: getChat, getChatId, userName: getUserName,
                 chatRecord: options.chatRecord, llm: getLlm, sourceFilter: getSourceFilter, readLore, readStoryContext, now: () => Date.now(),
+                pointsSpendingGate,
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,
@@ -613,6 +625,69 @@ export function createCombatServices(options = {}) {
         getTables();
         return bundle.origin;
     }
+    async function ensurePointsFloor(messageId) {
+        if (typeof options.pointsFloorRecord?.ensure !== 'function') return { ok: false, reason: 'points-floor-unsupported' };
+        return options.pointsFloorRecord.ensure(messageId);
+    }
+    let pointsEngine = null;
+    function points() {
+        if (!pointsEngine) pointsEngine = createPointsEngine({
+            store: () => { getTables(); return bundle.points; },
+            floors: options.pointsFloorRecord,
+            chat: getChat, chatId: getChatId, lock: withPointsLock,
+            wallet: readSharedPoints, intents: createPointsIntents(storage),
+        });
+        return pointsEngine;
+    }
+    function gamePointsRounds(game, messageId) {
+        if (!GAME_IDS.includes(game) || game === 'mahjong') return undefined;
+        const id = getChatId(), path = getChat();
+        const source = Number.isInteger(messageId) && pointFloors(path).find(f => f.messageId === messageId);
+        const message = source && path[source.messageId];
+        const valid = () => Boolean(id && message && getChatId() === id && getChat() === path
+            && path.includes(message) && pointsSwipe(message) === source.swipeId
+            && pointFloors(path).some(f => path[f.messageId] === message));
+        return () => {
+            const engine = points();
+            return createGamePointsRound({ engine, valid,
+                start: roundId => valid()
+                    ? engine.start({ game, messageId: path.indexOf(message), ...(roundId ? { roundId } : {}) })
+                    : Promise.resolve({ ok: false, reason: 'points-floor-missing' }),
+            });
+        };
+    }
+    function mahjongPointsRounds(messageId) {
+        const id = getChatId(), path = getChat();
+        const source = pointFloors(path).find(f => f.messageId === messageId);
+        const message = source && path[source.messageId];
+        const sameChat = () => Boolean(id && getChatId() === id && getChat() === path);
+        return async (saved, rules = saved?.rules || 'chengdu') => {
+            if (!sameChat()) return { ok: false, reason: 'request-stale' };
+            if (!['chengdu', 'riichi'].includes(rules)) return { ok: false, reason: 'points-rules-unavailable' };
+            let identity = saved;
+            if (saved) {
+                if (saved.version !== 1 || saved.rules !== rules || saved.chatId !== id
+                    || typeof saved.roundId !== 'string' || !saved.roundId || !saved.anchor?.floorId
+                    || !Number.isSafeInteger(saved.anchor.swipeId) || saved.anchor.swipeId < 0) {
+                    return { ok: false, reason: 'points-round-stale' };
+                }
+            } else {
+                if (!message || !path.includes(message) || pointsSwipe(message) !== source.swipeId) return { ok: false, reason: 'points-floor-missing' };
+                const bound = await ensurePointsFloor(path.indexOf(message));
+                if (!bound.ok) return bound;
+                if (!sameChat() || pointsSwipe(message) !== source.swipeId || bound.anchor.swipeId !== source.swipeId) return { ok: false, reason: 'request-stale' };
+                identity = { version: 1, rules, chatId: id, roundId: newPointsId(), anchor: bound.anchor };
+            }
+            const locate = () => pointFloors(path).filter(f => f.floorId === identity.anchor.floorId && f.swipeId === identity.anchor.swipeId);
+            const valid = () => sameChat() && locate().length === 1;
+            return createMahjongPointsRound({ engine: points(), identity, valid, sameChat,
+                start: () => valid() ? points().start({ game: 'mahjong', rules,
+                    messageId: locate()[0].messageId, sourceId: identity.roundId, anchor: identity.anchor })
+                    : Promise.resolve({ ok: false, reason: 'points-round-stale' }),
+            });
+        };
+    }
+    const pointsSpendingGate = () => points().spendingGate();
     async function readSharedPoints() {
         getTables();
         const owner = bundle;
@@ -626,9 +701,10 @@ export function createCombatServices(options = {}) {
         const combat = Number(hero?.points) || 0;
         const wallet = Number(typeof options.getWallet === 'function' ? options.getWallet() : 0) || 0;
         const origin = state.originPoints || 0;
-        const balance = wallet + combat + origin;
+        const games = state.gamePoints || 0;
+        const balance = wallet + combat + origin + games;
         if (!Number.isSafeInteger(balance)) return { ok: false, reason: 'origin-points-invalid' };
-        const value = { ok: true, balance, combat, origin, wallet, flow: combat + origin };
+        const value = { ok: true, balance, combat, origin, games, wallet, flow: combat + origin + games };
         pointsCache = { chatId, owner, key: cacheKey(), value };
         return value;
     }
@@ -1568,7 +1644,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, inventoryTables, syncRegex, resetChat, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
-        originStore, readSharedPoints, readOriginWallet, pointsSnapshot, withPointsLock,
+        originStore, points, gamePointsRounds, mahjongPointsRounds, ensurePointsFloor, pointsSpendingGate, readSharedPoints, readOriginWallet, pointsSnapshot, withPointsLock,
         drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,

@@ -10,7 +10,7 @@ import {
     normalizeWaitStageSettings,
     weaveWaitStageLines,
 } from './wait-stage.js';
-import { getWaitStageGamePack, listWaitStageGameIds, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
+import { getWaitStageGamePack, listWaitStageGameIds, startWaitStageGamePack, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
 import { ORIGINAL_READER_ICONS } from './reader-icons.js';
 
 const QUOTE_MAX = 34;
@@ -464,10 +464,10 @@ export function createWaitStageRuntime(options = {}) {
             // 主程序混音总线：{ context(), input(), resume() }，游戏音效接进 sfx 子总线。
             audio: options.audio || null,
             isExiting: () => phase === 'exit',
-            isSettled: () => Boolean(gameState && gameState.done),
+            isSettled: () => gameState !== own || Boolean(own && own.done),
             markDone() {
-                if (!gameState || gameState.done) return;
-                gameState.done = true;
+                if (gameState !== own || !own || own.done) return;
+                own.done = true;
             },
             requestClose: () => closeGame(),
             // 等待层自己的「返回」「加载下一楼」：铺满整层的游戏把它们放进自己的工具栏，底栏就不用留。
@@ -504,7 +504,12 @@ export function createWaitStageRuntime(options = {}) {
         syncGameAttr();
         if (typeof pack.ensureStyle === 'function') pack.ensureStyle(doc);
         try {
-            pack.start(gameContext(id));
+            const own = gameState;
+            const rounds = id === 'mahjong'
+                ? options.mahjongPointsRounds?.(options.getPointsMessageId?.())
+                : options.gamePointsRounds?.(id, options.getPointsMessageId?.());
+            startWaitStageGamePack(gameContext(id), typeof rounds === 'function'
+                ? (...args) => gameState === own && settings.games ? rounds(...args) : null : undefined);
         } catch (error) {
             closeGame();
         }

@@ -299,3 +299,40 @@ test('数据库分支恢复：失败后切换swipe或删楼可解除旧意图，
       }
     }
 });
+
+test('Origin经济读回：损坏凭据拒收并阻止消费，不覆盖数据库原记录', async t => {
+    const { economyPlan } = await import('../src/scene/origin/origin-economy.js');
+    const { originPointsOf } = await import('../src/scene/origin/origin-log.js');
+    const { createHarness } = await import('./origin-host.js');
+    const anchor = { floorId: 'floor-a', swipeId: 0 };
+    const receipt = { eventId: 0, sourceId: 'source-a', sourceType: 'origin-task', anchor,
+        requested: 100, approved: 100, refund: 0, income: 100, amount: 100, reason: '' };
+    const cases = [
+        ['未知版本', p => { p.version = 99; }],
+        ['缺少消费列表', p => { delete p.charges; }],
+        ['超额收入', p => { p.receipts[0].income = 101; p.receipts[0].amount = 101; }],
+        ['无消费来源的返还', p => { Object.assign(p.receipts[0], { refund: 50, income: 50, approved: 50 }); }],
+        ['回执锚点不符', p => { p.receipts[0].anchor = { ...anchor, floorId: 'other' }; }],
+    ];
+    for (const [name, corrupt] of cases) await t.test(name, async t => {
+        const h = await setup();
+        const ledger = createLedger('chat-a');
+        const entry = makeEntry(null, '已确认来源', 1);
+        entry.economy = economyPlan('origin:chat-a:test', anchor);
+        entry.economy.receipts.push(JSON.parse(JSON.stringify(receipt)));
+        corrupt(entry.economy);
+        setEntry(ledger, 0, 0, entry);
+        const intent = h.store.prepare(h.store.read(), serializeLedger(ledger));
+        assert.equal((await h.store.commit(intent)).ok, true);
+        const original = JSON.stringify(h.store.read().raw);
+        const writes = h.host.calls.insertRow;
+        assert.deepEqual(originPointsOf(h.store.read(), []), { ok: false, reason: 'origin-economy-invalid' });
+        const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
+        t.after(() => game.engine.stop());
+        await game.engine.whenSaved();
+        assert.equal(game.engine.isBlocked(), 'origin-economy-invalid');
+        assert.equal((await game.engine.dispatch({ type: 'draw' })).ok, false);
+        assert.equal(JSON.stringify(h.store.read().raw), original);
+        assert.equal(h.host.calls.insertRow, writes);
+    });
+});

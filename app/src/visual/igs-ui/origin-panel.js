@@ -149,7 +149,7 @@ function renderWin(view) {
     // 检测到原插件的旧存档时，顶部给一行导入提示（导入不覆盖原数据）。
     let legacy = false;
     try { legacy = typeof engine.legacyDetected === 'function' && typeof engine.importLegacy === 'function' ? Boolean(engine.legacyDetected()) : false; } catch (error) { legacy = false; }
-    const ui = { icons: ICONS, openRows: view.openRows, taskFilter: view.taskFilter, gachaFilter: view.gachaFilter, ddOpen: view.ddOpen, page: view.page, menuOpen: view.menuOpen, canOpenSettings: typeof binding.openSettings === 'function', lastFloor, legacy, turn: state.turn };
+    const ui = { icons: ICONS, openRows: view.openRows, taskFilter: view.taskFilter, gachaFilter: view.gachaFilter, ddOpen: view.ddOpen, page: view.page, menuOpen: view.menuOpen, canOpenSettings: typeof binding.openSettings === 'function', canExchange: Boolean(binding.exchange), lastFloor, legacy, turn: state.turn };
     setBox(view, 'top', boxes.top, renderOriginHead(state, settings, ui));
     setBox(view, 'tabs', boxes.tabs, renderOriginTabs(settings, view.tab, view.page));
     // 底栏（主按钮 + 小字链接 / 对话输入框）：二级页没有；内容不变不重写，输入中的文字不会丢。
@@ -173,6 +173,7 @@ function makeActionCtx(view) {
         engine: view.engine,
         get settings() { return view.binding.settings; },
         get modal() { return getModal(view); },
+        get exchange() { return view.binding.exchange; },
         notice: (level, text) => notify(view, level, text),
         setTab: (id) => { if (view.tab !== id || view.page) view.openRows.clear(); view.tab = id; view.page = ''; view.menuOpen = false; view.ddOpen = ''; renderWin(view); },
         openPage: (id) => { view.openRows.clear(); view.page = id; view.menuOpen = false; renderWin(view); },
@@ -223,9 +224,13 @@ function notify(view, level, text) {
 }
 
 function runAction(view, name, target) {
+    const exchanging = name === 'exchange' || name === 'exchange-retry';
+    if (exchanging && view.exchangeBusy) return Promise.resolve();
+    if (exchanging) view.exchangeBusy = true;
     return runOriginAction(name, target, makeActionCtx(view))
         .then(() => { if (view.win) renderWin(view); })
-        .catch((error) => { notify(view, 'warn', `操作没有完成：${error && error.message ? error.message : error}`); });
+        .catch((error) => { notify(view, 'warn', `操作没有完成：${error && error.message ? error.message : error}`); })
+        .finally(() => { if (exchanging) view.exchangeBusy = false; });
 }
 
 function startPointer(view, event, corner) {

@@ -15,7 +15,7 @@ function externalPoints(value) {
     return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
 }
 
-export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive, combatServices }) {
+export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive, combatServices, statsRuntime }) {
     const ctx = () => { try { return getContext() || null; } catch (error) { return null; } };
 
     async function viaTavern(prompt) {
@@ -42,6 +42,9 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
                 ? combatServices.readOriginWallet(options)
                 : externalPoints(await combatServices.readSharedPoints()),
             walletSnapshot: () => externalPoints(combatServices.pointsSnapshot()),
+            pointsEconomy: () => true,
+            ensurePointsFloor: messageId => combatServices.ensurePointsFloor(messageId),
+            spendingGate: () => combatServices.pointsSpendingGate(),
             withPointsLock: (task) => combatServices.withPointsLock(task),
         } : {}),
         // 核心内部 fillSettings 会返回新对象，不会改这里给出的快照。
@@ -82,6 +85,12 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
         notice: (level, text) => host.notify({ kind: level, text }),
         openSettings,
         saveSetting,
+        ...(statsRuntime ? { exchange: {
+            info: () => statsRuntime.exchangeInfo(),
+            quote: points => statsRuntime.quoteExchange(points),
+            confirm: quote => statsRuntime.exchangePoints(quote),
+            retry: () => statsRuntime.retryExchange(),
+        } } : {}),
     });
 
     return {

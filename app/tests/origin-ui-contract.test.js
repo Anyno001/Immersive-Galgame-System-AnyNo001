@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { OP } from '../src/visual/igs-ui/origin-panel-actions.js';
+import { OP, runOriginAction } from '../src/visual/igs-ui/origin-panel-actions.js';
 import { applyManual, createCx } from '../src/scene/origin/origin-apply.js';
 import { createInitialState, fillSettings } from '../src/scene/origin/origin-state.js';
 import { attachOriginEngine, attachedOriginBinding, getAttachedOrigin, originChatStatus, runAttachedOriginOp } from '../src/visual/igs-ui/origin-attach.js';
@@ -80,4 +80,84 @@ test('「系统」模型分配：默认跟随酒馆；选备用模型且备用�
     const over = originRequestRoute({ route: 'llm', model: ' m2 ' }, llm);
     assert.equal(over.llm.model, 'm2');
     assert.equal(llm.model, 'm1');
+});
+
+test('兑换面板操作：取消不扣分，确认沿同一报价，失败不宣布成功且可重试', async () => {
+    const engine = createStubOriginEngine(), notes = [], confirmed = [], prompts = [];
+    const quote = { ok: true, exchangeId: 'exchange-ui', points: 40, amount: 10, currency: { name: '铜钱' } };
+    let input = null, consent = true, quotes = 0, retries = 0;
+    let info = { ok: true, name: '铜钱', rate: 0.25 };
+    let result = { ok: false, reason: 'inventory-write-failed' };
+    const ctx = { engine, closeMenu() {}, notice: (level, text) => notes.push({ level, text }),
+        modal: { prompt: async text => { prompts.push(text); return input; }, confirm: async text => { assert.match(text, /40 积分.*10 铜钱/); return consent; } },
+        exchange: { info: () => info,
+            quote: async points => { quotes += 1; assert.equal(points, 40); return quote; },
+            confirm: async value => { assert.equal(value, quote); confirmed.push(value); return result; },
+            retry: async () => { retries += 1; return { ok: true }; } } };
+    assert.equal((await runOriginAction('exchange', null, ctx)).cancelled, true);
+    assert.match(prompts.at(-1), /当前比例：1 积分 = 0\.25 铜钱\n消耗多少共享积分/);
+    assert.equal(quotes, 0);
+    input = '1.5';
+    assert.equal((await runOriginAction('exchange', null, ctx)).reason, 'points-exchange-invalid');
+    assert.equal(quotes, 0);
+    input = '40'; consent = false;
+    assert.equal((await runOriginAction('exchange', null, ctx)).cancelled, true);
+    assert.equal(confirmed.length, 0);
+    consent = true;
+    assert.equal((await runOriginAction('exchange', null, ctx)).ok, false);
+    assert.equal(notes.some(n => n.level === 'info'), false);
+    assert.equal((await runOriginAction('exchange-retry', null, ctx)).ok, true);
+    assert.equal(retries, 1);
+    result = { ok: true, done: true, amount: 10, name: '铜钱' };
+    await runOriginAction('exchange', null, ctx);
+    result = { ...result, present: true };
+    await runOriginAction('exchange', null, ctx);
+    assert.equal(notes.filter(n => n.level === 'info').length, 1);
+    input = null;
+    info = { ok: true, name: '金币', rate: 2 };
+    assert.equal((await runOriginAction('exchange', null, ctx)).cancelled, true);
+    assert.match(prompts.at(-1), /当前比例：1 积分 = 2 金币/);
+    const promptCount = prompts.length, quoteCount = quotes;
+    info = { ok: false, reason: 'stats-currency-unset' };
+    assert.equal((await runOriginAction('exchange', null, ctx)).reason, 'stats-currency-unset');
+    assert.equal(prompts.length, promptCount);
+    assert.equal(quotes, quoteCount);
+    assert.equal(notes.filter(n => n.level === 'info').length, 1);
+});
+
+
+test('兑换面板交互：重复点击及收起重开只提交一次，菜单可重试', async t => {
+    const dom = new JSDOM('<!doctype html><body><div id="front"></div></body>', { pretendToBeVisual: true });
+    const doc = dom.window.document, front = doc.getElementById('front');
+    const engine = createStubOriginEngine(), notices = [];
+    let release, prompts = 0, quotes = 0, confirms = 0, retries = 0;
+    const input = new Promise(resolve => { release = resolve; });
+    const binding = { engine, settings: normalizeOriginSettings({ enabled: true }),
+        modal: { prompt: () => { prompts += 1; return input; }, confirm: async () => true },
+        notice: (level, text) => notices.push({ level, text }),
+        exchange: {
+            info: () => ({ ok: true, name: '铜钱', rate: 0.25 }),
+            quote: async points => { quotes += 1; return { ok: true, points, amount: 10, currency: { name: '铜钱' } }; },
+            confirm: async () => { confirms += 1; return { ok: true, done: true, amount: 10, name: '铜钱' }; },
+            retry: async () => { retries += 1; return { ok: true }; },
+        } };
+    t.after(() => { stopOrigin(front); dom.window.close(); });
+    syncOrigin(front, binding, { doc, size: 'medium', getStage: () => ({ stageW: 800, stageH: 600 }) });
+    front.querySelector('.igs-or-entry').click();
+    assert.equal(front.querySelector('[data-oa="exchange"]').textContent, '兑换金钱');
+    front.querySelector('[data-oa="exchange"]').click();
+    front.querySelector('[data-oa="exchange"]').click();
+    assert.equal(prompts, 1);
+    front.querySelector('[data-oa="close"]').click();
+    front.querySelector('.igs-or-entry').click();
+    front.querySelector('[data-oa="exchange"]').click();
+    assert.equal(prompts, 1);
+    release('40');
+    for (let i = 0; i < 8; i += 1) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual([quotes, confirms], [1, 1]);
+    assert.equal(notices.filter(n => n.level === 'info').length, 1);
+    front.querySelector('[data-oa="menu"]').click();
+    front.querySelector('[data-oa="exchange-retry"]').click();
+    for (let i = 0; i < 8; i += 1) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(retries, 1);
 });

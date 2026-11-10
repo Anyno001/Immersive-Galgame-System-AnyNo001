@@ -1,4 +1,4 @@
-// 把幼麟原文件原文包进工厂。除工厂包裹和 __internals 一行外不改原文。
+// 把本仓库的幼麟规则源文件包进工厂；积分逐笔依据由规则结算源头输出。
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -24,6 +24,7 @@ export function renderFactory(mjutils, xzdd) {
  * 本规则按该开源协议随脚本发布，允许第三方把包含它的作品作为整体免费使用。
  * 由 scripts/gen-scmj-vendor.mjs 生成，勿手改。原文见 scmj/vendor/babykylin/，版权与许可见 COPYRIGHT.md。
  * 2026-10-23：工厂包裹两个原文件；gamemgr_xzdd.js 末尾追加 exports.__internals 一行。
+ * 2026-11-13：规则源文件在实际收付分支输出积分结算依据，原牌分算法保留。
  */
 export function createXzdd(host) {
     const mjModule = { exports: {} };
@@ -80,7 +81,7 @@ if (check) {
     }
     console.log(`scmj vendor check ok ${sha(mjutils)} ${sha(xzdd)}`);
 } else {
-    writeFileSync(outPath, rendered);
+    writeFileSync(outPath, rendered, 'utf8');
     const pulled = extractSources(readFileSync(outPath, 'utf8'));
     if (pulled.mjutils !== mjutils || pulled.xzdd !== xzdd) {
         console.error('写回后原文对不上');

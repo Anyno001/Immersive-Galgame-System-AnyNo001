@@ -1,8 +1,9 @@
 // Origin 系统核心 · 正文兜底解析。
 // 来源：vicliaaa/origin-sillytavern v1.5 的 syncPointsFromProse / syncBagFromProse / syncSkillsFromProse / 奖励流水 / 阶段任务（作者已授权移植）。
 // 分两步：extractProseFacts 只看文本、与状态无关，结果随楼存进账本；applyProseFacts 把事实叠到状态上。
-import { addItem, addPerk, addRewardLog, addSkill, applyOps, completeTask, note, pushLog } from './origin-apply.js';
+import { addItem, addPerk, addRewardLog, addSkill, applyOps, completeTask, newTaskOf, note, pushLog } from './origin-apply.js';
 import { hostOf } from './origin-state.js';
+import { creditOrigin } from './origin-economy.js';
 
 function okTitle(t) {
     t = String(t || '').trim().replace(/^[「『【"']+|[」』】"'。.]+$/g, '').trim();
@@ -127,7 +128,7 @@ function syncPoints(st, f, cx) {
     for (const v of f.deltas || []) {
         const ix = cx.ptT.indexOf(v);
         if (ix >= 0) { cx.ptT.splice(ix, 1); continue; }
-        st.points += v;
+        creditOrigin(st, v, cx);
         ch = true;
     }
     if (ch) pushLog(st, '积分按正文补记，现为 ' + st.points, '·', cx);
@@ -150,7 +151,8 @@ function syncTasks(st, f, cx) {
         for (const nt of f.newTasks || []) {
             if (st.tasks.some((t) => t.title === nt.title)) continue;
             for (const t of st.tasks) if (t.status === 'active' && /阶段/.test(t.title)) completeTask(st, t, cx);
-            const t = { id: st.nextId++, type: nt.type, owner: hostOf(cx.s) || '宿主', title: nt.title, desc: nt.desc || nt.title, cond: nt.desc || '', reward: '', penalty: '', limit: 0, progress: 0, status: 'active', turn: cx.turn, startTurn: cx.turn, ...(cx.floor != null ? { floor: cx.floor } : {}) };
+            const t = newTaskOf(st, cx, { type: nt.type, owner: hostOf(cx.s) || '宿主', title: nt.title,
+                desc: nt.desc || nt.title, cond: nt.desc || '', reward: '', penalty: '', limit: 0 });
             st.tasks.push(t);
             st.lastTaskTurn = cx.turn;
             pushLog(st, '（按正文建任务）' + t.title, '·', cx);

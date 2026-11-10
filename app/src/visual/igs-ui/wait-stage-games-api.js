@@ -4,6 +4,7 @@ export const WAIT_GAMES_QUEUE_KEY = 'IGS_WAIT_GAMES';
 
 let current = null;
 let builtin = null;
+let builtinStart = null;
 let attachedRoot = null;
 const listeners = new Set();
 
@@ -19,6 +20,12 @@ function emit(pack) {
 
 export function getWaitStageGamePack() {
     return current;
+}
+
+export function startWaitStageGamePack(ctx, rounds) {
+    if (!current) return;
+    return current === builtin && builtinStart
+        ? builtinStart(ctx, rounds) : current.start(ctx);
 }
 
 export function registerWaitStageGamePack(pack) {
@@ -67,12 +74,13 @@ export function createWaitGamesApi() {
     };
 }
 
-export function attachWaitStageGames(globalObject, builtinPack = null) {
+export function attachWaitStageGames(globalObject, builtinPack = null, trustedStart = null) {
     if (!globalObject) return current;
     const queued = Array.isArray(globalObject[WAIT_GAMES_QUEUE_KEY]) ? globalObject[WAIT_GAMES_QUEUE_KEY].filter(Boolean) : [];
     const external = globalObject[WAIT_GAMES_GLOBAL_KEY] || queued[queued.length - 1] || null;
     attachedRoot = globalObject;
     builtin = builtinPack;
+    builtinStart = typeof trustedStart === 'function' ? trustedStart : null;
     if (builtin) registerWaitStageGamePack(builtin);
     else if (external) registerWaitStageGamePack(external);
     const queue = [];
@@ -88,6 +96,7 @@ export function attachWaitStageGames(globalObject, builtinPack = null) {
 export function detachWaitStageGames(globalObject) {
     const wasBuiltin = builtin;
     builtin = null;
+    builtinStart = null;
     attachedRoot = null;
     if (current) { current = null; emit(null); }
     if (!globalObject) return;

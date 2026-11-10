@@ -1,4 +1,5 @@
 // 等待过场小游戏：贪吃蛇。一张 canvas，颜色取自主题变量，循环只走 ctx.timers。
+import { beginWaitStagePoints } from './wait-stage-game-points.js';
 
 export const SNAKE_COLS = 16;
 export const SNAKE_ROWS = 16;
@@ -130,12 +131,13 @@ function isTyping(target) {
     return tag === 'input' || tag === 'textarea' || tag === 'select' || Boolean(target.isContentEditable);
 }
 
-export function startSnake(ctx) {
+export function startSnake(ctx, rounds) {
     if (!ctx || !ctx.doc || !ctx.board) return null;
     const { doc, board } = ctx;
     const view = doc.defaultView || globalThis;
     const timers = ctx.timers || globalThis;
     const random = typeof ctx.random === 'function' ? ctx.random : Math.random;
+    let points;
 
     board.innerHTML = '';
     const head = doc.createElement('div');
@@ -349,10 +351,12 @@ export function startSnake(ctx) {
         againBtn.hidden = false;
         draw();
         ctx.markDone();
+        void points?.finish({ terminal: true, score: state.score, won: state.won === true });
         try { ctx.setNote(state.won ? '……全满了，厉害。' : '再来一局？'); } catch (error) { /* 提示失败不影响这一局 */ }
     }
 
     function start() {
+        points = beginWaitStagePoints(ctx, rounds);
         state = createSnakeState(SNAKE_COLS, SNAKE_ROWS, random);
         queue = [];
         palette = null; // 每局重新取色，中途换皮肤也跟得上。

@@ -1,6 +1,7 @@
 // 等待过场小游戏：飞行棋。DOM 棋盘，格子与棋子位置都走 CSS 变量，颜色取自主题变量。
 import { avatarCrop } from './wait-stage-mahjong.js';
 import { waitStageGameLine } from './wait-stage-game-lines.js';
+import { beginWaitStagePoints } from './wait-stage-game-points.js';
 
 export const LUDO_COLOR_NAMES = Object.freeze(['红', '黄', '蓝', '绿']);
 export const LUDO_RING = 52; // 外圈格数
@@ -311,7 +312,7 @@ function faceFor(person, mood) {
     return face && face.url ? face : null;
 }
 
-export function startLudo(ctx) {
+export function startLudo(ctx, rounds) {
     if (!ctx || !ctx.doc || !ctx.board) return null;
     const { doc, board } = ctx;
     const view = doc.defaultView || globalThis;
@@ -341,6 +342,7 @@ export function startLudo(ctx) {
     let picks = [];
     let phase = 'setup'; // setup | roll | rolling | pick | ai | moving | over
     let state = null;
+    let points;
     let players = [];
     let faces = []; // 每座位的头像（座位条 + 棋子），按表情换图
     let pieceNodes = [];
@@ -629,6 +631,7 @@ export function startLudo(ctx) {
     }
 
     function openGame() {
+        points = beginWaitStagePoints(ctx, rounds);
         gen += 1;
         const colors = ludoSeatColors(count);
         state = createLudoState(colors);
@@ -812,6 +815,7 @@ export function startLudo(ctx) {
         setStatus(human ? '你的四枚棋子全部到达终点，你赢了。' : `${players[winner].name}率先到达终点。`);
         note(human ? 'win' : 'lose');
         try { ctx.markDone(); } catch (error) { /* 同上 */ }
+        void points?.finish({ win: human, humans: players.filter(player => player.human).length });
         ctlAgain.hidden = false;
         ctlReset.hidden = false;
     }
