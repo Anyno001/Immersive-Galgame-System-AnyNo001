@@ -343,6 +343,8 @@ export function createIgsReaderHost(options = {}) {
         getSettingsController: () => (state.activeSettings ? state.activeSettings.controller : null),
         rerenderSettings: () => rerenderSettings(),
         getDocument: () => getRootDocument(options.global),
+        getCurrentPage: () => (state.activeSettings ? currentSettingsPage(state.activeSettings) : ''),
+        getLlmSettings: () => state.activeSettings?.draft?.bridge?.autoIllustration?.llm || null,
         applyPerformanceProfile: (answers) => {
             if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
             const draft = state.activeSettings.draft;
@@ -3944,7 +3946,7 @@ ${row.key}`;
                 ? await service.rerollFloor(Number(target.messageId))
                 : await service.processMessage(Number(target.messageId), { manual: true });
             const skipped = {
-                disabled: '请在设置「提示词格式 › 画师与模型」开启 NSFW 或过场插图并保存',
+                disabled: '请在设置「模型与提示词 › 画师与模型」开启 NSFW 或过场插图并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
                 'nothing-missing': '本楼插图都已生成',
                 'not-selected': (result && result.why) || '本楼不需要插图',

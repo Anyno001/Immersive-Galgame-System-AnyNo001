@@ -12,7 +12,7 @@ export const SETTINGS_CATEGORIES = Object.freeze([
     Object.freeze(['chars', '角色']),
     Object.freeze(['scenes', '场景']),
     Object.freeze(['ai', 'API配置']),
-    Object.freeze(['prompt', '提示词格式']),
+    Object.freeze(['prompt', '模型与提示词']),
     Object.freeze(['textfmt', '正文格式']),
     Object.freeze(['stats', '数值系统']),
     Object.freeze(['combat', '战斗与敌方']),

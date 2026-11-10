@@ -544,9 +544,9 @@ const STATS_SET_TEMPLATE = `
         <div class="igs-source-filter-note">表格里的数值只作展示；在表格里改动的数值会在下一次同步时被覆盖。</div>
         <div class="igs-source-filter-note">推荐导入「IGS数值系统适配版」表格模板：填表AI不再改好感与属性，导入后无需配置。</div>
         <div class="igs-stats-template-actions">
-          <button class="igs-settings-action" data-action="stats-template-import" type="button">存为模板预设</button>
+          <button class="igs-settings-action" data-action="stats-template-import" type="button">导入模板预设</button>
           <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">用于本聊天</button>
-          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板</button>
+          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板到本地</button>
           <button class="igs-settings-action" data-action="stats-table-migrate" type="button">迁移到新表结构</button>
         </div>
       </div>

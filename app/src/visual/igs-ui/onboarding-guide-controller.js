@@ -9,7 +9,7 @@ import { PROFILE_QUESTIONS, PROFILE_SECTIONS } from './performance-profile.js';
 import { handleOnboardingKeydown, mountOnboardingInvite, removeOnboardingInvite } from './onboarding-guide-invite.js';
 import { ONBOARDING_STYLE_ID, getOnboardingStyleText } from './onboarding-guide-style.js';
 
-export const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-prev', 'onboarding-skip', 'onboarding-finish', 'onboarding-quiz-apply']);
+export const ONBOARDING_ACTIONS = Object.freeze(['onboarding-start', 'onboarding-next', 'onboarding-return','onboarding-prev', 'onboarding-skip', 'onboarding-finish', 'onboarding-quiz-apply']);
 export const DEFAULT_QUIZ_ANSWERS = Object.freeze({ types: [], level: 'standard', sound: ['fx', 'ui', 'typing'], adult: 'no' });
 
 export function ensureOnboardingStyle(doc) {
@@ -104,7 +104,14 @@ export function createOnboardingController(deps) {
         if (name === 'onboarding-quiz-apply') return applyQuiz();
         if (name === 'onboarding-start') return goTo(savedStep());
         if (!guide) return deps.rerenderSettings();
+        if (name === 'onboarding-return') return goTo(guide.step);
         if (name === 'onboarding-next') {
+            const step = getOnboardingStep(guide.step);
+            const blocked = step.gate ? gateMessage(step.gate) : '';
+            if (blocked) {
+                guide.gateNote = blocked;
+                return deps.rerenderSettings();
+            }
             return isLastOnboardingStep(guide.step) ? finish('done') : goTo(nextOnboardingStep(guide.step));
         }
         if (name === 'onboarding-prev') return goTo(prevOnboardingStep(guide.step));
@@ -152,11 +159,29 @@ export function createOnboardingController(deps) {
         deps.rerenderSettings();
     }
 
+    // 用户在引导中自己点去别的页面时，卡片保留并给出「回到这一步」。
+    function viewState() {
+        if (!guide) return {};
+        const step = getOnboardingStep(guide.step);
+        const page = typeof deps.getCurrentPage === 'function' ? deps.getCurrentPage() : '';
+        return { offPage: Boolean(page && step.page && page !== step.page), gateBlocked: Boolean(step.gate && gateMessage(step.gate)) };
+    }
+
+    function gateMessage(gate) {
+        if (gate !== 'llm') return '';
+        const llm = typeof deps.getLlmSettings === 'function' ? deps.getLlmSettings() : null;
+        const src = llm && typeof llm === 'object' ? llm : {};
+        if (src.source !== 'openai') return '来源还是「酒馆当前API」哦，改成「独立API」再填上地址和模型吧。';
+        if (!String(src.endpoint || '').trim()) return '还差API地址没填哦。';
+        if (!String(src.model || '').trim()) return '还差模型没选哦，填好Key后可以点「获取」挑一个。';
+        return '';
+    }
+
     function mountInSettings(container) {
         const doc = container?.ownerDocument || deps.getDocument?.();
         if (guide) ensureOnboardingStyle(doc);
         const focus = Boolean(guide && guide.pendingFocus);
-        mountOnboardingCard(container, guide, { doc, focus, scroll: focus });
+        mountOnboardingCard(container, guide, { doc, focus, scroll: focus, view: viewState() });
         if (guide) guide.pendingFocus = false;
     }
 

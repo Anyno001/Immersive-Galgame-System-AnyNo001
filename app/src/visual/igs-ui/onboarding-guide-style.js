@@ -16,6 +16,9 @@ const STYLE_TEXT = `
 .igs-onboarding-btn{min-height:32px;padding:0 12px;border-radius:var(--igs-settings-radius-control,8px);border:1px solid ${SOFT_LINE};background:transparent;color:inherit;font:inherit;font-size:13px;cursor:pointer}
 .igs-onboarding-btn.is-primary{border-color:currentColor;font-weight:600}
 .igs-onboarding-btn.is-quiet{border-color:transparent;opacity:.75}
+.igs-onboarding-btn.is-disabled{opacity:.45;cursor:not-allowed}
+#igs-onboarding-card .igs-onboarding-body{white-space:pre-line}
+#igs-onboarding-card .igs-onboarding-body{max-height:min(40vh,320px);overflow-y:auto}
 .igs-onboarding-btn:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 #igs-onboarding-card .igs-onboarding-quiz{display:flex;flex-direction:column;gap:8px;max-height:min(46vh,360px);overflow-y:auto;margin:0 0 6px}
 #igs-onboarding-card .igs-onboarding-q-title{font-size:12px;opacity:.85;margin-bottom:4px}
