@@ -3944,7 +3944,7 @@ ${row.key}`;
                 ? await service.rerollFloor(Number(target.messageId))
                 : await service.processMessage(Number(target.messageId), { manual: true });
             const skipped = {
-                disabled: '请在设置「生图与AI › 画师与模型」开启 NSFW 或过场插图并保存',
+                disabled: '请在设置「提示词格式 › 画师与模型」开启 NSFW 或过场插图并保存',
                 'not-eligible': '当前楼层不是最新的非空 AI 回复',
                 'nothing-missing': '本楼插图都已生成',
                 'not-selected': (result && result.why) || '本楼不需要插图',
@@ -6778,10 +6778,10 @@ function clearReaderToast(current) {
 }
 
 const REGEN_FAILURE_TEXT = Object.freeze({
-    'provider-not-enabled': '当前图像来源无法重画，请在设置「生图与AI › 图像来源」选择 IGS 内置 NAI 或数据库生图插件并填好配置',
+    'provider-not-enabled': '当前图像来源无法重画，请在设置「API配置 › 生图API」选择 IGS 内置 NAI 或数据库生图插件并填好配置',
     'invalid-message-id': '找不到当前楼层',
     'regen-failed': '请求出错',
-    'regen-button-not-found': '当前楼层没有找到插图插件的生图按钮。若未安装智绘姬，请在设置「生图与AI › 图像来源」改选 IGS 内置 NAI 或数据库生图插件',
+    'regen-button-not-found': '当前楼层没有找到插图插件的生图按钮。若未安装智绘姬，请在设置「API配置 › 生图API」改选 IGS 内置 NAI 或数据库生图插件',
     'image-poll-timeout': '已点击插图插件的生图按钮，但等待超时仍没有新图片，请检查该插件是否正常工作',
 });
 

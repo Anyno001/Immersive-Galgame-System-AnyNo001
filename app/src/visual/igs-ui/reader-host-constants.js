@@ -311,7 +311,7 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
         ]),
     }),
     ai: Object.freeze({
-        label: '生图与AI',
+        label: 'API配置',
         requiredPaths: frozen([
             'bridge.imageApi.mode',
             'bridge.imageApi.externalAdapter',

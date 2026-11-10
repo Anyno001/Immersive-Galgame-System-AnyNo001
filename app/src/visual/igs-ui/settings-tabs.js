@@ -82,10 +82,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-source-filter-title">图像来源</div>
     {{imageSourceField}}
     <div class="igs-source-filter-note">{{imageSourceNote}}</div>
-    {{globalArtistField}}
-    <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
-      {{externalSpriteDnaField}}
-    </div>
     <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
       {{autoMatteField}}
       {{spriteMatteColorField}}
@@ -129,11 +125,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
-  <div class="igs-source-filter" data-image-prompt-entry{{sourceBuiltinHidden}}>
-    <div class="igs-source-filter-title">提示词组</div>
-    <div class="igs-source-filter-note">已内置默认词组。</div>
-    <div class="igs-settings-row"><button type="button" class="igs-settings-action" data-setting-go="image-prompt-presets">查看 / 编辑</button></div>
-  </div>
 </div>
 `.trim();
 
@@ -162,8 +153,6 @@ const IMAGE_LLM_TEMPLATE = `
       </details>
     </div>
   </div>
-  {{imagePromptPanel}}
-  {{worldInfoFilterPanel}}
   <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
       <summary><b>附加词</b></summary>
@@ -171,6 +160,22 @@ const IMAGE_LLM_TEMPLATE = `
       <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
     </details>
   </div>
+</div>
+`.trim();
+
+const IMAGE_PROMPT_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="img-prompt">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">生图提示词</div>
+    <div class="igs-source-filter-note">写词走「备用模型」页的连接。</div>
+    <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
+    {{globalArtistField}}
+    <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
+      {{externalSpriteDnaField}}
+    </div>
+  </div>
+  {{imagePromptPanel}}
+  {{worldInfoFilterPanel}}
 </div>
 `.trim();
 
@@ -646,6 +651,7 @@ const PAGE_TEMPLATES = Object.freeze({
     source: IMAGE_SOURCE_TEMPLATE,
     kinds: IMAGE_AUTO_TEMPLATE,
     llm: IMAGE_LLM_TEMPLATE,
+    'img-prompt': IMAGE_PROMPT_TEMPLATE,
     rules: RULES_TEMPLATE,
     parse: PARSE_TEMPLATE,
     stats: STATS_TEMPLATE,

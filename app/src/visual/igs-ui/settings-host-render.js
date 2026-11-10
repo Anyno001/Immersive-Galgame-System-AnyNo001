@@ -1163,6 +1163,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         case 'source':
         case 'kinds':
         case 'llm':
+        case 'img-prompt':
         case 'data':
         case 'logs':
             return pageTabs() + renderTemplate(getPageTemplate(page), imageValues());

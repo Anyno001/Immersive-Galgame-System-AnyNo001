@@ -125,8 +125,8 @@ export async function requestWithSoftRetry(llm, options, llmSettings) {
                     page: 'llm', actionLabel: '打开备用模型',
                 };
                 if (!dispatched && guarded.imagePrompt && result?.presetFailure) return {
-                    message: `写词预设尚未就绪：${recoveryFailureText(result)}。请在备用模型的提示词组中修正并保存或启用预设；生效后自动继续本次任务。`,
-                    page: 'llm', actionLabel: '打开提示词组',
+                    message: `写词预设尚未就绪：${recoveryFailureText(result)}。请在生图提示词页的提示词组中修正并保存或启用预设；生效后自动继续本次任务。`,
+                    page: 'img-prompt', actionLabel: '打开生图提示词',
                 };
                 return null;
             },

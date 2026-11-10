@@ -38,11 +38,11 @@ const BUILTIN_VIEW = {
     item: [['正面', B.item.positive], ['负面', B.item.negative]],
 };
 const KIND_NOTE = {
-    cg: 'CG的写词规则在「备用模型」页。',
+    cg: 'CG的写词规则在「生图提示词」页。',
     expression: '表情差分跟随立绘模型。',
-    creature: '非人角色的立绘与姿态差分使用本分区画师串；留空使用全局画师。写词规则在「备用模型」页的提示词预设（任务 creature）。',
+    creature: '非人角色的立绘与姿态差分使用本分区画师串；留空使用全局画师。写词规则在「生图提示词」页的提示词预设（任务 creature）。',
     avatar: 'Q版头像跟随立绘模型。',
-    nsfwCg: 'NSFW CG跟随剧情CG模型；写词规则在「备用模型」页（含温和重试）。',
+    nsfwCg: 'NSFW CG跟随剧情CG模型；写词规则在「生图提示词」页（含温和重试）。',
 };
 const FORM_VIEW = [
     ['变身时摘掉的性别 / 年龄标签（匹配规则，进阶）', B.form.bodyTagPattern],

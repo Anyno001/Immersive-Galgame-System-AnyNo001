@@ -11,7 +11,9 @@ export const SETTINGS_CATEGORIES = Object.freeze([
     Object.freeze(['sound', '声音']),
     Object.freeze(['chars', '角色']),
     Object.freeze(['scenes', '场景']),
-    Object.freeze(['ai', '生图与AI']),
+    Object.freeze(['ai', 'API配置']),
+    Object.freeze(['prompt', '提示词格式']),
+    Object.freeze(['textfmt', '正文格式']),
     Object.freeze(['stats', '数值系统']),
     Object.freeze(['combat', '战斗与敌方']),
     Object.freeze(['origin', '随身系统']),
@@ -19,7 +21,7 @@ export const SETTINGS_CATEGORIES = Object.freeze([
 ]);
 
 // 侧边栏小组标题：键为该组第一个分类 id。
-export const SETTINGS_NAV_GROUPS = Object.freeze({ style: '阅读体验', chars: '素材与生图', stats: '玩法与数据' });
+export const SETTINGS_NAV_GROUPS = Object.freeze({ style: '阅读体验', chars: '素材与生图', prompt: '格式处理', stats: '玩法与数据' });
 
 // [页面 id, 子页名, 所属分类]
 export const SETTINGS_PAGES = Object.freeze([
@@ -42,11 +44,12 @@ export const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['scenes', '背景', 'scenes']),
     Object.freeze(['cglib', 'CG库', 'scenes']),
     Object.freeze(['scene-review', '待确认', 'scenes']),
-    Object.freeze(['source', '图像来源', 'ai']),
-    Object.freeze(['kinds', '画师与模型', 'ai']),
+    Object.freeze(['source', '生图API', 'ai']),
     Object.freeze(['llm', '备用模型', 'ai']),
-    Object.freeze(['rules', '写法规则', 'ai']),
-    Object.freeze(['parse', '正文解析', 'ai']),
+    Object.freeze(['kinds', '画师与模型', 'prompt']),
+    Object.freeze(['img-prompt', '生图提示词', 'prompt']),
+    Object.freeze(['rules', '写法规则', 'textfmt']),
+    Object.freeze(['parse', '正文解析', 'textfmt']),
     Object.freeze(['stats', '我的角色', 'stats']),
     Object.freeze(['stats-npc', '其他角色', 'stats']),
     Object.freeze(['stats-codex', '特质图鉴', 'stats']),
@@ -74,7 +77,7 @@ const CATEGORY_LABELS = new Map(SETTINGS_CATEGORIES);
 
 // 点分类时进入的页面（分类 id 与页面 id 相同的直接进同名页）。
 const CATEGORY_DEFAULT_PAGE = Object.freeze({
-    ui: 'ui-reader', perf: 'perf-text', chars: 'chars', scenes: 'scenes', ai: 'source', data: 'data',
+    ui: 'ui-reader', perf: 'perf-text', chars: 'chars', scenes: 'scenes', ai: 'source', prompt: 'kinds', textfmt: 'rules', data: 'data',
 });
 
 // 演出组 id → 页面 id（旧 open key `perf-group-<g>` 用）。

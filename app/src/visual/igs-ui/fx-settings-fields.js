@@ -42,7 +42,7 @@ export function featureRow(more, key, path, on, label, hint = '', detail = '') {
 // 细项里的分段小标题（代替原来的二级折叠）。
 export const perfSubhead = (label) => `<div class="igs-perf-item-subhead">${esc(label)}</div>`;
 
-// 演出写法的内置文本与标题（界面在「生图与AI › 写法规则」，见 prompt-entries-fields.js）：随已开启的功能与所选写法自动拼装，用户改过即覆盖，清空恢复内置。
+// 演出写法的内置文本与标题（界面在「正文格式 › 写法规则」，见 prompt-entries-fields.js）：随已开启的功能与所选写法自动拼装，用户改过即覆盖，清空恢复内置。
 export function fxBuiltinPromptTexts(reader) {
     const worldview = reader && reader.feedFx && reader.feedFx.worldview;
     const ancient = worldview === 'ancient';
