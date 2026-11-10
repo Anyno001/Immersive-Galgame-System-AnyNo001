@@ -2554,8 +2554,20 @@ export function createStatsRuntime({
         // 表格里有、账本还没有的人物先登记，补填时一并算上。
         importTablePeople();
         const entry = activeEntryBefore(ledger, Infinity);
-        const blank =(c) => START_FILL_DIMS.every((key) => Math.abs(Number(c.dims && c.dims[key]) || 0) <= START_FILL_SPAN);
-        const pending = Object.entries((entry ? entry.after : ledger.initial).characters).filter(([name, c]) => !isHero(name) && blank(c)).map(([name]) => name);
+        // 数值在小范围内但剧情里已有过关系变动的角色不算空白，避免在已有进展上再叠一次初值。
+        const touched = () => {
+            const names = new Set();
+            for (const [messageId, swipeId] of ledger.active) {
+                const e = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+                for (const c of (e && e.changes) || []) {
+                    if (c && c.target && (START_FILL_DIMS.includes(c.key) || (typeof c.note === 'string' && c.note.startsWith('起始关系·')))) names.add(String(c.target));
+                }
+            }
+            return names;
+        };
+        const moved = touched();
+        const blank = (c, name) => !moved.has(name) && START_FILL_DIMS.every((key) => Math.abs(Number(c.dims && c.dims[key]) || 0) <= START_FILL_SPAN);
+        const pending = Object.entries((entry ? entry.after : ledger.initial).characters).filter(([name, c]) => !isHero(name) && blank(c, name)).map(([name]) => name);
         if (!pending.length) return Promise.resolve({ ok: false, reason: 'stats-start-none' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
@@ -2596,11 +2608,12 @@ export function createStatsRuntime({
             if (!Object.keys(relations).length) return { ok: false, reason: 'stats-start-failed' };
             // 等回复期间可能又结算了新楼，按最新一楼重新取当前值。
             const latest = activeEntryBefore(ledger, Infinity);
+            for (const n of touched()) moved.add(n);
             const manual = {};
             for (const [name, tier] of Object.entries(relations)) {
                 const cur = (latest ? latest.after : ledger.initial).characters[name];
                 const fix = startFixOffsets(mods[name]);
-                if (!cur || !blank(cur) || (tier === '陌生' && !Object.keys(fix).length)) continue;
+                if (!cur || !blank(cur, name) || (tier === '陌生' && !Object.keys(fix).length)) continue;
                 const dims = {};
                 for (const key of START_FILL_DIMS) dims[key] = Math.max(-100, Math.min(100, (Number(cur.dims[key]) || 0) + (START_DIMS[tier][key] || 0) + (fix[key] || 0)));
                 if (fix.芥蒂) dims.芥蒂 = Math.max(-100, Math.min(100, (Number(cur.dims.芥蒂) || 0) + fix.芥蒂));
