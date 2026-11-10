@@ -18,6 +18,7 @@ const SPIRIT = new Set(['占卜', '驱邪', '灵感']);
 const ARCANE = new Set(['魔法', '魔药', '符咒', '法术']);
 const STREET = new Set(['格斗', '恐吓', '力量', '敏捷', '闪避']);
 const DATING = new Set(['魅惑', '安抚', '穿搭', '化妆', '唱歌']);
+const CHARM = new Set(['魅力', '魅惑']);
 // 万事通：任何检定中该技能值不低于此值。
 export const ALL_ROUNDER_FLOOR = 30;
 
@@ -37,6 +38,7 @@ export function diceCategories(skill, { social = false, versus = false } = {}) {
     if (ARCANE.has(skill)) out.push('术法');
     if (STREET.has(skill)) out.push('街头冲突');
     if (DATING.has(skill)) out.push('约会');
+    if (CHARM.has(skill)) out.push('魅力');
     if (versus) out.push('对抗');
     return out;
 }

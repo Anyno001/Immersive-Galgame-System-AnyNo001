@@ -424,5 +424,6 @@ export const DICE = [
     ['话痨', '社交', 1],
     ['不善言辞', '社交', -1],
     ['情场老手', '约会', 1],
+    ['狐妖', '魅力', 1],
     ['一技之长', '全部', 1, (character, ctx) => Boolean(ctx) && Number(ctx.skillValue) >= 80],
 ];
