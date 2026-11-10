@@ -1,7 +1,7 @@
 // 特质规则分文件（E2a）：通用技能向、世界观职业、二次元人设、无神论者。
 // 由 stat-trait-rules.js 汇总；本文件不得 import stat-traits.js（避免循环），只改数值，不碰战斗与亲密对决规则，不注入正文、不加标签。
 // 检定奖惩骰的类别名（医疗、认路、动物、灵异、术法）由 stat-trait-dice.js 的 diceCategories 给出。
-// 状态读取统一走 stat-status.js 的 hasStatus；定义表里尚无的状态（感染、中毒，等 E1 补入）先跳过：抗体携带者只在定义存在时才处理它们。
+// 状态读取统一走 stat-status.js 的 hasStatus。
 // 公众人物：声望条正由声望重做批改写，本批不读不改 stat-fame.js，不做「归属于自己的声望条」判断，只做不依赖声望的数值效果。
 import { barsOf, withBars, withCharacter } from './stat-state.js';
 import { shiftStress } from './stat-strain.js';
@@ -19,8 +19,8 @@ const DESIRE_BIG = 4;
 const GRUDGE_SMALL = 2;
 // 动物系性格全集（龙族是出身，不算）。
 const ANIMALS = Object.freeze(['犬系', '猫系', '狐系', '兔系', '狼系', '熊系', '蛇系', '鹰系', '鹿系', '鸟系', '龙系']);
-// 抗体携带者免疫的状态：感冒现已有定义；感染、中毒待 E1 补入定义表后自动生效。
-const IMMUNE_STATUS = Object.freeze(['感冒', '感染', '中毒']);
+// 抗体携带者免疫的状态；感染在定义表里叫「感染初期」。
+const IMMUNE_STATUS = Object.freeze(['感冒', '感染初期', '中毒']);
 // 大器晚成：技能值低于 30 惩罚、达到 60 奖励。
 const SKILL_LOW = 30;
 const SKILL_HIGH = 60;
@@ -166,7 +166,7 @@ function e2aTags(state, api) {
         }
         // 御姐：主角压力上升「大」及以上那一楼其在场，主角压力额外小降（照顾）。
         if (!hero && near && bigStress && has(name, '御姐')) next = moveStress(next, HERO, -STRESS_SMALL, '御姐', ctx.changes, 'trait');
-        // 抗体携带者：感冒（以及 E1 补入后的感染、中毒）挂上即摘下；没有定义的状态不动。
+        // 抗体携带者：感冒、感染、中毒挂上即摘下。
         if (ctx.statusBox && ctx.statusBox.cat && has(name, '抗体携带者')) {
             for (const key of IMMUNE_STATUS) {
                 if (!getStatusDef(key) || !hasStatus(next, ctx.statusBox.cat, name, key)) continue;
