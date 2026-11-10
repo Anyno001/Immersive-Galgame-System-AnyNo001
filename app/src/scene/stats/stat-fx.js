@@ -40,7 +40,7 @@ export function favorHints(changes) {
         out.push({ target: c.target, kind, text, ...(Array.isArray(c.traitTags) && c.traitTags.length ? { tags: c.traitTags } : {}) });
     };
     for (const c of changes || []) {
-        if (!c || c.key !== '好感' || c.source !== 'tag' || (Number(c.to) || 0) !== (Number(c.from) || 0)) continue;
+        if (!c || c.key !== '好感' || (c.source !== 'tag' && c.note !== '引起注意') || (Number(c.to) || 0) !== (Number(c.from) || 0)) continue;
         const heart = (Number(c.heartTo) || 0) - (Number(c.heartFrom) || 0);
         if (heart > 0) add(c, 'heart', `♡ +${heart}`);
         else if (c.capped === CHANGE_CAP.gate) add(c, 'gate', CHANGE_CAP_TEXT.gate);

@@ -72,7 +72,7 @@ export function baseDelta(dim, value) {
 }
 
 // 跨越未解锁的关口时停在关口值；负向区间往回涨不设关口。
-function gateCap(from, to, unlocked) {
+export function gateCap(from, to, unlocked) {
     for (const gate of FAVOR_GATES) {
         if (from <= gate && to > gate && !unlocked.includes(gateKey(gate))) return gate;
     }
@@ -148,7 +148,7 @@ export function downgradeStrength(directive) {
 
 // 新三档的好感结算。AI 只给方向与强度档，数值全在这里查表。
 // 鲜明＝强度基础值 × 阶段倍率 + 心意槽（不掷骰）；普通＝基础值 + d100（失败减半，至少 1）；困难＝现行方向表。负向三档共用强度表。
-// 返回 { character, change, burst }；心意槽只在鲜明档读写，切档后保留。
+// 返回 { character, change, burst }；心意槽在鲜明档的好感结算里读写，特质「引起注意」在任何档位都会加槽，状态栏在困难档不显示。
 export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, floorRoom, dailyMax, rev = 0, scale = null } = {}) {
     const coef = coef0 * unit(scale, 'up');
     const from = Number(character.dims.好感) || 0;

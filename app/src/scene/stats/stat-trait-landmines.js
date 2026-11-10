@@ -2,6 +2,8 @@
 // 叶子模块：只从 stat-state、stat-status-defs 导入，不导入 stat-traits 与规则文件（避免循环引用，见 v0.39.79）；特质判定由调用方以 has(名, 特质) 传入。
 import { DIM_MAX, clamp, withCharacter } from './stat-state.js';
 import { calcRow, withCalc } from './stat-status-defs.js';
+import { rollOver } from './stat-rng.js';
+import { HEART_BURST_GAIN, HEART_BURST_NOTE, HEART_FULL, gateCap } from './stat-favor.js';
 
 // 档：轻 = 本楼好感上升作废；雷 = 再 −3；重 = 再 −8、芥蒂 +2。
 export const TIER_NAME = Object.freeze({ 轻: '轻雷', 雷: '雷', 重: '重雷' });
@@ -14,6 +16,9 @@ const FLOOR_DROP_GUARD = 30;
 const HEART = 51;
 const LIKE = 26;
 const HALF = 50;
+// 引起注意：这些特质被顶撞后，了解掷骰通过则心意槽 +2；每角色每游戏日最多通过一次。
+const NOTICE_TRAITS = Object.freeze(['强势', '女王', '大小姐']);
+const NOTICE_GAIN = 2;
 const MOVE_TAGS = new Set(['tag', 'trait']);
 
 const L = '轻';
@@ -106,7 +111,7 @@ export function landmineView(holders, known, know) {
 }
 
 // 下一楼强制事项文案；不提特质名。
-export const landmineMandate = (flag) => (flag && flag.name && flag.noun ? `${flag.name}对上一楼主角的${flag.noun}心里不快，本楼表现出来` : '');
+export const landmineMandate = (flag) => (flag && flag.text ? flag.text : flag && flag.name && flag.noun ? `${flag.name}对上一楼主角的${flag.noun}心里不快，本楼表现出来` : '');
 
 // 本楼标签统计：{ 名: { 约会, 告白, 亲密 } }。
 function actCounts(directives) {
@@ -119,8 +124,32 @@ function actCounts(directives) {
     return out;
 }
 
+// 引起注意通过：记当日、心意槽 +2，满 5 溢出为好感 +5（受关口封顶；封顶压成 0 时槽停在 4）。
+function applyNotice(state, name, notice, noticeRow, ctx, day, setMandate) {
+    const cur = state.characters[name];
+    const h0 = Math.max(0, Math.min(HEART_FULL - 1, Math.round(num(cur.heart))));
+    const total = h0 + NOTICE_GAIN;
+    const rows = [noticeRow, calcRow('心意槽', `${h0} + ${NOTICE_GAIN} = ${total} / ${HEART_FULL}`)];
+    let heart = total;
+    let dims = cur.dims;
+    if (total >= HEART_FULL) {
+        const from = dimOf(cur, '好感');
+        const to = gateCap(from, clamp(from + HEART_BURST_GAIN, -DIM_MAX, DIM_MAX), Array.isArray(cur.unlocked) ? cur.unlocked : []);
+        if (to > from) {
+            heart = total - HEART_FULL;
+            dims = { ...cur.dims, 好感: to };
+            ctx.changes.push(withCalc({ source: 'trait', target: name, key: '好感', from, to, note: HEART_BURST_NOTE, heartFrom: h0, heartTo: heart }, { calc: [...rows, calcRow('结果', to - from)], traitTags: [] }));
+        } else heart = HEART_FULL - 1;
+    } else {
+        const f = dimOf(cur, '好感');
+        ctx.changes.push(withCalc({ source: 'trait', target: name, key: '好感', from: f, to: f, note: '引起注意', heartFrom: h0, heartTo: heart }, { calc: rows, traitTags: [] }));
+    }
+    setMandate(name);
+    return withCharacter(state, name, { ...cur, dims, heart, noticeDay: day });
+}
+
 /// 结算雷点（特质钩子之后）。state 为本楼已结算的状态，before 为本楼开始前（读事件发生时的好感、了解）。
-/// 返回 { state, known: [{ name, key }], mandate: { name, noun } | null }，不原地改传入对象。
+/// 返回 { state, known: [{ name, key }], mandate: { name, noun } | { name, text } | null }，不原地改传入对象。
 export function settleLandmines(state, before, directives, ctx, has) {
     const day = state.clock.day;
     const counts = actCounts(directives);
@@ -134,6 +163,11 @@ export function settleLandmines(state, before, directives, ctx, has) {
     const known = [];
     let mandate = null;
     let mandateRank = 0;
+    const mandateSet = (name) => {
+        if (mandateRank > 2) return;
+        mandate = { name, text: `${name}被主角顶撞后表面不悦，心里却开始留意对方，本楼表现出来` };
+        mandateRank = 2;
+    };
     let next = state;
     const isHere = (name) => here.has(name);
     const hit = (name, trig) => {
@@ -164,7 +198,16 @@ export function settleLandmines(state, before, directives, ctx, has) {
             if (trait === '强势' && trig === 'event:拒绝' && has(name, 'combo:追妻火葬场') && dimOf(next.characters[name], '芥蒂') >= LIKE) continue;
             if (hit(name, trig)) pick = { trait, trig, tier, opts };
         }
-        if (!pick) continue;
+        const cur0 = next.characters[name];
+        const noticeOn = NOTICE_TRAITS.some((t) => has(name, t)) && hit(name, 'event:顶撞');
+        const know = dimOf(before.characters[name], '了解');
+        const notice = noticeOn && !(cur0.noticeDay === day) ? rollOver(know, ctx.random) : null;
+        const noticeRow = notice ? calcRow(`引起注意 掷骰 ${notice.roll}（需大于了解 ${know}）`, notice.passed ? '通过' : '未通过') : null;
+        if (!pick && !notice) continue;
+        if (!pick) {
+            if (notice.passed) next = applyNotice(next, name, notice, noticeRow, ctx, day, mandateSet);
+            continue;
+        }
         const cur = next.characters[name];
         const note = `踩雷·${pick.trait}：${mineLabel(pick.trig)}`;
         known.push({ name, key: mineKey(pick.trait, pick.trig) });
@@ -181,6 +224,7 @@ export function settleLandmines(state, before, directives, ctx, has) {
         const to = clamp(Math.min(from, Math.max(from - undo, floorStart)) - pen, -DIM_MAX, DIM_MAX);
         const dims = { ...cur.dims };
         const calc = [calcRow('雷点', `${pick.trait}·${mineLabel(pick.trig)}`), calcRow('档位', TIER_NAME[pick.tier])];
+        if (noticeRow) calc.push(noticeRow);
         if (undo) calc.push(calcRow('好感上升作废', -undo));
         if (wanted) calc.push(calcRow('固定扣分', -pen), ...(pen < wanted ? [calcRow('每日上限', `${DAY_CAP - used > 0 ? '剩' + (DAY_CAP - used) : '已满'}`)] : []));
         let daily = cur.daily;
@@ -202,6 +246,7 @@ export function settleLandmines(state, before, directives, ctx, has) {
             }
         }
         next = withCharacter(next, name, { ...cur, dims, daily, ...(pen ? { mineDay: { day, lost: used + pen } } : {}) });
+        if (notice && notice.passed) next = applyNotice(next, name, notice, noticeRow, ctx, day, mandateSet);
     }
     // 记当日对该角色的约会、告白、亲密次数（供「同日重复」判定）。
     for (const [name, mine] of counts) {

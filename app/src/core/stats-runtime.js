@@ -2862,7 +2862,7 @@ export function createStatsRuntime({
         // 状态栏 / 人际关系页的数据源：只有总开关与本聊天都启用时才接管，否则返回 null 让调用方读表格（易错点 H3）。
         metricsLookup: ev(() => {
             if (!active()) return null;
-            const lookup = createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), stamina: npcStaminaShown(), sheets: catalog.sheets, engine: memoEngineOf() });
+            const lookup = createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), stamina: npcStaminaShown(), favorTier: normalizeFavorTier(settings().favorMode), sheets: catalog.sheets, engine: memoEngineOf() });
             return (name) => (isHero(name) ? { metrics: [], stages: [] } : lookup(name));
         }),
         // 修罗场情敌（ROMANCE_RIVAL_FIX_PLAN）：近 7 天吃过醋、芥蒂不低于 26、或仍是恋爱对象；未启用时返回 null，演出层退回旧规则。
@@ -2881,7 +2881,7 @@ export function createStatsRuntime({
                     ...p,
                     romance,
                     kin: hasTrait(state, traitCatalogOf(catalog.traits), p.name, 'kin'),
-                    metrics: characterStatMetrics(c, { hudLabel: s.hudLabel, nsfw, stamina: npcStaminaShown() }),
+                    metrics: characterStatMetrics(c, { hudLabel: s.hudLabel, nsfw, stamina: npcStaminaShown(), favorTier: normalizeFavorTier(s.favorMode) }),
                     stage: stageLabel(Number(p.dims.好感) || 0, romance),
                 };
             });

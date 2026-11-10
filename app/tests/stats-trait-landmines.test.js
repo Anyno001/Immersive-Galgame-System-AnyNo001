@@ -34,7 +34,7 @@ test('轻雷：本楼好感上升作废，不额外扣分', () => {
 });
 
 test('雷：上升作废并再扣 3，下一楼强制事项不提特质', () => {
-    const s = world({ 林夏: mk({ dims: { 好感: 30 } }) });
+    const s = world({ 林夏: mk({ dims: { 好感: 30, 了解: 99 } }) });
     const r = floor(s, `${ev('顶撞')}[igs-stat:favor|林夏|喜欢|中]`, traitsFor('林夏', '强势'));
     assert.equal(favorOf(r), 27);
     const row = r.changes.find((c) => String(c.note).startsWith('踩雷'));
@@ -121,4 +121,33 @@ test('已知雷点：踩过的显示，了解过半显示全部', () => {
     assert.equal(landmineView(['强势'], {}, 50).length, 4);
     const cat = sanitizeCatalog({ landmineKnown: { 林夏: known } });
     assert.equal(cat.landmineKnown.林夏['强势:event:顶撞'], 3);
+});
+
+const low = () => 0.99;
+const never = () => 0.11;
+test('引起注意：顶撞后了解掷骰通过，心意槽 +2 且下一楼强制事项改写', () => {
+    const s = world({ 林夏: mk({ dims: { 好感: 30, 了解: 20 } }) });
+    const r = floor(s, ev('顶撞'), traitsFor('林夏', '强势'), { random: low });
+    assert.equal(r.state.characters.林夏.heart, 2);
+    assert.equal(r.state.characters.林夏.noticeDay, r.state.clock.day);
+    assert.match(mandatesFromFlags(r.meta.flags).join(''), /林夏被主角顶撞后表面不悦，心里却开始留意对方/);
+    const row = r.changes.find((c) => String(c.note).startsWith('踩雷'));
+    assert.ok(row.calc.some((x) => /引起注意/.test(String(x.label || x.key || x.name || JSON.stringify(x)))));
+});
+
+test('引起注意：心意槽满溢给好感 +5', () => {
+    const s = world({ 林夏: mk({ heart: 3, dims: { 好感: 30, 了解: 20 } }) });
+    const r = floor(s, ev('顶撞'), traitsFor('林夏', '强势'), { random: low });
+    assert.equal(r.state.characters.林夏.heart, 0);
+    assert.equal(favorOf(r), 32);
+    assert.ok(r.changes.some((c) => c.note === '心意满溢' && c.to - c.from === 5));
+});
+
+test('引起注意：同一游戏日只通过一次，未通过不动心意槽', () => {
+    const s = world({ 林夏: mk({ dims: { 好感: 30, 了解: 20 } }) });
+    const a = floor(s, ev('顶撞'), traitsFor('林夏', '强势'), { random: low });
+    const b = floor(a.state, ev('顶撞'), traitsFor('林夏', '强势'), { random: low });
+    assert.equal(b.state.characters.林夏.heart, 2);
+    const c = floor(s, ev('顶撞'), traitsFor('林夏', '强势'), { random: never });
+    assert.equal(c.state.characters.林夏.heart || 0, 0);
 });
