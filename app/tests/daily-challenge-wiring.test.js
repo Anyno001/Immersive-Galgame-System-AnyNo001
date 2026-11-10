@@ -221,7 +221,7 @@ test('战斗频率三档各追加一行，任何频率都追加必然开战一�
     assert.ok(low.includes('平常的摩擦用剧情解决。'));
     assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'high' } }).includes('积极安排交战'));
     for (const text of [base, low]) {
-        assert.ok(text.endsWith('无论战斗频率高低都必须在本层最后一行写开战标签，不得用剧情带过、跳过或改写成不交手。'));
+        assert.ok(text.endsWith('无论战斗频率高低都必须在本层正文末尾的战斗块里写开战标签，不得用剧情带过、跳过或改写成不交手。'));
     }
     assert.equal(normalizeCombatExpansionSettings({ frequency: 'x', cooldownFloors: 3 }).frequency, 'normal');
     assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 3 }).cooldownFloors, 0);

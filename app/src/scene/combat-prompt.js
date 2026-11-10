@@ -118,7 +118,7 @@ const FREQUENCY_LINES = Object.freeze({
     high: '战斗频率：剧情中出现敌意、挑衅、拦路、切磋或危险时，积极安排交战，可以主动引出遭遇。',
 });
 // 频率只决定可打可不打的遭遇；剧情已经确定开打时不受频率影响。
-const MUST_FIGHT_LINE = '必然开战：剧情已经确定进入交战（对方已经动手或袭来、主角决意出手、双方摆开架势、比斗或切磋正式开始等）时，无论战斗频率高低都必须在本层最后一行写开战标签，不得用剧情带过、跳过或改写成不交手。';
+const MUST_FIGHT_LINE = '必然开战：剧情已经确定进入交战（对方已经动手或袭来、主角决意出手、双方摆开架势、比斗或切磋正式开始等）时，无论战斗频率高低都必须在本层正文末尾的战斗块里写开战标签，不得用剧情带过、跳过或改写成不交手。';
 const COOLDOWN_TAG_LINE = /^\s*(?:[-*•]\s*)?\[igs-combat[:：]\s*(?:start|awaken|lines)\b/i;
 const COOLDOWN_TAG_MENTION = /\[igs-combat[:：]\s*(?:start|awaken|lines)\b/i;
 const COOLDOWN_BLOCKED_TAGS = ['start', 'awaken', 'lines'];
