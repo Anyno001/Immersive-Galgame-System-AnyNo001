@@ -41,7 +41,7 @@ export function renderNaiQuota(view) {
             + `<div>查询时间：${esc(new Date(view.result.queriedAt).toLocaleTimeString('zh-CN'))}</div>`;
     } else if (view?.result) content = esc(view.result.error);
     return '<div class="igs-settings-sub" data-nai-quota>' + button
-        + '<div class="igs-settings-hint">手动查询当前 Key；第三方站点需支持账户接口，显示单位以该站点为准。</div>'
+        + '<div class="igs-source-filter-note">手动查询当前 Key；第三方站点需支持账户接口，显示单位以该站点为准。</div>'
         + `<div class="igs-settings-result" role="status" aria-live="polite">${content}</div></div>`;
 }
 
