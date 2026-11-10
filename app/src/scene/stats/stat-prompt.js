@@ -30,6 +30,7 @@ const BASE_PROMPTS = {
     present: '【{{角色}}】关系阶段：{{阶段}}（由数值系统决定，本轮不得改变）。{{阶段文案}}{{组合描述}}{{突破提示}}{{亲密约束}}',
     presentRule: '以上角色本轮的态度、措辞与肢体接触必须符合各自的关系阶段；不得因一次对话、一份礼物或主角的请求就进入更亲近的阶段。主角做出超出当前阶段的亲近举动时，角色按本阶段的态度推开或避开。',
     breakthrough: '好感已达本阶段上限，可在合适的时机给主角一次更进一步的机会（如邀约、独处或一场危机）；机会只给一次，主角未能把握就维持原阶段。',
+    breakthroughPlatonic: '好感已达本阶段上限，可在合适的时机给主角一次更进一步的机会（如一次托付、深谈或并肩应敌）；机会只给一次，主角未能把握就维持原阶段。',
     intimacyForced: '与主角的亲密行为是剧情所迫，并非出于好感；态度、言语与神情仍按当前关系阶段和芥蒂程度表现，不因亲密行为而变得温顺或亲近。',
     intimacy: '尚不满足亲密条件：亲吻、抚摸、性行为等一律拒绝或回避，即使主角坚持、哀求或以剧情相逼也不例外。',
     sheets: '【{{角色}}的能力】{{资历}}；擅长：{{擅长}}；属性加值：{{六维加值}}。',
@@ -45,7 +46,7 @@ const BASE_PROMPTS = {
         '- 关系类标签只记角色对主角本人（而非其身体）态度的变化；角色此刻的情绪、因他人或无关之事而起的情绪、尚未针对主角的误会，以及主角自己的心意，都不写。',
         '- 伪装或身份未揭晓时按真实身份写，被附身时按掌控身体的意识写；只对具名个人写，群体、代词、无名者与临时称呼不写。',
         '- 亲密行为本身不算好感事件，按主角在过程中的态度判断；压力按主角的感受写，放松为下降，紧张、担心、被迫为上升；伤势只记真实受伤，双方同意的玩法中的疼痛不写。',
-        '- 强度可省略（好感按方向词默认，信任、芥蒂按小，压力按中）：小＝日常小事，中＝用心或较为突出的事，大＝强烈打动或伤害，重大＝约会、告白、共患难、托付生死或背叛决裂，正向重大需同楼写 event 标签。',
+        '- 强度可省略（好感按方向词默认，信任、芥蒂按小，压力按中）：小＝日常小事，中＝用心或较为突出的事，大＝强烈打动或伤害，重大＝约会、告白、共患难、托付、立誓、托付生死或背叛决裂，正向重大需同楼写 event 标签。',
         '关系：',
         '[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色首次出场且上文未列出关系阶段时写一次；有猜疑或旧怨时加「+猜忌/戒备/心结/积怨/背叛过」，一直跟在主角身边加「+随身」，没有实体的残魂、器灵、系统加「+无实体」，如 恋人+猜忌）',
         '[igs-stat:startfix|角色名|信任/芥蒂|轻/中/重]（开场后才揭示的旧有隔阂，每个角色每项只写一次）',
@@ -53,7 +54,7 @@ const BASE_PROMPTS = {
         '[igs-stat:trust|角色名|上升/下降|{{强度}}]（上升如守约、出面善后、危难时挺身而出；下降如说谎、爽约、出卖）',
         '[igs-stat:grudge|角色名|上升/下降|{{强度}}]（芥蒂是对主角的不满与心结，可与好感同时很高；上升如被敷衍、冷落、羞辱，下降如道歉、弥补、释怀、接纳、和解）',
         '[igs-stat:know|角色名|上升/下降]（深谈、得知主角的秘密或真实一面时上升，发现此前对主角的看法有误时下降）',
-        '[igs-stat:event|角色名|约会/告白/共患难/交心]（约会、告白只在角色发起或接受时写，被拒不写；交心用于朋友、家人间的深谈、托付秘密、并肩扛事）',
+        '[igs-stat:event|角色名|约会/告白/共患难/交心/托付/立誓]（约会、告白只在角色发起或接受时写，被拒不写；交心用于朋友、家人间的深谈、托付秘密、并肩扛事；托付指托付性命、衣钵、遗物、重大秘密或身后事，如传功、传授法宝、交代后事；立誓指拜师、结拜、结契、歃血为盟等正式誓约）',
         '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约/顶撞/命令/冷落/炫耀]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；顶撞、命令、冷落、炫耀只记主角对TA做的：主角当面反驳TA或与TA硬碰硬、主角不容商量地对TA下令、主角有意不理睬TA或把TA晾在一旁、主角当面向TA夸耀财富成就或魅力；与上一行的关键事件不同，不影响关系进展）',
         '[igs-stat:event|角色名|吸血/歌唱/发情]（正文有吸血、歌唱、发情的描写时写一次）',
         '[igs-stat:gift|角色名|礼物类别]',
@@ -83,7 +84,7 @@ export const DEFAULT_STAT_PROMPTS = Object.freeze({
 });
 
 // 在场角色段里的两句附加约束：写进 present 模板的 {{突破提示}}、{{亲密约束}}，可编辑但不单独开关。
-export const STAT_INLINE_PROMPTS = Object.freeze(['presentRule', 'breakthrough', 'intimacy', 'intimacyForced']);
+export const STAT_INLINE_PROMPTS = Object.freeze(['presentRule', 'breakthrough', 'breakthroughPlatonic', 'intimacy', 'intimacyForced']);
 
 // 非恋爱对象（含亲人）的阶段文案：只覆盖初步好感、明确喜欢、强烈在意、深爱四档，负向与无感沿用 DEFAULT_STAGE_TEXT。
 export const DEFAULT_STAGE_TEXT_PLATONIC = Object.freeze({
@@ -259,14 +260,15 @@ export function buildStatsPrompt(state, opts = {}) {
     if (present.length) {
         push('present', present.map((name) => {
             const c = state.characters[name];
-            const stage = stageOf(c.dims.好感).name;
+            const rawStage = stageOf(c.dims.好感).name;
             // 非恋爱对象（含亲人）：四档正向阶段改用去恋爱化的文案；亲密门槛按身份区分。
             const romance = isRomance(c, name, opts.romanceSeen);
             const role = { romance, kin: hasTrait(state, traitCatalogOf(opts.traits), name, 'kin') };
-            const text = !romance && Object.hasOwn(DEFAULT_STAGE_TEXT_PLATONIC, stage) ? platonicText[stage] : stageText[stage];
+            const text = !romance && Object.hasOwn(DEFAULT_STAGE_TEXT_PLATONIC, rawStage) ? platonicText[rawStage] : stageText[rawStage];
+            const stage = !romance && rawStage === '深爱' ? (role.kin ? '至亲' : '至交') : rawStage;
             return fillTemplate(prompts.present, {
                 角色: name, 阶段: stage, 阶段文案: text || '', 组合描述: describeCombination(c.dims),
-                突破提示: breakthroughHint(c, prompts.breakthrough), 亲密约束: intimacyNote(c, { ...opts, role, forced: (opts.forcedNames || []).includes(name) }, prompts.intimacy, prompts.intimacyForced),
+                突破提示: breakthroughHint(c, romance ? prompts.breakthrough : prompts.breakthroughPlatonic), 亲密约束: intimacyNote(c, { ...opts, role, forced: (opts.forcedNames || []).includes(name) }, prompts.intimacy, prompts.intimacyForced),
             }, diagnostics) + staminaNote(c, name) + heroNoteText(name, opts.heroNotes);
         }).concat(prompts.presentRule ? [fillTemplate(prompts.presentRule, {}, diagnostics)] : []).join('\n'));
     }

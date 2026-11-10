@@ -357,6 +357,17 @@ function applyCharacterDirective(current, d, state, ctx) {
 }
 
 // 起始关系：只对还没建档、或建档后各维度仍是初始 0 的角色生效，好感直接定到该档初值；低于初值的关口视为已过。
+// 亲人不卡好感关口：关口一律视为已解锁；写时浅拷，只在缺项时才换新对象。
+function unlockKinGates(state, ctx) {
+    const gates = FAVOR_GATES.map(gateKey);
+    let next = state;
+    for (const [name, c] of Object.entries(state.characters)) {
+        if (gates.every((k) => (c.unlocked || []).includes(k)) || !hasTrait(state, ctx.traitCat, name, 'kin')) continue;
+        next = withCharacter(next, name, { ...c, unlocked: [...new Set([...(c.unlocked || []), ...gates])] });
+    }
+    return next;
+}
+
 function settleStartRelations(before, directives, ctx) {
     let state = before;
     for (const d of directives) {
@@ -849,6 +860,7 @@ export function settleFloorText(before, text, opts = {}) {
     for (const item of Array.isArray(opts.npcChecks) ? opts.npcChecks : []) state = markNpcGrowth(state, resolve(item.actor), item.skill);
     state = settleStartRelations(state, directives, ctx);
     state = settleStartFix(state, directives, ctx);
+    if (rev >= 2) state = unlockKinGates(state, ctx);
     if (rev >= 2) { const moon = moonlightJealousy(state, directives, ctx); state = moon.state; directives.push(...moon.directives); }
     state = settleCharacters(state, directives, ctx);
     if (rev >= 2) { state = settleRomance(state, directives); state = settleClear(state, directives, ctx); }

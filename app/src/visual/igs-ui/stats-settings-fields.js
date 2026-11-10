@@ -36,6 +36,7 @@ export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     diceManual: '手动掷骰规则',
     presentRule: '在场角色·阶段约束（全体一次）',
     breakthrough: '在场角色·好感到阶段上限时追加',
+    breakthroughPlatonic: '突破提示（非恋爱）',
     intimacy: '在场角色·未到亲密阶段时追加（NSFW）',
     intimacyForced: '在场角色·已豁免亲密门槛时追加（NSFW）',
     sheetGen: '角色卡生成（后台请求）',

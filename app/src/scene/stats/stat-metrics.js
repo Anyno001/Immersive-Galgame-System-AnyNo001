@@ -2,6 +2,7 @@
 // 输出与 status-hud-model 的 extractStatusHudMetrics 同形（label / percent / display / colorKey），
 // 与 character-metrics 的 lookup 同形（{ metrics, stages }），视觉层只换数据源、不换样式。
 import { stageOf } from './stat-favor.js';
+import { stageLabel } from './stat-relation-label.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
 import { barsOf, grudgeTier } from './stat-state.js';
@@ -126,14 +127,14 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
 
 // 与 createCharacterMetricsLookup 同形；未登记的名字返回空，调用方可按原逻辑退回表格。
 // sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定。
-export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, stamina = false, sheets = null, engine = null, favorTier = 'vivid' } = {}) {
+export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, stamina = false, sheets = null, engine = null, favorTier = 'vivid', isRomanceOf = null } = {}) {
     return (name) => {
         const key = state && resolve(String(name || '').trim());
         const c = key && state.characters[key];
         if (!c) return { metrics: [], stages: [] };
         const out = {
             metrics: characterStatMetrics(c, { hudLabel, nsfw, stamina, favorTier }),
-            stages: [{ label: '关系阶段', value: stageOf(c.dims.好感).name }],
+            stages: [{ label: '关系阶段', value: isRomanceOf ? stageLabel(c.dims.好感, isRomanceOf(c, key)) : stageOf(c.dims.好感).name }],
         };
         if (sheets) out.sheet = sheetSummary(key, sheets[key], engine);
         return out;

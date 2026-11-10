@@ -507,7 +507,7 @@ function derivedEvents(state, api) {
             const hit = level === '大' || level === '重大' || (level === '中' && api.has(state, d.target, '睚眦必报'));
             if (hit && !api.has(state, d.target, '以德报怨') && !hates(state, d.target)) out.push({ type: '_结怨标签', target: d.target });
         }
-        if (d.kind === 'event' && (d.value === '共患难' || d.value === '交心') && state.characters[d.target] && (hates(state, d.target) || hasRel(state, d.target, '恩怨两难', 'ta'))) out.push({ type: '和解', target: d.target });
+        if (d.kind === 'event' && ['共患难', '交心', '托付', '立誓'].includes(d.value) && state.characters[d.target] && (hates(state, d.target) || hasRel(state, d.target, '恩怨两难', 'ta'))) out.push({ type: '和解', target: d.target });
     }
     return out;
 }
@@ -550,7 +550,7 @@ function harmonyHook(state, api) {
         const cur = c.source === 'tag' && c.note === '吃醋' ? next.characters[c.target] : null;
         if (cur && !cur.jealousSeen) next = withCharacter(next, c.target, { ...cur, jealousSeen: true });
     }
-    const hit = new Set(directives.filter((d) => d.kind === 'event' && (d.value === '共患难' || d.value === '交心') && next.characters[d.target]).map((d) => d.target));
+    const hit = new Set(directives.filter((d) => d.kind === 'event' && ['共患难', '交心', '托付', '立誓'].includes(d.value) && next.characters[d.target]).map((d) => d.target));
     if (!hit.size) return next;
     const present = new Set(Array.isArray(ctx.present) ? ctx.present : []);
     const names = Object.keys(next.characters).filter((n) => next.characters[n].jealousSeen && isRomance(next.characters[n], n, ctx.romanceSeen));

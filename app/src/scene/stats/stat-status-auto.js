@@ -10,7 +10,7 @@ export const MOOD_STRESS_MAX = 25;     // 心情很好：压力不高于此值
 export const BROKE_BELOW = 20;         // 手头紧：钱包余额低于此值挂上
 export const BROKE_CLEAR = 100;        // 手头紧：余额回到此值以上摘下
 export const ADDICT_DAYS = 3;          // 犯瘾：连续未碰天数
-const MOOD_EVENTS = ['约会', '告白', '共患难', '交心'];
+const MOOD_EVENTS = ['约会', '告白', '共患难', '交心', '托付', '立誓'];
 const DRUNK_WORDS = /喝醉|醉酒|烂醉|酩酊|喝多了|醉倒|醉醺醺/;
 
 // 成瘾特质 → 关键词（按特质名；特质表里插入的三行）。

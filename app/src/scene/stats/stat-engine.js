@@ -392,7 +392,7 @@ export function markGrowth(state, check) {
 }
 
 // 关键事件检定按类型选技能（strengthRev ≥ 2 的新楼）：告白、约会用魅力；共患难取主角格斗、剑术、射击、体质中最高者；交心取察言观色与魅力中较高者。旧楼固定用魅力。
-export const KEY_EVENT_SKILLS = Object.freeze({ 告白: ['魅力'], 约会: ['魅力'], 共患难: ['格斗', '剑术', '射击', '体质'], 交心: ['察言观色', '魅力'] });
+export const KEY_EVENT_SKILLS = Object.freeze({ 告白: ['魅力'], 约会: ['魅力'], 共患难: ['格斗', '剑术', '射击', '体质'], 交心: ['察言观色', '魅力'], 托付: ['察言观色', '魅力'], 立誓: ['魅力'] });
 export function keyEventSkill(engine, state, event, rev = 0) {
     const names = Number(rev) >= 2 && KEY_EVENT_SKILLS[event] ? KEY_EVENT_SKILLS[event] : ['魅力'];
     if (names.length === 1) return names[0];
