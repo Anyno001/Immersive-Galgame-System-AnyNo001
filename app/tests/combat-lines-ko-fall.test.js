@@ -32,9 +32,9 @@ test('lines 标签随开战标签解析，按角色整理四段并限长限量',
     assert.equal(extractCombatStart(`${many}\n${START}`).start.lines.length, 6);
 });
 
-test('lines 只认写在开战标签之前的；全空或缺角色名记诊断；没有 lines 时 start 形状不变', () => {
+test('lines 写在开战标签前后都认；全空或缺角色名记诊断；没有 lines 时 start 形状不变', () => {
     const after = extractCombatStart(`${START}\n${LINES}`);
-    assert.equal(after.start?.lines, undefined);
+    assert.equal(after.start?.lines?.[0]?.character, '艾拉');
     const empty = extractCombatStart(`[igs-combat:lines|艾拉||||]\n[igs-combat:lines||你好|||]\n${START}`);
     assert.equal(empty.start.lines, undefined);
     assert.equal(empty.diagnostics.filter((d) => d.code === 'combat-lines-invalid').length, 2);

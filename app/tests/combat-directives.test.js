@@ -98,9 +98,7 @@ test('scanCombatTags / scanGainTags / combatBodyText', () => {
     }
 });
 
-test('extractCombatStart', () => {
-    for (const text of samples()) assert.deepStrictEqual(mine.extractCombatStart(text), orig.extractCombatStart(text), String(text));
-});
+// extractCombatStart 已不再要求开战标签在末行、友方「无」视为空，与原版有意不同，不做差分；行为由 combat-v0392-behavior 锁定。
 
 test('extractGrowthDirectives（含 raw / expCap 选项）', () => {
     const optionSets = [undefined, {}, { raw: true }, { expCap: false }, { raw: true, expCap: false }];
@@ -118,7 +116,6 @@ test('sourceFilter 选项透传', () => {
     for (const sourceFilter of [undefined, {}, { htmlCardTags: 'div,span' }, { htmlCardTags: '' }]) {
         const opts = { sourceFilter };
         assert.strictEqual(mine.combatBodyText(text, opts), orig.combatBodyText(text, opts));
-        assert.deepStrictEqual(mine.extractCombatStart(text, opts), orig.extractCombatStart(text, opts));
         assert.deepStrictEqual(mine.extractGrowthDirectives(text, opts), orig.extractGrowthDirectives(text, opts));
     }
 });

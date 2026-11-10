@@ -201,7 +201,7 @@ ${DUEL_TAG}`, { intimate: GATE }).start;
     assert.equal(combat.lines[0].down[0], '我、我快……');
     const late = extractCombatStart(`[igs-combat:start|林间遭遇|山贼*1|]
 ${LINES_TAG}`);
-    assert.equal(late.start.lines, undefined);
+    assert.equal(late.start.lines.length, 1);
 });
 
 test('亲密对决开启时提示词补台词写法，关闭时不出现', () => {

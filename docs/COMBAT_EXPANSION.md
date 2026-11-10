@@ -337,7 +337,7 @@
 
 ### 阶段 2：觉醒与规则 v3
 
-- 标签：`[igs-combat:awaken|角色|类型|台词]` 只认紧邻末行开战标签上一非空行的那一条，并入 `start.awaken`；类型为 8 种中文名（怒火 / 守护 / 悲恸 / 决意 / 羁绊 / 极限 / 复仇 / 不屈）或内部键，台词 ≤30 字可空。错位记 `combat-awaken-misplaced`，栏位非法记 `combat-awaken-invalid`，开战照常；开战锚点与 tagHash 不变，awaken 不进成长账本。
+- 标签：`[igs-combat:awaken|角色|类型|台词]` 只认紧邻开战标签上一非空行的那一条，并入 `start.awaken`；类型为 8 种中文名（怒火 / 守护 / 悲恸 / 决意 / 羁绊 / 极限 / 复仇 / 不屈）或内部键，台词 ≤30 字可空。错位记 `combat-awaken-misplaced`，栏位非法记 `combat-awaken-invalid`，开战照常；开战锚点与 tagHash 不变，awaken 不进成长账本。
 - 会话：只有点名角色是本场被操控者（主角可写「我」/ 主角名 / 别名）时写入 `setup.awaken = { type, line }`；点名他人或换人操控时不写入，`start()` 返回 `awakenDropped`。无觉醒时 setup 形状与旧版一致。
 - 提示词：开战语法加入 awaken 写法与触发约束（只在重大情绪节点写），战报续写同样禁写觉醒标签。
 - 规则 v3：`COMBAT_RULES.version = 3`，v2 进行中战斗按 `rules-version-mismatch` 作废（已确认接受）。新增效果 `damage-from-block`、`self-damage`、`double`（中毒 / 格挡 / 力量）、`next-turn`（抽牌 / 能量）、`each-turn`（能力牌每回合开始触发）、`hand-cost`（本回合手牌费用修正，最低 0，X 费不变），伤害可选 `strengthScale`；新状态 `intangible`（受伤降为 1，下次本单位回合开始衰减）、`no-draw`（本回合禁抽）、`endure`（首次致死保留 1 生命并获 8 格挡）。各效果都有估值；`damage-from-block` 在技能伤害上限校验中按超限处理。X 费按能量重复沿用原有行为。

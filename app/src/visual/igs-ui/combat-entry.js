@@ -2,7 +2,7 @@ import { extractCombatStart } from '../../scene/combat-directives.js';
 import { parseChallengeStart } from '../../scene/challenge-directives.js';
 import { normalizeCombatExpansionSettings } from './combat-settings.js';
 
-// 开战楼入口：只在扩展开启、当前楼是最新 AI 楼、翻到末页、正文末尾是有效开战标签时显示。
+// 开战楼入口：只在扩展开启、当前楼是最新 AI 楼、翻到末页、正文含有效开战标签（位置不限）时显示。
 // 翻到这一页即自动打开战斗面板：同一开战楼（chatId + messageId + swipeId + tagHash）只自动打开一次，
 // 由调用方在面板确实打开后记入 seen；被地图、资料等面板挡住时不记，下一次渲染再弹。
 export const COMBAT_ENTRY_ID = 'igs-combat-entry';

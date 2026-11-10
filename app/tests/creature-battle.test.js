@@ -210,7 +210,7 @@ test('建档线索：多对手逐个登记，单对手不变', () => {
 test('建档线索：卡牌开战标签的敌方按 battle 对手登记，友方不算', () => {
     const hints = creatureHintsOf('巷口围上来一群人。\n[igs-combat:start|巷口冲突|黄毛*2,狼群|小雪|普通]');
     assert.deepEqual(hints.map((h) => [h.name, h.source]), [['黄毛', 'battle'], ['狼群', 'battle']]);
-    assert.deepEqual(creatureHintsOf('[igs-combat:start|巷口冲突|黄毛|小雪]\n后面还有正文。'), [], '开战标签不在末尾时不认');
+    assert.deepEqual(creatureHintsOf('[igs-combat:start|巷口冲突|黄毛|小雪]\n后面还有正文。').map((h) => h.name), ['黄毛'], '开战标签不在末尾时照常登记');
 });
 
 test('战斗立绘候选名：原名、去编号后缀、去群体后缀依次试，去完太短的不算', () => {

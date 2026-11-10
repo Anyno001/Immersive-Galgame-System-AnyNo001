@@ -603,7 +603,7 @@ test('专属卡槽位：ID 带 -g<n> 按槽位，否则按档案位置；Lv5 / L
 });
 
 // ---------- 开战标签 ----------
-test('开战标签后只剩数值 / 成长等纯标记行时仍生效（觉醒照常并入）；后面还有正文时仍不触发', () => {
+test('开战标签不限位置：其后跟标记行、正文、分隔线或状态栏都生效（觉醒照常并入）；友方写「无」视为没有队友', () => {
     const body = [
         '铁面人抬起黑刀横在身前。',
         '[igs-char:? ? ? |冷漠|玄色夜行衣|挡路的小辈。那就一起。]',
@@ -619,9 +619,13 @@ test('开战标签后只剩数值 / 成长等纯标记行时仍生效（觉醒�
     assert.equal(parsed?.encounter, '暗夜偷袭・铁面刺客', JSON.stringify(diagnostics));
     assert.deepEqual([parsed.tier, parsed.allies, parsed.awaken?.type], ['boss', ['麟青砚'], 'rage']);
     assert.equal(codes({ diagnostics }).includes('combat-start-not-tail'), false);
-    const prose = extractCombatStart(`${body}\n他还想说什么。`);
-    assert.equal(prose.start, null);
-    assert.ok(codes(prose).includes('combat-start-not-tail'));
+    const prose = extractCombatStart(`${body}\n他还想说什么。\n===========\n状态栏：HP 30/30`);
+    assert.equal(prose.start?.encounter, '暗夜偷袭・铁面刺客', JSON.stringify(prose.diagnostics));
+    assert.equal(prose.start.awaken?.type, 'rage');
+    assert.deepEqual(extractCombatStart('[igs-combat:start|森林遭遇战|森林狼*5|无|普通]\n===========').start?.allies, []);
+    const twice = extractCombatStart('[igs-combat:start|甲|狼]\n正文。\n[igs-combat:start|乙|狼]');
+    assert.equal(twice.start.encounter, '乙');
+    assert.deepEqual(codes(twice), ['combat-start-duplicate']);
 });
 
 // ---------- 初始装备 ----------
