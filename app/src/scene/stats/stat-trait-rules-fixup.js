@@ -219,6 +219,7 @@ function deadTraitHook(state, api) {
     for (const name of [HERO, ...Object.keys(next.characters)]) {
         if (api.has(next, name, '百毒不侵')) purgeStatus(next, api, name, ['中毒', '宿醉'], '百毒不侵');
         if (api.has(next, name, '酒仙')) purgeStatus(next, api, name, ['宿醉'], '酒仙');
+        if (api.has(next, name, '蛇妖')) purgeStatus(next, api, name, ['中毒'], '蛇妖');
     }
     return next;
 }
