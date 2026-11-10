@@ -7,6 +7,7 @@ import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.
 import { LOG_AVATAR_BOX, batchStartsUpTo, isContinuation, isLogReaderActive, logAvatarCrop, logRowsOf, logTextOf, nextBatchEnd, normalizeLogReaderSettings, sceneLabelOf } from '../src/visual/igs-ui/log-reader-model.js';
 import { LOG_READER_THEMES, logThemeStyleText, resolveLogSkin } from '../src/visual/igs-ui/log-reader-theme.js';
 import { getLogFrameStyleText } from '../src/visual/igs-ui/dialog-theme-item-frames.js';
+import { logPartsStyleText } from '../src/visual/igs-ui/log-reader-parts.js';
 import { createLogHtml, logCardsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from '../src/visual/igs-ui/log-reader-view.js';
 import { LOG_READER_STYLE_TEXT } from '../src/visual/igs-ui/log-reader-style.js';
 import { TEXT_FX_STYLE_TEXT } from '../src/visual/igs-ui/text-fx.js';
@@ -326,4 +327,16 @@ test('文字演出：{吼:} {大:} 在列表里放大，出到该段才弹出，
     assert.equal(text.dataset.igsTfxArmed, undefined, '播完解除，旧行不再弹');
     assert.ok(text.querySelector('.igs-tfx-roar'));
     assert.match(LOG_READER_STYLE_TEXT, /\.igs-options-visible #igs-log :is\(\.igs-log-scroll,\.igs-log-veil\)\{opacity:0;/);
+});
+
+test('逐皮肤部件：每套皮肤都有头像框/姓名牌/分割线规则，全是实色，编辑态描边特异性更高', () => {
+    const parts = logPartsStyleText();
+    for (const id of Object.keys(LOG_READER_THEMES)) {
+        assert.ok(parts.includes(`[data-igs-log-skin="${id}"] #igs-log .igs-log-av`), `${id} 缺头像框`);
+        assert.ok(parts.includes(`[data-igs-log-skin="${id}"] #igs-log .igs-log-row+.igs-log-row::before`), `${id} 缺行间线`);
+        assert.ok(parts.includes(`[data-igs-log-skin="${id}"] #igs-log .igs-log-scene::before`), `${id} 缺换场景线`);
+    }
+    assert.ok(!/rgba?\(|hsla?\(|color-mix/.test(parts), '部件样式用实色');
+    assert.ok(LOG_READER_STYLE_TEXT.includes(logPartsStyleText()), '部件样式并入阅读器样式');
+    assert.ok(LOG_READER_STYLE_TEXT.includes('#igs-overlay[data-igs-log-reader="on"] #igs-log[data-editing] .igs-log-av[data-picked]:not(.is-letter){'), '编辑态规则带 overlay 前缀压过部件');
 });

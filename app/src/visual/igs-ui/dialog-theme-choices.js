@@ -5,7 +5,10 @@ import { DIALOG_SKIN_XIANXIA_INK, XIANXIA_CHOICE_STYLE } from './dialog-theme-xi
 import { DIALOG_SKIN_WUXIA_INK, WUXIA_CHOICE_STYLE } from './dialog-theme-wuxia.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_CHOICE_STYLE } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_CHOICE_STYLE } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, GORE_CHOICE_STYLE, PSYCH_CHOICE_STYLE } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE, GORE_CHOICE_STYLE } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR, MONITOR_CHOICE_STYLE } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_WARD, WARD_CHOICE_STYLE } from './dialog-theme-horror-ward.js';
+import { DIALOG_SKIN_HORROR_PSYCH, PSYCH_CHOICE_STYLE } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_CHOICE_STYLE } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_CHOICE_STYLE } from './dialog-theme-wasteland.js';
 import {
@@ -117,6 +120,8 @@ export const DIALOG_THEME_CHOICE_STYLE_BY_SKIN = Object.freeze({
     [DIALOG_SKIN_MERMAID]: MERMAID_CHOICE_STYLE,
     [DIALOG_SKIN_FAIRY_TALE]: FAIRY_CHOICE_STYLE,
     [DIALOG_SKIN_HORROR_GORE]: GORE_CHOICE_STYLE,
+    [DIALOG_SKIN_HORROR_MONITOR]: MONITOR_CHOICE_STYLE,
+    [DIALOG_SKIN_HORROR_WARD]: WARD_CHOICE_STYLE,
     [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_CHOICE_STYLE,
     [DIALOG_SKIN_SCIFI_HOLO]: SCIFI_CHOICE_STYLE,
     [DIALOG_SKIN_WASTELAND_RUST]: WASTELAND_CHOICE_STYLE,

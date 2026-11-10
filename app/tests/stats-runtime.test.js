@@ -1,3 +1,4 @@
+import { createStatsState } from '../src/scene/stats/stat-state.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATS_PROMPT_KEY, createStatsRuntime } from '../src/core/stats-runtime.js';
@@ -88,7 +89,7 @@ test('本聊天未启用时不注入、不结算（易错点 H2）', () => {
 });
 
 test('正常发送：生成前注入、结束后清除并结算一次，差分写进数据库表（易错点 A3/A6/B2）', async () => {
-    const { host, rt, tables } = setup();
+    const { host, rt, tables } = setup(true, { favorMode: 'hard' });
     rt.enableForChat();
     const { injected } = generate(host, '她笑了。[igs-stat:favor|小雪|开心]');
     assert.match(injected, /主角状态/);
@@ -129,15 +130,15 @@ test('新 swipe 从上一楼状态重掷；切回旧 swipe 读取已存结果；
     const { host, rt } = setup();
     rt.enableForChat();
     const { id } = generate(host, '[igs-stat:favor|小雪|受伤]');
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
     host.ctx.chat[id] = { is_user: false, mes: '[igs-stat:favor|小雪|失望]', swipe_id: 1 };
     host.eventSource.emit('sw', id);
     host.eventSource.emit('gs', 'swipe', {}, false);
     host.eventSource.emit('ge', id);
-    assert.equal(favor(rt), -2);
+    assert.equal(favor(rt), -3);
     host.ctx.chat[id] = { is_user: false, mes: '[igs-stat:favor|小雪|受伤]', swipe_id: 0 };
     host.eventSource.emit('sw', id);
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
     host.ctx.chat.pop();
     host.eventSource.emit('del', id);
     assert.equal(rt.getState().characters.小雪, undefined);
@@ -149,7 +150,7 @@ test('编辑 AI 楼正文后只重算该楼（易错点 A5）', () => {
     const { id } = generate(host, '[igs-stat:favor|小雪|开心]');
     host.ctx.chat[id].mes = '[igs-stat:favor|小雪|受伤]';
     host.eventSource.emit('upd', id);
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
 });
 
 test('换聊天后从表里读回；旧版存档来自更新版本时拒绝导入且不覆盖', async () => {
@@ -159,7 +160,7 @@ test('换聊天后从表里读回；旧版存档来自更新版本时拒绝导�
     await rt.whenSaved();
     host.eventSource.emit('chat');
     assert.equal(rt.isChatEnabled(), true);
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
     const fresh = fakeTables();
     const other = make({ statsTables: fresh.api });
     host.ctx.chatMetadata[STATS_METADATA_KEY] = { version: 99 };
@@ -177,7 +178,7 @@ test('本聊天关闭后数值冻结，生成不结算', () => {
     generate(host, '[igs-stat:favor|小雪|受伤]');
     rt.disableForChat();
     generate(host, '[igs-stat:favor|小雪|受伤]');
-    assert.equal(favor(rt), -6);
+    assert.equal(favor(rt), -15);
 });
 
 test('人物数值数据源：本聊天启用时接管已登记角色，未启用或关闭时返回 null（易错点 H3）', () => {
@@ -207,18 +208,19 @@ test('总开关关闭时在设置页启用本聊天：先读存档，不用空�
     assert.equal(cold.archive(), null);
     assert.equal(tables.reads, reads);
     assert.equal(cold.enableForChat().ok, true);
-    assert.equal(cold.getState().characters.小雪.dims.好感, -6);
+    assert.equal(cold.getState().characters.小雪.dims.好感, -15);
     assert.equal(cold.disableForChat().ok, true);
     assert.equal(cold.chatStatus().enabled, false);
-    assert.equal(cold.getState().characters.小雪.dims.好感, -6);
+    assert.equal(cold.getState().characters.小雪.dims.好感, -15);
 });
 
 test('先掷后写：命中技能时生成前掷骰并注入检定段，结算记录检定；继续生成沿用；关闭自动判断不掷（§4.1）', () => {
     const { host, rt, set } = setup();
-    rt.enableForChat();
+    // 直接启用不送技能，这里按旧默认（8 项日常技能）建档。
+    rt.enableForChat({ initial: createStatsState() });
     host.ctx.chat.push({ is_user: true, mes: '我给她做一顿寿司' });
     const { id, injected } = generate(host, '她尝了一口。');
-    assert.match(injected, /【本轮检定】烹饪：1d100=\d+，需≤\d+，结果【[^】]+】/);
+    assert.match(injected, /【本轮检定】烹饪：1d100=\d+，需≤\d+，结果为【[^】]+】/);
     const checkOf = () => rt.getLedger().entries.get(ledgerKey(rt.getLedger(), id, 0)).meta.check;
     const check = checkOf();
     assert.equal(check.skill, '烹饪');
@@ -313,6 +315,120 @@ test('NPC 属性档：手改属性、导出 npcAbilities；理智单独存 san�
     await rt.whenSaved();
 });
 
+test('编辑技能：熟练度下拉写档位且不超过封顶档；删除让技能从列表消失（含剧情技能）；内置技能可改所属属性', async () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    const shown = () => rt.archive().skills.map((s) => s.name);
+    // 没占格、没学过的内置技能不能凭空升档；占格后按起步值定封顶档（擅长 60 = 熟练档）。
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '熟练' }).reason, 'stats-hero-tier-over-cap');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '烹饪' }).ok, true);
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '精通' }).reason, 'stats-hero-tier-over-cap');
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '入门' }).ok, true);
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '熟练' }).ok, true);
+    // 剧情技能熟练度不限；不认识的技能名不能在这里新增。
+    assert.equal(rt.heroOp('edit', '火尖枪', { tier: '精通' }).reason, 'stats-hero-edit-unknown');
+    rt.skillOp('edit', '烹饪', { attribute: '智力' });
+    assert.ok(shown().includes('烹饪'));
+    assert.equal(rt.skillOp('remove', '烹饪').ok, true);
+    assert.ok(!shown().includes('烹饪'));
+    assert.equal(rt.skillOp('edit', '烹饪', { attribute: '感知' }).ok, true);
+    assert.equal(rt.archive().skillEdit.find((s) => s.name === '烹饪').attribute, '感知');
+    assert.equal(rt.skillOp('edit', '烹饪', { attribute: '乱写' }).ok, false);
+    await rt.whenSaved();
+});
+
+test('3+5 换格：原技能回到未学并腾格，新技能得起步值；删除占格技能腾出该格；不能重复占格；自定义技能需要属性', async () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    const value = (name) => Math.round(rt.archive().skills.find((s) => s.name === name)?.value || 0);
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '烹饪' }).ok, true);
+    assert.equal(rt.heroOp('slot', 'good1', { skill: '学习' }).ok, true);
+    assert.equal(value('烹饪'), 60);
+    assert.equal(value('学习'), 30);
+    assert.equal(rt.heroOp('slot', 'good2', { skill: '烹饪' }).reason, 'stats-build-pick-duplicate');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '唱歌' }).ok, true);
+    assert.equal(value('烹饪'), 0);
+    assert.equal(value('唱歌'), 60);
+    assert.equal(rt.archive().heroSlots.strong1, '唱歌');
+    // 删除占格技能：该格变空。
+    assert.equal(rt.skillOp('remove', '唱歌').ok, true);
+    assert.equal(rt.archive().heroSlots.strong1, undefined);
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '火尖枪' }).reason, 'stats-slot-needs-attribute');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '火尖枪', attribute: '力量' }).ok, true);
+    assert.equal(value('火尖枪'), 60);
+    // 占格的自定义技能同样封顶；换走后随之删除，不会留下不限档的剧情技能。
+    assert.equal(rt.heroOp('edit', '火尖枪', { tier: '大师' }).reason, 'stats-hero-tier-over-cap');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '唱歌' }).ok, true);
+    assert.ok(!rt.getCatalog().story.some((s) => s.name === '火尖枪'));
+    await rt.whenSaved();
+});
+
+test('旧存档没有 heroSlots：按已学的非剧情技能回填，值 ≥ 60 进擅长格，其余进比较擅长格', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    rt.heroOp('pick', '', { skills: { 烹饪: 60, 学习: 60, 唱歌: 30, 舞蹈: 30 } });
+    assert.equal(rt.getCatalog().heroSlots.strong1 !== undefined, true);
+    const slots = rt.archive().heroSlots;
+    assert.deepEqual(Object.values(slots).sort(), ['唱歌', '学习', '烹饪', '舞蹈']);
+    assert.ok(['烹饪', '学习'].includes(slots.strong1) && ['烹饪', '学习'].includes(slots.strong2));
+    assert.ok(['唱歌', '舞蹈'].includes(slots.good1) && ['唱歌', '舞蹈'].includes(slots.good2));
+});
+
+test('旧存档没有 heroSlots：删除、降档后其余技能不换格', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    rt.heroOp('pick', '', { skills: { 烹饪: 60, 唱歌: 45, 舞蹈: 40, 学习: 30 } });
+    rt.getCatalog().heroSlots = null;
+    const before = { ...rt.archive().heroSlots };
+    assert.equal(rt.skillOp('remove', '唱歌').ok, true);
+    const after = rt.archive().heroSlots;
+    for (const [slot, name] of Object.entries(before)) assert.equal(after[slot], name === '唱歌' ? undefined : name, slot);
+    // 降档同理：烹饪降到入门后仍留在擅长格，不被回填挪到比较擅长格。
+    rt.getCatalog().heroSlots = null;
+    const kept = { ...rt.archive().heroSlots };
+    assert.equal(rt.heroOp('edit', '烹饪', { tier: '入门' }).ok, true);
+    assert.deepEqual(rt.archive().heroSlots, kept);
+});
+
+test('自定义技能只认同名：「法术」不并进「魔法」', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '法术', custom: true }).reason, 'stats-slot-needs-attribute');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '法术', custom: true, attribute: '意志' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong1, '法术');
+    assert.ok(rt.getCatalog().story.some((s) => s.name === '法术'));
+    // 选择 3+5 时带所属六维的自定义技能同样不并。
+    const fresh = setup();
+    fresh.rt.enableForChat();
+    fresh.host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(fresh.host, '好。');
+    fresh.rt.heroOp('pick', '', { skills: { 施法: 60 }, attributes: { 施法: '智力' }, slots: { strong1: '施法' } });
+    assert.equal(fresh.rt.archive().heroSlots.strong1, '施法');
+});
+
+test('技能改名：旧名读入时落到新名，看人下菜碟并入察言观色，装病装可怜合并为演戏', () => {
+    const { host, rt } = setup();
+    rt.enableForChat();
+    host.ctx.chat.push({ is_user: true, mes: '你好' });
+    generate(host, '好。');
+    assert.equal(rt.heroOp('slot', 'strong1', { skill: '酒量' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong1, '喝酒');
+    assert.equal(rt.heroOp('slot', 'strong2', { skill: '装病' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong2, '演戏');
+    assert.equal(rt.heroOp('slot', 'strong3', { skill: '看人下菜碟' }).ok, true);
+    assert.equal(rt.archive().heroSlots.strong3, '察言观色');
+});
+
 test('战斗扩展开启时总开关强制为开，本聊天不能关；结算丢弃 battle 标签', () => {
     const host = fakeHost();
     const tables = fakeTables();
@@ -344,4 +460,18 @@ test('statsTables 缺失时数值系统停摆并给出原因，不抛错、不�
     rt.sync();
     assert.equal(rt.enableForChat().reason, 'stats-db-missing');
     assert.equal(rt.chatStatus().blocked, 'stats-db-missing');
+});
+
+test('新聊天直接启用不送技能，提示选擅长技能；选完写底数、不再提示', () => {
+    const { rt } = setup();
+    rt.enableForChat();
+    assert.deepEqual(Object.keys(rt.getState().protagonist.skills), []);
+    assert.equal(rt.archive().needsPick, true);
+    assert.ok(rt.notices().some((n) => n.id === 'hero-pick'));
+    const r = rt.heroOp('pick', '', { skills: { 话术: 60, 侦查: 60, 家务: 60, 格斗: 30 } });
+    assert.equal(r.ok, true);
+    const shown = Object.fromEntries(rt.archive().skills.map((s) => [s.name, s.value]));
+    assert.deepEqual([shown.话术, shown.格斗], [60, 30]);
+    assert.equal(rt.archive().needsPick, false);
+    assert.equal(rt.notices().some((n) => n.id === 'hero-pick'), false);
 });

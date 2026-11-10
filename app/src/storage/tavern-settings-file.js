@@ -3,7 +3,7 @@ import { withMediaLock } from '../media/media-lock.js';
 import { RECOVERY_ATTEMPTS, trackRecovery } from './automatic-recovery.js';
 // 全局配置同步到酒馆本地 user/files/igs-settings.json（/api/files/upload），换设备、清浏览器缓存后配置还在。
 // 浏览器 localStorage 仍是运行时读写的地方，这里只做镜像：启动时文件比本机新就写回本机，本机改了就防抖上传。
-// 跟着同步的还有待确认情绪/服装词、物品账本、恋爱回忆去重——这些清缓存就丢、重建又烦。日志、引导进度仍留在本机。
+// 跟着同步的还有待确认情绪/服装词、物品账本、恋爱回忆去重、特质图鉴——这些清缓存就丢、重建又烦。日志、引导进度仍留在本机。
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 
 export const SETTINGS_FILE_NAME = 'igs-settings.json';
@@ -27,6 +27,7 @@ const GLOBAL_KEYS = new Set([
     'igs:outfit-review:v1',
     'igs:item-ledger:v1',
     'igs-romance-memory-keys',
+    'igs-trait-codex-v1',
 ]);
 // 自定义底图按「聊天:表:层」分键，图本体已挪进 user/images，键里只剩路径时才同步（见 collectGlobalSettings）。
 const MAP_CUSTOM_PREFIX = 'igs-map-custom:';

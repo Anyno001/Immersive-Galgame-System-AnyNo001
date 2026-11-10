@@ -1,4 +1,6 @@
 import { renderTtsVoiceLibrary } from './tts-voice-library-view.js';
+import { renderTtsVoicePoolGroups, ttsVoiceSelectInput } from './tts-voice-options.js';
+import { renderTtsVoiceSearch } from './tts-voice-search.js';
 import { readLive2dConfig } from './live2d-config.js';
 import { renderLive2dLibrary } from './live2d-panel.js';
 // 设置器的快照与各页 HTML：只读草稿和异步状态生成标记，不碰 DOM；挂载、事件和保存在 settings-host.js。
@@ -41,8 +43,8 @@ import { esc, toHex } from './reader-value-utils.js';
 
 import { normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
-import { listStatusHudTables, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
-import { isStatusHudPhone, renderStatusHudPositionField, statusHudPositionDevice } from './status-hud-position-fields.js';
+import { listStatusHudTables, normalizeStatusHudSettings, resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
+import { isStatusHudPhone, renderStatusHudAvatarFraming, renderStatusHudPositionField, statusHudPositionDevice } from './status-hud-position-fields.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
@@ -72,10 +74,13 @@ import { dialogSkinLabel, getDialogSkinChoices } from './dialog-skin-catalog.js'
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_MAGIC_ACADEMY, MAGIC_HOUSES, magicHouseChoices, magicHouseFor, normalizeMagicAccent } from './dialog-theme-css-skins.js';
 import { VOICE_BARK_FREQUENCIES, normalizeVoiceBarkSettings } from './voice-bark.js';
-import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, parseVoicePool, systemVoiceOptions, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceOptions } from './tts.js';
+import { TTS_API_FORMATS, TTS_BILINGUAL_MODES, TTS_CACHE_LIMIT, TTS_THOUGHT_BILINGUAL_MODES, TTS_CUSTOM_METHODS, TTS_CUSTOM_RESPONSES, TTS_PROVIDERS, TTS_RATES, TTS_RESPONSE_FORMATS, TTS_TRANSPORTS, findSystemVoice, hasNaturalSystemVoice, listSystemVoices, normalizeTtsSettings, parseVoicePool, systemVoiceOptions, ttsApiVoiceGroups, ttsApiVoiceOptions, ttsMixedContentRisk, ttsNarratorVoiceGroups } from './tts.js';
 import { normalizeBilingualSettings } from './bilingual-text.js';
 import { HORROR_DREAD_CAP_LABELS, HORROR_DREAD_LEVELS, normalizeHorrorDreadCap } from './horror-dread.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_WARD } from './dialog-theme-horror-ward.js';
+import { DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
 import { SKIN_DIALOG_SCALE_OPTIONS } from './dialog-skin-frame.js';
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
 import { normalizeWeatherFxSettings } from './weather-fx-runtime.js';
@@ -87,6 +92,7 @@ import { normalizePromptPlacement } from './tag-grammar.js';
 import { renderPromptEntryFields } from './prompt-entries-fields.js';
 import { getLastPromptReport } from '../../scene/prompt-triggers.js';
 import { resolveRenderQuality } from './render-quality.js';
+import { isMatteUnlocked } from '../../media/matte-unlock.js';
 
 // 这几个分类的页面按当前角色卡显示（适配世界、本卡对话框风格提示、仪表盘现状）。
 const READER_SCOPE_CATEGORIES = new Set(['dash', 'style', 'text', 'ui', 'perf', 'sound']);
@@ -182,7 +188,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             }
             const win = options.global || globalThis;
             const api = win.AutoCardUpdaterAPI || null;
-            const listed = api && !idx ? listStatusHudTables(createShujukuClient(api).readTables()) : { ok: false, reason: 'missing-api', tables: [] };
+            const tableRead = api && !idx ? createShujukuClient(api).readTables() : null;
+            const listed = tableRead ? listStatusHudTables(tableRead) : { ok: false, reason: 'missing-api', tables: [] };
+            const autoTables = statusHud.tablesMode === 'auto';
+            const pickedTables = autoTables ? resolveStatusHudPicks(statusHud, tableRead) : statusHud.tables;
+            const tableNote = !listed.ok ? '数据库插件未就绪' : autoTables ? '自动识别带角色名的数值表与关系表，点选任一表格即改为手动选择。' : '';
+            const tablesFold = `<details class="igs-settings-sub igs-settings-advanced" data-advanced="status-hud-tables"${isOpenKey('status-hud-tables') ? ' open' : ''}><summary>高级：读取的表格</summary>`
+                + field('readerSettings.statusHud.tablesMode', '选择方式', segmentedInput('readerSettings.statusHud.tablesMode', statusHud.tablesMode, [['auto', '自动识别'], ['manual', '手动选择']], '选择方式'))
+                + tableMultiSelect('readerSettings.statusHud.tables', pickedTables, listed.tables, { note: tableNote, emptyText: autoTables && listed.tables.length ? '未识别到角色数值表' : undefined })
+                + '</details>';
             const body = [
                 toggle,
                 '<div class="igs-settings-sub">',
@@ -193,13 +207,15 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 field('readerSettings.statusHud.size', '状态栏大小', segmentedInput('readerSettings.statusHud.size', statusHud.size, [['small', '小'], ['medium', '中'], ['large', '大']], '状态栏大小')),
                 // 头像圆角、背景、配色直接摊开，不再收进「高级」。
                 field('readerSettings.statusHud.avatarRadius', '头像圆角', selectInput('readerSettings.statusHud.avatarRadius', statusHud.avatarRadius, [['square', '方角'], ['soft', '微圆角'], ['small', '小圆角'], ['medium', '中圆角'], ['large', '大圆角'], ['circle', '圆形']])),
+                field('readerSettings.statusHud.avatarSource', '头像来源', segmentedInput('readerSettings.statusHud.avatarSource', statusHud.avatarSource, [['upload', '上传头像'], ['sprite', '跟随立绘']], '头像来源')),
                 '</div>',
+                statusHud.avatarSource === 'sprite' ? renderStatusHudAvatarFraming(statusHud) : '',
                 renderStatusHudPositionField(statusHud, statusHudPositionDevice(asyncState, win), isStatusHudPhone(win) ? 'mobile' : 'pc'),
-                `<div class="igs-settings-field"><span>显示的表格</span>${tableMultiSelect('readerSettings.statusHud.tables', statusHud.tables, listed.tables, { note: listed.ok ? '' : '数据库插件未就绪' })}</div>`,
                 '<div class="igs-source-filter-grid">',
                 field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),
                 field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色')),
                 '</div>',
+                tablesFold,
                 '</div>',
             ].join('');
             return `<div class="${sectionClass}" data-status-hud>${body}</div>`;
@@ -282,15 +298,20 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const stats = normalizeStatsSettings(bridge.stats);
             let chat = null;
             try { chat = typeof options.statsChat === 'function' && !idx ? options.statsChat() : null; } catch (error) { chat = null; }
+            let archiveError = '';
             const archive = (() => {
-                try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) { return null; }
+                try { return typeof options.statsArchive === 'function' && !idx ? options.statsArchive() : null; } catch (error) {
+                    archiveError = String((error && (error.stack || error.message)) || error).split('\n').slice(0, 3).join(' | ').slice(0, 300);
+                    try { console.error('[IGS] 数值存档读取出错', error); } catch (e) { /* 无控制台 */ }
+                    return null;
+                }
             })();
             const mappings = (() => {
                 if (!stats.push.enabled || idx || typeof options.statsMappings !== 'function') return null;
                 try { return options.statsMappings(stats.push.mappings); } catch (error) { return { ok: false, reason: 'stats-push-read-failed', detail: String(error && error.message || error) }; }
             })();
             return buildStatsPageValues({
-                stats, chat, archive, mappings, advancedOpen,
+                stats, chat, archive, archiveError, mappings, advancedOpen, noteDrafts: asyncState.statsNoteDrafts || null,
                 combatOn: Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true),
                 worldview: resolveWorldview(worldviewAssets),
             });
@@ -328,7 +349,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 originPauseHidden: hiddenAttr(!chatReady || chat.paused),
                 originFreqField: intField('freq', '任务频率（回合）', 1, 10, '每隔几回合最多派发一个任务'),
                 originTaskSourceField: field('bridge.origin.taskSource', '任务来源', selectInput('bridge.origin.taskSource', origin.taskSource, [['auto', '自动'], ['direction', '按指定方向'], ['manual', '只手写']])),
-                originLimitMinField: intField('limitMin', '时限下限（回合）', 0, 99, '0表示不强制时限'),
+                originLimitMinField: intField('limitMin', '时限下限（回合）', 0, 99, '上限为0时任务不设时限'),
                 originLimitMaxField: intField('limitMax', '时限上限（回合）', 0, 99),
                 originBlockField: checkbox('bridge.origin.blockWhenUnfinished', origin.blockWhenUnfinished, '上一个主线或支线未完成时不派发新任务'),
                 originPunishField: checkbox('bridge.origin.punishEvent', origin.punishEvent, '任务失败时触发剧情惩罚事件'),
@@ -448,10 +469,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 sourceExternalHidden: hiddenAttr(sourceMode === 'nai'),
-                spriteMatteColorField: field('bridge.imageApi.spriteMatteColor', '抠图底色', segmentedInput('bridge.imageApi.spriteMatteColor',
+                spriteMatteColorField: !isMatteUnlocked() ? '' : field('bridge.imageApi.spriteMatteColor', '抠图底色', segmentedInput('bridge.imageApi.spriteMatteColor',
                     imageApi.spriteMatteColor || 'auto', [['auto', '自动'], ['white', '白底'], ['grey', '灰底'], ['green', '绿底'], ['purple', '紫底']], '抠图底色'),
                     '立绘与物品图未出透明底时按此底色出图后抠除，角色主色与底色相近时可更换。自动：内置NAI与数据库生图用白底，其余用浅灰底。'),
-                autoMatteField: checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
+                autoMatteField: !isMatteUnlocked() ? '' : checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
                 externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA'),
                 naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭）'),
@@ -534,6 +555,19 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
                 autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', effectiveNai.sampler, 'k_euler_ancestral', 'text', medium)),
             };
+            const anchorViewportField = (autoSettings) => {
+                const width = Number(autoSettings.assets.anchoredWidth) || 0;
+                const height = Number(autoSettings.assets.anchoredHeight) || 0;
+                const note = width > 0 && height > 0
+                    ? `已锚定出图 ${width}×${height}。这是按当时窗口比例、不超过 1024×1024 的最大尺寸。全屏生图沿用这个尺寸，再点一次才更新。`
+                    : '还没锚定。点一下按现在的窗口比例，记下不超过 1024×1024 的最大出图尺寸。全屏生图会一直用这个尺寸。';
+                return `<div class="igs-settings-sub" data-image-feature="cg-anchor">`
+                    + `<input type="hidden" data-path="bridge.autoIllustration.assets.anchoredWidth" value="${width}">`
+                    + `<input type="hidden" data-path="bridge.autoIllustration.assets.anchoredHeight" value="${height}">`
+                    + `<div class="igs-source-filter-note">${esc(note)}</div>`
+                    + `<button type="button" class="igs-settings-action" data-action="anchor-cg-viewport">锚定当前宽高</button>`
+                    + `</div>`;
+            };
             const grid = (...items) => {
                 const body = items.filter(Boolean).join('');
                 return body ? `<div class="igs-source-filter-grid">${body}</div>` : '';
@@ -559,7 +593,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'), imageFields.autoAssetDayFirstField)}</div>`
                         + grid(imageFields.itemImageFields)
                         + grid(kindModel('item', '物品模型')),
-                    cg: imageFields.autoInterludeField
+                    cg: anchorViewportField(auto)
+                        + imageFields.autoInterludeField
                         + `<div class="igs-settings-sub" data-image-feature="interlude"${imageFields.autoInterludeHidden}>${grid(imageFields.autoInterludeProbabilityField, imageFields.autoInterludeMaxField)}</div>`
                         + grid(kindModel('cg', '剧情CG模型'))
                         + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}<div class="igs-source-filter-note">翻到未出图或出图失败的旧楼层时补画，会消耗生图额度。</div></div>`,
@@ -911,7 +946,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     ? `<div class="igs-source-filter-note igs-card-skin-note">当前角色卡在主界面选定了「${esc(dialogSkinLabel(worldviewAssets.dialogSkin))}」，阅读这张卡时以此为准，上方选项仅对其他角色卡生效。<button type="button" class="igs-settings-action" data-action="card-dialog-skin-clear">跟随上方</button></div>`
                     : ''); },
             get gradientVeilFields() { return gradientVeilDialog ? '<div class="igs-gradient-veil-settings">' + field('readerSettings.gradientVeil.color', '黑幕颜色', colorInput('readerSettings.gradientVeil.color', reader.gradientVeil.color)) + field('readerSettings.gradientVeil.heightPercent', '渐变高度', selectInput('readerSettings.gradientVeil.heightPercent', reader.gradientVeil.heightPercent, [30, 40, 50, 60, 70].map((n) => [n, `${n}%`]))) + field('readerSettings.gradientVeil.opacity', '最大不透明度', selectInput('readerSettings.gradientVeil.opacity', reader.gradientVeil.opacity, [.4, .55, .7, .85, 1].map((n) => [n, `${Math.round(n * 100)}%`]))) + field('readerSettings.gradientVeil.speakerStyle', '姓名样式', selectInput('readerSettings.gradientVeil.speakerStyle', reader.gradientVeil.speakerStyle, [['default', '默认风格'], ['plain-text', '纯文字']])) + '</div>' : ''; },
-            get magicHouseField() { return reader.dialogSkin === DIALOG_SKIN_XIANXIA_INK ? field('readerSettings.xianxiaSpeaker', '姓名排布', selectInput('readerSettings.xianxiaSpeaker', reader.xianxiaSpeaker === 'center' ? 'center' : 'left', [['left', '左侧落款'], ['center', '居中（名字+剑气下划线）']])) : reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', magicHouseFor(reader.magicHouse, resolveWorldview(bridge.sceneAssets)), magicHouseChoices(resolveWorldview(bridge.sceneAssets)).map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === magicHouseFor(reader.magicHouse, resolveWorldview(bridge.sceneAssets))).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : reader.dialogSkin === DIALOG_SKIN_HORROR_GORE || reader.dialogSkin === DIALOG_SKIN_HORROR_PSYCH ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : ''; },
+            get magicHouseField() { return reader.dialogSkin === DIALOG_SKIN_XIANXIA_INK ? field('readerSettings.xianxiaSpeaker', '姓名排布', selectInput('readerSettings.xianxiaSpeaker', reader.xianxiaSpeaker === 'center' ? 'center' : 'left', [['left', '左侧落款'], ['center', '居中（名字+剑气下划线）']])) : reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY ? field('readerSettings.magicHouse', resolveWorldview(bridge.sceneAssets) === 'magic' ? '学院配色' : '配色', selectInput('readerSettings.magicHouse', magicHouseFor(reader.magicHouse, resolveWorldview(bridge.sceneAssets)), magicHouseChoices(resolveWorldview(bridge.sceneAssets)).map((house) => [house.id, house.label]))) + (MAGIC_HOUSES.find((house) => house.id === magicHouseFor(reader.magicHouse, resolveWorldview(bridge.sceneAssets))).custom ? field('readerSettings.magicAccent', '装饰颜色', colorInput('readerSettings.magicAccent', normalizeMagicAccent(reader.magicAccent))) : '') : [DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_MONITOR, DIALOG_SKIN_HORROR_WARD, DIALOG_SKIN_HORROR_PSYCH].includes(reader.dialogSkin) ? field('readerSettings.horrorDreadCap', '恐怖强度上限', selectInput('readerSettings.horrorDreadCap', normalizeHorrorDreadCap(reader.horrorDreadCap), HORROR_DREAD_LEVELS.map((n) => [n, HORROR_DREAD_CAP_LABELS[n]]))) : ''; },
             get classicDialogWidthPercentField() { return classicDialog ? field('readerSettings.classicDialogWidthPercent', '电脑端宽度', selectInput('readerSettings.classicDialogWidthPercent', reader.classicDialogWidthPercent, [60, 70, 80, 90, 100].map((n) => [n, `${n}%`]))) : ''; },
             // 「自适应」是 dialogAutoHeight 的入口（字少变矮），选它时高度比例保持不变；选具体比例即关掉自适应。
             get skinDialogScaleField() { return classicDialog || illustratedDialog ? field('readerSettings.skinDialogScale', '对话框高度', selectInput('readerSettings.skinDialogScale', reader.dialogAutoHeight === true && supportsDialogAutoHeight(reader.dialogSkin) ? 'auto' : reader.skinDialogScale, SKIN_DIALOG_SCALE_OPTIONS.map((n) => [n, n === 1 ? '原尺寸' : `${Math.round(n * 100)}%`]).concat(supportsDialogAutoHeight(reader.dialogSkin) ? [['auto', '自适应']] : []))) : ''; },
@@ -1118,6 +1153,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         case 'parse':
             return pageTabs() + renderTemplate(getPageTemplate(page), parseValues());
         case 'stats':
+        case 'stats-npc':
+        case 'stats-codex':
+        case 'stats-set':
             return pageTabs() + renderTemplate(getPageTemplate(page), statsValues());
         case 'combat':
             return pageTabs() + renderTemplate(getPageTemplate(page), combatValues());
@@ -1126,6 +1164,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         case 'source':
         case 'kinds':
         case 'llm':
+        case 'img-prompt':
         case 'data':
         case 'logs':
             return pageTabs() + renderTemplate(getPageTemplate(page), imageValues());
@@ -1376,17 +1415,19 @@ const ttsGroup = (title, parts, headAction = '') => `<div class="igs-settings-gr
     ? `<div class="igs-settings-section-head"><div class="igs-settings-subhead">${title}</div>${headAction}</div>`
     : `<div class="igs-settings-subhead">${title}</div>`}${parts.filter(Boolean).join('')}</div>`;
 
-const ttsInlineField = (label, controlHtml) => `<label class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></label>`;
+const ttsInlineField = (label, controlHtml, tag = 'label') => `<${tag} class="igs-settings-field igs-tts-inline"><span>${esc(label)}</span><span class="igs-tts-inline-control">${controlHtml}</span></${tag}>`;
 
 // 默认声音候选池：点选多个，没单独设声音的角色按名字稳定地取其中一个。source 为 api / system，items 是 [id, 显示名]。
-function ttsVoicePoolField(label, source, role, value, items, { missingNote = '不在声音库' } = {}) {
+function ttsVoicePoolField(label, source, role, value, items, { missingNote = '不在声音库', groups = null } = {}) {
     const picked = parseVoicePool(value);
     const chip = (id, text, missing) => `<button type="button" class="igs-table-pick${picked.includes(id) ? ' is-on' : ''}${missing ? ' is-missing' : ''}" data-action="tts-pool-toggle:${source}:${role}:${encodeURIComponent(id)}" aria-pressed="${picked.includes(id) ? 'true' : 'false'}"><i></i><span>${esc(text)}</span></button>`;
     const known = new Set(items.map(([id]) => id));
-    const chips = items.filter(([id]) => id).map(([id, text]) => chip(id, text, false))
-        .concat(picked.filter((id) => !known.has(id)).map((id) => chip(id, `${id}（${missingNote}）`, true)));
+    const missing = picked.filter(id => !known.has(id)).map(id => [id, `${id}（${missingNote}）`]);
+    const body = groups ? renderTtsVoicePoolGroups(groups, (id, text) => chip(id, text, false))
+        + renderTtsVoicePoolGroups([{ label: missingNote, items: missing }], (id, text) => chip(id, text, true))
+        : items.filter(([id]) => id).map(([id, text]) => chip(id, text, false)).concat(missing.map(([id, text]) => chip(id, text, true))).join('');
     return `<div class="igs-settings-field igs-tts-pool-field"><span>${esc(label)}<small class="igs-switch-note">多选时按名字随机</small></span>`
-        + `<div class="igs-tts-pool">${chips.join('') || '<div class="igs-scene-empty">暂无声音</div>'}</div></div>`;
+        + renderTtsVoiceSearch(`pool:${source}:${role}`, `<div class="${groups ? 'igs-tts-pool-groups' : 'igs-tts-pool'}">${body || '<div class="igs-scene-empty">暂无声音</div>'}</div>`, { kind: 'pool', label }) + '</div>';
 }
 
 const ttsPreviewButton = (action, label) => `<button type="button" class="igs-settings-action igs-settings-inline-action" data-action="${action}">${label}</button>`;
@@ -1403,20 +1444,15 @@ function renderTtsNarratorGroup(tts, { voicesMessage = '', batch = null, options
     const apiPath = (key) => `${base}.narratorApi.${key}`;
     const parts = [ttsPreviewError(previewError)];
     if (narrator.enabled) {
-        const items = ttsNarratorVoiceOptions(tts);
-        if (narrator.voice && !items.some(([id]) => id === narrator.voice)) items.push([narrator.voice, `${narrator.voice}（不在声音库）`]);
-        parts.push(ttsInlineField('旁白声音', selectInput(apiPath('voice'), narrator.voice, [['', '未选择']].concat(items))));
+        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(apiPath('voice'), narrator.voice, ttsNarratorVoiceGroups(tts), { leading: [['', '未选择']] }), 'div'));
     } else if (tts.provider === 'system') {
         const value = tts.system.narrator;
         const items = [['', '自动']].concat(options);
         if (value && !options.some(([id]) => id === value)) items.push([value, findSystemVoice(installed, value) ? value : `${value}（本机没有）`]);
-        parts.push(ttsInlineField('旁白声音', selectInput(`${base}.system.narrator`, value, items)));
+        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(`${base}.system.narrator`, value, [{ label: '', items }]), 'div'));
     } else {
         const value = tts.api.narrator;
-        const library = ttsApiVoiceOptions(tts);
-        const items = [['', '同女声'], ...library];
-        if (value && !library.some(([id]) => id === value)) items.push([value, `${value}（不在声音库）`]);
-        parts.push(ttsInlineField('旁白声音', selectInput(`${base}.api.narrator`, value, items)));
+        parts.push(ttsInlineField('旁白声音', ttsVoiceSelectInput(`${base}.api.narrator`, value, ttsApiVoiceGroups(tts), { leading: [['', '同女声']] }), 'div'));
     }
     parts.push(ttsInlineField('旁白语速', selectInput(`${base}.narratorRate`, tts.narratorRate, TTS_RATES.map((v) => [v, v === 1 ? '正常' : `${v}×`]))));
     const styled = narrator.enabled ? ttsStyleFormat(narrator) : tts.provider === 'api' && ttsStyleFormat(tts.api);
@@ -1465,7 +1501,7 @@ function renderTtsControls(tts, { bilingual = false, voicesMessage = '', narrato
         // 默认声音从声音库里多选；旧版手填、不在库里的值保留并标出。
         const library = ttsApiVoiceOptions(tts);
         for (const [key, label] of [['female', '女角色默认'], ['male', '男角色默认']]) {
-            voiceParts.push(ttsVoicePoolField(label, 'api', key, api[key], library));
+            voiceParts.push(ttsVoicePoolField(label, 'api', key, api[key], library, { groups: ttsApiVoiceGroups(tts) }));
         }
     } else {
         const allVoicesButton = `<button type="button" class="igs-table-pick${tts.allVoices ? ' is-on' : ''}" data-switch="${base}.allVoices" aria-pressed="${tts.allVoices ? 'true' : 'false'}" title="列出全部语言的系统声音"><i></i><span>全部语言</span></button>`;

@@ -1,9 +1,9 @@
-import { syncOrigin, stopOrigin } from '../../../src/visual/igs-ui/origin-panel.js';
+import { createOriginPageController } from '../../../src/visual/igs-ui/origin-panel.js';
 import { createStubOriginEngine } from '../../../src/visual/igs-ui/origin-panel-stub.js';
 import { normalizeOriginSettings } from '../../../src/visual/igs-ui/origin-settings.js';
 import { currencyForPoints } from '../../../src/scene/stats/stat-currency.js';
 
-export function openOriginExchangePreview(front, params) {
+export function openOriginExchangePreview(overlay, params) {
     const engine = createStubOriginEngine(), state = engine.getState();
     const read = engine.getState;
     const currency = { name: '铜钱', rate: 0.25 };
@@ -12,8 +12,8 @@ export function openOriginExchangePreview(front, params) {
     let failCredit = params.get('exchange') === 'retry';
     engine.getState = () => ({ ...read(), points });
     const notice = (level, text) => {
-        front.dataset.exchangeNotice = text;
-        const node = front.ownerDocument.getElementById('exchange-notice');
+        overlay.dataset.exchangeNotice = text;
+        const node = overlay.ownerDocument.getElementById('exchange-notice');
         if (node) { node.textContent = text; node.dataset.level = level; }
     };
     const confirm = async quote => {
@@ -26,7 +26,7 @@ export function openOriginExchangePreview(front, params) {
         const held = pending; completed.add(held.exchangeId); pending = null;
         return { ok: true, done: true, amount: held.amount, name: currency.name };
     };
-    syncOrigin(front, {
+    const binding = {
         engine, settings: normalizeOriginSettings({ enabled: true }), notice,
         exchange: {
             info: () => ({ ok: true, name: currency.name, rate: currency.rate }),
@@ -39,12 +39,10 @@ export function openOriginExchangePreview(front, params) {
             confirm,
             retry: async () => pending ? confirm(pending) : { ok: true },
         },
-    }, { doc: front.ownerDocument, size: 'medium', getStage: () => {
-        const rect = front.getBoundingClientRect();
-        return { stageW: rect.width, stageH: rect.height };
-    } });
-    front.querySelector('.igs-or-entry')?.click();
-    if (params.get('menu') === '1') front.querySelector('[data-oa="menu"]')?.click();
-    if (params.get('modal') === 'input') front.querySelector('[data-oa="exchange"]')?.click();
-    return { close: () => stopOrigin(front) };
+    };
+    const page = createOriginPageController(overlay.ownerDocument, { origin: () => binding });
+    page.open(overlay);
+    if (params.get('menu') === '1') overlay.querySelector('[data-oa="menu"]')?.click();
+    if (params.get('modal') === 'input') overlay.querySelector('[data-oa="exchange"]')?.click();
+    return { close: () => page.close() };
 }

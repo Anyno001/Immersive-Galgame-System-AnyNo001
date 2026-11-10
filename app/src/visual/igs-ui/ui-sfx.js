@@ -1,6 +1,8 @@
 // 界面音效：翻页、选项悬停/确认、菜单开合，音色族随对话框皮肤切换；默认关闭，全部实时合成。
 import { createSynthPartial as p, playSynthPartials } from './chat-sfx.js';
 import { dlcBorrowSkin, getDlcSkin } from './dlc-skin-registry.js';
+import { MONITOR_UI_SFX_PROFILE } from './dialog-theme-horror-monitor.js';
+import { WARD_UI_SFX_MOOD } from './dialog-theme-horror-ward.js';
 
 export const UI_SFX_KINDS = Object.freeze(['page', 'hover', 'confirm', 'open', 'close']);
 export const UI_SOUND_DEFAULTS = Object.freeze({ enabled: false, volume: 0.4 });
@@ -82,6 +84,8 @@ const SKIN_FAMILIES = Object.freeze({
     'mermaid-deep': 'glass',
     'gradient-veil': 'glass',
     'horror-gore': 'dread',
+    'horror-monitor': MONITOR_UI_SFX_PROFILE,
+    'horror-ward': WARD_UI_SFX_MOOD,
     'horror-psych': 'soft',
     'scifi-holo': 'digital',
     'wasteland-rust': 'metal',

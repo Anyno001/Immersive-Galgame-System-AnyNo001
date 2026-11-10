@@ -12,11 +12,11 @@ const intent = (id, name, template) => Object.freeze({ id, name, template });
 export const INTIMATE_INTENTS = Object.freeze({
     合拍: Object.freeze([
         intent('im-nervous', '紧张', 'guard'), intent('im-shy', '羞涩', 'curse'),
-        intent('im-offbeat', '节奏不对', 'slash'), intent(INTIMATE_INTERRUPT_SKILL, '打断', 'heavy'),
+        intent('im-offbeat', '错开节拍', 'slash'), intent(INTIMATE_INTERRUPT_SKILL, '打断', 'heavy'),
     ]),
     主导: Object.freeze([
-        intent(INTIMATE_REVENGE_SKILL, '反扑', 'slash'), intent('im-provoke', '挑衅', 'crush'),
-        intent(INTIMATE_BAIT_SKILL, '诱敌', 'barb'), intent('im-press', '强压', 'heavy'), intent(INTIMATE_WATCH_SKILL, '观望', 'guard'),
+        intent(INTIMATE_REVENGE_SKILL, '还击', 'slash'), intent('im-provoke', '撩拨', 'crush'),
+        intent(INTIMATE_BAIT_SKILL, '示弱', 'barb'), intent('im-press', '施压', 'heavy'), intent(INTIMATE_WATCH_SKILL, '观望', 'guard'),
     ]),
 });
 

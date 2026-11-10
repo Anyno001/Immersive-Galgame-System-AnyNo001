@@ -92,6 +92,3 @@ export function canvasGhostWrap(doc, cardEl) {
     wrap.appendChild(inner);
     return { wrap, inner };
 }
-
-// 结束回合是否要按住确认（用户 11-01 定）：还有能量且手里有能出的牌时防误触，否则一点即结束。各皮肤据此给按钮加 data-hold，控制器统一处理按住。
-export const needsHold = (b) => Boolean(b && !b.outcome && b.energy > 0 && b.hand.some((c) => c.playable));

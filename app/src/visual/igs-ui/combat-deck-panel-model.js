@@ -4,7 +4,7 @@ import { createAttributePolicy } from '../../combat/attribute-policy.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL, REL_TIERS, abilityMod, normalizeManualScores, prefsFromScores } from '../../combat/abilities.js';
 import { characterCombatStats, deckCardLoadout, vitalsOf } from '../../combat/session.js';
 import { injuryLevel } from '../../combat/report.js';
-import { INSCRIPTION_TIPS, attributeNumberOptions, describeEffectParts, describeEffects, describeKeywordParts } from './combat-card-art.js';
+import { INSCRIPTION_TIPS, attributeNumberOptions, describeEffectParts, describeEffects, describeKeywordParts, describeTrigger } from './combat-card-art.js';
 import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
 import { sellPrice } from '../../combat/points.js';
 import { defaultHeroSkill } from '../../combat/card-templates.js';
@@ -130,9 +130,10 @@ export function validateDraft(view, draft) {
 
 // 人物特性（P-d）：名称、稀有度、来历、联动与效果说明（被动数值已按稀有度加强）；v4 主动特性（kind: 'active'）另给费用，说明取技能效果。
 // 规则 v6 战斗外遗物特性不带被动，说明取遗物表的用途描述，与普通特性同样呈现。
+const passiveText = (p) => [describeTrigger(p.trigger, p.cardType), describeEffects(p.effects)].filter(Boolean).join('：');
 const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null,
     ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
-    text: t.passive ? describeEffects(t.passive.effects) : t.skill ? describeEffects(t.skill.effects) : relicText(t.relic) });
+    text: t.passive ? passiveText(t.passive) : t.skill ? describeEffects(t.skill.effects) : relicText(t.relic) });
 // 规则 v6 积分抽卡：未翻时 3 张背面朝上，只给张数、不透露牌面；翻开一张后给出全部牌面与翻开的位置（flipped），再决定加入卡组或放弃。
 const drawCardView = (card, character) => ({ cardId: card.id, name: card.name || card.id, type: card.type || '', rarity: card.rarity || '', ...cardPreview(card, character) });
 const pendingDrawView = (pending, character) => {
@@ -150,7 +151,7 @@ function traitSlotView(view) {
     const own = view.profile?.personalPassive;
     const innate = kept.map((k) => (k === 'active'
         ? { traitId: ids.active, name: skill.name, kind: 'active', innate: true, cost: COMBAT_RULES.heroSkillCost, text: describeEffects(skill.effects) }
-        : { traitId: ids.passive, name: own.name, kind: 'passive', innate: true, text: describeEffects(own.effects) }));
+        : { traitId: ids.passive, name: own.name, kind: 'passive', innate: true, text: passiveText(own) }));
     const slots = traitSlots(view);
     const locked = [];
     for (let slot = slots + 1; slot <= TRAIT_SLOT_MAX; slot += 1) locked.push({ slot, cost: TRAIT_SLOT_COSTS[slot] });

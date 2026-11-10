@@ -18,7 +18,7 @@ test('旧档角色缺芥蒂时读取按 0 补齐，0 档不显示', () => {
 });
 
 test('档位词按数值显示在状态栏与提示词', () => {
-    assert.deepEqual([0, 1, 25, 26, 51, 76, 100].map(grudgeTier), ['', '不满', '不满', '记恨', '怨恨', '仇恨', '仇恨']);
+    assert.deepEqual([0, 1, 25, 26, 51, 76, 100].map(grudgeTier), ['', '不满', '不满', '记恨', '怨恨', '积怨', '积怨']);
     const c = { ...createCharacter(1) };
     c.dims = { ...c.dims, 芥蒂: 60 };
     const metric = characterStatMetrics(c).find((m) => m.label === '芥蒂');
@@ -47,10 +47,18 @@ test('阶段与数字显示：四个维度在 stage、both、number 下各取对
     const c = createCharacter(1);
     c.dims = { 好感: 0, 信任: 0, 了解: 30, 欲望: 60, 芥蒂: 90 };
     const shown = (hudLabel) => Object.fromEntries(characterStatMetrics(c, { hudLabel, nsfw: true }).map((m) => [m.label, m.display]));
-    assert.deepEqual(shown('stage'), { 好感: '无感', 信任: '戒备', 了解: '初识', 欲望: '渴求', 芥蒂: '仇恨' });
-    assert.deepEqual(shown('both'), { 好感: '无感 · 0', 信任: '戒备 · 0', 了解: '初识 · 30', 欲望: '渴求 · 60', 芥蒂: '仇恨 · 90' });
+    assert.deepEqual(shown('stage'), { 好感: '无感', 信任: '警惕', 了解: '初识', 欲望: '渴求', 芥蒂: '积怨' });
+    assert.deepEqual(shown('both'), { 好感: '无感 · 0', 信任: '警惕 · 0', 了解: '初识 · 30', 欲望: '渴求 · 60', 芥蒂: '积怨 · 90' });
     assert.deepEqual(shown('number'), { 好感: '0', 信任: '0', 了解: '30', 欲望: '60', 芥蒂: '90' });
     c.dims = { ...c.dims, 信任: -20, 了解: 25, 欲望: 26, 芥蒂: 0 };
     const low = Object.fromEntries(characterStatMetrics(c, { hudLabel: 'stage', nsfw: true }).map((m) => [m.label, m.display]));
-    assert.deepEqual(low, { 好感: '无感', 信任: '戒备', 了解: '陌生', 欲望: '悸动' });
+    assert.deepEqual(low, { 好感: '无感', 信任: '警惕', 了解: '陌生', 欲望: '悸动' });
+});
+
+test('角色体力、压力条只在开关开启时出现，排在好感上面', () => {
+    const c = { ...createCharacter(1, { nsfw: true }), bars: { stamina: 40 } };
+    assert.equal(characterStatMetrics(c, { nsfw: true }).some((m) => m.label === '体力'), false);
+    const rows = characterStatMetrics(c, { nsfw: true, stamina: true });
+    assert.deepEqual(rows.slice(0, 3).map((m) => m.label), ['体力', '压力', '好感']);
+    assert.equal(rows[0].display, '40');
 });

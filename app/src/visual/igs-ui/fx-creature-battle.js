@@ -156,7 +156,7 @@ function enterFoe(host, summary, life) {
     const el = foeElementOf(host, summary.name);
     if (!el) return false;
     holdTier(host, el, summary, 'menace', life);
-    host.sfx(creatureSfxKind('roar', summary.size));
+    host.sfx(creatureSfxKind('roar', summary.size, summary.voice));
     if (host.reduced) return true;
     if (isGiantEl(el)) {
         const rise = ms(host, 1500);
@@ -385,7 +385,7 @@ function hurtFoe(host, summary, event, el) {
     const tierMs = ms(host, 900);
     if (result === 'hit' || result === 'crit') {
         holdTier(host, el, summary, 'wounded', tierMs);
-        host.sfx(creatureSfxKind('hurt', summary.size));
+        host.sfx(creatureSfxKind('hurt', summary.size, summary.voice));
         if (host.reduced) return true;
         const spec = HIT_SPEC[result];
         const dur = ms(host, spec.dur);
@@ -434,7 +434,7 @@ function disperseBody(host, summary, el, body, delay = 0) {
     if (host.cs.gone.has(node)) return;
     host.cs.gone.add(node);
     const run = () => {
-        host.sfx(creatureSfxKind('fade', summary.size));
+        host.sfx(creatureSfxKind('fade', summary.size, summary.voice));
         if (body.ghost) { /* 多身影：复制身影无档位图，沿用当前图 */ } else holdTier(host, el, summary, 'wounded', 0, true);
         const finish = () => {
             if (!body.ghost) return;
@@ -510,7 +510,7 @@ function koFoe(host, summary, event, el) {
 function lungeFoe(host, summary, event, el) {
     const target = bodyFor(host, summary, el, false).node;
     holdTier(host, el, summary, 'menace', ms(host, 1000));
-    host.sfx(creatureSfxKind('roar', summary.size));
+    host.sfx(creatureSfxKind('roar', summary.size, summary.voice));
     if (host.reduced) return true;
     const giant = isGiantEl(el);
     const dur = ms(host, 780);
@@ -533,7 +533,7 @@ function healFoe(host, summary, event, el) {
 function phaseFoe(host, summary, life) {
     const el = foeElementOf(host, summary.name);
     if (!el) return false;
-    host.sfx(creatureSfxKind('roar', summary.size));
+    host.sfx(creatureSfxKind('roar', summary.size, summary.voice));
     const dur = Math.round(life * 0.88);
     host.track(() => holdTier(host, el, summary, 'frenzy', 0, true), Math.round(dur * 0.38));
     if (host.reduced) return true;
@@ -576,7 +576,7 @@ function resultFoes(host, event, life) {
         // 败北：怪保持威吓，立绘缓缓压近镜头并停在那里。
         els.forEach(({ summary, el }) => {
             holdTier(host, el, summary, 'menace', 0, true);
-            host.sfx(creatureSfxKind('roar', summary.size));
+            host.sfx(creatureSfxKind('roar', summary.size, summary.voice));
             if (host.reduced) return;
             fx(host, el, 'transform', [kf('none', 0), kf(`scale(${isGiantEl(el) ? 1.06 : 1.12}) translateY(2%)`, 1)], ms(host, 1100), { fill: 'forwards', easing: 'cubic-bezier(.2,.7,.3,1)' });
         });
@@ -614,7 +614,7 @@ export function playCreatureEvent(host, event, life) {
         const el = foeElementOf(host, summary.name);
         if (!el) continue;
         if (summary.role === 'target') {
-            if (event.result === 'ko') { host.sfx(creatureSfxKind('hurt', summary.size)); handled = koFoe(host, summary, event, el) || handled; }
+            if (event.result === 'ko') { host.sfx(creatureSfxKind('hurt', summary.size, summary.voice)); handled = koFoe(host, summary, event, el) || handled; }
             else handled = hurtFoe(host, summary, event, el) || handled;
         } else if (summary.role === 'attacker') handled = lungeFoe(host, summary, event, el) || handled;
         else if (summary.role === 'heal') handled = healFoe(host, summary, event, el) || handled;

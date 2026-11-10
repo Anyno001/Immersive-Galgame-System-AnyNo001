@@ -3,7 +3,7 @@
 // host：getContext() / generate(kind, prompt) / saveMetadata() / settings() / saveSettings() / notify({kind,text})；可选 legacyActive()。
 // 状态共享只读：getState 返回冻结对象，修改一律走 dispatch（写时浅拷）。
 import {
-    ORIGIN_LEGACY_KEY, ORIGIN_META_KEY, cloneForWrite, createInitialState, deepFreeze, fillSettings, hash53, hostOf, isAiMsg, newSeed, seededRandom,
+    ORIGIN_LEGACY_KEY, ORIGIN_META_KEY, cloneForWrite, createInitialState, deepFreeze, fillSettings, hash53, hostOf, isAiMsg, newSeed, scaleOfRuleset, seededRandom, statFromPercent,
 } from './origin-state.js';
 import { pickTaskLine, parseGachaLines, parseRpChatLines, parseShopLines, splitBlock, splitReplyBlock } from './origin-parse.js';
 import { createCx, applyManual } from './origin-apply.js';
@@ -33,6 +33,12 @@ export function getSharedOriginEngine(host) {
         const enabledOf = (h) => { try { return Boolean(h.settings() && h.settings().enabled); } catch (e) { return false; } };
         const pick = () => hosts.find(enabledOf) || hosts[0] || null;
         const call = (name) => (...args) => { const h = pick(); return h && typeof h[name] === 'function' ? h[name](...args) : undefined; };
+        // 可选字段（体系）：被选中的 host 自己提供就用它的，否则按登记顺序取第一个提供了的 host。
+        const callOpt = (name) => (...args) => {
+            const h = pick();
+            const t = h && typeof h[name] === 'function' ? h : hosts.find((x) => typeof x[name] === 'function');
+            return t ? t[name](...args) : undefined;
+        };
         const proxy = {
             getContext: call('getContext'), settings: call('settings'), saveMetadata: call('saveMetadata'), saveSettings: call('saveSettings'),
             database: call('database'), wallet: call('wallet'), walletSnapshot: call('walletSnapshot'), spendingGate: call('spendingGate'),
@@ -41,7 +47,7 @@ export function getSharedOriginEngine(host) {
                 const h = pick();
                 return typeof h?.withPointsLock === 'function' ? h.withPointsLock(task) : task();
             },
-            generate: call('generate'), notify: call('notify'), legacyActive: call('legacyActive'),
+            generate: call('generate'), notify: call('notify'), legacyActive: call('legacyActive'), readRuleset: callOpt('readRuleset'),
             // 任何一方在跑自己的后台请求时都不注入。
             isBackground: () => hosts.some((h) => { try { return typeof h.isBackground === 'function' && h.isBackground(); } catch (e) { return false; } }),
         };
@@ -79,6 +85,17 @@ export function createOriginEngine(host) {
 
     const ctx = () => { try { return host.getContext(); } catch (e) { return null; } };
     const settings = () => fillSettings(host.settings());
+    // 当前体系（宿主可选提供 readRuleset()，返回 coc7 或 dnd5e）；没提供、数值系统没开或读不到按 CoC。
+    const ruleId = () => { try { return typeof host.readRuleset === 'function' && host.readRuleset() === 'dnd5e' ? 'dnd5e' : 'coc7'; } catch (e) { return 'coc7'; } };
+    // 回放、手动操作用的设置：带上体系 id 与倍数；倍数进回放签名，旧档没有倍数快照的记录按它重放。
+    const calcSettings = () => { const s = settings(); const id = ruleId(); return { ...s, ruleId: id, ruleScale: scaleOfRuleset(id) }; };
+    // 记账时的体系倍数快照。
+    const snapNow = () => ({ scale: scaleOfRuleset(ruleId()) });
+    // 展示用状态：属性加成按当前体系显示（D&D 为属性点，CoC 为百分制）。
+    const shown = (st, k = 1) => {
+        if (k === 1) return st;
+        return { ...st, stats: (st.stats || []).map((r) => ({ ...r, val: statFromPercent(r.name, r.val, k) })) };
+    };
     const idOf = (c) => {
         if (!c) return '';
         if (c.chatId) return String(c.chatId);
@@ -141,7 +158,7 @@ export function createOriginEngine(host) {
     }
     function compute(dropLast) {
         const c = ctx();
-        return replay(ledger, buildPath(c && c.chat, isAiMsg, dropLast), settings());
+        return replay(ledger, buildPath(c && c.chat, isAiMsg, dropLast), calcSettings());
     }
     function current() {
         ensure();
@@ -150,14 +167,25 @@ export function createOriginEngine(host) {
             if (read?.ok && Number.isSafeInteger(read.balance)) walletValue = read.balance;
         }
         const wallet = database ? walletValue : 0;
-        if (!cache || cache.wallet !== wallet) {
+        const k = scaleOfRuleset(ruleId());
+        if (!cache || cache.wallet !== wallet || cache.k !== k) {
             const rep = compute(false);
-            const view = deepFreeze({ ...rep.state, points: rep.state.points + wallet, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
-            cache = { rep, view, wallet };
+            const view = deepFreeze({ ...shown(rep.state, k), points: rep.state.points + wallet, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
+            cache = { rep, view, wallet, k };
         }
         return cache;
     }
     const getState = () => current().view;
+    // 本核心自己的属性加成 [{ name, val }]（只读，同一状态返回同一数组引用）；未启用、没存档、读档被拒时为空。只读自己的 st.stats，不读 IGS。
+    const EMPTY_STATS = Object.freeze([]);
+    const rawStats = () => {
+        try {
+            if (!settings().enabled) return EMPTY_STATS;
+            ensure();
+            if (blocked) return EMPTY_STATS;
+            return current().rep.state.stats || EMPTY_STATS;
+        } catch (e) { return EMPTY_STATS; }
+    };
     function emit(type, extra) {
         if (staging) { staging.events.push([type, extra]); cache = null; return; }
         cache = null;
@@ -481,11 +509,11 @@ export function createOriginEngine(host) {
             const anchor = pointFloors(chat).find(f => f.messageId === idx);
             if (!anchor?.floorId) throw new Error('origin-no-anchor');
             entry.economy = economyPlan(`origin:${chatId}:${anchorKey(anchor)}`, { floorId: anchor.floorId, swipeId: anchor.swipeId });
-            const before = replay(ledger, buildPath(chat.slice(0, idx), isAiMsg), settings());
+            const before = replay(ledger, buildPath(chat.slice(0, idx), isAiMsg), calcSettings());
             const grants = collectOriginGrants(ledger, chat, entry.economy.id);
-            stepOnce(before.state, { type: 'floor', id: idx, turn: before.turn + 1, entry }, settings(), { chat, grants });
+            stepOnce(before.state, { type: 'floor', id: idx, turn: before.turn + 1, entry }, calcSettings(), { chat, grants });
         }
-        return { changed: true, entry: setEntry(ledger, idx, sw, entry) };
+        return { changed: true, entry: setEntry(ledger, idx, sw, entry, snapNow()) };
     }
 
     // ---------- 酒馆事件 ----------
@@ -510,9 +538,10 @@ export function createOriginEngine(host) {
             const target = path.length ? path[path.length - 1].id : -1;
             if (!database && bindPending(ledger, target)) persist();
             if (database) current();
-            const rep = replay(ledger, path, s);
-            const st = database ? { ...rep.state, points: rep.state.points + walletValue } : rep.state;
-            const text = buildInjection({ st, world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, s, rep.turn);
+            const cs = calcSettings();
+            const rep = replay(ledger, path, cs);
+            const st = shown(database ? { ...rep.state, points: rep.state.points + walletValue } : rep.state, cs.ruleScale);
+            const text = buildInjection({ st, world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, { ...s, ruleId: cs.ruleId }, rep.turn);
             injectInto(ev.chat, text);
             if (database) {
                 const ids = new Set(ledger.ops.filter((rec) => rec.boundTo == null && rec.after <= target).map((rec) => rec.id));
@@ -699,11 +728,11 @@ export function createOriginEngine(host) {
         if (staging && host.pointsEconomy?.() === true && !anchor?.floorId) return { ok: false, reason: 'origin-no-anchor' };
         const economy = staging && host.pointsEconomy?.() === true
             ? economyPlan(`origin:${chatId}:op:${ledger.nextOpId}`, { floorId: anchor.floorId, swipeId: anchor.swipeId }) : null;
-        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: settings(), random: seededRandom(seed), wallet,
+        const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: calcSettings(), scale: scaleOfRuleset(ruleId()), random: seededRandom(seed), wallet,
             economy: economyContext(economy, economy ? { chat, grants: collectOriginGrants(ledger, chat) } : undefined) });
         const r = applyManual(cloneForWrite(rep.state), op, cx);
         if (!r.ok) return { ok: false, reason: r.reason, text: r.text };
-        const rec = recordOp(ledger, op, after, seed, wallet, economy);
+        const rec = recordOp(ledger, op, after, seed, wallet, economy, snapNow());
         persist();
         emit('op', { opId: rec.id, op: op.type });
         const rep2 = current().rep;
@@ -775,7 +804,7 @@ export function createOriginEngine(host) {
         busyAt = Date.now();
         try { return await fn(); } finally { busyAt = 0; }
     }
-    const view = () => { const v = current().view; return { st: v, world: v.world, direction: v.direction, turn: v.turn, s: settings() }; };
+    const view = () => { const v = current().view; return { st: v, world: v.world, direction: v.direction, turn: v.turn, s: calcSettings() }; };
 
     function genTask() {
         return guarded(async () => {
@@ -869,7 +898,7 @@ export function createOriginEngine(host) {
                 if (raw == null) continue;
                 const sp = splitBlock(raw);
                 if (e.economy) continue;
-                setEntry(ledger, i, e.swipeId, { ...makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed), ...(e.wallet === undefined ? {} : { wallet: e.wallet }) });
+                setEntry(ledger, i, e.swipeId, { ...makeEntry(sp.block != null ? sp.block : e.block, sp.block != null ? sp.text : String(raw), e.seed), ...(e.wallet === undefined ? {} : { wallet: e.wallet }) }, snapNow());
             }
             settleAt(i);
         }
@@ -924,10 +953,10 @@ export function createOriginEngine(host) {
             const ids = new Set([cur, ...Object.keys(ob).map(Number).filter(Number.isInteger)]);
             for (const sw of ids) {
                 if (getEntry(ledger, i, sw)) continue;
-                if (sw === cur) { settleAt(i, { legacy: true }); if (ob[sw] != null && getEntry(ledger, i, sw) && getEntry(ledger, i, sw).block == null) setEntry(ledger, i, sw, makeEntry(ob[sw], splitBlock(m.mes).text, getEntry(ledger, i, sw).seed)); continue; }
+                if (sw === cur) { settleAt(i, { legacy: true }); if (ob[sw] != null && getEntry(ledger, i, sw) && getEntry(ledger, i, sw).block == null) setEntry(ledger, i, sw, makeEntry(ob[sw], splitBlock(m.mes).text, getEntry(ledger, i, sw).seed), snapNow()); continue; }
                 const raw = Array.isArray(m.swipes) ? String(m.swipes[sw] || '') : '';
                 const sp = splitBlock(raw);
-                setEntry(ledger, i, sw, makeEntry(ob[sw] != null ? ob[sw] : sp.block, sp.block != null ? sp.text : raw, newSeed()));
+                setEntry(ledger, i, sw, makeEntry(ob[sw] != null ? ob[sw] : sp.block, sp.block != null ? sp.text : raw, newSeed()), snapNow());
             }
         }
         ledger.legacyDone = true;
@@ -961,7 +990,7 @@ export function createOriginEngine(host) {
     }
 
     return {
-        getState, subscribe, dispatch: savedAction(dispatch), genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
+        getState, rawStats, subscribe, dispatch: savedAction(dispatch), genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
         recalcAll: savedAction(recalcAll), importLegacy: savedAction(importLegacy), legacyDetected,
         dismissLegacy: savedAction(dismissLegacy), lastFloorStatus, whenSaved, retrySave,
         start: sync, sync, stop: detach, reload: () => {

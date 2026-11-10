@@ -5,7 +5,12 @@ import { stripMarkerDirectives } from './directive-tags.js';
 import { DEFAULT_SKILL_LIST } from './stats/stat-skill-match.js';
 import { INTIMATE_DOMAIN, INTIMATE_MECHANICS, fallbackMechanic, resolveIntimateGate } from './intimate-duel.js';
 
-export const CHALLENGE_TIERS = Object.freeze({ 轻松: '轻松', easy: '轻松', 普通: '普通', normal: '普通', 艰难: '艰难', hard: '艰难' });
+const TIER_WORDS = {
+    轻松: ['轻松', '简单', '容易', '较易', '偏易', '低', '低难度', '新手', '入门', 'easy', 'simple', 'low'],
+    普通: ['普通', '中等', '一般', '适中', '常规', '正常', '标准', '中', '中难度', 'normal', 'medium', 'mid', 'moderate', 'standard'],
+    艰难: ['艰难', '困难', '很难', '较难', '偏难', '难', '高', '高难度', '极难', '极其困难', '艰巨', '凶险', '危险', '地狱', '噩梦', 'hard', 'difficult', 'high', 'extreme', 'very hard', 'nightmare'],
+};
+export const CHALLENGE_TIERS = Object.freeze(Object.fromEntries(Object.entries(TIER_WORDS).flatMap(([tier, words]) => words.map((word) => [word, tier]))));
 export const CHALLENGE_STAKES = Object.freeze({
     压力: '压力', stress: '压力', 体力: '体力', stamina: '体力', 金钱: '金钱', money: '金钱', 关系: '关系', relation: '关系',
 });
@@ -15,6 +20,7 @@ export const CHALLENGE_DEFAULT_STAKE = '压力';
 export const CHALLENGE_QUOTA = Object.freeze({ perDay: 1, perDayMax: 5, cooldownFloors: 8 });
 
 const NAME_MAX = 20;
+const EVENT_MAX = 50;
 const FIELD_MAX = 5;
 const TAG_PATTERN = /\[igs-challenge[:：]([^\]\n]*)\]/gi;
 
@@ -126,7 +132,7 @@ function parseFields(fields, options, diagnostics, where) {
     if (fields.length > FIELD_MAX) return { ...invalid('fields', 'too-many-fields'), code: 'challenge-too-many-fields' };
     const event = fields[0] || '';
     if (!event) return { ...invalid('event', 'required'), code: 'challenge-event-invalid' };
-    if (event.length > NAME_MAX) return { ...invalid('event', 'too-long'), code: 'challenge-event-invalid' };
+    if (event.length > EVENT_MAX) return { ...invalid('event', 'too-long'), code: 'challenge-event-invalid' };
     if (fields[1] === INTIMATE_DOMAIN) return parseIntimate(fields, options, diagnostics, where);
     const tierWord = (fields[2] || '').toLowerCase();
     if (tierWord && !Object.hasOwn(CHALLENGE_TIERS, tierWord)) return { ...invalid('tier', 'unknown-tier'), code: 'challenge-tier-unknown' };

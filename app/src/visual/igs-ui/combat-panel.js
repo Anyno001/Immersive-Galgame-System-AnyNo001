@@ -7,6 +7,7 @@ import { peekSpriteHead, probeSpriteHead, waitSpriteHead } from './fx-anchor.js'
 import { COMBAT_AWAKEN_END, COMBAT_CUTIN_MS, buildAwakenCutin, buildOpeningCutin, buildSkillCutin, preloadCutinFonts } from './combat-cutin.js';
 import { battleSfxKind } from './fx-battle-sfx.js';
 import { KO_FALL_SFX_DELAY_MS, koFallKind, koFallSfx, playKoFall } from './combat-ko-fall.js';
+import { creatureSfxKind } from './creature-battle-model.js';
 import { createCombatLines } from './combat-lines.js';
 import { createIntimateDuelFx } from './intimate-duel-fx.js';
 import { createDuelLowGate } from '../../scene/intimate-duel.js';
@@ -21,7 +22,7 @@ import { enemyArtCell } from './combat-enemy-art.js';
 import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
 import { SEL, canvasFit, canvasGhostWrap, isCanvasSkin } from './combat-skin-canvas.js';
 import { HX_BANNER_MS, HX_WINDUP_MS, hxBanner, hxCallout, hxCanvas, hxClaw, hxGuard, hxHeal, hxHit, hxKo, hxSkin, hxTrail, hxTurnBand, hxWindup } from './combat-hit-fx-skin.js';
-import { COMBAT_STAGE_TIMING, buildStageAwaken, buildStageClash, buildStageSkill, stageFxStyle, updateClashHeroes } from './combat-stage-fx.js';
+import { COMBAT_STAGE_TIMING, buildStageAwaken, buildStageClash, buildStageSkill, stageFxStyle, updateClashFigures, updateClashHeroes } from './combat-stage-fx.js';
 
 // 卡牌战斗面板。挂在 #igs-overlay 直属层（不进 #igs-stage-motion），避免阅读器自己的演出层查到面板内的演出节点。
 // 会话由 options.getSession() 注入；面板只转发动作、渲染快照，不自行结算。
@@ -269,6 +270,17 @@ export function createCombatPanelController(doc, options = {}) {
         const target = Object.values(battle?.units || {}).find((u) => u.name === event.target);
         return target && target.side === 'enemy' ? { ...event, result: 'hit' } : event;
     };
+    // 非人敌人挨打时跟着命中音叫一声，倒下时再出一声消散；人类敌人与宿主没给 creatureVoiceOf 时不出声。
+    const creatureCry = (event, battle) => {
+        if (!event || !['hit', 'crit', 'ko'].includes(event.result) || typeof options.creatureVoiceOf !== 'function') return;
+        const target = Object.values(battle?.units || {}).find((u) => u.name === event.target);
+        if (!target || target.side !== 'enemy') return;
+        let voice = null;
+        try { voice = options.creatureVoiceOf(target.name); } catch (error) { voice = null; }
+        if (!voice) return;
+        later(() => sfx(creatureSfxKind('hurt', voice.size, voice.kind)), 60);
+        if (event.result === 'ko') later(() => sfx(creatureSfxKind('fade', voice.size, voice.kind)), KO_FALL_SFX_DELAY_MS + 250);
+    };
     // 影子卡：画布皮肤的牌套一层同皮肤容器（外层按视口矩形定位，内层按画布缩放），样式与手牌一致；其余皮肤照旧。
     const ghostOf = (el) => {
         const card = cloneCardGhost(el);
@@ -301,6 +313,25 @@ export function createCombatPanelController(doc, options = {}) {
             out[name] = safePortraitUrl(url);
         }
         return out;
+    };
+    // VS 对撞的场景图底：宿主 options.getCombatBackdrop() 给当前阅读器正在显示的场景图地址，只过滤协议；没给或取不到时对撞层保持纯色底。
+    const backdropFor = () => {
+        let url = '';
+        try { url = typeof options.getCombatBackdrop === 'function' ? options.getCombatBackdrop() : ''; } catch (error) { url = ''; }
+        return safePortraitUrl(url);
+    };
+    // 缺立绘时请宿主按开战楼补发预热（options.requestPortraits(messageId)）；同一场战斗同一组缺图名字只请求一次，宿主侧另有并发与次数去重。
+    let askedPortraits = '';
+    const askMissingPortraits = (cur, portraits) => {
+        if (typeof options.requestPortraits !== 'function') return;
+        const messageId = cur && cur.anchor ? Number(cur.anchor.messageId) : NaN;
+        if (!Number.isSafeInteger(messageId) || messageId < 0) return;
+        const lacking = Object.keys(portraits || {}).filter((name) => !portraits[name]).sort();
+        if (!lacking.length) return;
+        const key = `${cur.combatId || ''}|${lacking.join('、')}`;
+        if (key === askedPortraits) return;
+        askedPortraits = key;
+        try { Promise.resolve(options.requestPortraits(messageId)).catch(() => {}); } catch (error) { /* 补图失败不影响面板。 */ }
     };
     // 手牌卡面只读本地缓存（options.resolveCardImage，按卡 ID），同样只过滤协议；取不到时渲染层用线条 SVG。
     const cardArtFor = (cardId) => {
@@ -397,6 +428,7 @@ export function createCombatPanelController(doc, options = {}) {
         const names = view.battle ? [...view.battle.allies, ...view.battle.enemies].map((u) => u.name)
             : view.lobby ? [...view.lobby.allies.map((a) => a.name), ...view.lobby.enemies.map((e) => e.name)] : [];
         view.portraits = portraitsFor(names);
+        askMissingPortraits(cur, view.portraits);
         const foes = view.battle ? view.battle.enemies : view.lobby ? view.lobby.enemies : [];
         view.enemyArt = challenge ? {} : enemyArtFor(foes, view.portraits, cur.theme);
         // 我方立绘框色调：取立绘探测缓存里的 tint（整幅压到 25×25 后取最亮的不透明像素）；只在取到时追加 tints，未探测的由 probeTints 在绘制后补。
@@ -796,7 +828,17 @@ export function createCombatPanelController(doc, options = {}) {
             return [...l.allies].sort((a, c) => Number(c.id === controlledId) - Number(a.id === controlledId))
                 .map((a) => ({ id: a.id, name: a.name, url: pics[a.name] || '', controllable: Boolean(a.controllable) && !l.challenge, picked: a.id === controlledId }));
         }
-        return [{ name: preview?.hero || '我方', url: '' }];
+        const name = preview?.hero || '我方';
+        return [{ name, url: preview?.hero ? portraitsFor([name])[name] || '' : '' }];
+    }
+
+    function introFoes(view) {
+        const l = view.lobby;
+        const arts = view.enemyArt || {};
+        const src = l ? l.enemies : (preview?.enemies || []);
+        const pics = l ? (view.portraits || {}) : portraitsFor(src.map((e) => e.name));
+        return src.flatMap((e) => Array.from({ length: Math.max(1, Math.min(2, Number(e.count) || 1)) }, () => e)).slice(0, 2)
+            .map((e) => ({ name: e.name, url: pics[e.name] || '', cell: arts[e.name] || enemyArtCell({ name: e.name, tier: e.tier || preview?.tier || 'normal' }) }));
     }
 
     function syncIntro(view) {
@@ -804,6 +846,8 @@ export function createCombatPanelController(doc, options = {}) {
         if (introBuilt && !revealing && !phase) { removeIntro(); return; }
         if (introBuilt) {
             if (view.lobby && !introBuilt.heroesSynced) { introBuilt.heroesSynced = true; updateClashHeroes(doc, introBuilt.root, introHeroes(view)); }
+            // 过场先于名单与立绘画出：每次重绘就地补上已到的立绘（地址没变的框不动）。
+            if (!revealing) updateClashFigures(doc, introBuilt.root, { heroes: introHeroes(view), foes: introFoes(view) });
             syncIntroUi(view);
             return;
         }
@@ -811,12 +855,7 @@ export function createCombatPanelController(doc, options = {}) {
         const layers = stage ? ensureFxLayers(stage) : null;
         if (!layers?.front) return;
         const l = view.lobby;
-        const arts = view.enemyArt || {};
-        const pics = view.portraits || {};
-        const src = l ? l.enemies : (preview?.enemies || []);
-        const foes = src.flatMap((e) => Array.from({ length: Math.max(1, Math.min(2, Number(e.count) || 1)) }, () => e)).slice(0, 2)
-            .map((e) => ({ name: e.name, url: pics[e.name] || '', cell: arts[e.name] || enemyArtCell({ name: e.name, tier: e.tier || preview?.tier || 'normal' }) }));
-        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes: introHeroes(view), foes, title: l?.encounter || preview?.encounter || view.encounter || '', low: lowQuality() });
+        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes: introHeroes(view), foes: introFoes(view), title: l?.encounter || preview?.encounter || view.encounter || '', low: lowQuality(), backdrop: backdropFor() });
         layers.front.appendChild(built.root);
         cutinNodes.add(built.root);
         built.heroesSynced = Boolean(l);
@@ -881,7 +920,7 @@ export function createCombatPanelController(doc, options = {}) {
         const arts = view.enemyArt || {};
         const heroes = [...b.allies].sort((a, c) => Number(c.controlled) - Number(a.controlled)).map((u) => ({ name: u.name, url: pics[u.name] || '' }));
         const foes = b.enemies.filter((u) => u.alive !== false).map((u) => ({ name: u.name, url: pics[u.name] || '', cell: arts[u.name] || null }));
-        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes, foes, title: view.encounter || '', low: lowQuality() });
+        const built = buildStageClash(doc, { skin: skinOf(), width: root.clientWidth, height: root.clientHeight, heroes, foes, title: view.encounter || '', low: lowQuality(), backdrop: backdropFor() });
         front.appendChild(built.root);
         cutinNodes.add(built.root);
         later(() => built.clash.classList.add('hit'), COMBAT_STAGE_TIMING.hit);
@@ -1223,7 +1262,7 @@ export function createCombatPanelController(doc, options = {}) {
             const onWave = (event, list) => sfx(battleSfxKind({ ...event, result: list.some((m) => m.kind === 'damage' || m.kind === 'ko') ? 'hit' : 'guard' }, String(skin.worldview || '')));
             const hit = () => {
                 if (my !== token || stage !== host) return;
-                try { applyBattleFxToDom(stage, shown, { ...skin, reducedMotion: reduced(), schedule: fxSchedule, clear: options.clear, onEvent: (event) => sfx(battleSfxKind(koSfxResult(event, cur.battle), String(skin.worldview || ''))) }); } catch (error) { /* 演出失败不影响结算 */ }
+                try { applyBattleFxToDom(stage, shown, { ...skin, reducedMotion: reduced(), schedule: fxSchedule, clear: options.clear, onEvent: (event) => { sfx(battleSfxKind(koSfxResult(event, cur.battle), String(skin.worldview || ''))); creatureCry(event, cur.battle); } }); } catch (error) { /* 演出失败不影响结算 */ }
                 // overkill 战斗里己方出牌的击倒推迟到全部演出放完才显示（鞭尸）。
                 try { landMarks(marks, landing, my, rarity, onWave, !seg.actor && cur.battle.overkill === true, { enemyActs: cur.battle.units?.[seg.actor]?.side === 'enemy' }); } catch (error) { /* 演出失败不影响结算 */ }
             };
@@ -1231,7 +1270,9 @@ export function createCombatPanelController(doc, options = {}) {
                 if (my !== token || stage !== host) return;
                 try {
                     markActing(seg.actor);
-                    if (seg.actor) unitSay(seg.actor, 'attack');
+                    // 己方出牌的段没有 act 事件，出招台词取该段出牌事件的出手单位。
+                    const speaker = seg.actor || seg.events.find((e) => e.type === 'card')?.unitId;
+                    if (speaker) unitSay(speaker, 'attack');
                     playCutins(cuts, host, my);
                     markCaption(host, caption ? rarity : null);
                     if (hx && seg.actor) hxActorCue(seg, cuts);
@@ -2017,8 +2058,6 @@ export function createCombatPanelController(doc, options = {}) {
         event.stopPropagation?.();
         // 拖牌松手后浏览器补发的 click 不当作点选。
         if (dragClickUntil && Date.now() < dragClickUntil) { dragClickUntil = 0; event.preventDefault?.(); return; }
-        // 按住确认的结束回合：指针点击由按住流程处理，键盘（detail 为 0）照常一按即结束。
-        if (event.detail && event.target?.closest?.(HOLD_SEL)) { event.preventDefault?.(); return; }
         // 牌面上带加成 / 减益的数字：弹出（再点收起）加成详情，不选中、不打出这张牌；点面板其他地方先收起详情。
         const tipAnchor = event.target?.closest?.('[data-scale-tip]');
         if (tipAnchor && root?.contains?.(tipAnchor)) {
@@ -2095,32 +2134,6 @@ export function createCombatPanelController(doc, options = {}) {
     // 按 data-trait 找主动特性圆球（影子圆球去掉了交互属性，但保留 data-trait，只在 .igs-combat-trait-ring 里找）。
     const orbEl = (traitId) => [...(root?.querySelectorAll?.('.igs-combat-trait-ring .igs-combat-trait, .cx-trait[data-trait]') || [])].find((n) => n.getAttribute?.('data-trait') === traitId) || null;
     const dragEl = (d) => (d.skill ? orbEl(d.trait) : cardEl(d.inst));
-    // 结束回合按住确认（设计稿 0.4s）：皮肤在还有能量和可出的牌时给按钮加 data-hold，按住期间写 --hold（0→1）供样式画进度，满了才结束回合，中途松手撤销。
-    const HOLD_SEL = '[data-combat-act="end-turn"][data-hold]';
-    const HOLD_MS = 400;
-    let hold = null;
-    function stopHold() {
-        if (!hold) return;
-        hold.win?.cancelAnimationFrame?.(hold.raf);
-        hold.el.style?.setProperty?.('--hold', '0');
-        hold = null;
-    }
-    function startHold(el, event) {
-        stopHold();
-        const win = doc.defaultView;
-        if (typeof win?.requestAnimationFrame !== 'function') return;
-        hold = { el, id: event.pointerId, win, t0: win.performance?.now?.() ?? Date.now(), raf: 0 };
-        const tick = (now) => {
-            if (!hold || hold.el !== el) return;
-            const p = Math.min(1, (now - hold.t0) / HOLD_MS);
-            el.style?.setProperty?.('--hold', p.toFixed(3));
-            if (p < 1) { hold.raf = win.requestAnimationFrame(tick); return; }
-            hold = null;
-            invoke('end-turn', '');
-        };
-        hold.raf = win.requestAnimationFrame(tick);
-    }
-
     // iOS Safari 兜底：拖牌期间阻止触摸滚动（passive:false 才能 preventDefault）。
     function onTouchMove(event) {
         if (drag && !drag.dead && event.cancelable) event.preventDefault();
@@ -2128,8 +2141,6 @@ export function createCombatPanelController(doc, options = {}) {
 
     function onPointerDown(event) {
         dragClickUntil = 0;
-        const holdEl = event.isPrimary === false || (event.button ?? 0) !== 0 ? null : event.target?.closest?.(HOLD_SEL);
-        if (holdEl && root?.contains?.(holdEl) && holdEl.getAttribute('aria-disabled') !== 'true') { startHold(holdEl, event); return; }
         if (drag || event.isPrimary === false || (event.button ?? 0) !== 0) return;
         const el = event.target?.closest?.(DRAG_SOURCES);
         if (!el || !root?.contains?.(el)) return;
@@ -2211,7 +2222,6 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     function onPointerUp(event) {
-        if (hold && event.pointerId === hold.id) stopHold();
         if (!drag || event.pointerId !== drag.id) return;
         const live = drag;
         if (!live.live && !live.dead) { drag = null; return; }
@@ -2234,7 +2244,6 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     function onPointerCancel(event) {
-        if (hold && event.pointerId === hold.id) stopHold();
         if (!drag || event.pointerId !== drag.id) return;
         const { live, sel } = drag;
         endDrag();

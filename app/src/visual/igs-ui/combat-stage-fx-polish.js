@@ -25,24 +25,22 @@ const SLASH = { port: { x: 66, len: 853, deg: 98.4 }, land: { x: 57, len: 742, d
 
 // 水墨：不要闪电折线与金色放射光。接缝是一笔斜劈的月白飞白，在撞击前从上往下写完；撞点只留月白光芯与墨晕洇开，
 // 「战」压在一道焦墨横笔上，最后盖一枚朱砂小印。
+const INK_BLADE = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 10' preserveAspectRatio='none'%3E%3Cpath d='M0 5C28 3.4 44 3.1 56 3.3C76 3.7 90 4.5 100 5C90 5.5 76 6.3 56 6.7C44 6.9 28 6.6 0 5Z'/%3E%3C/svg%3E\")";
 const INK = `
 ${NO_COMIC('ink')}
 ${P('ink')} .clash .seam{display:none;}
-${P('ink')} .sfx-deco>:is(.d0,.d1,.d3,.d4){display:block;}
-${P('ink')} .sfx-deco .d4{z-index:3;left:${SLASH.port.x}%;top:0;width:${SLASH.port.len}px;height:26px;margin-top:-13px;transform-origin:0 50%;transform:rotate(${SLASH.port.deg}deg);background:var(--text);
-  -webkit-mask:var(--wx-hstroke) center/100% 100% no-repeat;mask:var(--wx-hstroke) center/100% 100% no-repeat;filter:drop-shadow(0 0 6px #0c0c0b);
+${P('ink')} .sfx-deco>:is(.d0,.d3,.d4){display:block;}
+${P('ink')} .sfx-deco .d1,${P('ink')} .clash .vs .blade{display:none;}
+/* 一刀：极细、两端收成尖头、中段最粗约 3–5px（竖屏 2–4px），实色月白，不发光 */
+${P('ink')} .sfx-deco .d4{z-index:3;left:${SLASH.port.x}%;top:0;width:${SLASH.port.len}px;height:11px;margin-top:-5.5px;transform-origin:0 50%;transform:rotate(${SLASH.port.deg}deg);background:var(--text);
+  -webkit-mask:${INK_BLADE} center/100% 100% no-repeat;mask:${INK_BLADE} center/100% 100% no-repeat;
   clip-path:inset(0 100% 0 0);animation:sfxp-ink-write ${T('300ms')} cubic-bezier(.5,0,.3,1) ${T('200ms')} both;}
-${P('ink')}.land .sfx-deco .d4{left:${SLASH.land.x}%;width:${SLASH.land.len}px;height:32px;margin-top:-16px;transform:rotate(${SLASH.land.deg}deg);}
-${P('ink')} .sfx-deco .d0{z-index:1;left:var(--ix);top:var(--iy);width:400px;height:400px;margin:-200px 0 0 -200px;background:#0c0c0b;
-  -webkit-mask:radial-gradient(closest-side,#000 34%,transparent 70%),radial-gradient(closest-side at 28% 62%,#000 18%,transparent 52%),radial-gradient(closest-side at 70% 36%,#000 20%,transparent 56%);
-  mask:radial-gradient(closest-side,#000 34%,transparent 70%),radial-gradient(closest-side at 28% 62%,#000 18%,transparent 52%),radial-gradient(closest-side at 70% 36%,#000 20%,transparent 56%);
-  transform:scale(.1);opacity:0;animation:sfxp-ink-bloom ${T('900ms')} cubic-bezier(.15,.8,.3,1) ${HIT} both;}
-${P('ink')}.land .sfx-deco .d0{width:620px;height:620px;margin:-310px 0 0 -310px;}
-@keyframes sfxp-ink-bloom{0%{opacity:1;transform:scale(.1);}100%{opacity:1;transform:scale(1);}}
-${P('ink')} .sfx-deco .d1{z-index:5;left:var(--ix);top:var(--iy);width:330px;height:96px;margin:-48px 0 0 -165px;background:var(--edge);
-  -webkit-mask:var(--wx-hstroke) center/100% 100% no-repeat;mask:var(--wx-hstroke) center/100% 100% no-repeat;
-  transform:rotate(-7deg);clip-path:inset(0 100% 0 0);animation:sfxp-ink-write ${T('260ms')} cubic-bezier(.4,0,.2,1) ${T('620ms')} both;}
-${P('ink')}.land .sfx-deco .d1{width:520px;height:140px;margin:-70px 0 0 -260px;}
+${P('ink')}.land .sfx-deco .d4{left:${SLASH.land.x}%;width:${SLASH.land.len}px;height:14px;margin-top:-7px;transform:rotate(${SLASH.land.deg}deg);}
+/* 「战」后的淡墨晕：中心实色墨，向外渐隐，无硬边 */
+${P('ink')} .sfx-deco .d0{z-index:1;left:var(--ix);top:var(--iy);width:300px;height:300px;margin:-150px 0 0 -150px;background:radial-gradient(closest-side,#0c0c0b 0,transparent 100%);
+  transform:scale(.1);opacity:0;animation:sfxp-ink-halo ${T('900ms')} cubic-bezier(.15,.8,.3,1) ${HIT} both;}
+${P('ink')}.land .sfx-deco .d0{width:420px;height:420px;margin:-210px 0 0 -210px;}
+@keyframes sfxp-ink-halo{0%{opacity:0;transform:scale(.1);}100%{opacity:.6;transform:scale(1);}}
 @keyframes sfxp-ink-write{to{clip-path:inset(0 0 0 0);}}
 ${P('ink')} .sfx-deco .d3{z-index:6;left:var(--ix);top:var(--iy);width:44px;height:44px;margin:42px 0 0 62px;background:#b0342b;border-radius:2px;
   box-shadow:inset 0 0 0 2px #b0342b,inset 0 0 0 3px #e9d9c6;color:#f3e9dc;font:400 18px/19px var(--font-brush);writing-mode:vertical-rl;

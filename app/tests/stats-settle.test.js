@@ -32,6 +32,16 @@ test('路人、主角、未开 NSFW 的欲望标签不结算并记诊断（易�
     assert.equal(settle('[igs-stat:desire|小雪|上升]', { nsfw: true }).state.characters.小雪.dims.欲望, 2);
 });
 
+test('欲望最低为 0；恋人起始欲望只在 NSFW 开启时给；手改欲望在 NSFW 关闭时不生效', () => {
+    assert.equal(settle('[igs-stat:desire|小雪|下降]', { nsfw: true }).state.characters.小雪.dims.欲望, 0);
+    assert.equal(settle('[igs-stat:start|小雪|恋人]', { nsfw: true }).state.characters.小雪.dims.欲望, 15);
+    assert.equal(Object.hasOwn(settle('[igs-stat:start|小雪|恋人]').state.characters.小雪.dims, '欲望'), false);
+    const base = settle('[igs-stat:favor|小雪|开心]', { nsfw: true }).state;
+    assert.equal(settle('', { nsfw: true, manual: { 小雪: { 欲望: -30 } } }, base).state.characters.小雪.dims.欲望, 0);
+    assert.equal(settle('', { nsfw: false, manual: { 小雪: { 欲望: 40 } } }, base).state.characters.小雪.dims.欲望, 0);
+    assert.equal(settle('[igs-stat:know|小雪|上升]').state.characters.小雪.dims.了解, 2);
+});
+
 test('sleep 标签和「第二天」同楼只跨一天（易错点 D1）', () => {
     const r = settle('她睡下了。第二天一早……[igs-stat:sleep]');
     assert.equal(r.state.clock.day, 2);
@@ -150,4 +160,21 @@ test('noBattle：战斗扩展接管时 battle 标签被丢弃', () => {
     const r = settle('[igs-stat:battle|杂兵]', { engine: dnd, noBattle: true });
     assert.equal(r.meta.flags.battle, undefined);
     assert.ok(r.meta.diagnostics.some((d) => d.code === 'stats-battle-skipped-combat'));
+});
+
+test('起始关系可带修饰：恋人+猜忌扣信任、加芥蒂，同项多个修饰取最重不叠加', () => {
+    const d = settle('[igs-stat:start|小雪|恋人+怀疑出轨]').state.characters.小雪.dims;
+    assert.deepEqual([d.好感, d.信任, d.了解, d.芥蒂], [80, 35, 70, 10]);
+    const two = settle('[igs-stat:start|小雪|恋人＋猜忌、背叛过]').state.characters.小雪.dims;
+    assert.deepEqual([two.信任, two.芥蒂], [15, 25]);
+    assert.equal(settle('[igs-stat:start|小雪|恋人+好得很]').state.characters.小雪.dims.芥蒂, 0);
+});
+
+test('开局修正标签：信任扣、芥蒂加，同一角色每项只生效一次', () => {
+    const first = settle('[igs-stat:start|小雪|朋友][igs-stat:startfix|小雪|信任|中][igs-stat:startfix|小雪|芥蒂|重]').state;
+    assert.deepEqual([first.characters.小雪.dims.信任, first.characters.小雪.dims.芥蒂], [0, 45]);
+    const again = settle('[igs-stat:startfix|小雪|信任|重]', {}, first).state;
+    assert.equal(again.characters.小雪.dims.信任, 0);
+    assert.equal(settle('[igs-stat:start|小雪|恋人+猜忌][igs-stat:startfix|小雪|芥蒂|中]').state.characters.小雪.dims.芥蒂, 10);
+    assert.equal(settle('[igs-stat:startfix|小雪|信任|3]').state.characters.小雪, undefined);
 });

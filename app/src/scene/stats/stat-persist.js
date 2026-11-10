@@ -4,8 +4,17 @@
 import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat-ledger.js';
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import * as registry from './stat-registry.js';
+import { sanitizeFameBars } from './stat-fame.js';
+import { sanitizeCycles, sanitizeStatuses } from './stat-status.js';
+import { WORLD_GENRES } from './stat-status-defs.js';
+import { LEGACY_TRAIT_KEYS, mergeLegacyForced, sanitizeAptitude, sanitizeTraits } from './stat-traits.js';
 
-const { validSkillName } = registry;
+const { validSkillName, canonicalSkillName, mergeLegacyValue } = registry;
+// 旧技能名（妙手、急救等）读入时落到新名；几个旧名同时有值时数值取大，字符串以新名自己的为准。
+function putSkill(target, rawName, value) {
+    const name = canonicalSkillName(rawName);
+    target[name] = Object.hasOwn(target, name) ? mergeLegacyValue(target[name], value, name === rawName) : value;
+}
 // 旧属性名 → 战斗六维名。优先用注册表导出的 LEGACY_ATTRIBUTE_MAP（并行改造期间可能尚未导出，退回本地等价表）。
 const LEGACY_NAMES = registry.LEGACY_ATTRIBUTE_MAP || Object.freeze({ 健康: '体质', 理智: '智力', 观察: '感知' });
 const SAN_NAME = '理智';
@@ -26,7 +35,7 @@ export function sanitizeLearned(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { learned, dropped: raw == null ? 0 : 1 };
     for (const [word, skill] of Object.entries(raw)) {
         const w = String(word).trim();
-        if (LEARNED_WORD.test(w) && typeof skill === 'string' && skill.trim() && skill.length <= 8) learned[w] = skill.trim();
+        if (LEARNED_WORD.test(w) && typeof skill === 'string' && skill.trim() && skill.length <= 8) learned[w] = canonicalSkillName(skill.trim());
         else dropped += 1;
     }
     return { learned, dropped };
@@ -54,9 +63,9 @@ function sanitizeSheet(raw) {
         }
     }
     const skills = {};
-    for (const [k, v] of Object.entries(plainObject(raw.skills) ? raw.skills : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) skills[name] = n; }
+    for (const [k, v] of Object.entries(plainObject(raw.skills) ? raw.skills : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) putSkill(skills, name, n); }
     const provisional = {};
-    for (const [k, v] of Object.entries(plainObject(raw.provisional) ? raw.provisional : {})) if (v === true && skills[k]) provisional[k] = true;
+    for (const [k, v] of Object.entries(plainObject(raw.provisional) ? raw.provisional : {})) if (v === true && skills[canonicalSkillName(k)]) provisional[canonicalSkillName(k)] = true;
     const hasAttributes = Object.keys(attributes).length > 0;
     return {
         rank: typeof raw.rank === 'string' ? raw.rank.slice(0, 8) : '普通人', attributes, ...(san ? { san } : {}), ...(hasAttributes ? { scale: 'score' } : {}), skills, provisional,
@@ -79,8 +88,14 @@ export function sheetAbilityScores(sheet) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, queue: { skills: [], people: [] }, notified: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [] };
 }
+
+// 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
+export const APTITUDE_LEVELS = Object.freeze(['出众', '天纵']);
+export const TRAIT_KEYS = LEGACY_TRAIT_KEYS;
+const NOTE_MAX = 40;
+export const TRAIT_NOTE_MAX = 200;
 
 export function sanitizeCatalog(raw) {
     const out = emptyCatalog();
@@ -90,23 +105,74 @@ export function sanitizeCatalog(raw) {
         if (!name || out.story.some((x) => x.name === name)) continue;
         out.story.push({ name, attribute: String(s.attribute || '').slice(0, 4), category: String(s.category || 'general').slice(0, 8), aliases: Array.isArray(s.aliases) ? s.aliases.filter((a) => typeof a === 'string').slice(0, 8) : [], createdAt: Number.isInteger(s.createdAt) ? s.createdAt : null, guessed: s.guessed === true });
     }
-    for (const [from, to] of Object.entries(plainObject(raw.merged) ? raw.merged : {})) if (validSkillName(from) && validSkillName(to)) out.merged[from] = to;
+    for (const [from, to] of Object.entries(plainObject(raw.merged) ? raw.merged : {})) if (validSkillName(from) && validSkillName(to)) out.merged[from] = canonicalSkillName(to);
+    // 内置技能的所属属性改动：{ 技能: 六维之一 }。
+    for (const [k, v] of Object.entries(plainObject(raw.attributes) ? raw.attributes : {})) { const name = validSkillName(k); if (name && BASE_ATTRIBUTES.includes(v)) putSkill(out.attributes, name, v); }
     for (const [name, sheet] of Object.entries(plainObject(raw.sheets) ? raw.sheets : {}).slice(0, SHEET_MAX)) {
         const clean = sanitizeSheet(sheet);
         if (clean && name && name.length <= 20) out.sheets[name] = clean;
     }
-    for (const [k, v] of Object.entries(plainObject(raw.protagonistBase) ? raw.protagonistBase : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) out.protagonistBase[name] = n; }
+    for (const [k, v] of Object.entries(plainObject(raw.protagonistBase) ? raw.protagonistBase : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) putSkill(out.protagonistBase, name, n); }
     // 玩家手改覆盖层：{ 技能: { value, from } }，规则见 stat-engine.js 的 heroSkillLevel。
     for (const [k, v] of Object.entries(plainObject(raw.protagonistEdit) ? raw.protagonistEdit : {})) {
         const name = validSkillName(k);
         const value = plainObject(v) && Number(v.value) >= 1 ? num(v.value, 1, 99) : null;
-        if (name && value) out.protagonistEdit[name] = { value, from: plainObject(v) ? num(v.from, 0, 99) || 0 : 0 };
+        if (name && value) putSkill(out.protagonistEdit, name, { value, from: plainObject(v) ? num(v.from, 0, 99) || 0 : 0 });
     }
     out.heroAssigned = raw.heroAssigned === true;
+    // 新聊天选过擅长技能（3+5）后为真，「我的角色」不再显示选择区。
+    out.heroPicked = raw.heroPicked === true;
+    // 3+5 每格占的技能 { strong1: 名, … good5: 名 }；旧存档没有该字段（null），由运行时按已学技能回填。
+    if (plainObject(raw.heroSlots)) {
+        out.heroSlots = {};
+        const used = new Set();
+        for (const [slot, rawName] of Object.entries(raw.heroSlots)) {
+            const name = /^(?:strong[1-3]|good[1-5])$/.test(slot) ? validSkillName(rawName) : null;
+            const canon = name ? canonicalSkillName(name) : null;
+            if (canon && !used.has(canon)) { used.add(canon); out.heroSlots[slot] = canon; }
+        }
+    }
+    // 特质（登记表见 stat-traits.js）：{ 名: { 键: { on, src } } }，旧布尔式读档时迁移为手动；旧 intimacyForced 名单并入为「豁免亲密门槛」。
+    // 写档只写新格式；catalog.intimacyForced 是由 traits 推出的只读名单（供提示词与存档页使用）。
+    out.traits = mergeLegacyForced(sanitizeTraits(raw.traits), raw.intimacyForced);
+    out.intimacyForced = Object.keys(out.traits).filter((n) => out.traits[n].forced && out.traits[n].forced.on === true);
+    // 悟性：{ 名: { v: '出众' | '天纵', src } }；旧字符串读档时迁移为手动；平庸是默认，不存。
+    out.aptitude = sanitizeAptitude(raw.aptitude);
+    // 累计计数（成就特质用）：{ 计数名: 非负整数 }。
+    for (const [k, v] of Object.entries(plainObject(raw.counters) ? raw.counters : {}).slice(0, 40)) { const n = num(v, 0, 1e6); if (k && k.length <= 24 && n !== null) out.counters[k] = n; }
+    // 「我对TA」备注：{ 名: 最多 40 字 }，只给用户看，空串不存。
+    for (const [k, v] of Object.entries(plainObject(raw.heroNotes) ? raw.heroNotes : {}).slice(0, SHEET_MAX)) {
+        const text = typeof v === 'string' ? v.trim().slice(0, NOTE_MAX) : '';
+        if (k && k.length <= 20 && text) out.heroNotes[k] = text;
+    }
+    // 特质「评定注意」：{ 名: 最多 200 字 }，只用于特质评定，空串不存。
+    for (const [k, v] of Object.entries(plainObject(raw.traitNotes) ? raw.traitNotes : {}).slice(0, SHEET_MAX)) {
+        const text = typeof v === 'string' ? v.trim().slice(0, TRAIT_NOTE_MAX) : '';
+        if (k && k.length <= 20 && text) out.traitNotes[k] = text;
+    }
+    // 已踩过的雷点：{ 角色: { 特质:触发: 首次楼层 } }，只给角色卡「已知雷点」用。
+    for (const [k, v] of Object.entries(plainObject(raw.landmineKnown) ? raw.landmineKnown : {}).slice(0, SHEET_MAX)) {
+        if (!k || k.length > 20 || !plainObject(v)) continue;
+        const own = {};
+        for (const [key, floor] of Object.entries(v).slice(0, 12)) if (key && key.length <= 40 && Number.isFinite(Number(floor))) own[key] = Number(floor);
+        if (Object.keys(own).length) out.landmineKnown[k] = own;
+    }
+    // 主角的声望条：[{ name, kind }]，最多 3 条，聊天级设置，不随楼层快照。
+    out.fameBars = sanitizeFameBars(raw.fameBars);
+    out.romanceSeen = [...new Set((Array.isArray(raw.romanceSeen) ? raw.romanceSeen : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX);
     const q = plainObject(raw.queue) ? raw.queue : {};
-    out.queue.skills = (Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).slice(0, QUEUE_MAX);
+    out.queue.skills = [...new Set((Array.isArray(q.skills) ? q.skills : []).map(validSkillName).filter(Boolean).map(canonicalSkillName))].slice(0, QUEUE_MAX);
     out.queue.people = (Array.isArray(q.people) ? q.people : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, QUEUE_MAX);
     out.notified = (Array.isArray(raw.notified) ? raw.notified : []).filter((n) => typeof n === 'string' && n.length <= 20).slice(0, SHEET_MAX * 2);
+    // 已做过初始特质评定的角色（含主角），每人只评一次。
+    out.traitInit = [...new Set((Array.isArray(raw.traitInit) ? raw.traitInit : []).filter((n) => typeof n === 'string' && n && n.length <= 20))].slice(0, SHEET_MAX * 2);
+    // 状态与周期（B 批，结构见 stat-status-defs.js）：旧档没有字段时为 {}。
+    out.statuses = sanitizeStatuses(raw.statuses);
+    out.cycles = sanitizeCycles(raw.cycles);
+    // 题材（E5）：worlds 为副模型读世界书的判定（auto），worldsManual 为手动多选覆盖；取值限 WORLD_GENRES。
+    const genres = (v) => [...new Set((Array.isArray(v) ? v : []).filter((w) => WORLD_GENRES.includes(w)))];
+    out.worlds = genres(raw.worlds);
+    out.worldsManual = genres(raw.worldsManual);
     return out;
 }
 

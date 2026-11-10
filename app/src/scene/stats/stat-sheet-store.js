@@ -9,7 +9,8 @@ export function sheetStoreKey(card, name) {
     return `${String(card || '').slice(0, 80)}|${String(name || '').slice(0, 20)}`;
 }
 
-export function createSheetStore(getStorage) {
+export function createSheetStore(getStorage, onChange = null) {
+    const changed = (res) => { if (res && res.ok && !res.skipped && typeof onChange === 'function') { try { onChange(); } catch (error) { /* 镜像失败不影响本机 */ } } return res; };
     const storage = () => { try { return getStorage(); } catch (error) { return null; } };
     function readAll() {
         const s = storage();
@@ -32,7 +33,7 @@ export function createSheetStore(getStorage) {
             all[sheetStoreKey(card, name)] = { at: Date.now(), sheet: { rank: sheet.rank, attributes: sheet.attributes, skills: sheet.skills, signature: sheet.signature || [] } };
             const keys = Object.keys(all).sort((a, b) => (all[b].at || 0) - (all[a].at || 0));
             for (const key of keys.slice(SHEET_STORE_MAX)) delete all[key];
-            return writeCheckedStorage(s, SHEET_STORE_KEY, JSON.stringify(all));
+            return changed(writeCheckedStorage(s, SHEET_STORE_KEY, JSON.stringify(all)));
         },
         remove(card, name) {
             const s = storage();
@@ -40,7 +41,7 @@ export function createSheetStore(getStorage) {
             const all = readAll();
             if (!all[sheetStoreKey(card, name)]) return { ok: true, skipped: true };
             delete all[sheetStoreKey(card, name)];
-            return writeCheckedStorage(s, SHEET_STORE_KEY, JSON.stringify(all));
+            return changed(writeCheckedStorage(s, SHEET_STORE_KEY, JSON.stringify(all)));
         },
     };
 }

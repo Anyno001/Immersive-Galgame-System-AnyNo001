@@ -1,4 +1,4 @@
-import { editFolderState, normalizeFolderState } from './folder-state.js';
+import { editFolderState, groupFolderItems, normalizeFolderState } from './folder-state.js';
 
 export const TTS_VOICE_LANGUAGES = Object.freeze([
     ['', '未设置'], ['zh', '中文'], ['ja', '日文'], ['en', '英文'], ['ko', '韩文'],
@@ -39,4 +39,16 @@ export function renameTtsVoiceLibraryItem(value, from, to) {
     }
     next.folders = editFolderState(next.folders, 'rename-item', { item: from, to });
     return next;
+}
+
+export function groupTtsVoiceOptions(entries, value) {
+    const library = normalizeTtsVoiceLibrary(value, entries.map(([id]) => id));
+    const options = new Map(entries.map(([id, title]) => {
+        const language = TTS_VOICE_LANGUAGES.find(([code]) => code === library.languages[id])?.[1];
+        const label = title ? `${title}（${id}）` : id;
+        return [id, [id, language ? `${label} · ${language}` : label]];
+    }));
+    if (!library.folders.folders.length) return [{ label: '', items: [...options.values()] }];
+    return groupFolderItems(library.folders, [...options.keys()]).filter(group => group.items.length)
+        .map(group => ({ label: group.folder || '未分类', items: group.items.map(id => options.get(id)) }));
 }

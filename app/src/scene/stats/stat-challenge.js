@@ -4,8 +4,9 @@ import { DEFAULT_MONEY_TABLE, STAMINA_DELTA, STRESS_DELTA, currencyTable, shiftC
 import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withClock, withSkills } from './stat-state.js';
 import { FLOOR_GAIN_MAX, applyDim } from './stat-favor.js';
 import { applyKeyEvent } from './stat-favor-events.js';
+import { extraGatesOf } from './stat-traits.js';
 import { PROTAGONIST, createEngine, resolveCheck } from './stat-engine.js';
-import { DEFEAT_MONEY_LOSS } from './stat-battle.js';
+import { DEFEAT_MONEY_LOSS } from './stat-vocab.js';
 import { CHALLENGE_ENABLED_STAKES } from '../challenge-directives.js';
 import { INTIMATE_STOP, INTIMATE_TENSION_START, isRapportWin, markForEnding } from '../intimate-duel.js';
 
@@ -85,7 +86,7 @@ function loseFavor(state, name, delta, ctx, note) {
 function reconcile(state, name, ctx) {
     const engine = ctx.engine || createEngine();
     const roll = () => resolveCheck(engine, state, { actor: PROTAGONIST, skill: '魅力', toward: name }, ctx.random);
-    const { character, result } = applyKeyEvent(state.characters[name], CHALLENGE_RECONCILE_EVENT, { roll, random: ctx.random });
+    const { character, result } = applyKeyEvent(state.characters[name], CHALLENGE_RECONCILE_EVENT, { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(state, ctx.traitCat, name) : [] });
     if (result.success) ctx.changes.push({ source: 'challenge', target: name, key: '好感', from: result.gate, to: result.gate + 1, note: `${CHALLENGE_RECONCILE_EVENT}突破` });
     if (result.gate !== null) ctx.events.push({ ...result, target: name });
     return withCharacter(state, name, character);

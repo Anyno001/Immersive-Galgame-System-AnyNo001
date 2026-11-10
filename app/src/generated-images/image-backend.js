@@ -14,7 +14,7 @@ import { annotateImageFailure, readImageRetrySettings, sharedRateGate, withImage
 import { recoverOperation, trackRecovery, waitForRecovery } from '../storage/automatic-recovery.js';
 import { checkPromptTask, isSceneOnlyPromptOutput } from '../schemas/prompt-recipe.js';
 import { prepareCharacterCaption } from './character-caption.js';
-import { runImageTask, staleImageTask, inheritImageTaskLease, imageTaskState } from './image-task-runtime.js';
+import { runImageTask, staleImageTask, inheritImageTaskLease, imageTaskState, isUrgentImageSignal } from './image-task-runtime.js';
 import { spriteSchemeOf, SCHEME_LIVELY } from './prompt-scheme.js';
 import { imageWritingContext } from './image-prompt-context.js';
 import { externalPromptDescription, externalCaptionFailure } from './external-prompt-reference.js';
@@ -283,7 +283,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     }), { signal: meta.signal, global: recoveryGlobal, retryUnchanged: false, repair,
         waitFor: result => source === 'nai' && repair && [400, 401, 402, 403, 422].includes(result?.status)
             ? { message: `NAI 请求被拒绝（HTTP ${result.status}）。请修正图像来源中的凭据或模型并保存；配置生效后自动续接本次请求。`,
-                page: 'source', actionLabel: '打开图像来源' } : null,
+                page: 'source', actionLabel: '打开生图API' } : null,
         canResume: async result => {
             if (source !== 'nai' || ![400, 401, 402, 403, 422].includes(result?.status)) return false;
             const fixed = await repair?.(result);
@@ -329,6 +329,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             const controls = {
                 ...(guarded.signal && { signal: guarded.signal }),
                 ...(guarded.shouldStart && { shouldStart: guarded.shouldStart }),
+                ...(isUrgentImageSignal(meta.signal, input?.signal, settings?.signal, guarded.signal) ? { priority: 'urgent' }
+                    : meta.paintPriority === 'high' && { priority: 'high' }),
             };
             const result = await retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
                 { ...frozen, ...controls, onQueueEvent: (level, message) => report?.(level, message),
@@ -382,7 +384,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             if (!reported) {
                 reported = true;
                 const message = `${label}尚未就绪。请安装、启用并完成该插件的配置；程序每秒读取就绪状态，就绪后自动继续本次任务。`;
-                notice.update({ phase: 'waiting-condition', message, page: 'source', actionLabel: '查看图像来源' });
+                notice.update({ phase: 'waiting-condition', message, page: 'source', actionLabel: '查看生图API' });
                 report?.('info', message);
             }
             await waitForRecovery(1000, { global: recoveryGlobal, signal: meta.signal });
@@ -413,7 +415,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 global: recoveryGlobal, signal: guarded.signal, retryUnchanged: false,
                 isActive: () => !imageTaskStopped(guarded), canResume: refresh,
                 waitFor: { message: '尚未配置 NAI Key，生图请求还未发送。请在图像来源中填写并保存；保存成功后自动继续本次任务。',
-                    page: 'source', actionLabel: '打开图像来源' },
+                    page: 'source', actionLabel: '打开生图API' },
                 onRecover: () => report?.('info', '原任务已保留；保存 NAI 设置后从当前步骤继续'),
             });
         });
@@ -443,7 +445,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (mode === 'dbgen') {
             return findDbgenApi(globalObject)
                 ? { mode, via: 'dbgen', ownPrompts: true, ready: { ok: true } }
-                : { mode, via: 'none', ownPrompts: true, ready: { ok: false, error: `未检测到${DBGEN_LABEL}，请确认已安装并启用，或在「生图与AI › 图像来源」改用内置 NAI` } };
+                : { mode, via: 'none', ownPrompts: true, ready: { ok: false, error: `未检测到${DBGEN_LABEL}，请确认已安装并启用，或在「API配置 › 生图API」改用内置 NAI` } };
         }
         const settings = normalizeAutoIllustrationSettings(bridge.autoIllustration).nai;
         const hasNaiKey = Boolean(String(settings.apiKey || '').trim());
@@ -455,7 +457,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             if (findChatu8()) return { mode, via: 'chatu8', ownPrompts: false, ready: { ok: true } };
             return { mode, via: 'none', ownPrompts: false, ready: { ok: false, error: `正在等待${CHATU8_LABEL}就绪` } };
         }
-        if (!hasNaiKey) return { mode, via: 'none', ownPrompts: false, ready: { ok: false, error: '请先在「生图与AI › 图像来源」填写 NAI Key' } };
+        if (!hasNaiKey) return { mode, via: 'none', ownPrompts: false, ready: { ok: false, error: '请先在「API配置 › 生图API」填写 NAI Key' } };
         return { mode, via: 'nai', ownPrompts: false, ready: { ok: true } };
     }
 
@@ -911,8 +913,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const base = describe(bridgeOverride, request);
         if (base.mode !== 'nai') {
             return { supported: false, reason: 'image-edit-unsupported', message: base.mode === 'dbgen'
-                ? `${DBGEN_LABEL}不支持局部重绘，请在「生图与AI › 图像来源」改用内置 NAI`
-                : `${base.mode === 'baibai' ? BAIBAI_LABEL : CHATU8_LABEL}不支持局部重绘，请在「生图与AI › 图像来源」改用内置 NAI` };
+                ? `${DBGEN_LABEL}不支持局部重绘，请在「API配置 › 生图API」改用内置 NAI`
+                : `${base.mode === 'baibai' ? BAIBAI_LABEL : CHATU8_LABEL}不支持局部重绘，请在「API配置 › 生图API」改用内置 NAI` };
         }
         if (!nai || typeof nai.edit !== 'function') {
             return { supported: false, reason: 'image-edit-unsupported', message: '当前 NAI 客户端不支持局部重绘' };

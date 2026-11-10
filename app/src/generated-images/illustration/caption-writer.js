@@ -19,7 +19,7 @@ import { spriteSchemeOf, livelyCgLines } from '../prompt-scheme.js';
 import { imageTaskState } from '../image-task-runtime.js';
 import { CHARACTER_DNA_VIEWS, readCharacterDnaView } from '../../scene/character-dna.js';
 
-export const LLM_SETUP_HINT = '请到「生图与AI › 备用模型」页接好备用模型';
+export const LLM_SETUP_HINT = '请到「API配置 › 备用模型」页接好备用模型';
 
 const CAPTION_WRITER_RULES = [
     '用户给出一段中文画面要求，你按要求写 NovelAI 生图标签。要求里写了几份（slotid），就按顺序写几份，不要多也不要少。',

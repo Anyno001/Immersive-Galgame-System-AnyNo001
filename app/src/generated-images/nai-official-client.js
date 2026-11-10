@@ -171,7 +171,7 @@ export function createNaiOfficialClient(deps = {}) {
                     clearTimeout(timer);
                     await settings.cloudLease?.finish(!settings.cloudSent || settings.cloudResponseKnown === true);
                 }
-            }, { ...settings, wasSent: () => settings.cloudSent === true });
+            }, { ...settings, wasSent: () => settings.cloudSent === true, priority: inputSettings.priority });
             timing.doneAt = Date.now();
             if (result && typeof result === 'object') result.timing = timing;
             return allowed(settings) ? result : stale();

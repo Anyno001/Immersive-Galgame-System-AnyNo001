@@ -1515,6 +1515,8 @@ export function createCombatSession(options = {}) {
                 scan = { ok: false, reason: 'combat-ledger-scan-failed' };
             }
         }
+        // 战报与伤势落账后通知调用方刷新生命与成长缓存，否则状态栏与注入的生命仍是上一份（满血）快照。
+        if (typeof options.onReportSettled === 'function') { try { options.onReportSettled({ messageId: reportMessageId ?? null, wound: woundResult }); } catch { /* 刷新失败不影响战报收尾 */ } }
         setState({ ...identityOf(current), status: 'done', report });
         return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}), ...(growthResult ? { battleGrowth: growthResult } : {}), ...(pointsResult ? { battlePoints: pointsResult } : {}) });
     }

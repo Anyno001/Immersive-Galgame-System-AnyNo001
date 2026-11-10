@@ -34,6 +34,7 @@
 - 副 LLM 请求（`secondary-llm.js`）。
 - `illustration-message-host.readCharacterLore` 按本轮角色筛选并完整收集角色卡、用户人设及匹配的世界书条目，不按每人或总字符数截断；`includeWorldInfo:false` 仍由内置预设的原生世界书扫描负责参考。
 - `combat-story-context.js` 的 `createCombatStoryContext(global, { resolveWorldInfo })` 给卡牌战斗生成提供剧情与世界书参考：最近 3 楼 AI 正文去掉 IGS 标签、HTML 与插图标记后默认取末尾 ≤1600 字作 `story`；世界书经注入的 `resolveWorldInfo`（bootstrap 注入 `image-world-info.js` 的原生扫描，与写词同一链路，扫描串行并恢复作者注释）按剧情与角色名触发，默认取 ≤3000 字作 `worldInfo`。读取时传 `full: true`（卡组生成）则整楼正文与整段扫描结果都不截断；传 `persona: true` 另返回 `userPersona`（`powerUserSettings.persona_description`，与 `readCharacterLore` 同源）。扫描不可用、失败或已取消时只返回读到的部分，不阻断生成；不全量读取世界书。
+- `world-info-filter.js` 的世界书筛选：`listActiveWorldInfoBooks` 在全局对象或其 `parent` 上检测到 `__plotInjector`（剧情注入器单例）时，额外列出名为「剧情注入器」（`PLOT_INJECTOR_BOOK`）、来源标签「剧情注入器」的书。该插件不写世界书文件，只在 `WORLDINFO_ENTRIES_LOADED` 里向 `chatLore` 推 `world` 为该名字的虚拟条目，故只支持整本排除；`readWorldInfoBookEntries` 对这本书返回 `{ ok: true, entries: [], note }`，不读文件。`attachWorldInfoExclude` 按 `world` 名剔除，监听在每次扫描前才挂，晚于插件启动时注册的监听，能剔除其推入的条目。默认不排除。
 - `combat-chat-record.js` 的 `createCombatChatRecord(global)` → `read(anchor, combatId) / write(anchor, combatId, patch)`：按 combatId 读写开战楼的 `extra.igsCombat`，同时写当前 swipe 的 `swipe_info[swipeId].extra`；不改正文 `mes`、不重绘。楼层不在或已换 swipe 时 `read` 返回 `value:null`（那是另一场），格式不对返回 `combat-record-corrupt`。`write` 需要宿主 `saveChat`（否则 `combat-record-unsupported`）；楼层不符返回 `combat-record-stale`；保存失败撤回内存改动并返回 `combat-record-save-failed`；写后读回不一致返回 `combat-record-unverified`。宿主换 swipe、删楼、重新载入聊天后 extra 是否保留，需真机核实。
 - `illustration-message-host.readCardWorldbook(names)` 只读当前角色卡绑定的世界书（卡上主世界书与 TavernHelper 报告的主/附加世界书；都没绑才读卡内嵌的那份），返回每个名字命中的启用、非空条目 `{title, content}`；命中只看关键字（含次关键字）与条目标题，不扫正文。供等待小游戏的麻将对手配打法用，条目整条返回、整条送给副 API，不截断。
 - 自动插图楼层读写、生成事件订阅及 `[igs-img]` 标记对外隐藏（`illustration-message-host.js`）。
@@ -77,3 +78,5 @@
 
 - `combat-generation-materials.js` 只读 `Mvu.getMvuData({type:'message',message_id})`，兼容 `TavernHelper.getVariables`；从最新楼向前最多 40 楼取第一个有效 `stat_data`，空对象也是有效快照，不复活旧技能。未发现楼层数据时可读取当前聊天的 `stat_data`，不读取角色级或全局变量；无接口时兼容楼层直存 `stat_data`。
 - 未安装、读取失败和读取成功分别报告。不解析更新指令，不执行变量中的文字，不写变量或表；候选与手动路径经 combat 层选择、裁剪后发送。真实 MVU 版本与角色卡结构仍需体验验证。
+
+- v0.39.76：`combat-trait-seed.js` 的 `createCombatTraitSeed(host, getChatId).ensure({ signal })` 将 128 位随机种子保存到当前聊天元数据 `igsCombatTraitSeed`。保存中并行读取等待同一次保存，失败撤回未确认种子，未保存时不允许抽取；已有有效种子直接复用，损坏值明确拒收，取消或切聊天返回 `request-stale`。种子随聊天元数据跨设备，不进入浏览器存储，也不改写已有特性和战斗记录。

@@ -196,18 +196,17 @@ test('状态栏关着：什么都不加，也不替换', () => {
 });
 
 // ---------- 设置页版面 ----------
-const sectionOrder = (html) => ['我的角色', '玩法', '其他角色', '高级'].map((title) => html.indexOf(`>${title}`));
-function page(over = {}) {
+function page(over = {}, id = 'stats') {
     const stats = normalizeStatsSettings({ enabled: true, ...(over.stats || {}) });
-    const values = buildStatsPageValues({ stats, chat: over.chat === undefined ? { hasChat: true, enabled: false } : over.chat, archive: over.archive || null, combatOn: false });
-    return renderTemplate(getPageTemplate('stats'), values);
+    const values = buildStatsPageValues({ stats, chat: over.chat === undefined ? { hasChat: true, enabled: false } : over.chat, archive: over.archive || null, combatOn: false, advancedOpen: over.open || (() => '') });
+    return renderTemplate(getPageTemplate(id), values);
 }
 
-test('数值页分区顺序：我的角色、玩法、其他角色、高级；页面上不出现 CoC、D&D 字样的主选项', () => {
-    const html = page();
-    const at = sectionOrder(html);
-    assert.ok(at.every((i) => i >= 0), String(at));
-    assert.deepEqual([...at].sort((a, b) => a - b), at);
+test('数值系统分三个子页：我的角色、其他角色、设置；设置页玩法区不出现 CoC、D&D 字样的主选项', () => {
+    assert.match(page(), />我的角色/);
+    assert.match(page({}, 'stats-npc'), />其他角色/);
+    const html = page({}, 'stats-set');
+    assert.ok(html.indexOf('>玩法') >= 0 && html.indexOf('>玩法') < html.indexOf('data-advanced="stats-more"'));
     const visible = html.slice(0, html.indexOf('data-advanced="stats-more"'));
     assert.doesNotMatch(visible, /CoC|D&D/);
     assert.match(html, /data-segment-path="bridge\.stats\.ruleset" data-segment-value="coc7"/);
@@ -221,7 +220,7 @@ test('我的角色：未开始显示快速开始与自己建卡，已开始显�
     const archive = { day: 3, bars: { stamina: 70, stress: 10, money: 20 }, wallet: 20, vitals: null, attributes: [{ name: '力量', display: '10' }], skills: [{ name: '话术', value: 50, display: '50', marked: true }], characters: [], log: [], total: 0, checks: [], story: [], sheets: [], pendingPeople: [], pendingSkills: [] };
     const started = page({ chat: { hasChat: true, enabled: true }, archive });
     assert.match(started, /力量 10/);
-    assert.match(started, /话术<\/span><b>50<i[^>]*aria-label="今日可成长"[^>]*>✓/);
+    assert.ok(started.includes("<span>话术 ✓</span><b>50</b>"));
     assert.match(started, /data-action="stats-chat-disable"/);
     assert.doesNotMatch(started, /本聊天已开始|暂停后数值冻结|AI只负责|由脚本结算/);
     const startRow = idle.match(/<div class="igs-settings-row"( hidden[^>]*)?>\s*<button class="igs-settings-action" data-action="stats-chat-enable"/);
@@ -232,19 +231,56 @@ test('我的角色：未开始显示快速开始与自己建卡，已开始显�
 
 test('自己建卡：选了手动建档后，职业与六维加点直接出现在「我的角色」里并展开', () => {
     const html = page({ chat: { hasChat: true, enabled: false, pendingMode: 'manual' } });
-    const mine = html.slice(html.indexOf('>我的角色'), html.indexOf('>玩法'));
-    assert.match(mine, /bridge\.stats\.build\.className/);
-    assert.match(mine, /data-advanced="stats-build" open/);
-    assert.doesNotMatch(html.slice(html.indexOf('data-advanced="stats-more"')), /bridge\.stats\.build\.className/);
-    const auto = page();
-    assert.doesNotMatch(auto.slice(auto.indexOf('>我的角色'), auto.indexOf('>玩法')), /bridge\.stats\.build\./);
-    assert.match(auto.slice(auto.indexOf('data-advanced="stats-more"')), /bridge\.stats\.build\.prefs\.major/);
+    assert.match(html, /bridge\.stats\.build\.className/);
+    assert.match(html, /data-advanced="stats-build" open/);
+    assert.doesNotMatch(page({ chat: { hasChat: true, enabled: false, pendingMode: 'manual' } }, 'stats-set'), /bridge\.stats\.build\.className/);
+    assert.doesNotMatch(page(), /bridge\.stats\.build\./);
+    assert.match(page({}, 'stats-set'), /bridge\.stats\.build\.prefs\.major/);
 });
 
-test('数值系统关闭时下方整块隐藏', () => {
+test('数值系统关闭时三个子页内容整块隐藏，其他角色与设置页提示去「我的角色」开启', () => {
     const stats = normalizeStatsSettings({ enabled: false });
-    const html = renderTemplate(getPageTemplate('stats'), buildStatsPageValues({ stats, chat: null, combatOn: false }));
-    assert.match(html, /<div class="igs-stats-content" hidden>/);
+    const values = buildStatsPageValues({ stats, chat: null, combatOn: false });
+    for (const id of ['stats', 'stats-npc', 'stats-set']) assert.match(renderTemplate(getPageTemplate(id), values), /<div class="igs-settings-sub igs-settings-full" hidden>/, id);
+    assert.match(renderTemplate(getPageTemplate('stats-npc'), values), /<div class="igs-source-filter-note">未启用数值系统/);
+    const on = buildStatsPageValues({ stats: normalizeStatsSettings({ enabled: true }), chat: null, combatOn: false });
+    assert.match(renderTemplate(getPageTemplate('stats-set'), on), /<div class="igs-source-filter-note" hidden>未启用数值系统/);
+});
+
+test('其他角色：角色卡并进同名角色，没有人际档的角色卡单独成卡；剧情技能与检定记录在我的角色', () => {
+    const archive = { day: 1, bars: {}, wallet: 0, vitals: null, attributes: [], skills: [], log: [], total: 0, checks: [{ messageId: 2, skill: '侦查', difficulty: '普通', detail: '1d100=12', outcome: '成功', ruleset: 'coc7' }], story: [{ name: '开锁', attribute: '敏捷' }], pendingPeople: [], pendingSkills: [],
+        characters: [{ name: '小雪', stage: '朋友', dims: { 好感: 30, 信任: 10, 了解: 5 }, intimacyForced: false }],
+        sheets: [{ name: '小雪', rank: '老手', source: 'default', attributes: [{ name: '力量', display: '40' }], skills: [] }, { name: '路人甲', rank: '普通人', source: 'default', attributes: [], skills: [] }] };
+    const editOpen = (key) => (key.startsWith('stats-edit-') ? ' open' : '');
+    const npc = page({ chat: { hasChat: true, enabled: true }, archive, open: editOpen }, 'stats-npc');
+    const card = npc.slice(npc.indexOf('<b>小雪</b>'), npc.indexOf('<b>路人甲</b>'));
+    assert.match(card, /data-action="stats-op:relation-set:/);
+    assert.match(card, /data-action="stats-op:sheet-edit:%E5%B0%8F%E9%9B%AA"/);
+    assert.match(npc.slice(npc.indexOf('<b>路人甲</b>')), /stats-op:sheet-edit:/);
+    // 有人际档的角色卡在时不出「生成角色卡」；卡丢了才出。
+    assert.doesNotMatch(card, /stats-op:sheet-new:/);
+    const lost = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, sheets: [] }, open: editOpen }, 'stats-npc');
+    assert.match(lost, /data-action="stats-op:sheet-new:%E5%B0%8F%E9%9B%AA"/);
+    const skillEdit = [{ name: '烹饪', attribute: '智力', tier: '熟练', value: 55, story: false }, { name: '开锁', attribute: '敏捷', tier: '入门', value: 30, story: true }, { name: '火尖枪', attribute: '力量', tier: '入门', value: 28, story: true, slotted: true }, { name: '法律', attribute: '智力', tier: '未学', value: 5, story: false }];
+    const mine = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, skillEdit } });
+    // 技能平铺不折叠；全部技能的编辑在「编辑技能」折叠里，不再有「编辑技能」按钮。
+    assert.doesNotMatch(mine, /data-advanced="stats-skills"|stats-story-skills|stats-op:hero-edit/);
+    const editor = mine.slice(mine.indexOf('data-advanced="stats-skill-edit"'), mine.indexOf('data-advanced="stats-checks"'));
+    // 内置技能（烹饪）：两个下拉一行，删除单独一行占满；剧情技能的删除与改名、合并同一行。
+    const cook = editor.slice(editor.indexOf('data-stats-skill-row="烹饪"'), editor.indexOf('data-stats-skill-row="开锁"'));
+    assert.match(cook, /<div class="igs-stats-hero-actions"><select data-stats-skill-attr="烹饪"[^>]*>.*<option value="智力" selected>.*<select data-stats-skill-tier="烹饪"[^>]*>.*<option value="熟练" selected>.*<\/select><\/div><div class="igs-segmented igs-stats-skill-ops"><button class="igs-segmented-btn"[^>]*stats-op:skill-remove:/s);
+    assert.doesNotMatch(cook, /skill-rename/);
+    // 剧情技能：改名、合并、删除同一行分段按钮；占 3+5 格的剧情技能不出合并；未学的内置技能不列。
+    const lock = editor.slice(editor.indexOf('data-stats-skill-row="开锁"'), editor.indexOf('data-stats-skill-row="火尖枪"'));
+    assert.match(lock, /igs-stats-skill-ops"><button class="igs-segmented-btn"[^>]*skill-rename:.*skill-merge:.*skill-remove:/s);
+    const slot = editor.slice(editor.indexOf('data-stats-skill-row="火尖枪"'));
+    assert.match(slot, /skill-rename:.*skill-remove:/s);
+    assert.doesNotMatch(slot, /skill-merge/);
+    assert.doesNotMatch(editor, /data-stats-skill-row="法律"/);
+    assert.doesNotMatch(editor, /stats-hero-skills-智力/);
+    assert.doesNotMatch(editor, /data-stats-skill-add/);
+    assert.match(mine, /data-advanced="stats-checks"/);
+    assert.doesNotMatch(npc, /data-stats-skill-|stats-checks/);
 });
 
 // ---------- 状态栏渲染：主角区常驻 ----------

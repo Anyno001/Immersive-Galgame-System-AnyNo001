@@ -31,7 +31,9 @@ export function checksByPage(results, offsets) {
     return pages;
 }
 
+// CoC 百分骰没有加值，阈值是「需≤」而不是 DC；D&D 与战斗 d20 仍按「骰面+加值=总值 · DC」。
 export function checkBadgeText(r) {
+    if (r.ruleset === 'coc7') return { cap: `${r.label}检定 · 需≤${r.threshold ?? r.dc}`, line: `${r.actor} ${r.die}`, tier: r.tier };
     return { cap: `${r.label}检定 · DC ${r.dc}`, line: `${r.actor} ${r.die}${signed(r.bonus)}=${r.total}`, tier: r.tier };
 }
 

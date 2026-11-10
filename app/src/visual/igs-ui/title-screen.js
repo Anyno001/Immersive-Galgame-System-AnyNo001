@@ -14,6 +14,8 @@ import { getReferenceDialogTypography } from './dialog-theme-typography.js';
 import { cachedCoverPalette, coverPaletteOf, inkFor } from './title-cover-color.js';
 import { WX_BAR, WX_HSTROKE, WX_RUBBING, WX_SEAL_MASK_SMALL, WX_SLASH, maskOf, wxEdge } from './wuxia-ink-svg.js';
 import { WUXIA_MOON } from './dialog-theme-wuxia.js';
+import { MONITOR_TITLE_SCREEN_TONE } from './dialog-theme-horror-monitor.js';
+import { WARD_TITLE_SCREEN_TONE } from './dialog-theme-horror-ward.js';
 import { MAGIC_SPARKLE_MASK } from './dialog-theme-css-skins.js';
 
 // 第 0 层的主界面：阅读器停在开场白第一页时先盖一层标题画面（开始 / 继续 / 世界风格 / 设置 / 生成主角立绘），
@@ -73,7 +75,7 @@ export function titleCardOf(ctx) {
     };
 }
 
-// 主界面按钮 → 新的界面状态，以及要阅读器去做的事：start / continue / settings / close / save / save-start / user-char。
+// 主界面按钮 → 新的界面状态，以及要阅读器去做的事：start / continue / settings / close / save / save-start / user-char / my-stats。
 export function reduceTitleAction(gate, model, act, value) {
     const base = { ...(gate || createTitleGate()) };
     const pickFor = (id) => pickWorldviewDialogSkin(id, { cardSkin: model.cardSkin, globalSkin: model.globalSkin, horrorStyle: model.horrorStyle });
@@ -85,6 +87,7 @@ export function reduceTitleAction(gate, model, act, value) {
         case 'settings':
         case 'close':
         case 'user-char':
+        case 'my-stats':
             return { gate: base, effect: act };
         case 'worldview':
             return { gate: { ...base, view: 'worldview', pick: null } };
@@ -200,7 +203,7 @@ const SKIN_TONES = Object.freeze({
     'plant-coffee': 'soft', 'warm-picturebook': 'soft', 'fairy-tale': 'soft', 'cute-pink': 'soft', 'day-minimal': 'soft',
     'qinglv-shanshui': 'ink', 'xianxia-ink': 'ink', 'wuxia-ink': 'ink', 'retro-japanese': 'classic',
     'western-classic': 'mystic', 'elegant-european': 'mystic', 'magic-academy': 'mystic', 'mermaid-deep': 'mystic', 'adventure-journey': 'mystic',
-    'horror-gore': 'dark', 'horror-psych': 'dark',
+    'horror-gore': 'dark', 'horror-monitor': MONITOR_TITLE_SCREEN_TONE, 'horror-ward': WARD_TITLE_SCREEN_TONE, 'horror-psych': 'dark',
 });
 const WORLD_TONES = Object.freeze({ scifi: 'tech', apocalypse: 'tech', ancient: 'ink', taisho: 'classic', fantasy: 'mystic', magic: 'mystic', horror: 'dark' });
 
@@ -265,7 +268,7 @@ function syncMedia(layer, model) {
     }
 }
 
-const MENU_EN = Object.freeze({ start: 'START', replay: 'REPLAY', continue: 'CONTINUE', worldview: 'WORLD', settings: 'CONFIG', 'user-char': 'OPERATOR', latest: 'LATEST' });
+const MENU_EN = Object.freeze({ start: 'START', replay: 'REPLAY', continue: 'CONTINUE', worldview: 'WORLD', settings: 'CONFIG', 'user-char': 'OPERATOR', 'my-stats': 'STATUS', latest: 'LATEST' });
 
 function menuHtml(model) {
     const replay = !model.newChat && model.hasLater;
@@ -276,9 +279,10 @@ function menuHtml(model) {
     ] : [
         ['start', replay ? '从头重播' : '开始', replay ? MENU_EN.replay : MENU_EN.start],
         model.hasLater ? ['continue', '继续', MENU_EN.continue] : null,
+        ['my-stats', '我的数值', MENU_EN['my-stats']],
+        model.userName ? ['user-char', '我的立绘', MENU_EN['user-char']] : null,
         ['worldview', '世界风格', MENU_EN.worldview],
         ['settings', '设置', MENU_EN.settings],
-        model.userName ? ['user-char', '生成主角立绘', MENU_EN['user-char']] : null,
     ]).filter(Boolean).map(([act, label, en], i) => `<button type="button" class="igs-ts-btn${i === 0 ? ' is-primary' : ''}" data-ts-act="${act}"${model.busy ? ' disabled' : ''}>`
         + `<span class="igs-ts-no">${String(i + 1).padStart(2, '0')}</span><span class="igs-ts-zh">${esc(label)}</span><span class="igs-ts-btn-en">${en}</span></button>`).join('');
     return `<div class="igs-ts-base"></div>${coverHtml(model)}<div class="igs-ts-edge" aria-hidden="true"></div>${ARC_HTML}

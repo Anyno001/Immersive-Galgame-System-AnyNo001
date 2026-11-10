@@ -10,7 +10,7 @@ import { makeEntry } from '../src/scene/origin/origin-ledger.js';
 import { splitBlock } from '../src/scene/origin/origin-parse.js';
 import { cloneForWrite, createInitialState, fillSettings, seededRandom } from '../src/scene/origin/origin-state.js';
 
-const S0 = fillSettings({ enabled: true });
+const S0 = fillSettings({ enabled: true, limitMax: 99 });
 const KEYS = ['points', 'level', 'exp', 'expMax', 'stats', 'tasks', 'bag', 'achievements', 'skills', 'perks', 'rewardsLog', 'log', 'lastTaskTurn', 'nextId'];
 const plain = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'floor' ? undefined : v)));
 const pick = (st) => plain(Object.fromEntries(KEYS.map((k) => [k, st[k]])));

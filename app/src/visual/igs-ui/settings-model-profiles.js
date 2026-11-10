@@ -19,7 +19,7 @@ const PROFILE_PATHS = Object.freeze({
 const KIND_LABEL = Object.freeze({ image: '生图', llm: '副 LLM' });
 
 // 这些字段在 change 事件后立即落盘：后台生图任务读的是已保存配置。
-const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model|minIntervalEnabled|minIntervalMs|effort|cloudQueue\.(?:enabled|endpoint|timeoutMs))|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
+const IMMEDIATE_SAVE_PATH = /^bridge\.(?:autoIllustration\.nai\.(?:endpoint|apiKey|transport|model|minIntervalEnabled|minIntervalMs|effort|cloudQueue\.(?:enabled|endpoint|timeoutMs))|autoIllustration\.assets\.anchored(?:Width|Height)|autoIllustration\.llm\.(?:endpoint|apiKey|model|includeHeaders|includeBody|excludeBody)|imageApi\.(?:mode|\w+Model))$/;
 export function isImmediateSavePath(path) {
     return IMMEDIATE_SAVE_PATH.test(String(path || ''));
 }

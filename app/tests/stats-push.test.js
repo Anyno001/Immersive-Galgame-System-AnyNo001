@@ -115,3 +115,13 @@ test('生成前补写超时放行（易错点 F6）', async () => {
     assert.equal(r.reason, 'stats-push-timeout');
     assert.deepEqual(await withTimeout(Promise.resolve({ ok: true }), 20), { ok: true });
 });
+
+test('IGS 有的关系项以 IGS 为准盖掉表格；角色身上没有的项不碰该格', async () => {
+    const sheets = [sheet('sheet_v', '角色数值表', [['角色姓名', '好感度', '芥蒂程度'], ['小雪', '80%', '40%']], 1)];
+    const api = fakeApi(sheets);
+    const s = stateWith({ 好感: 10 });
+    const { 芥蒂: dropped, ...dims } = s.characters.小雪.dims;
+    void dropped;
+    await pushStats(createShujukuClient(api), { ...s, characters: { 小雪: { ...s.characters.小雪, dims } } });
+    assert.deepEqual(api.raw.sheet_v.content[1], ['小雪', '10%', '40%']);
+});

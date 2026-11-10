@@ -1,60 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildInitialState, buildSummary, normalizeBuild, specialCandidates, validCustomSkillName } from '../src/scene/stats/stat-build.js';
+import { buildInitialState, buildSummary, normalizeBuild, pickCandidates, validCustomSkillName } from '../src/scene/stats/stat-build.js';
 import { worldSkillNames } from '../src/scene/stats/stat-world-skills.js';
 import { matchSkill } from '../src/scene/stats/stat-skill-match.js';
 import { renderStatsBuildFields } from '../src/visual/igs-ui/stats-settings-fields.js';
-import { checkbox } from '../src/visual/igs-ui/settings-fields.js';
 import { DEFAULT_SPECIAL_SKILLS } from '../src/scene/stats/stat-state.js';
 
-test('世界观候选：现代不追加；魔法追加咒语等且默认不选；默认 3 项不变', () => {
+test('世界观技能另外算：不进 3+5 下拉候选，建卡默认技能不变', () => {
     assert.deepEqual(worldSkillNames('modern'), []);
-    assert.equal(specialCandidates(undefined).length, 8);
-    const c = specialCandidates(undefined, { worldview: 'magic' });
-    assert.ok(c.includes('咒语') && c.includes('魔药'));
-    assert.deepEqual(buildSummary(undefined, { worldview: 'magic' }).picked, ['烹饪', '家务', '学习']);
+    assert.ok(worldSkillNames('magic').includes('魔法'));
+    const c = pickCandidates(undefined);
+    assert.deepEqual(c.slice(0, 8), [...DEFAULT_SPECIAL_SKILLS]);
+    assert.equal(c.includes('魔法'), false);
+    assert.deepEqual(buildSummary(undefined).picked.slice(0, 3), ['烹饪', '家务', '学习']);
 });
 
-test('选世界观技能建卡：只在该世界观下计入；切换世界观后选择保留', () => {
-    const build = { special: { 烹饪: false, 咒语: true } };
-    const r = buildInitialState(build, { worldview: 'magic' });
-    assert.equal(r.ok, true);
-    assert.equal(r.state.protagonist.skills.咒语.value, 50);
-    assert.equal(normalizeBuild(build).special.咒语, true);
-    assert.deepEqual(buildSummary(build).picked, ['家务', '学习']);
-    assert.equal(matchSkill('我念咒', { skills: Object.keys(r.state.protagonist.skills) }).skill, '咒语');
-    assert.equal(matchSkill('我念咒').skill, null);
-});
-
-test('自定义技能：名字校验、去重；选中后写进存档；按技能名触发检定', () => {
+test('自定义技能：名字校验、去重；选进格子后写进存档；按技能名触发检定', () => {
     assert.equal(validCustomSkillName(' 钓鱼 '), '钓鱼');
     for (const bad of ['', '体质', '烹饪', 'a.b', '射击3', '__proto__', '一二三四五六七八九']) assert.equal(validCustomSkillName(bad), null, bad);
-    const b = normalizeBuild({ custom: ['钓鱼', '钓鱼', '体质'], special: { 钓鱼: true, 烹饪: false } });
+    const b = normalizeBuild({ custom: ['钓鱼', '钓鱼', '体质'], picks: { strong1: '钓鱼', strong2: '家务', strong3: '学习' } });
     assert.deepEqual(b.custom, ['钓鱼']);
+    assert.ok(pickCandidates(b).includes('钓鱼'));
     const r = buildInitialState(b);
     assert.equal(r.ok, true);
-    assert.equal(r.state.protagonist.skills.钓鱼.value, 50);
+    assert.equal(r.state.protagonist.skills.钓鱼.value, 60);
     assert.equal(matchSkill('我去河边钓鱼', { skills: Object.keys(r.state.protagonist.skills) }).skill, '钓鱼');
     assert.equal(matchSkill('我去河边钓鱼').skill, null);
 });
 
-test('建卡区渲染：技能选择沿用原有开关样式（默认 8 项与 v0.36.117 逐字一致，附加技能无附注）；自定义技能在下方单独一行增删', () => {
-    const original = `<div class="igs-settings-section">${DEFAULT_SPECIAL_SKILLS.map((name, i) => checkbox(`bridge.stats.build.special.${name}`, i < 3, name)).join('')}</div>`;
-    assert.ok(renderStatsBuildFields(undefined).includes(original));
+test('建卡区渲染：擅长 3 格、比较擅长 5 格下拉；提示按骰子分开写；自定义技能在下方单独一行增删', () => {
     const html = renderStatsBuildFields({ custom: ['钓鱼'] }, () => '', { worldview: 'magic' });
     assert.match(html, /data-stats-worldview="magic"/);
-    assert.match(html, /data-switch="bridge\.stats\.build\.special\.咒语" aria-pressed="false"><i><\/i><span>咒语<\/span><\/button>/);
-    assert.match(html, /data-switch="bridge\.stats\.build\.special\.钓鱼" aria-pressed="false"><i><\/i><span>钓鱼<\/span><\/button>/);
-    assert.doesNotMatch(html, /本世界|自定义）|igs-switch-note|igs-stats-custom-skill/);
-    // 自定义技能只在上方开关列表出现一次；下方一行只有增删按钮，整行居中。
-    assert.equal(html.split('>钓鱼<').length - 1, 1);
-    assert.doesNotMatch(html, /igs-mood-word-tag/);
+    for (const slot of ['strong1', 'strong3', 'good1', 'good5']) assert.match(html, new RegExp(`<select data-path="bridge\\.stats\\.build\\.picks\\.${slot}"`));
+    assert.match(html, /<span>擅长一<\/span>/);
+    assert.match(html, /<span>比较擅长五<\/span>/);
+    assert.match(html, /<option value="钓鱼">钓鱼<\/option>/);
+    assert.doesNotMatch(html, /<option value="魔法">/);
+    assert.match(html, /擅长技能60起步/);
+    assert.match(renderStatsBuildFields(undefined, () => '', { ruleset: 'dnd5e' }), /全额熟练加值/);
     assert.match(html, /class="igs-settings-field igs-stats-custom-row"/);
     assert.match(html, /data-action="stats-build-remove-skill"/);
     assert.match(html, /data-action="stats-build-add-skill"/);
 });
 
-test('设置页新增与删除自定义技能：写入草稿、默认不选，删除后清掉选择', async () => {
+test('设置页新增与删除自定义技能：写入草稿；删除后清掉占用它的格子', async () => {
     const { bootstrapIGS } = await import('../src/index.js');
     const answers = ['钓鱼', '钓鱼'];
     const global = { prompt: () => answers.shift() ?? '', confirm: () => true };
@@ -65,12 +54,11 @@ test('设置页新增与删除自定义技能：写入草稿、默认不选，�
         const added = await controller.invoke('stats-build-add-skill');
         assert.notEqual(added && added.ok, false);
         assert.deepEqual(build().custom, ['钓鱼']);
-        assert.equal(build().special.钓鱼, false);
-        controller.toggle('bridge.stats.build.special.钓鱼');
-        assert.equal(build().special.钓鱼, true);
+        assert.equal(Object.values(build().picks).includes('钓鱼'), false);
+        controller.getSnapshot().draft.bridge.stats.build = { ...build(), picks: { ...build().picks, good5: '钓鱼' } };
         await controller.invoke('stats-build-remove-skill');
         assert.deepEqual(build().custom, []);
-        assert.equal(Object.hasOwn(build().special, '钓鱼'), false);
+        assert.equal(Object.values(build().picks).includes('钓鱼'), false);
         assert.notEqual(controller.close().ok, false);
     } finally {
         vn.destroy?.();

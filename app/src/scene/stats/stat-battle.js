@@ -2,11 +2,13 @@
 // 掷骰走检定引擎：CoC 为对抗（主角反击时同级攻击方胜），D&D 为攻击检定对 AC、闪避为敏捷豁免。
 import { applyBarDirective, applyCurrencyDirective, shiftCurrency, walletBalance, workIncomeTier } from './stat-bars.js';
 import { applyKeyEvent } from './stat-favor-events.js';
+import { extraGatesOf } from './stat-traits.js';
 import { matchSkill } from './stat-skill-match.js';
-import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withSkills } from './stat-state.js';
+import { DEFAULT_SPECIAL_SKILLS, clamp, withBars, withCharacter, withClock, withSkills } from './stat-state.js';
+import { shiftStress } from './stat-strain.js';
 import { COMBAT_SKILLS, DODGE_SKILLS } from './stat-registry.js';
 import { settleChallenge } from './stat-challenge.js';
-import { PROTAGONIST, bestCombatSkill, createEngine, profileOf, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, bestCombatSkill, createEngine, keyEventSkill, profileOf, resolveCheck } from './stat-engine.js';
 
 export { COMBAT_SKILLS, DODGE_SKILLS };
 export const ENEMY_TABLE = Object.freeze({
@@ -14,7 +16,8 @@ export const ENEMY_TABLE = Object.freeze({
     精英: Object.freeze({ value: 55, rounds: 2, hurt: '中伤', loot: '普通', attack: 5, ac: 14, save: 14 }),
     头目: Object.freeze({ value: 75, rounds: 3, hurt: '重伤', loot: '昂贵', attack: 7, ac: 16, save: 16 }),
 });
-export const DEFEAT_MONEY_LOSS = 0.2;
+import { DEFEAT_MONEY_LOSS } from './stat-vocab.js';
+export { DEFEAT_MONEY_LOSS };
 const WIN_STAMINA = Object.freeze({ 大胜: -5, 胜: -10, 险胜: -15 });
 const DEFEAT_STAMINA = -30;
 const WORK_STAMINA = -15;
@@ -44,7 +47,7 @@ function foeProfile(engine, state, enemy, foeName) {
             const dex = Number(profileOf(engine, state, foeName, '敏捷').value) || 50;
             return { profile: null, ac: 10 + engine.ruleset.modOf(dex), save: enemy.save };
         }
-        const profile = ['格斗', '射击', '武艺', '剑术', '魔法', '力量'].map((skill) => profileOf(engine, state, foeName, skill)).sort((a, b) => b.value - a.value)[0];
+        const profile = ['格斗', '射击', '剑术', '魔法', '力量'].map((skill) => profileOf(engine, state, foeName, skill)).sort((a, b) => b.value - a.value)[0];
         return { profile, ac: enemy.ac, save: enemy.save };
     }
     return { profile: { kind: 'skill', value: enemy.value, learned: true, attributeValue: enemy.value, rank: '普通人', entry: { attribute: '力量' } }, ac: enemy.ac, save: enemy.save };
@@ -127,8 +130,8 @@ export function applyBattle(state, directive, ctx) {
     let next = withBars(state, bars);
     if (result.outcome !== '败') next = markSkill(next, result.attack);
     if (result.ally && result.outcome !== '败' && next.characters[result.ally]) {
-        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: '魅力', toward: result.ally }, ctx.random);
-        const { character, result: ev } = applyKeyEvent(next.characters[result.ally], '共患难', { roll, random: ctx.random });
+        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: keyEventSkill(engine, next, '共患难', ctx.rev), toward: result.ally }, ctx.random);
+        const { character, result: ev } = applyKeyEvent(next.characters[result.ally], '共患难', { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(next, ctx.traitCat, result.ally) : [] });
         if (ev.success) ctx.changes.push({ source: 'battle', target: result.ally, key: '好感', from: ev.gate, to: ev.gate + 1, note: '共患难突破' });
         ctx.events.push({ target: result.ally, ...ev });
         next = withCharacter(next, result.ally, character);
@@ -136,6 +139,40 @@ export function applyBattle(state, directive, ctx) {
     ctx.events.push({ kind: 'battle', ...result });
     ctx.flags.battle = { outcome: result.outcome, tier: result.tier, count: result.count, ally: result.ally };
     return next;
+}
+
+// 卡牌战斗战报合成的战斗事件：只产出事件、标记与伤势档，交给特质、成就与共患难使用；
+// 经验、战利品与生命已由战斗账本结算，这里不掷骰、不扣钱、不给战利品。同一份战报只结算一次（clock.lastBattleReport）。
+export const REPORT_BATTLE_STRESS_LOSE = 10;
+export function applyBattleReport(state, directive, ctx) {
+    if (!directive || !directive.reportId || state.clock.lastBattleReport === directive.reportId) return state;
+    const outcome = directive.result === 'lose' ? '败' : directive.result === 'escape' ? '撤'
+        : directive.allClean ? '大胜' : ['重创', '濒死', '倒下'].includes(directive.heroStatus) ? '险胜' : '胜';
+    const allies = (directive.allies || []).filter((name) => Object.hasOwn(state.characters, name));
+    const ally = allies[0] || null;
+    const note = `战斗${outcome}`;
+    let next = state;
+    // 伤势只记档位交给特质读（耐痛、怕痛等）；生命本身以战斗账本为准，主角离体时不记。
+    if (directive.hurt && !ctx.detached) ctx.flags.battleHurt = directive.hurt;
+    if (outcome === '败') {
+        const bars = next.protagonist.bars;
+        const from = Number(bars.stress) || 0;
+        const moved = shiftStress(bars, REPORT_BATTLE_STRESS_LOSE, '战败');
+        const to = Number(moved.stress) || 0;
+        if (to !== from) ctx.changes.push({ source: 'battle', target: '主角', key: 'stress', from, to, note });
+        next = withBars(next, moved);
+    }
+    if (outcome !== '败' && outcome !== '撤' && ally) {
+        const engine = ctx.engine || createEngine();
+        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: keyEventSkill(engine, next, '共患难', ctx.rev), toward: ally }, ctx.random);
+        const { character, result: ev } = applyKeyEvent(next.characters[ally], '共患难', { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(next, ctx.traitCat, ally) : [] });
+        if (ev.success) ctx.changes.push({ source: 'battle', target: ally, key: '好感', from: ev.gate, to: ev.gate + 1, note: '共患难突破' });
+        ctx.events.push({ target: ally, ...ev });
+        next = withCharacter(next, ally, character);
+    }
+    ctx.events.push({ kind: 'battle', outcome, tier: '卡牌', count: 1, ally, allies, fromReport: true, reportId: directive.reportId });
+    ctx.flags.battle = { outcome, tier: '卡牌', count: 1, ally, allies, fromReport: true };
+    return withClock(next, { lastBattleReport: directive.reportId });
 }
 
 // 打工：按工作内容匹配技能，匹配不上用最高的特有属性；成功等级决定收入档，大失败没有收入。
@@ -160,9 +197,11 @@ export function applyWork(state, directive, ctx) {
 // 一楼最多一场战斗、一次打工、一场日常挑战。
 export function settleCombat(state, directives, ctx) {
     let next = state;
-    const battle = directives.find((d) => d.kind === 'battle');
+    const battle = directives.find((d) => d.kind === 'battle' && !d.fromReport);
+    const report = directives.find((d) => d.kind === 'battle' && d.fromReport);
     const work = directives.find((d) => d.kind === 'work');
     if (battle) next = applyBattle(next, battle, ctx);
+    else if (report) next = applyBattleReport(next, report, ctx);
     if (work) next = applyWork(next, work, ctx);
     return settleChallenge(next, directives, ctx);
 }

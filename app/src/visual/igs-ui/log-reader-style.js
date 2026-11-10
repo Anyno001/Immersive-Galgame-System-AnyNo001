@@ -2,6 +2,7 @@ import { FX_STYLE_TEXT } from './fx-style.js';
 import { logThemeStyleText } from './log-reader-theme.js';
 import { LOG_AVATAR_BOX, LOG_PERCENTS } from './log-reader-model.js';
 import { getLogFrameStyleText } from './dialog-theme-item-frames.js';
+import { logPartsStyleText } from './log-reader-parts.js';
 
 // 情绪胶囊的字色取漫画符号同一套色相（fx-style 里 .igs-fx-symbol[data-kind] 的 --igs-fx-hue），不另抄一份。
 const CHIP_HUES = [...FX_STYLE_TEXT.matchAll(/\.igs-fx-symbol\[data-kind="([a-z-]+)"\]\{--igs-fx-hue:(#[0-9a-fA-F]{3,8})/g)]
@@ -148,6 +149,7 @@ ${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;
 /* 情绪符号：头像右上角，入场弹一下；循环只给最新两枚，暂停 / 屏外时停住。复用漫画符号的配色与 SVG。 */
 /* 位置：有头位时锚在头顶右侧（--igs-log-sym-x/y 由裁切算出），否则落在头像右上角。 */
 ${getLogFrameStyleText()}
+${logPartsStyleText()}
 #igs-log{--igs-log-plate-h:${BREAK.plate}px;}
 #igs-log .igs-log-av>.igs-fx-symbol{--igs-fx-size:calc(32px * var(--igs-log-mk));left:calc(var(--igs-log-sym-x,calc(100% + 12px * var(--igs-log-mk) - var(--igs-fx-size) * .6)) - var(--igs-fx-size) * .4);top:calc(var(--igs-log-sym-y,calc(var(--igs-fx-size) * .62 - 12px * var(--igs-log-mk))) - var(--igs-fx-size) * .62);right:auto;margin:0;z-index:2;cursor:pointer;animation:igs-log-pop .45s cubic-bezier(.3,1.6,.5,1) both;}
 #igs-log .igs-log-av>.igs-fx-symbol.is-loop{animation:igs-log-pop .45s cubic-bezier(.3,1.6,.5,1) both,var(--igs-log-loop,igs-log-bob) 2.6s ease-in-out .45s infinite;}
@@ -164,8 +166,8 @@ ${getLogFrameStyleText()}
 @keyframes igs-log-drip{0%,50%{transform:none;opacity:1;}80%{transform:translateY(5px);opacity:.3;}81%{transform:translateY(-3px);opacity:0;}100%{transform:none;opacity:1;}}
 @keyframes igs-log-shake-sym{0%,62%,100%{transform:none;}66%{transform:rotate(-10deg) scale(1.1);}72%{transform:rotate(8deg) scale(1.1);}78%{transform:rotate(-4deg);}}
 /* 调整立绘：头像描一圈强调色，可拖动、滚轮 / 双指缩放。 */
-#igs-log[data-editing] .igs-log-av:not(.is-letter){box-shadow:0 0 0 2px var(--igs-log-acc);cursor:grab;touch-action:none;}
-#igs-log[data-editing] .igs-log-av[data-picked]:not(.is-letter){box-shadow:0 0 0 2px rgb(var(--igs-log-veil)),0 0 0 4px var(--igs-log-acc);}
+${ON} #igs-log[data-editing] .igs-log-av:not(.is-letter){box-shadow:0 0 0 2px var(--igs-log-acc);cursor:grab;touch-action:none;}
+${ON} #igs-log[data-editing] .igs-log-av[data-picked]:not(.is-letter){box-shadow:0 0 0 2px rgb(var(--igs-log-veil)),0 0 0 4px var(--igs-log-acc);}
 #igs-log[data-editing] .igs-log-row.is-cont .igs-log-av{visibility:hidden;}
 /* 编辑条放在输入框上方，不被输入框盖住。 */
 #igs-log-edit-bar{position:absolute;left:50%;bottom:calc(var(--igs-log-foot) + 12px);transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:4px;max-width:calc(100% - 24px);padding:4px 4px 4px 14px;border-radius:18px;background:rgb(var(--igs-log-veil));color:var(--igs-log-ink);font-size:12px;line-height:1;pointer-events:auto;}

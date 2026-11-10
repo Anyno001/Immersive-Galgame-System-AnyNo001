@@ -129,7 +129,7 @@ test('选项骰子走 IGS 引擎：结果按当前体系、元叙事格式不变
     rt.enableForChat();
     const r = rt.resolveDice('检定 <user> 侦查 难度=困难', { userName: '阿明' });
     assert.equal(r.ok, true);
-    assert.match(r.line, /^元叙事：阿明发起了【侦查】检定（困难），d20\(\d+\)[+-]\d+=\d+，DC20/);
+    assert.match(r.line, /^检定结果：阿明发起了【侦查】检定（困难），d20\(\d+\)[+-]\d+=\d+，DC20/);
     assert.equal(r.detail.die, 20);
     h.ctx.chat.push({ is_user: true, mes: `我搜查房间。 <meta:检定结果>\n${r.line}\n</meta:检定结果>` });
     const { id, injected } = generate(h, '你翻遍了抽屉。');
@@ -248,7 +248,7 @@ test('战斗按 D&D：攻击检定对 AC，闪避为敏捷豁免；战败不死�
 
 test('按人设补填初始关系：只补近似 0 的角色，初值叠加在当前值上，陌生不改，补过的不再补', async () => {
     const reply = JSON.stringify({ 小雪: '朋友', 阿杰: '陌生' });
-    const { h, rt } = setup({}, { getBackgroundRequest: () => async () => reply });
+    const { h, rt } = setup({ favorMode: 'hard' }, { getBackgroundRequest: () => async () => reply });
     rt.enableForChat();
     h.ctx.chat.push({ is_user: true, mes: '你好' });
     generate(h, '[igs-stat:favor|小雪|开心][igs-stat:favor|阿杰|平淡]');
@@ -264,4 +264,19 @@ test('按人设补填初始关系：只补近似 0 的角色，初值叠加在�
     assert.ok(!rt.notices().some((n) => n.id === 'start-relations' && n.kind === 'busy'));
     const again = await rt.relationOp('fill-start');
     assert.equal(again.reason, 'stats-start-none');
+});
+
+test('按人设补填初始关系：NSFW 开启时恋人档叠加欲望，关闭时不动欲望', async () => {
+    const reply = JSON.stringify({ 小雪: '恋人' });
+    for (const nsfw of [true, false]) {
+        const { h, rt } = setup({}, { isNsfw: () => nsfw, getBackgroundRequest: () => async () => reply });
+        rt.enableForChat();
+        h.ctx.chat.push({ is_user: true, mes: '你好' });
+        generate(h, '[igs-stat:favor|小雪|平淡]');
+        const r = await rt.relationOp('fill-start');
+        assert.equal(r.ok, true);
+        const c = rt.getState().characters.小雪;
+        assert.equal(c.dims.好感 >= 80, true);
+        assert.equal(c.dims.欲望 || 0, nsfw ? 15 : 0);
+    }
 });

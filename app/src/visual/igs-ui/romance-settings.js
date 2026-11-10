@@ -153,7 +153,9 @@ export function pickFavorPercent(metrics, words) {
     let best = null;
     for (const metric of metrics) {
         const label = String((metric && metric.label) || '').trim();
-        const value = Number(metric && metric.percent);
+        // 负好感的条长按绝对值画，这里取带符号的原始值，免得反感被当成好感。
+        const raw = metric && metric.statValue != null ? metric.statValue : metric && metric.percent;
+        const value = Number(raw);
         if (!words.includes(label) || !Number.isFinite(value)) continue;
         if (best == null || value > best) best = value;
     }

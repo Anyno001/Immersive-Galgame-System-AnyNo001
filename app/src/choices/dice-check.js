@@ -212,12 +212,22 @@ function readAttribute(acuDice, name, attribute) {
     return value === null || value === undefined || value === '' || !Number.isFinite(number) ? null : number;
 }
 
+// 骰子系统读不到属性时，退回才艺技能表（context.readSkillTable(角色名, 技能名)）；用表里的值时在本地掷骰。
+function readTarget(acuDice, context, name, attribute) {
+    const own = readAttribute(acuDice, name, attribute);
+    if (own !== null || typeof context.readSkillTable !== 'function') return { value: own, local: false };
+    let value = null;
+    try { value = context.readSkillTable(name, attribute); } catch (error) { value = null; }
+    const number = Number(value);
+    return value === null || value === undefined || !Number.isFinite(number) ? { value: null, local: false } : { value: number, local: true };
+}
+
 async function resolveNormalCheck(command, acuDice, context) {
-    const target = readAttribute(acuDice, command.name, command.attribute);
+    const { value: target, local } = readTarget(acuDice, context, command.name, command.attribute);
     const who = displayName(command.name, context.userName);
     if (target === null) return { ok: false, reason: `未找到 ${who} 的属性「${command.attribute}」` };
     let roll;
-    if (command.bonus || command.penalty) {
+    if (command.bonus || command.penalty || local) {
         roll = rollD100(command, context.random).value;
     } else {
         const result = await acuDice.checkByCharacter({ name: command.name, attribute: command.attribute, diceType: '1d100', successCriteria: 'lte' });
@@ -258,13 +268,13 @@ async function resolveD20(command, context) {
 async function resolveContest(command, acuDice, context) {
     const leftName = displayName(command.left.name, context.userName);
     const rightName = displayName(command.right.name, context.userName);
-    const leftTarget = readAttribute(acuDice, command.left.name, command.left.attribute);
+    const { value: leftTarget, local: leftLocal } = readTarget(acuDice, context, command.left.name, command.left.attribute);
     if (leftTarget === null) return { ok: false, reason: `未找到 ${leftName} 的属性「${command.left.attribute}」` };
-    const rightTarget = readAttribute(acuDice, command.right.name, command.right.attribute);
+    const { value: rightTarget, local: rightLocal } = readTarget(acuDice, context, command.right.name, command.right.attribute);
     if (rightTarget === null) return { ok: false, reason: `未找到 ${rightName} 的属性「${command.right.attribute}」` };
     let leftRoll;
     let rightRoll;
-    if (command.bonus || command.penalty) {
+    if (command.bonus || command.penalty || leftLocal || rightLocal) {
         leftRoll = rollD100(command, context.random).value;
         rightRoll = rollD100({}, context.random).value;
     } else {
@@ -330,7 +340,7 @@ function resolvePool(command, context) {
 // 返回 { ok, line }：line 为空表示无需检定。ok=false 时 reason 说明原因，调用方按原命令降级。
 export async function resolveDiceCommand(raw, acuDice, context = {}) {
     const command = parseDiceCommand(raw);
-    const ctx = { random: context.random || Math.random, userName: context.userName || '', readAbilities: context.readAbilities };
+    const ctx = { random: context.random || Math.random, userName: context.userName || '', readAbilities: context.readAbilities, readSkillTable: context.readSkillTable };
     if (command.kind === 'invalid') return { ok: false, reason: command.reason };
     if (command.kind === 'none') return { ok: true, line: '' };
     if (command.kind === 'fixed') return { ok: true, success: command.success, line: `元叙事：无需投骰，【${command.success ? '必定成功' : '必定失败'}】。` };
@@ -342,11 +352,13 @@ export async function resolveDiceCommand(raw, acuDice, context = {}) {
             return { ok: false, reason: String(error && error.message || error || '检定执行失败') };
         }
     }
-    if (!isAcuDice(acuDice)) return { ok: false, reason: '骰子系统未就绪' };
+    // 骰子系统不可用但有才艺技能表可读时，用空壳顶上，取值与掷骰都在本地。
+    const dice = isAcuDice(acuDice) ? acuDice : (typeof ctx.readSkillTable === 'function' ? { getAttributeValue: () => null } : null);
+    if (!dice) return { ok: false, reason: '骰子系统未就绪' };
     try {
         return command.kind === 'check'
-            ? await resolveNormalCheck(command, acuDice, ctx)
-            : await resolveContest(command, acuDice, ctx);
+            ? await resolveNormalCheck(command, dice, ctx)
+            : await resolveContest(command, dice, ctx);
     } catch (error) {
         return { ok: false, reason: String(error && error.message || error || '检定执行失败') };
     }

@@ -6,7 +6,7 @@ import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { battlePick, canvasW, needsHold, ringVars, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
+import { battlePick, canvasW, ringVars, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_VEIL_CONCEPT_CSS } from './combat-skin-veil-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -203,7 +203,7 @@ export function veilBattleHtml(v, orient) {
     const ring = `<svg class="ring" xmlns="http://www.w3.org/2000/svg" width="${R.w}" height="${R.h}" aria-hidden="true"><rect class="rt" x="1" y="1" width="${R.w - 2}" height="${R.h - 2}" pathLength="1"/><rect class="rp" x="1" y="1" width="${R.w - 2}" height="${R.h - 2}" pathLength="1"/></svg>`;
     const endBtn = choice
         ? `<button type="button" class="end" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}>${ring}<span>${esc(CHOICE_VERB[choice.kind] || '选择')} ${picks.length}/${esc(choice.count)}</span></button>`
-        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}>${ring}<span>结束回合</span></button>`;
+        : `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}>${ring}<span>结束回合</span></button>`;
     const hand = `<div class="hand cx-hand" style="--cw:${H.cw}px;--ch:${H.ch}px;--sw:${H.sw}px;--sh:${H.sh}px;--hb:${H.bottom}px">${b.hand.map((c, i) => cardHtml(c, i, pos, v, picks, b.energy)).join('')}</div>`;
     const pile = (cls, lg, sh, n) => `<div class="piles ${cls}" title="${lg}堆"><span class="pile"><span class="lg">${lg}</span><span class="sh">${sh}</span> <b>${esc(n)}</b></span></div>`;
     // 抽牌堆在手牌区左端外侧，弃牌堆在右端外侧，底部对齐手牌。

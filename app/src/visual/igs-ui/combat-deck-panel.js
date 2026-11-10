@@ -6,7 +6,7 @@ import { CARD_TYPE_LABELS, cardArtSvg, describeEffects } from './combat-card-art
 import { safePortraitUrl } from './fx-battle-model.js';
 import { ASI_POINTS } from '../../combat/abilities.js';
 import { ASCEND_TIERS, CARD_DRAW_COST, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../../combat/points.js';
-import { nextTraitSlot, planTrait, traitSeed, traitSwap } from '../../combat/traits.js';
+import { nextTraitSlot, traitSwap } from '../../combat/traits.js';
 import { prefersReducedMotion } from './reduced-motion.js';
 import { openItemImageViewer, closeItemImageViewer } from './item-image-viewer.js';
 import { watchRecordPageLayout } from './record-page-shell.js';
@@ -62,7 +62,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
     // 确认才经注入的 inscribeRelic 写账本。换角色、换页、重读与开关面板时清空。
     let seal = null;
     let scaleTip = null;
-    // 抽人物特性揭晓（P-f）：{ phase: 'charge' | 'open', rarity, traitId, played }。确认抽取即进入蓄力（稀有度与服务层同一 planTrait 预定），
+    // 抽人物特性揭晓（P-f）：{ phase: 'charge' | 'open', rarity, traitId, played }。稀有度由服务层规划后回传，界面不另抽一次。
     // 写入并重读账本后翻开；失败、换角色、换页与开关面板时清空，重读账本保留。翻开动画只在第一次画出时播放（played）。
     let reveal = null;
     // 卡面图订阅（打开时订阅、关闭时退订）：生成进度、结果与本地图片补载后重绘。
@@ -578,8 +578,14 @@ export function createCombatDeckPanelController(doc, options = {}) {
         const g = heroAction('drawTrait', 'trait');
         if (!g.ok) return g;
         abort = typeof AbortController === 'function' ? new AbortController() : null;
-        reveal = { phase: 'charge', rarity: planTrait(traitSeed(g.view.id, g.view.traitDraws || 0)).rarity, traitId: '', played: false };
-        const r = await run('trait', () => options.drawTrait({ signal: abort?.signal }));
+        const control = abort;
+        const charging = { phase: 'charge', rarity: 'common', traitId: '', played: false };
+        reveal = charging;
+        const r = await run('trait', () => options.drawTrait({ signal: control?.signal, onPlan: ({ rarity }) => {
+            if (reveal !== charging || control?.signal.aborted) return;
+            charging.rarity = rarity;
+            render();
+        } }));
         abort = null;
         if (r.stale) return r;
         trait = false;

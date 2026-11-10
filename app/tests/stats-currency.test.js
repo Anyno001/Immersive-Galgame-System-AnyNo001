@@ -170,7 +170,12 @@ test('早楼收入被后楼消耗后，下调收入不足以补差时保留原�
 
 test('无效货币回复最多三次，失败后手动重试才重新请求', async (t) => {
     let requests = 0;
-    const h = await setup({ request: () => { requests += 1; return requests <= 3 ? reply({ rate: 101 }) : reply(); } });
+    // 后台请求通道与特质评定共用，只数货币判定的请求。
+    const h = await setup({ request: (prompt) => {
+        if (!/判定剧情里使用的货币/.test(String(prompt?.system || ''))) return '{}';
+        requests += 1;
+        return requests <= 3 ? reply({ rate: 101 }) : reply();
+    } });
     t.after(() => h.rt.destroy());
     assert.equal(requests, 3);
     assert.equal(h.config(), null);

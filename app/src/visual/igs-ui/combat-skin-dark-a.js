@@ -6,7 +6,7 @@ import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { battlePick, needsHold, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
+import { battlePick, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_DARK_A_CONCEPT_CSS } from './combat-skin-dark-a-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -237,7 +237,7 @@ export function darkBattleHtml(v, orient, key) {
     const td = selItem ? `<b>${esc(selItem.name)}</b>${esc(selItem.text)}<u>${selItem.targets?.length ? '点选目标' : '点击承受方使用'}</u>` : '';
     const tray = `<div class="tray" role="menu" aria-label="道具">${items.map((i) => `<button type="button" role="menuitem" class="ti${i.usable ? '' : ' off'}${v.selected === `item:${i.itemId}` ? ' sel' : ''}" data-combat-act="item" data-combat-id="${esc(i.itemId)}"${i.usable ? '' : ' aria-disabled="true"'}`
         + ` aria-label="${esc(`道具 ${i.name} 剩余 ${i.count} 个 ${i.text}，不消耗能量，每回合一次`)}" title="${esc(`${i.name} ×${i.count}：${i.text}`)}">${i.imageUrl ? `<img src="${esc(i.imageUrl)}" alt="" decoding="async">` : ICON.potion}<span class="tn">${esc(i.name)}</span><b>×${esc(i.count)}</b></button>`).join('')}<p class="td">${td}</p></div>`;
-    const end = `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}${needsHold(b) ? ' data-hold' : ''}>${V.endHtml}</button>`;
+    const end = `<button type="button" class="end" data-combat-act="end-turn"${b.canEndTurn ? '' : ' aria-disabled="true"'}>${V.endHtml}</button>`;
     // 待选条：弃掉 k/N、候选张数、确认。
     const pickbar = choice ? `<div class="pickbar"><span class="pt">${esc(CHOICE_VERB[choice.kind] || '选择')} <b class="pc">${picks.length}</b>/${esc(choice.count)}</span><span class="ps">候选 ${esc((choice.options || []).length)} 张</span>`
         + `<button type="button" class="pok" data-combat-act="choose-confirm"${picks.length === choice.count ? '' : ' aria-disabled="true"'}>确认</button></div>` : '<div class="pickbar"></div>';

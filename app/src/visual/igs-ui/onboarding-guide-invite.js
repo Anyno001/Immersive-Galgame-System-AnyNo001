@@ -19,7 +19,7 @@ export function mountOnboardingInvite(overlay, onChoose, doc = overlay?.ownerDoc
     bar.setAttribute('role', 'region');
     bar.setAttribute('aria-label', '新手引导邀请');
     const resume = Boolean(options && options.resume);
-    bar.innerHTML = `<span class="igs-onboarding-invite-text">${resume ? '上次的新手引导还没完成' : '首次使用？用1分钟完成常用设置'}</span>`
+    bar.innerHTML = `<span class="igs-onboarding-invite-text">${resume ? '上次的新手引导还没走完，接着来？' : '首次使用？跟着引导完成基础配置吧！'}</span>`
         + `<button type="button" class="igs-onboarding-btn is-primary" data-onboarding-invite="start">${resume ? '继续' : '开始'}</button>`
         + '<button type="button" class="igs-onboarding-btn" data-onboarding-invite="later">以后再说</button>'
         + '<button type="button" class="igs-onboarding-btn is-quiet" data-onboarding-invite="never">不再提示</button>';

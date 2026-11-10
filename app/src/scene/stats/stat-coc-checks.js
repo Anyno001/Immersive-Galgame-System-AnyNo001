@@ -62,10 +62,10 @@ export function cocFaces(raw) {
     };
 }
 
-// 提示词里的一项：37（奖17/07，罚57/87）。
+// 提示词里的一项：37（奖励17/07，惩罚57/87）。
 export function formatCocRoll(raw) {
     const f = cocFaces(raw);
-    return `${pad2(f.base)}（奖${f.bonus.map(pad2).join('/')}，罚${f.penalty.map(pad2).join('/')}）`;
+    return `${pad2(f.base)}（奖励${f.bonus.map(pad2).join('/')}，惩罚${f.penalty.map(pad2).join('/')}）`;
 }
 
 // 扫描正文里的检定标签，返回 { tags, diagnostics }；无效标签也会列出（valid=false）。
@@ -167,11 +167,11 @@ function actorLine(actor) {
         .sort((a, b) => b[1] - a[1])
         .slice(0, SKILL_LINE_MAX)
         .map(([name, value]) => `${name}${Math.round(Number(value))}`);
-    return `${actor.name}：${main}${skills.length ? `；高技能 ${skills.join(' ')}` : ''}`;
+    return `${actor.name}：${main}${skills.length ? `；擅长技能 ${skills.join(' ')}` : ''}`;
 }
 
 export const COC_CHECK_ROLLS_TEMPLATE = [
-    '【检定】角色做结果不确定、失败有后果的事时都要检定：动手（搬、爬、躲、打、追）、察觉与搜寻、偷偷行事、技艺与专业活，以及靠言语办事（说服、讨价还价、撒谎、求情、威胁、撩人、表白、看穿对方）。毫无悬念的日常举动不检定。在行动处写 [igs-check:角色|属性或技能|难度]，另有奖励骰或惩罚骰时写 [igs-check:角色|属性或技能|难度|奖励]（奖励、奖励2、惩罚、惩罚2）：属性写 力量/敏捷/体质/智力/感知/魅力/理智 之一，技能写其名称；难度写 普通、困难、极难（少用极难）。',
+    '【检定】角色做结果不确定、失败有后果的事时都要检定：动手（搬、爬、躲、打、追）、察觉与搜寻、潜行、技艺与专业活，以及靠言语办事（说服、讨价还价、撒谎、求情、威胁、调情、表白、看穿对方）。毫无悬念的日常举动不检定。在行动处写 [igs-check:角色|属性或技能|难度]，另有奖励骰或惩罚骰时写 [igs-check:角色|属性或技能|难度|奖励]（奖励、奖励2、惩罚、惩罚2）：属性写 力量/敏捷/体质/智力/感知/魅力/理智 之一，技能写其名称；难度写 普通、困难、极难（少用极难）。',
     '难度按情境定，不看骰序：普通指常人在正常条件下有把握做到的事；困难指条件不利（时间紧、有人阻挠、环境恶劣、对方戒备）或任务本身超出常规；极难指多重不利叠加，或常人几乎做不到的事。好感、关系与角色意愿用奖惩骰体现，不调难度。',
     '本层骰序（每个判定一组 d100，按判定出现顺序依次取用，第 1 个判定用第 1 组；括号内依次是取 1、2 颗奖励骰后的结果与取 1、2 颗惩罚骰后的结果）：{{骰序}}。',
     '判定：骰值 ≤ 目标值为成功，≤ 目标值的一半为困难成功，≤ 五分之一为极难成功；骰值 ≤ 5 为大成功，≥ 96 为大失败。难度写困难须达到困难成功，写极难须达到极难成功，达不到都算失败。奖励骰取较小的，惩罚骰取较大的，奖惩相互抵消，最多 2 颗。',
@@ -197,9 +197,9 @@ export function cocRollsVars({ rolls, actors = [], edges = [], corrections = [] 
         });
     return {
         骰序: rolls.map(formatCocRoll).join('、'),
-        奖惩: edgeLines.length ? `持续的奖惩骰（前端自动计入这些人物本层的每次检定，与标签里写的叠加，相反时抵消；标签不必重复写）：${edgeLines.join('；')}。` : '',
-        在场属性: attrLines.length ? `在场人物目标值（百分制，含理智）：\n${attrLines.join('\n')}\n未列出的人物由前端按其强弱估算。` : '',
-        更正: asArray(corrections).length ? `更正：上一层${corrections.join('；')}；以前端结果为准，本层剧情按实际结果衔接。` : '',
+        奖惩: edgeLines.length ? `持续的奖惩骰（数值系统自动计入这些人物本层的每次检定，与标签里写的叠加，相反时抵消；标签不必重复写）：${edgeLines.join('；')}。` : '',
+        在场属性: attrLines.length ? `在场人物目标值（百分制，含理智）：\n${attrLines.join('\n')}\n未列出的人物由数值系统按其实力估算。` : '',
+        更正: asArray(corrections).length ? `更正：上一轮${corrections.join('；')}；以数值系统结果为准，本层剧情按实际结果衔接。` : '',
     };
 }
 

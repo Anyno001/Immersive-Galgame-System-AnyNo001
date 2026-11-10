@@ -128,10 +128,12 @@ function placeChain({ stageW, stageH, safe, head, kind, chain, avoid = [], offSi
     }
     const headRect = head ? { x: head.cx - head.w * 0.6, y: head.top - head.h * 0.05, w: head.w * 1.2, h: head.h * 1.15 } : null;
     const mouth = head ? [head.cx, head.top + head.h * 0.8] : null;
+    // 整串比可用区域还大：伸出画面的部分按比例重罚，几种排法里优先选放得下的。
+    const spill = Math.max(0, W - (safe.right - safe.left)) / Math.max(1, W) + Math.max(0, H - (safe.bottom - safe.top)) / Math.max(1, H);
     let best = null;
     for (const c of candidates) {
         const rect = { x: c.x, y: c.y, w: W, h: H };
-        let score = c.pref + c.shift / minSide * 1.5;
+        let score = c.pref + c.shift / minSide * 1.5 + spill * 30;
         if (headRect) score += overlapArea(rect, headRect) / (headRect.w * headRect.h) * 14;
         for (const ob of avoid) score += overlapArea(rect, ob) / Math.max(1, Math.min(W * H, ob.w * ob.h)) * (ob.weight || 2.5);
         if (mouth) {

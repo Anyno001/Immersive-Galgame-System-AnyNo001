@@ -59,7 +59,9 @@ export function cgSizeForAspect(backgroundSize, viewport) {
 export function cgSizeForMode(backgroundSize, mode, viewport) {
     const landscape = squareAsLandscape(String(backgroundSize || '').trim() || '1216x832');
     if (mode === 'fullscreen') return cgSizeForAspect(landscape, viewport);
-    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport));
+    // 没选过模式时默认是电脑模式，手机竖着拿也会落到这里，同样钉竖屏。
+    const usePortrait = mode === 'mobile' || (mode === 'embedded' && isPhoneEmbedded(viewport))
+        || (mode === 'pc' && viewport && viewport.portrait === true);
     if (!usePortrait) return clampToPixelCap(landscape);
     const match = landscape.match(/^(\d+)\s*[xX×]\s*(\d+)$/);
     // 背景尺寸本身填成竖的就直接用，不能再对调回横屏。
@@ -127,13 +129,31 @@ export function cgFramePrompt(sizeText) {
     return `画面是竖的，宽${width}，高${height}。构图按竖屏写，不要写成横屏。`;
 }
 
-function windowViewport(globalObject, portrait) {
+export function readWindowViewport(globalObject) {
     const visual = globalObject && globalObject.visualViewport;
     return {
         width: Number(visual && visual.width) || Number(globalObject && globalObject.innerWidth) || 0,
         height: Number(visual && visual.height) || Number(globalObject && globalObject.innerHeight) || 0,
-        ...(portrait && { portrait }),
     };
+}
+
+function windowViewport(globalObject, portrait) {
+    const size = readWindowViewport(globalObject);
+    return portrait ? { ...size, portrait } : size;
+}
+
+// 锚定记下的是出图像素：按给出的宽高比，取不超过 1024×1024 的最大一档。不是屏幕的 CSS 像素。
+export function resolutionNearCap(width, height) {
+    const w = Number(width);
+    const h = Number(height);
+    if (!(w > 0) || !(h > 0)) return null;
+    const fitted = fitCgSize(w / h, CG_PIXEL_CAP);
+    return fitted ? { width: fitted.width, height: fitted.height } : null;
+}
+
+export function lockedFullscreenSize(assets) {
+    const size = resolutionNearCap(assets && assets.anchoredWidth, assets && assets.anchoredHeight);
+    return size ? `${size.width}x${size.height}` : '';
 }
 
 // 内嵌画面在页面上，浏览器窗口可以更高。出图量的是画面，不是窗口。
@@ -285,11 +305,17 @@ export function createAutoIllustrationService(deps) {
         return Promise.resolve(typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, run) : run(input))
             .finally(() => target.release());
     }
-    const cgSize = (s) => (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
-        s.assets && s.assets.backgroundSize,
-        typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
-        typeof deps.getViewport === 'function' ? deps.getViewport() : null,
-    );
+    const cgSize = (s) => {
+        const mode = typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc';
+        const locked = mode === 'fullscreen' ? lockedFullscreenSize(s.assets) : '';
+        if (locked) return locked;
+        const live = typeof deps.getViewport === 'function' ? deps.getViewport() : null;
+        return (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
+            s.assets && s.assets.backgroundSize,
+            mode,
+            live,
+        );
+    };
     const readSceneAssets = () => {
         const value = typeof deps.getSceneAssets === 'function' ? deps.getSceneAssets() : null;
         return value && typeof value === 'object' ? value : {};
@@ -684,7 +710,7 @@ export function createAutoIllustrationService(deps) {
         return attempts;
     }
 
-    async function paintDbgenCaptions(messageId, floor, key, s, base, slots, { refreshDna = false } = {}) {
+    async function paintDbgenCaptions(messageId, floor, key, s, base, slots, { refreshDna = false, freshSeed = false } = {}) {
         const assets = refreshDna ? structuredClone(readSceneAssets()) : null;
         const requests = cgPaintRequests(slots, assets);
         const attempts = await preparePaintAttempts(key, requests, floor, s.taskSignal);
@@ -705,7 +731,7 @@ export function createAutoIllustrationService(deps) {
                 try {
                     result = await recover(floor, () => generateCaption({ caption: request.caption, size: cgSize(s), messageId,
                         ...((!nai.describe || nai.describe(undefined, { signal: s.taskSignal }).mode === 'nai' || nai.describe(undefined, { signal: s.taskSignal }).via === 'nai') && {
-                            seed: resolveImageSeed(cgGenerationSeed(request, readSceneAssets())) }),
+                            seed: resolveImageSeed(freshSeed ? undefined : cgGenerationSeed(request, readSceneAssets())) }),
                         imageKind: 'cg', signal: s.taskSignal || recoveryController.signal, shouldStart: () => targetStillLive(floor), promptKind: base.kind === 'nsfw' ? 'nsfwCg' : 'cg',
                         ...(edited || (!request.promptRecipe && request.captionMode === 'final')
                             ? { captionMode: 'final' } : request.promptRecipe || request.promptTask ? {
@@ -783,8 +809,8 @@ export function createAutoIllustrationService(deps) {
         if (marked.retry.length) {
             const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || marked.all.length };
             report('info', `第 ${messageId} 楼重试 ${marked.retry.length} 张未成功的插图，复用已保存的提示词直接出图…`);
-            if (backendReady(s).via === 'dbgen') return paintDbgenCaptions(messageId, floor, key, s, base, marked.retry);
-            return generateSlots(messageId, floor, key, s, base, marked.retry);
+            if (backendReady(s).via === 'dbgen') return paintDbgenCaptions(messageId, floor, key, s, base, marked.retry, { freshSeed: manual });
+            return generateSlots(messageId, floor, key, s, base, marked.retry, { freshSeed: manual });
         }
         if (marked.all.length) return { ok: true, reason: manual ? 'nothing-missing' : 'already-decided' };
         if (!manual && previous && SETTLED_STATUSES.has(previous.status)
@@ -978,11 +1004,11 @@ export function createAutoIllustrationService(deps) {
             description: numbered.paragraphs.slice(Math.max(0, slot.at - 2), slot.at).map((p) => p.text).join('\n'),
         }));
         report('info', `第 ${messageId} 楼规划完成，正在请求 ${plan.slots.length} 张插图…`);
-        return generateSlots(messageId, floor, key, s, base, plan.slots);
+        return generateSlots(messageId, floor, key, s, base, plan.slots, { freshSeed: manual });
     }
 
     // 有任一张失败时楼层记为 failed；下次渲染或手动生图只补失败的那几张，不重新规划、不重复写标记。
-    async function generateSlots(messageId, floor, key, s, base, slots, { refreshDna = false } = {}) {
+    async function generateSlots(messageId, floor, key, s, base, slots, { refreshDna = false, freshSeed = false } = {}) {
         const backend = await readyBackend(floor, s);
         if (!backend.ready.ok) {
             await store.putFloor(key, { ...base, status: 'failed', error: backend.ready.error, updatedAt: now() });
@@ -1007,7 +1033,7 @@ export function createAutoIllustrationService(deps) {
             else try {
                 const final = edited || (!request.promptRecipe && request.captionMode === 'final');
                 const seed = (!nai.describe || nai.describe(undefined, { signal: s.taskSignal }).mode === 'nai' || nai.describe(undefined, { signal: s.taskSignal }).via === 'nai')
-                    ? { seed: resolveImageSeed(cgGenerationSeed(request, readSceneAssets())) } : {};
+                    ? { seed: resolveImageSeed(freshSeed ? undefined : cgGenerationSeed(request, readSceneAssets())) } : {};
                 result = await recover(floor, () => nai.generate(final ? cgFinalRequest(request) : request, { ...s.nai, size, ...seed }, { ...meta, ...seed }), request);
                 if (edited && result?.ok) result = { ...result,
                     ...promptProvenance({ promptRecipe: request.promptRecipe, dnaSnapshot: request.dnaSnapshot }),
@@ -1287,9 +1313,9 @@ export function createAutoIllustrationService(deps) {
             const previous = await store.getFloor(key);
             const base = { kind: (previous && previous.kind) || 'interlude', want: (previous && previous.want) || 1 };
             if (backendReady(s).via === 'dbgen') {
-                return paintDbgenCaptions(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true });
+                return paintDbgenCaptions(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true, freshSeed: true });
             }
-            return generateSlots(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true });
+            return generateSlots(identity.floor.messageId, floorInfo, key, s, base, [record], { refreshDna: true, freshSeed: true });
         }).finally(() => { if (locks.get(key) === job) locks.delete(key); });
         locks.set(key, job);
         return job;

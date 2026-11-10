@@ -70,6 +70,8 @@ import { FIXED_GENERAL_CARDS, fixedClassPool } from '../../src/combat/fixed-card
 import { openWaitStagePreview } from './fixtures/wait-stage.fixture.js';
 import { createStatsPreview } from './fixtures/stats.fixture.js';
 import { openOriginExchangePreview } from './fixtures/origin-exchange.fixture.js';
+import { createOriginPageController } from '../../src/visual/igs-ui/origin-panel.js';
+import { createStubOriginEngine } from '../../src/visual/igs-ui/origin-panel-stub.js';
 
 const style = document.createElement('style');
 style.id = 'igs-overlay-style';
@@ -544,6 +546,12 @@ async function openDeckFull() {
     document.querySelector('#igs-combat-deck-panel .igs-deck-seal')?.scrollIntoView({ block: 'end' });
   }
 }
+const originEngine = createStubOriginEngine();
+let originTheme = new URLSearchParams(location.search).get('theme') || 'frost';
+const originPage = createOriginPageController(document, {
+  origin: () => ({ engine: originEngine, settings: { enabled: true }, openSettings() {} }),
+  getTheme: () => originTheme, setTheme: (t) => { originTheme = t; },
+});
 function openPage(page) {
   current?.close?.();
   if (page === 'deck') { current = deckFull; openDeckFull(); }
@@ -551,6 +559,40 @@ function openPage(page) {
   else if (page === 'wait-stage') current = openWaitStagePreview(overlay, new URLSearchParams(location.search));
   // 设置面板也有 id 为 combat 的页面，page=combat 会先进设置页；战斗面板用 page=combat-panel 打开。
   else if (page === 'combat-panel') { current = combat; openCombat(); }
+  else if (page === 'origin') {
+    // ?theme=：四套配色；记下打开到下一帧的耗时（window.__originOpenMs）。
+    current = originPage;
+    const t0 = performance.now();
+    originPage.open(overlay);
+    requestAnimationFrame(() => requestAnimationFrame(() => { window.__originOpenMs = Math.round(performance.now() - t0); }));
+    // ?bench=frame：载入稳定 1.5 秒后关掉重开一次，记到第二帧的耗时（含毛玻璃首绘）。
+    if (new URLSearchParams(location.search).get('bench') === 'frame') {
+      window.__originOpenMs = null;
+      setTimeout(() => {
+        originPage.close();
+        requestAnimationFrame(() => {
+          const s = performance.now();
+          originPage.open(overlay);
+          requestAnimationFrame(() => requestAnimationFrame(() => { window.__originFrameMs = Math.round(performance.now() - s); }));
+        });
+      }, 1500);
+    }
+    // ?bench=1：反复开关 20 次，记打开（含强制排版）的同步耗时。
+    if (new URLSearchParams(location.search).get('bench') === '1') {
+      const runs = [];
+      for (let i = 0; i < 20; i += 1) {
+        originPage.close();
+        const s = performance.now();
+        originPage.open(overlay);
+        void document.getElementById('igs-origin-page').offsetHeight;
+        runs.push(performance.now() - s);
+      }
+      runs.sort((a, b) => a - b);
+      window.__originBench = { min: +runs[0].toFixed(2), median: +runs[10].toFixed(2), max: +runs[19].toFixed(2) };
+    }
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab) document.querySelector(`#igs-origin-page [data-oa="tab"][data-id="${CSS.escape(tab)}"]`)?.click();
+  }
   else
   if (page === 'settings-scene' || isSettingsPage(page)) current = openSettingsScene();
   else if (page === 'combat') { current = combat; openCombat(); }

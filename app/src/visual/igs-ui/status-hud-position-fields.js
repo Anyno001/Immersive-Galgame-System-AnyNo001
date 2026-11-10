@@ -3,7 +3,7 @@
 import { esc } from './reader-value-utils.js';
 import { segmentedInput } from './settings-fields.js';
 import {
-    STATUS_HUD_PHONE_MEDIA, STATUS_HUD_POSITION_DEVICES, normalizeStatusHudPercent, normalizeStatusHudPosition, resolveStatusHudScale,
+    STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_ZOOM_MAX, STATUS_HUD_AVATAR_ZOOM_MIN, STATUS_HUD_PHONE_MEDIA, STATUS_HUD_POSITION_DEVICES, normalizeStatusHudPercent, normalizeStatusHudPosition, resolveStatusHudScale,
 } from '../../data/shujuku/status-hud-model.js';
 
 const STAGES = Object.freeze({ pc: { w: 1280, h: 720 }, mobile: { w: 390, h: 844 } });
@@ -62,6 +62,38 @@ export function renderStatusHudPositionField(statusHud, device, currentDevice) {
         + axis('x', '左右') + axis('y', '上下')
         + `<em>${esc(note)}</em>`
         + '</div>';
+}
+
+// 头像跟随立绘时的取景：左右、上下、缩放三根拉杆，拖动中只改读数，松手才写草稿。
+const AVATAR_AXES = Object.freeze([
+    ['avatarShiftX', '左右', -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX],
+    ['avatarShiftY', '上下', -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX],
+    ['avatarZoom', '缩放', STATUS_HUD_AVATAR_ZOOM_MIN, STATUS_HUD_AVATAR_ZOOM_MAX],
+]);
+
+function describeAvatarAxis(key, value) {
+    const n = Math.round(Number(value) || 0);
+    return key === 'avatarZoom' ? `${n}%` : n > 0 ? `+${n}` : String(n);
+}
+
+export function renderStatusHudAvatarFraming(statusHud) {
+    const row = ([key, label, min, max]) => `<label class="igs-hud-pos-axis"><span>${label}</span><span class="igs-settings-range"><input type="range" data-path="readerSettings.statusHud.${key}" data-hud-avatar-axis="${key}" min="${min}" max="${max}" step="1" value="${esc(statusHud[key])}" aria-label="头像${label}"><output data-hud-avatar-value="${key}">${esc(describeAvatarAxis(key, statusHud[key]))}</output></span></label>`;
+    const atDefault = !statusHud.avatarShiftX && !statusHud.avatarShiftY && statusHud.avatarZoom === 100;
+    return '<div class="igs-settings-field igs-hud-pos">'
+        + '<span>头像取景</span>'
+        + `<div class="igs-hud-pos-head"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="status-hud-avatar-reset"${atDefault ? ' disabled' : ''}>复位</button></div>`
+        + AVATAR_AXES.map(row).join('')
+        + '<em>本页没有说话人立绘时，沿用上传的头像。</em>'
+        + '</div>';
+}
+
+export function previewStatusHudAvatarFraming(input) {
+    const key = input && typeof input.getAttribute === 'function' ? input.getAttribute('data-hud-avatar-axis') : '';
+    const block = key && typeof input.closest === 'function' ? input.closest('.igs-hud-pos') : null;
+    if (!block) return false;
+    const output = block.querySelector(`[data-hud-avatar-value="${key}"]`);
+    if (output) output.textContent = describeAvatarAxis(key, input.value);
+    return true;
 }
 
 // 拖动中的就地预览：只改小舞台的变量和读数，「复位」随位置启用 / 停用。

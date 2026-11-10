@@ -12,7 +12,7 @@ import { buildAssetPlannerUserPrompt, parseAssetPlan, buildAssetSlot, buildDicti
 import { requestWithSoftRetry, normalizeMatteColor } from './prompt-kit.js';
 import { normalizeAutoIllustrationSettings, isStrictBackgroundMatch } from './auto-illustration-settings.js';
 import { ASSET_PLANNER_SYSTEM_PROMPT, ASSET_PLANNER_SOFT_SYSTEM_PROMPT } from './asset-prompt.js';
-import { cgSizeForMode, cgSizeForFrame, passesSizeThrough } from './auto-illustration-service.js';
+import { cgSizeForMode, cgSizeForFrame, lockedFullscreenSize, passesSizeThrough } from './auto-illustration-service.js';
 import { supportsNaiTransparentBackground } from '../request-builders/nai-v4-builder.js';
 import { collectAssetNeeds, collectGeneratedImageIds, tempAssetKeyOf, GENERATED_ASSET_URL_PREFIX, generatedAssetIdOf, isGeneratedAssetUrl } from '../../scene/asset-match.js';
 import { floorKeyOf } from '../../media/illustration-store.js';
@@ -33,14 +33,15 @@ import { prepareCharacterCaption } from '../character-caption.js';
 import { BUILTIN_PROMPTS } from '../prompt-registry.js';
 import { spriteSchemeOf, expressionFragmentDescription } from '../prompt-scheme.js';
 import { creatureOf, creatureFraming, creatureCanvasSize, creatureMoodLabels, creatureNeedsReference } from '../../scene/creature-profile.js';
-import { creatureHintsOf } from '../../scene/creature-registry.js';
+import { creatureHintsOf, knownCharacterNames } from '../../scene/creature-registry.js';
+import { fuzzyPortraitNames } from '../../scene/creature-battle.js';
 import { combatPrewarmTargets } from '../../scene/combat-prewarm.js';
 import { CREATURE_FORM_JUDGE_RULE, creatureFormJudgeDescription, parseCreatureFormJudgement } from '../prompt-tasks/creature.js';
 import { creatureFixedPrompts, creaturePaintMeta } from '../creature-sprite.js';
 import { creatureSpriteBatchDescription, creatureSingleSpriteDescription, creatureExpressionDescription, creatureAssetDescription } from '../prompt-tasks/creature.js';
 import { DNA_WEIGHT_RULE } from '../prompt-tasks/common.js';
 import { usesCharacterTemplates, characterPromptTask, singleCharacterContext, preflightCharacterTask, savedExpressionTemplate, characterTemplateInput, characterPromptRecovery, bindAutoSpriteOutfitNames, checkSpriteRecoveryBinding } from './character-prompt-task.js';
-import { inheritImageTaskLease, imageTaskState, bindImageTaskTarget } from '../image-task-runtime.js';
+import { inheritImageTaskLease, imageTaskState, bindImageTaskTarget, markUrgentImageSignal } from '../image-task-runtime.js';
 import { cgCharacterState } from './cg-character-bindings.js';
 import { externalPromptDescription } from '../external-prompt-reference.js';
 import { createExternalSpriteDnaPreparation } from './external-sprite-dna.js';
@@ -114,7 +115,8 @@ export function createAssetGenerationService(deps) {
     // 本聊天内已判定为人类的战斗对手：不再自动建档，避免每楼重复判定。
     const judgedHuman = new Set();
     // 开战立绘预热：已认领的战斗对手交预热建档出图（楼层补全跳过）；已发过的名字不再重发。
-    const prewarmClaims = new Set(), prewarmTried = new Set();
+    const prewarmClaims = new Set(), prewarmTried = new Map(), prewarmRunning = new Set(), prewarmNoted = new Set();
+    const PREWARM_MAX_TRIES = 3;
     const runningFloors = new Map(), pendingFloors = new Map();
     // 同一地点的白天底图只画一次：跨楼并发时后到的等先到的画完再取。
     const dayBasePending = new Map();
@@ -214,8 +216,9 @@ export function createAssetGenerationService(deps) {
     }
 
     const builtinSeeds = signal => describeTask(signal).mode === 'nai' || describeTask(signal).via === 'nai';
-    const spriteSeed = (name, fallback, signal) => resolveImageSeed(
-        builtinSeeds(signal) ? characterGenerationSeed(readSettings(signal).sceneAssets, name) ?? fallback : fallback);
+    // 调用方显式给种子（手动重画/差分）优先；只有自动出图才沿用登记的角色种子。
+    const spriteSeed = (name, given, signal) => resolveImageSeed(isImageSeed(given) ? given
+        : builtinSeeds(signal) ? characterGenerationSeed(readSettings(signal).sceneAssets, name) : undefined);
     const backgroundSeed = async (name, imageId, signal) => {
         const saved = builtinSeeds(signal) ? sceneGenerationSeed(readSettings(signal).sceneAssets, name) : undefined;
         if (isImageSeed(saved)) return saved;
@@ -223,12 +226,18 @@ export function createAssetGenerationService(deps) {
         return resolveImageSeed(original?.seed);
     };
 
-    // 场景背景和剧情 CG 用同一套尺寸：手机、内嵌竖屏把背景尺寸宽高对调；全屏按窗口实际比例。
-    const backgroundSize = (s) => (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
-        s.auto.assets.backgroundSize,
-        typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc',
-        typeof deps.getViewport === 'function' ? deps.getViewport() : null,
-    );
+    // 场景背景和剧情 CG 用同一套尺寸。全屏若已锚定，沿用记下的出图尺寸；否则按窗口实际比例。
+    const backgroundSize = (s) => {
+        const mode = typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc';
+        const locked = mode === 'fullscreen' ? lockedFullscreenSize(s.auto.assets) : '';
+        if (locked) return locked;
+        const live = typeof deps.getViewport === 'function' ? deps.getViewport() : null;
+        return (passesSizeThrough(nai, s.taskSignal) ? cgSizeForFrame : cgSizeForMode)(
+            s.auto.assets.backgroundSize,
+            mode,
+            live,
+        );
+    };
 
     function emit(detail) {
         if (stopped) return;
@@ -909,6 +918,7 @@ export function createAssetGenerationService(deps) {
                         try {
                             result = await generateCaption({ signal: s.taskSignal, ...input, size: paintMeta.size, seed,
                                 imageKind: 'sprite', promptKind: creature ? 'creature' : 'sprite', messageId: floor.messageId,
+                                ...(s.paintPriority && { paintPriority: s.paintPriority }),
                                 ...(spriteGuard && { shouldStart: spriteGuard }),
                                 ...(transparent && { transparent: true }), replaceCharacterKeywords: false });
                             if (result.ok) result = { ...result, ...spriteAdoptionEvidence(input, result), ...outfitAdoptionEvidence(input, result) };
@@ -924,6 +934,7 @@ export function createAssetGenerationService(deps) {
                             characterMeta: found.characterMeta,
                             imageKind: 'sprite',
                             messageId: floor.messageId,
+                            ...(s.paintPriority && { paintPriority: s.paintPriority }),
                             ...(transparent && { transparent: true }),
                             userPrompts: { positive: prompts.positive, negative: prompts.negative },
                             ...(spriteGuard && { shouldStart: spriteGuard }),
@@ -1268,25 +1279,46 @@ export function createAssetGenerationService(deps) {
     }
 
     // 开战立绘预热：开战标签一出现就给敌方与友方先备立绘，不受每楼上限与正文字数门槛限制。
-    // 去重：prewarmClaims 让楼层补全跳过已认领的战斗对手（建档与出图都由预热负责）；prewarmTried 保证同一聊天同一名字只发一次，失败不重试。
+    // 去重：prewarmClaims 让楼层补全跳过已认领的战斗对手（建档与出图都由预热负责）；prewarmRunning 防同一名字并发重发；
+    // prewarmTried 记每个名字已发几次：已有图或不需要图的记满，失败或被跳过的退回认领并留到下次（重渲染、打开战斗面板）再试，最多 PREWARM_MAX_TRIES 次。
     async function prewarmCombatSprites(messageId, floor) {
         if (stopped || !floor || !floor.chatId) return { ok: true, reason: 'not-eligible' };
         const s = readSettings();
-        if (!s.auto.assets.spriteEnabled || !s.sceneAssets.enabled) return { ok: true, reason: 'disabled' };
+        if (!s.sceneAssets.enabled) return { ok: true, reason: 'disabled' };
         const targets = combatPrewarmTargets(floor.text, { sourceFilter: sourceFilter() });
         if (!targets.length) return { ok: true, reason: 'no-combat' };
+        // 跳过时在生图日志里说明一次（同楼同原因不重复），免得开战没立绘却查不到原因。
+        const skip = (reason, text) => {
+            const noteKey = `${floor.chatId}|${floorKeyOf(floor)}|${reason}`;
+            if (!prewarmNoted.has(noteKey)) { prewarmNoted.add(noteKey); if (prewarmNoted.size > 200) prewarmNoted.clear(); report('warn', `第 ${messageId} 楼开战，未自动生成战斗立绘：${text}`); }
+            return { ok: true, reason };
+        };
+        if (!s.auto.assets.spriteEnabled) return skip('disabled', '「自动生成角色立绘」未开启，可在设置器战斗页「敌人立绘管理」中手动生成');
         const backend = describeTask(undefined);
         const canWrite = backend.ownPrompts || (backend.mode === 'nai' && typeof llm?.prepareImagePrompt === 'function');
-        if (!canWrite || !nai || typeof writePrompt !== 'function' || typeof generateCaption !== 'function') return { ok: true, reason: 'backend-unsupported' };
+        if (!canWrite || !nai || typeof writePrompt !== 'function' || typeof generateCaption !== 'function')
+            return skip('backend-unsupported', '当前图像来源不支持自动写立绘提示词');
         const chatId = floor.chatId;
         for (const target of targets) {
             if (target.role !== 'enemy') continue;
             for (const name of new Set([target.raw, target.base])) prewarmClaims.add(`${chatId}|${name}`);
         }
         if (prewarmClaims.size > 400) prewarmClaims.clear();
-        const fresh = targets.filter(target => !prewarmTried.has(`${chatId}|${target.base}`));
+        const tryKey = target => `${chatId}|${target.base}`;
+        const fresh = targets.filter(target => !prewarmRunning.has(tryKey(target)) && (prewarmTried.get(tryKey(target)) || 0) < PREWARM_MAX_TRIES);
         if (!fresh.length) return { ok: true, reason: 'already-tried' };
-        for (const target of fresh) prewarmTried.add(`${chatId}|${target.base}`);
+        for (const target of fresh) { prewarmRunning.add(tryKey(target)); prewarmTried.set(tryKey(target), (prewarmTried.get(tryKey(target)) || 0) + 1); }
+        if (prewarmTried.size > 400) prewarmTried.clear();
+        // 本轮没备上的名字：退回认领让楼层补全也能接手，留下次再试。
+        const settle = result => {
+            const done = new Set(result?.settled || []);
+            for (const target of fresh) {
+                prewarmRunning.delete(tryKey(target));
+                if (result?.ok && result.reason === 'nothing-missing' || done.has(target.base)) { prewarmTried.set(tryKey(target), PREWARM_MAX_TRIES); continue; }
+                for (const name of new Set([target.raw, target.base])) prewarmClaims.delete(`${chatId}|${name}`);
+            }
+            return result;
+        };
         const key = floorKeyOf(floor);
         const shouldStart = () => !stopped && messageHost.getChatId() === chatId
             && floorKeyOf(messageHost.readFloor(Number(messageId)) || {}) === key;
@@ -1296,11 +1328,20 @@ export function createAssetGenerationService(deps) {
         const execute = guarded => recoverOperation(() => prewarmRun(messageId, floor, key, fresh, readSettings(guarded.signal), guarded),
             { retryUnchanged: false, signal: guarded.signal, isActive: guarded.shouldStart });
         try {
-            return await (typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, execute) : execute(input));
+            return settle(await (typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, execute) : execute(input)));
         } catch (error) {
             report('warn', `第 ${messageId} 楼战斗立绘预热失败：${(error && error.message) || error}`);
-            return { ok: false, reason: 'error' };
+            return settle({ ok: false, reason: 'error' });
         } finally { bound.release(); }
+    }
+
+    // 战斗面板缺立绘时补发预热：开战楼可以是旧楼（续打、翻回旧楼开战），不要求最新楼；已在跑或已备过的名字不重发。
+    function prewarmCombatFloor(messageId) {
+        const id = Number(messageId);
+        if (stopped || !Number.isSafeInteger(id) || id < 0) return Promise.resolve({ ok: true, reason: 'not-eligible' });
+        const floor = messageHost.readFloor(id);
+        if (!floor || !floor.isAi || !floor.chatId || !String(floor.text || '').trim()) return Promise.resolve({ ok: true, reason: 'not-eligible' });
+        return prewarmCombatSprites(id, floor).catch(() => ({ ok: false, reason: 'error' }));
     }
 
     async function prewarmRun(messageId, floor, key, targets, s, guard) {
@@ -1329,21 +1370,28 @@ export function createAssetGenerationService(deps) {
         }
         const assets = state.sceneAssets;
         const known = new Set([...Object.keys(assets.characterDna || {}), ...Object.keys(assets.characters || {}), ...Object.keys(assets.characterOutfits || {})]);
-        // 与战斗面板一致：候选名逐个试，任一候选已有立绘即视为有图。
+        // 与战斗面板一致：候选名逐个试（含模糊兜底的已登记名），任一候选已有立绘即视为有图。
+        const registered = knownCharacterNames(assets);
+        targets = targets.map(target => ({ ...target, candidates: [...new Set([...target.candidates, ...fuzzyPortraitNames(target.raw, registered)])] }));
         const match = matchContext(state, floor, { scenes: [], characters: targets.flatMap(target => target.candidates) }, false);
         await match.hydrate();
         const missing = new Set(collectAssetNeeds({ characters: targets.flatMap(target => target.candidates) }, match, { sprite: true }).map(need => need.name));
-        const wanted = targets.filter(target => target.candidates.every(name => missing.has(name))).filter(target => {
+        const lacking = targets.filter(target => target.candidates.every(name => missing.has(name)));
+        // 已有图的名字算备好；判定为人类的对手档案已删，仍按人类流程补图，重试时不能因「不认识」被筛掉。
+        const settled = targets.filter(target => !lacking.includes(target)).map(target => target.base);
+        const wanted = lacking.filter(target => {
             const key2 = canonicalOf(target.base);
             const dna = assets.characterDna?.[key2] || assets.characterDna?.[target.base];
-            return creatureOf(dna) || known.has(key2) || known.has(target.base) || spokenKeys.has(key2);
+            return creatureOf(dna) || known.has(key2) || known.has(target.base) || spokenKeys.has(key2)
+                || judgedHuman.has(`${floor.chatId}|${target.base}`);
         });
         if (!wanted.length) return { ok: true, reason: 'nothing-missing' };
         const needs = wanted.map(target => ({ type: 'sprite', name: target.base }));
         attachCharacterDna(needs, assets);
         const spriteNeeds = needs;
         state = await judgeAutoCreatureForms(needs, spriteNeeds, state, floor, messageId);
-        if (!needs.length) return { ok: true, reason: 'nothing-missing' };
+        // 形态判定失败被剔除的对手不算备好，留给下次重试。
+        if (!needs.length) return { ok: false, reason: 'form-judge-failed', settled };
         let backend = describeTask(guard.signal);
         if (!backend.ready.ok && typeof nai.waitUntilReady === 'function') {
             const ready = await nai.waitUntilReady({ signal: guard.signal, shouldStart: guard.shouldStart });
@@ -1362,12 +1410,14 @@ export function createAssetGenerationService(deps) {
             sprites = { ...state, sceneAssets: readSettings(guard.signal).sceneAssets };
             preparedGuard = prepared.shouldStart;
         }
-        sprites = { ...sprites, taskSignal: guard.signal, spriteShouldStart: () => guard.shouldStart() && (!preparedGuard || preparedGuard()) };
+        // 战斗立绘排在本楼背景与 CG 前面出图（本机 NAI 队列插队，在途请求不打断）。
+        sprites = { ...sprites, taskSignal: guard.signal, paintPriority: 'high', spriteShouldStart: () => guard.shouldStart() && (!preparedGuard || preparedGuard()) };
         report('info', `第 ${messageId} 楼开战，先备战斗立绘：${needs.map(need => need.name).join('、')}`);
         const records = await generateSpriteBatch(needs.map(need => ({ need, tags: '' })), sprites, floor, key);
-        const done = records.filter(record => record.status === 'review').length;
+        const painted = records.filter(record => record.status === 'review');
+        for (const record of painted) settled.push(record.name);
         emit({ chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, reason: 'combat-prewarm' });
-        return { ok: done === records.length, reason: 'combat-prewarm', count: done };
+        return { ok: painted.length === records.length, reason: 'combat-prewarm', count: painted.length, settled };
     }
 
     async function processMessage(messageId, { manual = false } = {}) {
@@ -2381,7 +2431,7 @@ export function createAssetGenerationService(deps) {
         }
         reportExpressionProgress(onProgress, { phase: 'paint', done: 1, total: 1, mood: '平和' });
         const painted = await paintExpressionCaption(who, '平和', written.caption, paintDna,
-            { ...(nude && { look: 'nude' }), writtenFromDna: needsWriting, characterMeta: written.characterMeta, signal, shouldStart });
+            { ...(nude && { look: 'nude' }), writtenFromDna: needsWriting, characterMeta: written.characterMeta, seed: randomSeed(), signal, shouldStart });
         if (!painted.ok) return { ok: false, error: painted.error || '出图失败', prompt: painted.prompt };
         return { ok: true, imageId: painted.imageId, prompt: painted.prompt, characterMeta: painted.characterMeta,
             ...(isImageSeed(painted.seed) && { seed: painted.seed }) };
@@ -2587,7 +2637,8 @@ export function createAssetGenerationService(deps) {
             if (readSettings().sceneAssets.enabled) void ready().then(() => emit({ reason: 'records-ready' }))
                 .catch(error => { if (!stopped) report('error', `素材记录恢复失败：${error.message}`); });
         },
-        clearCache() { tempCache.clear(); prewarmClaims.clear(); prewarmTried.clear(); },
+        prewarmCombatFloor,
+        clearCache() { tempCache.clear(); prewarmClaims.clear(); prewarmTried.clear(); prewarmRunning.clear(); },
         stop() {
             stopped = true;
             recoveryController.abort();
@@ -2613,6 +2664,8 @@ export function createAssetGenerationService(deps) {
                 subscribe: messageHost.on?.bind(messageHost),
                 isCurrent: () => !stopped && messageHost.getChatId?.() === chat
                     && (!args[0]?.shouldStart || args[0].shouldStart()) }) : null;
+            // 这些入口只由设置器、衣柜等用户亲手点击触发：出图排在自动任务（含开战预热）前面。
+            if (generation) markUrgentImageSignal(target?.signal || linked.signal);
             const input = inheritImageTaskLease(args[0], { ...(objectInput && args[0]), signal: target?.signal || linked.signal,
                 ...(target && { shouldStart: target.shouldStart }) });
             const captured = generation && typeof llm?.runImageTask === 'function';

@@ -161,13 +161,15 @@ export function deriveAbilities({ prefs, name, level = 1, protagonist = false, t
         scores = Object.fromEntries(ABILITY_KEYS.map((key) => [key, clamp(scores[key] + tierMod, ABILITY_MIN, cap)]));
         scores = autoAllocate(scores, prefs, asiCountAt(level, false), cap);
     }
+    // base：剧情、升级加点之前的底数（设置页「修改属性」按它预填，点数上限只约束底数）。
+    const unadjusted = { ...scores };
     for (const adjustment of Array.isArray(adjustments) ? adjustments : []) {
         const key = abilityKeyOf(adjustment?.ability);
         const amount = Math.floor(Number(adjustment?.amount) || 0);
         if (key && amount) scores[key] = clamp(scores[key] + amount, ABILITY_MIN, cap);
     }
     const mods = Object.fromEntries(ABILITY_KEYS.map((key) => [key, abilityMod(scores[key])]));
-    return { scores, mods, proficiency: proficiencyBonus(level), cap };
+    return { scores, base: unadjusted, mods, proficiency: proficiencyBonus(level), cap };
 }
 
 // 尚未花掉的升级加点数。

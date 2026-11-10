@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILTIN_SKILLS, CORE_SKILL_NAMES } from '../src/scene/stats/stat-registry.js';
+import { BUILTIN_SKILLS, CORE_SKILL_NAMES, LEGACY_SKILL_MAP } from '../src/scene/stats/stat-registry.js';
 import { createEngine, heroSkillLevel, profileOf, PROTAGONIST } from '../src/scene/stats/stat-engine.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 import { buildHeroSkillRequest, parseHeroSkillReply, HERO_TIER_LIMITS } from '../src/scene/stats/stat-sheets.js';
@@ -14,8 +14,8 @@ import { readStatsSettings } from '../src/scene/stats/stat-settings.js';
 const FLAT = { readAbilities: () => ({ scores: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 } }) };
 const engineOf = (catalog = {}) => createEngine(catalog, {}, 'coc7', FLAT);
 
-test('注册表：新增 12 项都市技能，基础值取官方表，别名不与其他技能冲突', () => {
-    const added = { 电脑: 5, 图书馆: 20, 乔装: 5, 妙手: 10, 投掷: 20, 法律: 5, 财务: 5, 外语: 1, 估价: 5, 电子学: 1, 跳跃: 20, 追踪: 10 };
+test('注册表：都市技能，基础值取官方表，别名不与其他技能冲突', () => {
+    const added = { 电脑: 5, 查资料: 20, 伪装: 5, 顺手牵羊: 10, 投掷: 20, 法律: 5, 财务: 5, 外语: 1, 鉴定: 5, 跳跃: 20, 追踪: 10, 医术: 30 };
     const engine = engineOf();
     for (const [name, base] of Object.entries(added)) {
         assert.ok(CORE_SKILL_NAMES.includes(name), name);
@@ -104,7 +104,20 @@ test('存档区模型：CoC 列出全部可分配技能与生效值，D&D 不列
     assert.deepEqual(statsArchiveModel(ledger, { engine: dnd, heroSkills: ['法律'], catalog: {} }).heroSkills, []);
 });
 
-test('手改的未学技能首次成功登记不翻倍；D&D 不读手改', async () => {
+test('编辑技能列表：两种骰子都列全部技能与档位；内置技能可改所属属性并存档', () => {
+    const ledger = createStatsLedger('c1', createStatsState());
+    const catalog = sanitizeCatalog({ protagonistBase: { 烹饪: 55 }, story: [{ name: '开锁术', attribute: '敏捷' }], attributes: { 烹饪: '感知', 法律: '不存在' } });
+    assert.deepEqual(catalog.attributes, { 烹饪: '感知' });
+    for (const ruleset of ['coc7', 'dnd5e']) {
+        const engine = createEngine(catalog, {}, ruleset, FLAT);
+        const rows = Object.fromEntries(statsArchiveModel(ledger, { engine, heroSkills: ['烹饪', '法律'], catalog }).skillEdit.map((s) => [s.name, s]));
+        assert.deepEqual([rows.烹饪.attribute, rows.烹饪.tier, rows.烹饪.story], ['感知', '熟练', false], ruleset);
+        assert.equal(rows.法律.tier, '未学', ruleset);
+        assert.equal(rows.开锁术.story, true, ruleset);
+    }
+});
+
+test('手改的未学技能首次成功登记不翻倍；D&D 同样读手改', async () => {
     const { markGrowth, resolveCheck } = await import('../src/scene/stats/stat-engine.js');
     // 电脑基础值 5：手改为 60，from 记为 seed 5（与 setHeroSkill 一致）。
     const engine = engineOf({ protagonistEdit: { 电脑: { value: 60, from: 5 } } });
@@ -118,5 +131,36 @@ test('手改的未学技能首次成功登记不翻倍；D&D 不读手改', asyn
     const grown = { ...after, protagonist: { ...after.protagonist, skills: { ...after.protagonist.skills, 电脑: { value: 8, marked: false } } } };
     assert.equal(profileOf(engine, grown, PROTAGONIST, '电脑').value, 63);
     const dnd = createEngine({ protagonistEdit: { 电脑: { value: 60, from: 5 } } }, {}, 'dnd5e', FLAT);
-    assert.equal(heroSkillLevel(dnd, null, '电脑'), null);
+    assert.equal(heroSkillLevel(dnd, null, '电脑'), 60);
+});
+
+test('旧存档兼容：以「妙手」为键的值读入时落到「顺手牵羊」，新名已有值时不被旧键覆盖', async () => {
+    const { applyOps, mergeStatLog, migrateLegacySkills } = await import('../src/scene/stats/stat-log.js');
+    const catalog = sanitizeCatalog({
+        attributes: { 妙手: '力量' }, protagonistBase: { 妙手: 40 }, protagonistEdit: { 妙手: { value: 55, from: 0 } },
+        sheets: { 阿明: { rank: '普通人', attributes: {}, skills: { 妙手: 30 }, provisional: { 妙手: true } } },
+        queue: { skills: ['妙手', '顺手牵羊'], people: [] }, merged: { 偷窃: '妙手' },
+    });
+    assert.deepEqual(catalog.attributes, { 顺手牵羊: '力量' });
+    assert.equal(catalog.protagonistBase.顺手牵羊, 40);
+    assert.equal(catalog.protagonistEdit.顺手牵羊.value, 55);
+    assert.equal(catalog.sheets.阿明.skills.顺手牵羊, 30);
+    assert.equal(catalog.sheets.阿明.provisional.顺手牵羊, true);
+    assert.deepEqual(catalog.queue.skills, ['顺手牵羊']);
+    assert.equal(catalog.merged.偷窃, '顺手牵羊');
+    const both = sanitizeCatalog({ protagonistBase: { 顺手牵羊: 20, 妙手: 40 } });
+    assert.equal(both.protagonistBase.顺手牵羊, 40, '新旧两名都有值时取大');
+    const merged = sanitizeCatalog({ protagonistBase: { 医疗: 35, 急救: 50, 医术: 20, 机械: 10, 电子学: 25, 心理学: 33 }, attributes: { 骇入: '智力' } });
+    assert.equal(merged.protagonistBase.医术, 50);
+    assert.equal(merged.protagonistBase.修理, 25);
+    assert.equal(merged.protagonistBase.察言观色, 33);
+    assert.equal(merged.attributes.电脑, '智力');
+    for (const [old, now] of Object.entries(LEGACY_SKILL_MAP)) assert.equal(engineOf().registry.resolve(old), now, old);
+    assert.equal(applyOps({ protagonist: { skills: { 医术: { value: 60, marked: false } } } }, [{ p: ['protagonist', 'skills', '急救', 'value'], v: 45 }]).protagonist.skills.医术.value, 60);
+    const old = { protagonist: { skills: { 妙手: { value: 60, marked: false } } } };
+    assert.equal(migrateLegacySkills(old).protagonist.skills.顺手牵羊.value, 60);
+    assert.equal(applyOps(migrateLegacySkills(old), [{ p: ['protagonist', 'skills', '妙手', 'marked'], v: true }]).protagonist.skills.顺手牵羊.marked, true);
+    const engine = engineOf({ attributes: { 妙手: '力量' } });
+    assert.equal(engine.registry.resolve('妙手'), '顺手牵羊');
+    assert.ok(typeof mergeStatLog === 'function');
 });

@@ -2,18 +2,20 @@
 // 输出与 status-hud-model 的 extractStatusHudMetrics 同形（label / percent / display / colorKey），
 // 与 character-metrics 的 lookup 同形（{ metrics, stages }），视觉层只换数据源、不换样式。
 import { stageOf } from './stat-favor.js';
+import { stageLabel } from './stat-relation-label.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
 import { isProtagonist } from './stat-engine.js';
-import { grudgeTier } from './stat-state.js';
+import { barsOf, grudgeTier } from './stat-state.js';
+import { strainBarLook } from './stat-strain.js';
 
-const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕/;
+const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|信赖|了解|认知|熟悉|欲望|芥蒂|仇怨|怨恨|关系/;
 
 export function isUserName(name, userName = '') {
     const n = String(name || '').trim();
     return Boolean(n) && (isProtagonist(n) || n === String(userName || '').trim());
 }
 
-// 主角对自己没有好感：主角说话时状态栏去掉好感类条（表格里主角那一行同样不显示）。
+// 主角对自己没有人际数值：主角说话时状态栏去掉好感、信任、了解等条（表格里主角那一行同样不显示）。
 export function dropUserFavor(model, speaker, userName = '') {
     if (!model || !Array.isArray(model.metrics) || !isUserName(speaker, userName)) return model;
     const metrics = model.metrics.filter((metric) => !FAVOR_LABEL_RE.test(String((metric && metric.label) || '')));
@@ -21,7 +23,7 @@ export function dropUserFavor(model, speaker, userName = '') {
 }
 
 const DIM_COLOR = Object.freeze({ 好感: 'like', 信任: 'trust', 了解: 'know', 欲望: 'desire', 芥蒂: 'grudge' });
-const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '积分' });
+export const BAR_LABEL = Object.freeze({ health: '生命', stamina: '体力', stress: '压力', money: '积分' });
 // 状态栏条色沿用现有 slot 色板：生命红、体力绿、金钱黄、压力紫。
 const BAR_COLOR = Object.freeze({ health: 'slot-5', stamina: 'slot-2', money: 'slot-3', stress: 'slot-4' });
 // 金钱没有上限：条长按「巨额」档位折算，数字照实显示。
@@ -41,10 +43,10 @@ export function displayOfFavor(value, hudLabel = 'number') {
 }
 
 const DIM_STAGES = Object.freeze({
-    信任: ['戒备', '普通', '放心', '依赖'],
-    了解: ['陌生', '初识', '熟知', '灵犀'],
-    欲望: ['平淡', '悸动', '渴求', '沉溺'],
-    芥蒂: ['不满', '记恨', '怨恨', '仇恨'],
+    信任: ['警惕', '普通', '放心', '依赖'],
+    了解: ['陌生', '初识', '熟知', '心有灵犀'],
+    欲望: ['平静', '悸动', '渴求', '难以自持'],
+    芥蒂: ['不满', '记恨', '怨恨', '积怨'],
 });
 
 export function stageOfDim(dim, value) {
@@ -63,7 +65,15 @@ export function displayOfDim(dim, value, hudLabel = 'number') {
     return stage;
 }
 
-export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false } = {}) {
+// 压力条：转换后换成状态名与对应颜色。
+function stressMetric(bars) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(bars && bars.stress) || 0)));
+    const look = strainBarLook(bars);
+    return { label: look ? look.label : BAR_LABEL.stress, percent: v, display: String(v), colorKey: look ? look.colorKey : BAR_COLOR.stress, sourceUid: 'igs-stats' };
+}
+
+// stamina：设置「显示角色的体力与压力」开启时传真；体力、压力两条排在最上面。
+export function characterStatMetrics(character, { hudLabel = 'number', nsfw = false, stamina = false, favorTier = 'vivid' } = {}) {
     if (!character || !character.dims) return [];
     const out = [];
     const dims = '芥蒂' in character.dims ? character.dims : { ...character.dims, 芥蒂: 0 };
@@ -82,7 +92,13 @@ export function characterStatMetrics(character, { hudLabel = 'number', nsfw = fa
             statValue: Math.round(Number(value) || 0),
             // 好感条显示阶段名时，飘字只出心形、不出数字（§10）。
             quiet: dim === '好感' && hudLabel === 'stage',
+            // 心意槽：困难档不显示，好感条旁五个小点。
+            ...(dim === '好感' && !negativeFavor && favorTier !== 'hard' ? { heart: Math.max(0, Math.min(4, Math.round(Number(character.heart) || 0))) } : {}),
         });
+    }
+    if (stamina) {
+        const v = Math.max(0, Math.min(100, Math.round(Number(barsOf(character).stamina) || 0)));
+        out.unshift({ label: BAR_LABEL.stamina, percent: v, display: String(v), colorKey: BAR_COLOR.stamina, sourceUid: 'igs-stats' }, stressMetric(barsOf(character)));
     }
     return out;
 }
@@ -98,6 +114,7 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
     }
     for (const key of ['stamina', 'stress']) {
         if (enabledBars[key] === false) continue;
+        if (key === 'stress') { out.push(stressMetric(bars)); continue; }
         const v = Math.round(Number(bars && bars[key]) || 0);
         out.push({ label: BAR_LABEL[key], percent: Math.max(0, Math.min(100, v)), display: String(v), colorKey: BAR_COLOR[key], sourceUid: 'igs-stats' });
     }
@@ -114,14 +131,14 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
 
 // 与 createCharacterMetricsLookup 同形；未登记的名字返回空，调用方可按原逻辑退回表格。
 // sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定。
-export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, sheets = null, engine = null } = {}) {
+export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, stamina = false, sheets = null, engine = null, favorTier = 'vivid', isRomanceOf = null } = {}) {
     return (name) => {
         const key = state && resolve(String(name || '').trim());
         const c = key && state.characters[key];
         if (!c) return { metrics: [], stages: [] };
         const out = {
-            metrics: characterStatMetrics(c, { hudLabel, nsfw }),
-            stages: [{ label: '关系阶段', value: stageOf(c.dims.好感).name }],
+            metrics: characterStatMetrics(c, { hudLabel, nsfw, stamina, favorTier }),
+            stages: [{ label: '关系阶段', value: isRomanceOf ? stageLabel(c.dims.好感, isRomanceOf(c, key)) : stageOf(c.dims.好感).name }],
         };
         if (sheets) out.sheet = sheetSummary(key, sheets[key], engine);
         return out;

@@ -6,7 +6,10 @@ import { DIALOG_SKIN_WUXIA_INK } from './dialog-theme-wuxia.js';
 import { WX_SEAL_MASK, WX_TBAND_MASK, maskOf } from './wuxia-ink-svg.js';
 import { DIALOG_SKIN_MERMAID, MERMAID_PEARL_DOT, mermaidPearl } from './dialog-theme-mermaid.js';
 import { DIALOG_SKIN_FAIRY_TALE, FAIRY_SPARKLE_MASK, fairyPaper } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH, HORROR_DROP_MASK, HORROR_HEART_MASK } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE, GORE_REGISTRY_VALUES, HORROR_DROP_MASK } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR, monitorTitleStyle } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_WARD, WARD_TITLE_THEME } from './dialog-theme-horror-ward.js';
+import { DIALOG_SKIN_HORROR_PSYCH, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HAZARD, wastelandStripes } from './dialog-theme-wasteland.js';
 import {
@@ -72,11 +75,13 @@ const TITLE_EXTRAS = Object.freeze({
         `${s} .igs-fx-title-main::before,${s} .igs-fx-title-main::after{${mark(12, '#e0b45a', FAIRY_SPARKLE_MASK)}}`,
         `${s} .igs-fx-title-sub{color:#6f8250;}`,
     ],
-    // 血色噩梦：黑底通栏、地点字下压一道血色错影，末尾一颗血滴。
+    // 血色：近黑底通栏，地点字压一道暗红错影，末尾一颗细长血滴。
     [DIALOG_SKIN_HORROR_GORE]: (s) => [
-        `${s} .igs-fx-title-main{text-shadow:2px 3px 0 #d1121b,0 2px 8px rgba(0,0,0,.95);}`,
-        `${s}::after{width:12px;height:15px;background:#d1121b;${mask(HORROR_DROP_MASK)}}`,
+        `${s} .igs-fx-title-main{text-shadow:${GORE_REGISTRY_VALUES.titleShadow};}`,
+        `${s}::after{width:7px;height:15px;background:${GORE_REGISTRY_VALUES.titleColor};${mask(HORROR_DROP_MASK)}}`,
     ],
+    [DIALOG_SKIN_HORROR_MONITOR]: monitorTitleStyle,
+    [DIALOG_SKIN_HORROR_WARD]: WARD_TITLE_THEME,
     // 心理恐怖：表面是粉色校园风的圆角卡，末尾一颗小爱心。
     [DIALOG_SKIN_HORROR_PSYCH]: (s) => [
         `${s}{${CARD}border:2px solid rgba(224,119,157,.55);border-radius:16px;background:rgba(255,250,252,.95);box-shadow:0 4px 0 rgba(224,119,157,.35);}`,

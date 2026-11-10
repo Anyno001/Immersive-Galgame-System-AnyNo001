@@ -15,7 +15,7 @@ function externalPoints(value) {
     return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
 }
 
-export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive, combatServices, statsRuntime }) {
+export function createOriginRuntime({ getContext, readSettings, readLlm, readProfiles, secondaryLlm, notice, openSettings, saveSetting, legacyActive, combatServices, statsRuntime, readRuleset }) {
     const ctx = () => { try { return getContext() || null; } catch (error) { return null; } };
 
     async function viaTavern(prompt) {
@@ -77,6 +77,8 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
             try { notice(NOTICE_LEVEL[kind] || 'info', String(text)); } catch (error) { /* 细线出错不影响结算 */ }
         },
         legacyActive: () => { try { return Boolean(legacyActive && legacyActive()); } catch (error) { return false; } },
+        // 当前体系（coc7 / dnd5e），随身系统按它换算属性奖励。
+        readRuleset: () => { try { return typeof readRuleset === 'function' ? readRuleset() : 'coc7'; } catch (error) { return 'coc7'; } },
     };
 
     const engine = getSharedOriginEngine(host);
@@ -97,6 +99,8 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
         engine,
         // 总开关或其他设置变化后调用：开就挂监听并读存档，关就解绑。
         sync: () => engine.sync(),
+        // 随身系统自己的属性加成 [{ name, val }]（只读）；IGS 数值系统按同名叠加。
+        rawStats: () => engine.rawStats(),
         destroy: () => { try { engine.release(); } catch (error) { /* */ } detach(); },
     };
 }

@@ -33,13 +33,15 @@ function setup({ lookup, register = 'auto' } = {}) {
 }
 const settled = () => new Promise((resolve) => setTimeout(resolve, 5));
 const favorOf = (rt, name) => rt.getState().characters[name]?.dims.好感;
+// 鲜明档的小幅好感先进心意槽，满了才涨好感，两者有一项涨就算记上。
+const gainedFavor = (rt, name) => { const c = rt.getState().characters[name]; return Boolean(c) && (c.dims.好感 >= 1 || c.heart >= 1); };
 
 test('世界书缓存已确认的角色：同一楼直接登记，不再查询', async () => {
     const { rt, say, asked, worldRoles } = setup({ lookup: async () => true });
     await worldRoles.confirm(['雪乃'], { chatId: 'chat-w' });
     asked.length = 0;
     say('她笑了。[igs-stat:favor|雪乃|开心]');
-    assert.ok(favorOf(rt, '雪乃') >= 1);
+    assert.ok(gainedFavor(rt, '雪乃'));
     await settled();
     assert.deepEqual(asked, []);
 });
@@ -49,7 +51,7 @@ test('首次未命中：异步确认后补算最新楼，第一次出场的好�
     const id = say('她笑了。[igs-stat:favor|雪乃|开心]');
     assert.equal(favorOf(rt, '雪乃'), undefined);
     await settled();
-    assert.ok(favorOf(rt, '雪乃') >= 1);
+    assert.ok(gainedFavor(rt, '雪乃'));
     assert.deepEqual(asked, ['雪乃']);
     assert.equal(ctx.chat.length - 1, id);
     assert.ok(rt.getDiagnostics().some((d) => d.code === 'stats-world-role-registered' && d.name === '雪乃'));
@@ -93,7 +95,7 @@ test('确认返回时已不是最新楼：只记缓存，不回溯旧楼，下�
     await settled();
     assert.equal(favorOf(rt, '雪乃'), undefined);
     say('她又笑了。[igs-stat:favor|雪乃|开心]');
-    assert.ok(favorOf(rt, '雪乃') >= 1);
+    assert.ok(gainedFavor(rt, '雪乃'));
 });
 
 test('读不到世界书（返回 null）时不记入已查，最多再试一次', async () => {

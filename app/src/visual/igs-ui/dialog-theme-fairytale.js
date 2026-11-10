@@ -106,6 +106,6 @@ export const FAIRY_HUD_THEME = Object.freeze({
     placeholder: 'background:linear-gradient(180deg,#f3eedd,#dfe5cc);color:#5e6b3c;',
     placeholderSvg: 'fill:none;stroke:#5e6b3c;stroke-width:1.3;',
     track: `height:${s(6)};border:0;border-radius:999px;background:rgba(${SAGE},.18);`,
-    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 60%,rgb(${SAGE})) !important;border-radius:999px;`,
+    fill: `background:color-mix(in srgb,var(--igs-hud-fill-color) 88%,rgb(${SAGE})) !important;border-radius:999px;`,
     value: 'font-weight:400;',
 });

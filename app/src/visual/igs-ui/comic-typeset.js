@@ -17,6 +17,9 @@ const PARTICLES = new Set('的了吗呢吧啊呀哦嘛着过地得'.split(''));
 const BIND_AFTER = new Set('不没别很最太再更都也还又才就把被让给向从在对跟和与是一这那'.split(''));
 // 单字后缀（图书「馆」、他「们」、家「里」）分词器常切成独立的词，换列时仍要跟着前文。
 const SUFFIX = new Set('馆室店厅院场楼园站部局所班们家者员里边面时候性化式型'.split(''));
+// 数字和后面的量词（七「点」、三「个」、15「分」）分词器常切开，换列时不能分开。
+const NUMERAL = new Set('0123456789一二三四五六七八九十百千万两几半零'.split(''));
+const MEASURE = new Set('点个只条件次天年月日号分秒岁位名本张块元层楼斤米倍遍回周盏杯碗瓶'.split(''));
 const LATIN_RUN = /[A-Za-z][A-Za-z0-9'’.\-]*/y;
 const DIGIT_RUN = /[0-9]+/y;
 const BANG_RUN = /[！？!?]{2,3}/y;
@@ -111,8 +114,9 @@ function breakBonus(prev, next, words) {
     if (!prev) return 0;
     // 把一个词拆到两列：仅次于禁则的大忌。
     if (words && next && !words.has(next.start)) return 12;
-    if (next && next.text.length === 1 && SUFFIX.has(next.text)) return 4;
     const last = prev.text[prev.text.length - 1];
+    if (next && NUMERAL.has(last) && MEASURE.has(next.text[0])) return 12;
+    if (next && next.text.length === 1 && SUFFIX.has(next.text)) return 4;
     // 语气词、助词粘着前文：换列后落在列首很难看。
     if (next && PARTICLES.has(next.text[0])) return 3;
     // 官方嵌字几乎总在句读处换列：奖励要大到能压过一两格的长短差。
@@ -280,51 +284,56 @@ function visibleLength(text) {
     return String(text).replace(/\s+/g, '').length;
 }
 
+// 断点只取句末与逗号处（句末优先），按各泡字数接近、不超上限挑一组：动态规划，避免贪心塞满后留下一大一小。
 export function splitBubbleChunks(text, { limit = 30, maxParts = 3 } = {}) {
     const src = String(text == null ? '' : text);
-    if (visibleLength(src) <= limit * 1.2) return [[0, src.length]];
-    let points = cutPoints(src, SENTENCE_END);
-    const pieces = [];
-    let start = 0;
-    for (const at of [...points, src.length]) {
-        pieces.push([start, at]);
-        start = at;
-    }
-    // 一句就超长：在逗号处再切。
-    const fine = [];
-    for (const [a, b] of pieces) {
-        if (visibleLength(src.slice(a, b)) <= limit * 1.3) { fine.push([a, b]); continue; }
-        let s = a;
-        for (const at of cutPoints(src.slice(a, b), CLAUSE_END).map((p) => p + a)) {
-            if (visibleLength(src.slice(s, at)) >= limit * 0.5) { fine.push([s, at]); s = at; }
+    const total = visibleLength(src);
+    if (total <= limit * 1.2 || maxParts < 2) return [[0, src.length]];
+    const penalty = new Map();
+    for (const at of cutPoints(src, CLAUSE_END)) penalty.set(at, 3);
+    for (const at of cutPoints(src, SENTENCE_END)) penalty.set(at, 0);
+    const points = [0, ...[...penalty.keys()].sort((a, b) => a - b), src.length];
+    if (points.length < 3) return [[0, src.length]];
+    const lens = points.map((p) => visibleLength(src.slice(0, p)));
+    const partCost = (len, target) => {
+        let cost = ((len - target) / limit) ** 2 * 20;
+        if (len > limit * 1.3) cost += (len - limit * 1.3) * 2;
+        if (len < 4) cost += 20;
+        return cost;
+    };
+    const n = points.length - 1;
+    let best = null;
+    const base = Math.min(maxParts, Math.max(2, Math.ceil(total / limit)));
+    for (let count = base; count <= Math.min(maxParts, n); count += 1) {
+        const target = total / count;
+        // dp[c][j]：前 j 个断点区间拼成 c 个泡的最小代价。
+        const dp = Array.from({ length: count + 1 }, () => new Array(n + 1).fill(Infinity));
+        const from = Array.from({ length: count + 1 }, () => new Array(n + 1).fill(-1));
+        dp[0][0] = 0;
+        for (let c = 1; c <= count; c += 1) {
+            for (let j = c; j <= n; j += 1) {
+                if (c === count && j !== n) continue;
+                for (let i = c - 1; i < j; i += 1) {
+                    if (dp[c - 1][i] === Infinity) continue;
+                    const cost = dp[c - 1][i] + partCost(lens[j] - lens[i], target) + (j < n ? penalty.get(points[j]) : 0);
+                    if (cost < dp[c][j]) { dp[c][j] = cost; from[c][j] = i; }
+                }
+            }
         }
-        fine.push([s, b]);
-    }
-    // 贪心合并到不超过 limit。
-    const chunks = [];
-    let cur = null;
-    for (const piece of fine) {
-        if (!cur) { cur = piece.slice(); continue; }
-        if (visibleLength(src.slice(cur[0], piece[1])) <= limit) cur[1] = piece[1];
-        else { chunks.push(cur); cur = piece.slice(); }
-    }
-    if (cur) chunks.push(cur);
-    // 太短的尾巴并回前一个泡。
-    if (chunks.length > 1 && visibleLength(src.slice(...chunks[chunks.length - 1])) < 4) {
-        const tail = chunks.pop();
-        chunks[chunks.length - 1][1] = tail[1];
-    }
-    while (chunks.length > maxParts) {
-        // 合并相邻最短的一对，保持泡的大小相近。
-        let bestIndex = 0;
-        let bestLen = Infinity;
-        for (let i = 0; i < chunks.length - 1; i += 1) {
-            const len = visibleLength(src.slice(chunks[i][0], chunks[i + 1][1]));
-            if (len < bestLen) { bestLen = len; bestIndex = i; }
+        if (dp[count][n] === Infinity) continue;
+        // 多一个泡多一点代价：能少拆就少拆。
+        const score = dp[count][n] + (count - base) * 6;
+        if (best && score >= best.score) continue;
+        const chunks = [];
+        for (let c = count, j = n; c >= 1; c -= 1) {
+            const i = from[c][j];
+            chunks.unshift([points[i], points[j]]);
+            j = i;
         }
-        chunks.splice(bestIndex, 2, [chunks[bestIndex][0], chunks[bestIndex + 1][1]]);
+        best = { score, chunks };
     }
-    return chunks.filter(([a, b]) => visibleLength(src.slice(a, b)) > 0);
+    if (!best) return [[0, src.length]];
+    return best.chunks.filter(([a, b]) => visibleLength(src.slice(a, b)) > 0);
 }
 
 // —— DOM 工具 ——

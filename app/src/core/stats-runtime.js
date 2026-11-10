@@ -4,32 +4,42 @@
 import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { MANUAL_DIMS, applyManualRelations, settleFloorText } from '../scene/stats/stat-settle.js';
-import { START_DIMS } from '../scene/stats/stat-vocab.js';
-import { createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } from '../scene/stats/stat-persist.js';
+import { FAVOR_TIERS, normalizeFavorTier, stageOf } from '../scene/stats/stat-favor.js';
+import { START_DIMS, startFixOffsets } from '../scene/stats/stat-vocab.js';
+import { APTITUDE_LEVELS, TRAIT_KEYS, createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } from '../scene/stats/stat-persist.js';
 import {
     BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport,
 } from '../scene/stats/stat-log.js';
 import { hash32 } from '../combat/random.js';
 import { challengeDirectiveOf, parseChallengeReport } from '../combat/challenge-report.js';
+import { battleDirectiveOf, parseBattleReport } from '../combat/battle-report.js';
 import { BUILD_MODES } from '../combat/abilities.js';
 import { checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, mergeCheckInputs, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe, checkCorrections } from '../scene/check-rolls.js';
 import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene/stats/stat-coc-checks.js';
 import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
-import { createStatsState, grudgeOfCharacter } from '../scene/stats/stat-state.js';
+import { createStatsState, grudgeOfCharacter, isRomance } from '../scene/stats/stat-state.js';
+import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, listTraits, setTraitAttrReader, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
-import { pushStats, withTimeout } from '../data/shujuku/stats-push.js';
-import { createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
-import { statsArchiveModel } from '../scene/stats/stat-archive.js';
+import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
+import { statsPushActive } from '../data/shujuku/igs-managed.js';
+import { canonicalAttribute, isSixAttribute } from '../data/shujuku/skill-table.js';
+import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
+import { FAME_BAR_MAX, buildFameFillPrompt, fameDraftText, fameHudMetrics, famePairs, fameRows, fameTemplateBar, fameTier, fameValue, parseFameDraft, parseFameFill } from '../scene/stats/stat-fame.js';
+import { stageLabel } from '../scene/stats/stat-relation-label.js';
+import { statsRivalSet } from '../scene/stats/stat-rivals.js';
+import { SKILL_TIER_ORDER, describeClockTrail, heroSkillCap, resolveHeroSlots, statsArchiveModel, statsClockTrail, statsFavorOverview, tierWordOfValue } from '../scene/stats/stat-archive.js';
+import { BUILD_PICK_SLOTS, backfillHeroSlots, slotValue } from '../scene/stats/stat-build.js';
 import { matchSkill } from '../scene/stats/stat-skill-match.js';
 import { cryptoRandom } from '../scene/stats/stat-rng.js';
 import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, registerStorySkill, removeStorySkill } from '../scene/stats/stat-registry.js';
 import { worldSkillNames } from '../scene/stats/stat-world-skills.js';
+import { applyTidy, buildTidyPrompt, parseTidyReply } from '../scene/stats/stat-story-tidy.js';
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
 import {
-    PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroSkillLevel, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
-    isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo,
+    PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
+    gateAttributes, isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
 } from '../scene/stats/stat-engine.js';
 import {
     PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, abilityLine, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
@@ -38,17 +48,41 @@ import {
 import { parseDiceCommand } from '../choices/dice-check.js';
 import { CURRENCY_ATTEMPTS, CURRENCY_CATEGORY, buildCurrencyRequest, currencyBalanceOf, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement, parseCurrencyReply } from '../scene/stats/stat-currency.js';
 import { WORLDVIEWS } from '../scene/worldview.js';
+import { parseStatDirectives, stripStatDirectives } from '../scene/stats/stat-directives.js';
+import { traitEnvOf } from '../scene/stats/stat-trait-env.js';
+import { luckyReroll, traitEdgeOf } from '../scene/stats/stat-trait-dice.js';
+import { EVENT_TYPES as BOND_EVENT_TYPES, repairLegacyStart } from '../scene/stats/stat-trait-rules-bond.js';
+import { TRAIT_DEFS } from '../scene/stats/stat-traits.js';
+import { applyReview, buildReviewPayload, judgedNames, reviewMemoryOf, reviewMemoryWrite, buildReviewPrompt, parseReviewEvents, parseReviewReply, scanFloorForReview, parseReviewStatuses, parseReviewWorlds, applyReviewStatuses } from './trait-review.js';
+import { STATUS_DEFS, WORLD_GENRES, subInWorlds } from '../scene/stats/stat-status-defs.js';
+import { applyStatusChange, setCycle, startCycleToday, statusesOf } from '../scene/stats/stat-status.js';
+import { achievementPass, lightCodex, refreshCombos, comboNotices, traitNoticeText } from './stats-trait-runtime.js';
 
 export const STATS_PROMPT_KEY = 'igs-stats-state';
 const IN_CHAT = 1;
 const NONE = -1;
 const SKIP_TYPES = new Set(['quiet', 'impersonate']);
+// 「按剧情拟写」读最近多少楼、正文最多多少字。
+const HERO_NOTE_FLOORS = 12;
+const HERO_NOTE_CHARS = 6000;
 const DIAG_MAX = 50;
+// 复核提示词里列的恩仇事件（短表；解析仍认全部 EVENT_TYPES）。
+const TRAIT_REVIEW_PROMPT_EVENTS = Object.freeze(['救命', '帮忙', '报恩', '结怨', '和解', '复仇', '偷窃成功', '谎言揭穿', '猜忌']);
 const SKILLS_LINE_MAX = 20;
 const PRESENT_MAX = 3;
 const BACKGROUND_TIMEOUT_MS = 60000;
 // 补填起始关系时，好感、信任、了解都在这个范围内的角色视为还没定过初值。
 const START_FILL_SPAN = 10;
+// 起始关系只管这三项，芥蒂不参与补填。
+const START_FILL_DIMS = Object.freeze(['好感', '信任', '了解']);
+// AI 填表窗口的兜底时长：收到「开始填表」后一直没有表格更新就自动退出窗口。
+const FILL_WINDOW_MAX = 120000;
+// 自己写表后表格插件仍会触发更新回调，这段时间内的更新不当作用户手改。
+const SELF_WRITE_QUIET = 2500;
+// 填表窗口关闭后的余波时长：插件一轮填表可能连发几次更新，这段时间内的更新仍按 AI 填表处理。
+const FILL_GRACE = 5000;
+// 采纳遇到正在写表时最多顺延几次（每次 TABLE_PUSH_DELAY），超出就放弃本次，等下一次表格更新。
+const TABLE_SYNC_RETRY_MAX = 5;
 
 function lastUserText(c) {
     const chat = c && Array.isArray(c.chat) ? c.chat : [];
@@ -67,16 +101,24 @@ function cardOf(c) {
     return String((ch && (ch.avatar || ch.name)) || c.name2 || '');
 }
 
-// 默认登记：已登记角色、当前角色卡名、群聊成员（§5.1B 条件 1/2）、世界书里确认过的角色；仅手动档只认已登记角色。
-function defaultResolver(c, register, worldRoles = null) {
+// 默认登记：已登记角色、当前角色卡名、群聊成员（§5.1B 条件 1/2）、世界书里确认过的角色、数据库表格里的人物；仅手动档只认已登记角色。
+function defaultResolver(c, register, worldRoles = null, tableNames = null, isHero = null) {
     return (name, state) => {
+        // 用户角色只有生活条，不按人际角色登记（表格或世界书里写了人设名也一样）。
+        if (isHero && isHero(name)) return null;
         if (Object.hasOwn(state.characters, name)) return name;
         if (register === 'manual' || !c) return null;
         const names = [c.name2, ...(Array.isArray(c.groupMembers) ? c.groupMembers : [])].filter((n) => typeof n === 'string' && n.trim());
         if (names.includes(name)) return name;
+        if (tableNames && tableNames.has(name)) return name;
         return worldRoles && worldRoles.has(name) ? name : null;
     };
 }
+
+// 表格人物名单的复用时长：连续结算多楼时只读一次表格。
+const TABLE_PEOPLE_TTL = 3000;
+// 表格更新后等这么久再写回：数据库插件一轮常连写多张表，合并成一次。
+const TABLE_PUSH_DELAY = 800;
 
 const ATTRIBUTE_WORD = (v) => (v >= 75 ? '顶尖' : v >= 60 ? '出众' : v >= 45 ? '普通' : v >= 35 ? '偏弱' : '很弱');
 const PERCEPTION_WORD = ['迟钝，常漏掉细节', '普通，明显的变化能注意到', '敏锐，能察觉异样', '很敏锐，能发现藏起来的线索', '极其敏锐，几乎不会漏掉什么'];
@@ -86,10 +128,12 @@ const IS_COC = (engine) => engine.ruleset.ID === 'coc7';
 // CoC 下合并账本、批量分配的底数与玩家手改（取 heroSkillLevel 的生效值）；D&D 仍只读账本。
 const learnedSkills = (state, engine = null) => {
     const owned = state.protagonist.skills;
-    const merged = Boolean(engine) && IS_COC(engine);
-    const names = merged ? [...new Set([...Object.keys(owned), ...Object.keys(engine.protagonistBase), ...Object.keys(engine.protagonistEdit)])] : Object.keys(owned);
+    const merged = Boolean(engine);
+    // 随身系统同名加成：带加成的技能一律列出，值取叠加后的生效值（profileOf）。
+    const bonusNames = engine ? heroBonusSkillNames(engine) : new Set();
+    const names = [...new Set([...(merged ? [...Object.keys(owned), ...Object.keys(engine.protagonistBase), ...Object.keys(engine.protagonistEdit)] : Object.keys(owned)), ...bonusNames])];
     return names.filter((name) => !BASE_ATTRIBUTES.includes(name) && name !== SAN_ATTRIBUTE)
-        .map((name) => [name, merged ? heroSkillLevel(engine, owned[name], name) || 0 : Number(owned[name] && owned[name].value) || 0]).filter(([, v]) => v >= 25)
+        .map((name) => [name, bonusNames.has(name) ? Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0) : merged ? heroSkillLevel(engine, owned[name], name) || 0 : Number(owned[name] && owned[name].value) || 0]).filter(([, v]) => v >= 25)
         .sort((a, b) => b[1] - a[1]).slice(0, SKILLS_LINE_MAX);
 };
 
@@ -135,6 +179,18 @@ export function createStatsRuntime({
     combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
     // 剧情货币所在的物品表读写口（createInventoryTables 的产物：read / changeQuantities）。
     currencyInventory = () => null, pointsExchange = () => null,
+    // 数据库表格里的人物名单（人际关系页同一套读法），供「从表格导入角色」登记。
+    tablePeople = null, plotSetting = () => '',
+    // 随身系统的原始属性 [{ name, val }]（只读，百分制加成）；随身系统读不到 IGS，这里不回写。
+    originStats = () => null,
+    // 场景素材里「设为User立绘」的角色名（可为空）。
+    userCharacter = () => '',
+    // 场景素材的角色别名表 { 角色名: [别名...] }，用于把用户角色的别名也认成主角。
+    characterAliases = () => ({}),
+    // 当前情绪分组 [{ label, words }]（场景素材 moodGroups），好感方向词的情绪组兜底识别用；缺省用默认分组。
+    moodGroups = () => null,
+    // 全局特质图鉴存储 { get(), set(next) }（跨聊天、跨角色卡）；缺省不记图鉴。
+    traitCodexStore = null,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
@@ -159,6 +215,7 @@ export function createStatsRuntime({
     let currency = null;
     let currencyJob = null;
     const currencyAsked = new Set();
+    const startAsked = { chatId: '', names: new Set() };
     let tail = Promise.resolve();
     let writes = 0;
     let writeSeq = 0;
@@ -175,6 +232,7 @@ export function createStatsRuntime({
     let modeChat = null;
     const askedFill = new Set();
     const heroAsked = new Set();
+    const heroPickAsked = new Set();
     const notices = new Map();
     const diagnostics = [];
     const forcedSettings = new WeakMap();
@@ -510,16 +568,141 @@ export function createStatsRuntime({
     const readers = {
         readAbilities: (name) => { const s = life(); return s && typeof s.readAbilities === 'function' ? s.readAbilities(name, { heroPrefs: heroPrefs() }) : null; },
         readVitals: (name) => { const s = life(); return s && typeof s.readVitals === 'function' ? s.readVitals(name, { heroPrefs: heroPrefs() }) : null; },
+        // 随身系统属性加成（只读，按名字与 IGS 同名属性、技能相加）；没有随身系统或没有数据为 null。
+        readBonus: () => { try { const list = originStats(); return Array.isArray(list) && list.length ? list : null; } catch (error) { return null; } },
         get userName() { return userName(); },
     };
     const engineOf = (ruleset) => engineFor(catalog, settings(), ruleset === undefined ? settings().ruleset : ruleset, readers);
     // 一次注入或结算内用：读数按名字记忆化，避免同一名字反复折叠战斗账本。
     const memoEngineOf = (ruleset) => withAbilityMemo(engineOf(ruleset));
+    // 特质门槛读六维：同一同步段内按名字记忆化，下一个微任务清空，hasTrait 高频调用不重算。
+    let gateMemo = null;
+    let gateCatalog = null;
+    const gateAttrsOf = (name) => {
+        if (!ledger) return null;
+        if (!gateMemo || gateCatalog !== catalog) { gateMemo = new Map(); gateCatalog = catalog; queueMicrotask(() => { gateMemo = null; }); }
+        if (!gateMemo.has(name)) gateMemo.set(name, gateAttributes(engineOf(), currentStatsState(ledger), name));
+        return gateMemo.get(name);
+    };
+    setTraitAttrReader(gateAttrsOf);
     const background = () => { try { return Boolean(isBackground()); } catch (error) { return false; } };
+    // 界面开关沿用旧布尔式（键 → true）；新格式只在存档与结算里使用，界面改版后换读 listTraits。
+    const traitSwitchModel = (traits) => Object.fromEntries(Object.entries(traits).map(([n, marks]) => [n, Object.fromEntries(Object.entries(marks).filter(([, e]) => e && e.on === true).map(([k]) => [k, true]))]));
     const present = (state) => {
         const names = typeof presentOf === 'function' ? presentOf(state) : Object.keys(state.characters).sort((a, b) => (state.characters[b].lastSeenDay || 0) - (state.characters[a].lastSeenDay || 0));
-        return names.filter((n) => state.characters[n]);
+        // 随身角色（档案标记或聊天级勾选）正文不点名也在场。
+        const companions = Object.keys(state.characters).filter((n) => hasTrait(state, traitCatalogOf(catalog.traits), n, 'companion') && !names.includes(n));
+        return [...names, ...companions].filter((n) => state.characters[n] && !isHero(n));
     };
+    // 写回是否生效：设置里手动开启，或本聊天用了 IGS 适配版模板（角色数值表、才艺技能表由 IGS 维护）时自动开启。读表结果短暂缓存。
+    let managedCache = null;
+    const pushOn = () => {
+        if (settings().push.enabled) return true;
+        if (managedCache && Date.now() - managedCache.at < TABLE_PEOPLE_TTL) return managedCache.on;
+        let on = false;
+        try {
+            const client = getPushClient();
+            const read = client ? client.readTables() : null;
+            on = statsPushActive(false, read && read.ok ? read.data : null);
+        } catch (error) { on = false; }
+        managedCache = { at: Date.now(), on };
+        return on;
+    };
+    // 数据库表格里的人物名单，主角与用户除外；读失败当没有。只取名字：数值以 IGS 为准，表格里 AI 填的数字不采用。
+    let tableCache = null;
+    const tableNames = ({ fresh = false } = {}) => {
+        if (typeof tablePeople !== 'function') return [];
+        if (!fresh && tableCache && Date.now() - tableCache.at < TABLE_PEOPLE_TTL) return tableCache.names;
+        let rows = [];
+        try { rows = tablePeople() || []; } catch (error) { rows = []; }
+        const c = ctx();
+        const skip = new Set([userName(), c && c.name1, PROTAGONIST].filter(Boolean));
+        const names = [...new Set(rows.map((row) => String((row && typeof row === 'object' ? row.name : row) || '').trim()))]
+            .filter((name) => name && !skip.has(name) && !isHero(name));
+        tableCache = { at: Date.now(), names };
+        return names;
+    };
+    const tableNameSet = () => new Set(tableNames());
+    // 本楼要新建档的表格人物：{ 角色: {} }，关系从 0 起，初值交给「补全初始关系」；已登记的跳过。
+    // 角色卡名与群聊成员：正文里出现过名字就建档，不必等 AI 写好感标签；多人卡的卡名多半不是人名，正文没提到就不建。
+    const rosterNames = (upTo = Infinity) => {
+        const c = ctx();
+        if (!c) return [];
+        const names = [c.name2, ...(Array.isArray(c.groupMembers) ? c.groupMembers : [])]
+            .map((n) => String(n || '').trim()).filter((n) => n && !isHero(n) && n !== PROTAGONIST);
+        if (!names.length) return [];
+        const text = messages(c).slice(0, upTo === Infinity ? undefined : upTo + 1).map((m) => String((m && m.mes) || '')).join('\n');
+        return [...new Set(names)].filter((n) => text.includes(n));
+    };
+    const tableSeedOf = (state, upTo = Infinity) => {
+        const fresh = [...new Set([...tableNames(), ...rosterNames(upTo)])].filter((name) => !state.characters[name]);
+        return fresh.length ? Object.fromEntries(fresh.map((name) => [name, {}])) : null;
+    };
+    // 表格被数据库插件改过后分两种来源：
+    // 1. AI 填表（「开始填表」回调到下一次表格更新之间）：用 IGS 数值盖回去；
+    // 2. 窗口外的更新视为用户手改：IGS 管的格子与当前值不同就采纳，记为最近一楼的手动修改。
+    // 同步子开关关闭时两边都不通。
+    let tablePushTimer = null;
+    let fillTimer = null;
+    let fillOpen = false;
+    let writingTable = false;
+    let selfWriteUntil = 0;
+    let fillGraceUntil = 0;
+    const closeFillWindow = () => {
+        fillOpen = false;
+        if (fillTimer) { clearTimeout(fillTimer); fillTimer = null; }
+    };
+    const onTableFillStart = () => {
+        closeFillWindow();
+        fillOpen = true;
+        // 兜底超时也留余波：慢填表在超时后才到的更新仍按 AI 填表处理（宁可盖回，不误采纳）。
+        fillTimer = setTimeout(() => { fillTimer = null; fillOpen = false; fillGraceUntil = Date.now() + FILL_GRACE; }, FILL_WINDOW_MAX);
+    };
+    // 读表并采纳用户手改；有改动时由 commitManualRelations 写账本、刷新设置器并写回表格，没有差异也补一次盖回。
+    function adoptTableEdits() {
+        if (generating || !ledger || !active() || !pushOn()) return { ok: false, skipped: true };
+        let client = null;
+        try { client = getPushClient(); } catch (error) { client = null; }
+        if (!client) return { ok: false, reason: 'stats-push-no-client' };
+        const state = currentStatsState(ledger);
+        const read = readTableAdoptions(client, state, { overridesByFingerprint: settings().push.mappings, characterKey: pushOptions.characterKey, walletExtra: combatPoints(), isHero });
+        if (!read.ok) { diag(read.reason, { detail: read.detail }); return read; }
+        const skills = adoptSkillRows({ includeChanged: true });
+        if (!read.items.length) { push(); return { ok: true, adopted: [], skills }; }
+        const entry = activeEntryBefore(ledger, Infinity);
+        if (!entry) return { ok: false, reason: 'stats-relation-missing' };
+        const manual = {};
+        for (const item of read.items) {
+            const slot = manual[item.name] || (manual[item.name] = {});
+            if (item.kind === 'dim') slot[item.key] = item.to;
+            else slot.bars = { ...(slot.bars || {}), [item.key]: item.to };
+        }
+        const result = commitManualRelations(entry, manual);
+        if (!result.ok) { diag(result.reason || 'stats-table-adopt-failed'); return result; }
+        for (const item of read.items) diag('stats-table-manual-adopted', { name: item.name, key: item.key, from: item.from, to: item.shown });
+        return { ok: true, adopted: read.items, skills };
+    }
+    const onTableUpdated = () => {
+        tableCache = null;
+        managedCache = null;
+        // 填表窗口内、或窗口刚关后的余波（插件一轮填表可能连发几次更新）都按 AI 填表处理：只盖回，不采纳。
+        const covered = fillOpen || Date.now() < fillGraceUntil;
+        if (fillOpen) fillGraceUntil = Date.now() + FILL_GRACE;
+        closeFillWindow();
+        if (!covered && (writingTable || Date.now() < selfWriteUntil)) return;
+        scheduleTableSync(covered);
+    };
+    // 延迟处理表格更新。到点时若正在写表、刚写完或又进了填表窗口，采纳会读到写了一半的表：顺延，并改按 AI 填表处理。
+    function scheduleTableSync(covered, tries = 0) {
+        if (tablePushTimer) clearTimeout(tablePushTimer);
+        tablePushTimer = setTimeout(() => {
+            tablePushTimer = null;
+            if (generating || !active() || !pushOn()) return;
+            const busy = writingTable || Date.now() < selfWriteUntil || fillOpen;
+            if (!covered && busy) { if (tries < TABLE_SYNC_RETRY_MAX) scheduleTableSync(false, tries + 1); return; }
+            if (covered || fillOpen) { adoptSkillRows({ includeChanged: false }); push(); } else adoptTableEdits();
+        }, TABLE_PUSH_DELAY);
+    }
 
     function emitNotices() {
         try { onNotices([...notices.values()]); } catch (error) { /* 提示出错不影响结算 */ }
@@ -676,6 +859,117 @@ export function createStatsRuntime({
         return job;
     }
 
+    // 才艺技能表里的技能名：旧六维名换成现行名，别名换成注册表里的正式名。
+    function skillCanon(raw) {
+        const name = canonicalAttribute(raw);
+        if (isSixAttribute(name)) return name;
+        try { return memoEngineOf().registry.resolve(name) || name; } catch (error) { return name; }
+    }
+
+    // IGS 现有的六维与技能：{ 主角 | 角色名: { 名称: 值 } }，写进才艺技能表。
+    // 六维用百分制（与技能同一量纲，供 1d100 检定直接取用），战斗源没就绪时主角六维不写；NPC 只写已有角色卡的角色。
+    // 主角在才艺技能表里已有的技能行（IGS 认得的名字）：这些行一律按当前生效值写回，随身系统关闭后加成为 0，表格回到底数。
+    function heroTableSkills(engine) {
+        let client = null;
+        try { client = getPushClient(); } catch (error) { client = null; }
+        if (!client) return [];
+        try {
+            const read = readSkillAdoptions(client, { 主角: {} }, { overridesByFingerprint: settings().push.mappings, characterKey: pushOptions.characterKey, isHero, canon: skillCanon });
+            if (!read.ok) return [];
+            return read.fresh.filter((r) => r.key === '主角' && (BUILTIN_SKILLS[r.skill] || engine.registry.has(r.skill))).map((r) => r.skill);
+        } catch (error) { return []; }
+    }
+
+    function skillValuesOf(state) {
+        const engine = memoEngineOf();
+        const out = {};
+        const hero = {};
+        const source = life();
+        if (source && source.ready === true) {
+            for (const name of BASE_ATTRIBUTES) hero[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
+        }
+        const owned = state.protagonist.skills || {};
+        const bonusNames = heroBonusSkillNames(engine);
+        const names = new Set([...Object.keys(owned), ...Object.keys(engine.protagonistBase || {}), ...Object.keys(engine.protagonistEdit || {}), ...bonusNames]);
+        for (const name of names) {
+            if (isSixAttribute(name)) continue;
+            // 写回表格的是生效值（含随身系统加成）。
+            const level = bonusNames.has(name) ? Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0) : heroSkillLevel(engine, owned[name], name);
+            if (level > 0) hero[name] = Math.round(level);
+        }
+        for (const name of heroTableSkills(engine)) {
+            if (isSixAttribute(name) || Object.hasOwn(hero, name)) continue;
+            const value = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
+            if (value > 0) hero[name] = value;
+        }
+        out['主角'] = hero;
+        for (const [name, sheet] of Object.entries(catalog.sheets || {})) {
+            if (!state.characters[name]) continue;
+            const row = {};
+            if (sheetAbilityScores(sheet)) for (const attr of BASE_ATTRIBUTES) row[attr] = Math.round(Number(profileOf(engine, state, name, attr).value) || 0);
+            for (const skill of Object.keys(sheet.skills || {})) {
+                const value = Math.round(Number(profileOf(engine, state, name, skill).value) || 0);
+                if (value > 0) row[skill] = value;
+            }
+            out[name] = row;
+        }
+        return out;
+    }
+
+    // 才艺技能表的采纳：表里 IGS 没有的技能首次读到时按表值收进 IGS（之后归 IGS 管）；
+    // includeChanged 为真时，IGS 已有的技能表值与 IGS 不同视为用户手改并采纳（AI 填表窗口内不采纳，由推送盖回）。
+    // 主角技能走手改覆盖层（setHeroSkill）或底数；NPC 写角色卡技能值（扣掉成长加成后存底数）。
+    function adoptSkillRows({ includeChanged = false } = {}) {
+        const none = { fresh: [], changed: [] };
+        if (!ledger || !active() || !pushOn()) return none;
+        collectOriginSkills();
+        let client = null;
+        try { client = getPushClient(); } catch (error) { client = null; }
+        if (!client) return none;
+        const state = currentStatsState(ledger);
+        const read = readSkillAdoptions(client, skillValuesOf(state), { overridesByFingerprint: settings().push.mappings, characterKey: pushOptions.characterKey, isHero, canon: skillCanon });
+        if (!read.ok) { diag(read.reason, { detail: read.detail }); return none; }
+        if (!read.fresh.length && !read.changed.length) return none;
+        const done = { fresh: [], changed: [] };
+        for (const item of read.fresh) {
+            const skill = BUILTIN_SKILLS[item.skill] || memoEngineOf().registry.has(item.skill) ? item.skill : commitSkill(item.skill);
+            if (!skill) { diag('stats-skill-adopt-rejected', { name: item.key, skill: item.skill }); continue; }
+            if (item.key === '主角') catalog = sanitizeCatalog({ ...catalog, protagonistBase: { ...catalog.protagonistBase, [skill]: withoutHeroBonus(memoEngineOf(), skill, item.value) } });
+            else setSheetSkill(item.key, skill, item.value, state);
+            done.fresh.push({ ...item, skill });
+            diag('stats-skill-adopted', { name: item.key, skill, to: item.value });
+        }
+        if (includeChanged) {
+            for (const item of read.changed) {
+                if (item.key === '主角' && Object.hasOwn(pushedHeroSkills, item.skill) && pushedHeroSkills[item.skill] === item.to) continue;
+                if (item.key === '主角') {
+                    const own = state.protagonist.skills[item.skill];
+                    const fromBase = !(own && Number(own.value) > 0) && !(catalog.protagonistEdit && catalog.protagonistEdit[item.skill]);
+                    if (fromBase) catalog = sanitizeCatalog({ ...catalog, protagonistBase: { ...catalog.protagonistBase, [item.skill]: withoutHeroBonus(memoEngineOf(), item.skill, item.to) } });
+                    else if (!setHeroSkill(item.skill, String(item.to)).ok) { diag('stats-skill-adopt-unsupported', { name: item.key, skill: item.skill }); continue; }
+                } else setSheetSkill(item.key, item.skill, item.to, state);
+                done.changed.push(item);
+                diag('stats-skill-manual-adopted', { name: item.key, skill: item.skill, from: item.from, to: item.to });
+            }
+        }
+        if (done.fresh.length || done.changed.length) {
+            persist();
+            onChange(currentStatsState(ledger), null);
+        }
+        return done;
+    }
+
+    // 把 NPC 技能的显示值写成角色卡底数（显示值 = 底数 + 成长加成）。
+    function setSheetSkill(name, skill, shown, state) {
+        const cur = catalog.sheets[name];
+        if (!cur) return;
+        const growth = state && state.characters[name] && state.characters[name].skillGrowth && state.characters[name].skillGrowth[skill];
+        const base = Math.max(1, Math.round(shown - (Number(growth && growth.bonus) || 0)));
+        const provisional = { ...(cur.provisional || {}) };
+        delete provisional[skill];
+        catalog = sanitizeCatalog({ ...catalog, sheets: { ...catalog.sheets, [name]: { ...cur, skills: { ...(cur.skills || {}), [skill]: base }, provisional } } });
+    }
+
     // 推送给表格的基础属性：战斗六维 ÷5（战斗源就绪时才有，否则不推）。
     function baseAttributesOf(state) {
         const source = life();
@@ -687,19 +981,25 @@ export function createStatsRuntime({
     // 单向推送到表格（§8A）：子开关关或没装表格插件时什么都不做；失败只记诊断，不影响结算。
     // 同一时间只跑一次推送，后到的请求排在当前这次之后。
     function push() {
-        if (!active() || !settings().push.enabled) return Promise.resolve({ ok: true, skipped: true });
+        if (!active() || !pushOn()) return Promise.resolve({ ok: true, skipped: true });
         const alive = currencyLease();
         let client = null;
         try { client = getPushClient(); } catch (error) { client = null; }
         if (!client) return Promise.resolve({ ok: false, reason: 'stats-push-no-client' });
         const run = () => {
             if (!alive()) return { ok: false, reason: 'request-stale', wrote: 0 };
+            collectOriginSkills();
             const state = currentStatsState(ledger);
-            return pushStats(client, state, { ...pushOptions, overridesByFingerprint: settings().push.mappings, baseAttributes: baseAttributesOf(state), currency: currencySnapshot(), walletExtra: combatPoints(), shouldStart: alive }).then((r) => {
+            writingTable = true;
+            const heroAtPush = { ...(skillValuesOf(state)['主角'] || {}) };
+            return pushStats(client, state, { ...pushOptions, overridesByFingerprint: settings().push.mappings, baseAttributes: baseAttributesOf(state), currency: currencySnapshot(), walletExtra: combatPoints(), isHero, skillValues: () => skillValuesOf(state), heroName: userName(), skillCanon, shouldStart: alive }).then((r) => {
+                writingTable = false;
+                selfWriteUntil = r && r.wrote ? Date.now() + SELF_WRITE_QUIET : 0;
+                if (r && r.ok) pushedHeroSkills = heroAtPush;
                 if (!r.ok) diag(r.reason || 'stats-push-partial', { failures: (r.failures || []).length });
                 (r.diagnostics || []).forEach((d) => diag(d.code, d));
                 return r;
-            }, (error) => { diag('stats-push-threw', { error: String(error && error.message || error) }); return { ok: false, reason: 'stats-push-threw' }; });
+            }, (error) => { writingTable = false; diag('stats-push-threw', { error: String(error && error.message || error) }); return { ok: false, reason: 'stats-push-threw' }; });
         };
         pushing = (pushing || Promise.resolve()).then(run, run);
         return pushing;
@@ -737,7 +1037,42 @@ export function createStatsRuntime({
     }
 
     // ---- 正文检定（check-rolls / stat-coc-checks）：骰序按「聊天 + 楼序号 + swipe」预生成，AI 能看到，回放时逐条核对 ----
-    const isHero = (name) => isProtagonist(name) || (!!userName() && String(name || '').trim() === userName());
+    // 「设为User立绘」的角色与酒馆用户名一样按主角处理：不记人际数值，状态栏显示生活条。
+    // 场景素材别名同组的名字（含用户名被登记成某角色别名的情况）一并算主角。
+    const isHero = (name) => {
+        const n = String(name || '').trim();
+        if (isProtagonist(name)) return true;
+        let picked = '';
+        let aliases = {};
+        try { picked = String(userCharacter() || '').trim(); } catch (error) { picked = ''; }
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        const heroes = [userName().trim(), picked].filter(Boolean);
+        if (!n || !heroes.length) return false;
+        if (heroes.includes(n)) return true;
+        return Object.entries(aliases).some(([key, list]) => {
+            const group = [key, ...(Array.isArray(list) ? list : [])].map((v) => String(v || '').trim());
+            return group.includes(n) && heroes.some((h) => group.includes(h));
+        });
+    };
+
+    // 后台请求里的「主角」资料：User 设定之外，再拼上被认作主角的角色卡人设（卡名、群聊成员、设为User立绘的角色）。
+    // 主角人设写在角色卡里时（如卡名「李哪吒」是主角本人），补全与分配才能按人设给档。
+    const describeWithHero = async (names) => {
+        const list = typeof describePeople === 'function' ? await describePeople(names) : names.map((name) => ({ name, summary: '' }));
+        if (!names.includes(PROTAGONIST) || typeof describePeople !== 'function') return list;
+        const c = ctx();
+        let picked = '';
+        try { picked = String(userCharacter() || '').trim(); } catch (error) { picked = ''; }
+        const own = new Set([userName().trim(), PROTAGONIST]);
+        const cards = [...new Set([picked, c && c.name2, ...((c && Array.isArray(c.groupMembers)) ? c.groupMembers : [])]
+            .map((n) => String(n || '').trim()))].filter((n) => n && !own.has(n) && isHero(n));
+        if (!cards.length) return list;
+        let extra = [];
+        try { extra = await describePeople(cards); } catch (error) { extra = []; }
+        const more = extra.map((p) => String((p && p.summary) || '').trim()).filter(Boolean).join(' ');
+        if (!more) return list;
+        return list.map((p) => (p && p.name === PROTAGONIST ? { ...p, summary: `${String(p.summary || '').trim()} ${more}`.trim() } : p));
+    };
 
     // 回放需要的取数回调。D&D 与 CoC 共用同一份 profile，百分制 = 六维分数 × 5。
     // 战斗源未就绪时 D&D 回放没有六维可用，返回 { ok:false }（CoC 直接走引擎 profile，不依赖战斗源）。
@@ -871,6 +1206,7 @@ export function createStatsRuntime({
 
     // 本楼检定计划（v2 §5 优先级）：继续生成沿用；选项骰子 > 手动掷骰 > 输入匹配 > roll 标签 / 手动掷骰规则。
     function planCheck(type, c, ruleset) {
+        collectOriginSkills();
         const engine = memoEngineOf(ruleset);
         const s = settings();
         if (type === 'continue') {
@@ -900,7 +1236,7 @@ export function createStatsRuntime({
             const hit = matchSkill(text, { skills: matchable(state), learned, extra: storyLexicon() });
             if (hit.skill) {
                 const toward = isSocialSkill(engine, hit.skill) ? mentionedCharacter(text, state) : null;
-                const check = resolveCheck(engine, state, { actor: PROTAGONIST, skill: hit.skill, difficulty: hit.difficulty, toward, source: 'input' }, cryptoRandom);
+                const check = resolveHeroCheck(engine, state, { actor: PROTAGONIST, skill: hit.skill, difficulty: hit.difficulty, toward, source: 'input' });
                 return { check, note: { source: 'input', word: hit.word } };
             }
             reason = hit.reason || reason;
@@ -912,6 +1248,7 @@ export function createStatsRuntime({
     }
 
     function inject(g, c) {
+        collectOriginSkills();
         const lastId = Array.isArray(c.chat) ? c.chat.length - 1 : -1;
         const state = g.type === 'continue' ? stateBefore(ledger, lastId) : currentStatsState(ledger);
         const last = latestEntry();
@@ -929,8 +1266,9 @@ export function createStatsRuntime({
         const fromCombat = combat && combat.check ? { ...combat.check, actors: (combat.check.actors || []).filter((a) => a && !skip.has(a.name) && !isHero(a.name)) } : null;
         const dice = coc ? null : mergeCheckInputs(own, fromCombat);
         const prompt = buildStatsPrompt(state, {
-            walletExtra: combatPoints(), currency: currencySnapshot(), present: names, shortfall: flags.shortfall, mandates: mandatesFromFlags(flags, state.protagonist.bars), vitals,
-            nsfw: isNsfw(), intimacyGate: s.intimacyGate, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText,
+            walletExtra: combatPoints(), currency: currencySnapshot(), present: names, shortfall: flags.shortfall, dateRegex: s.dateRegex, mandates: mandatesFromFlags(flags, state.protagonist.bars, { fame: catalog.fameBars.length > 0 }), vitals, fameBars: catalog.fameBars, statusCat: { statuses: catalog.statuses },
+            worlds: worldsNow(), nsfw: isNsfw(), intimacyGate: s.intimacyGate, intimateCost: s.intimateCost, forcedNames: catalog.intimacyForced, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText, stageTextPlatonic: s.stageTextPlatonic, traits: catalog.traits, romanceSeen: catalog.romanceSeen,
+            heroNotes: s.heroNotePrompt ? catalog.heroNotes : null,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
             skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
             sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n], state.characters[n] && state.characters[n].skillGrowth), bonus: abilityLine(engine, state, n) })),
@@ -953,14 +1291,287 @@ export function createStatsRuntime({
         try { onCheck({ detail, check, messageId }); } catch (error) { /* 演出出错不影响结算 */ }
     }
 
-    // 日常挑战战报是用户楼：由紧随其后的 AI 楼结算，回退或重新生成该楼时一并撤销。
+    // 日常挑战战报与卡牌战斗战报都是用户楼：由紧随其后的 AI 楼结算，回退或重新生成该楼时一并撤销。
+    // 卡牌战报只合成战斗事件与伤势（经验、战利品、生命已由战斗账本结算），不受 noBattle 影响。
     function challengeDirectivesBefore(list, messageId) {
         const found = [];
         for (let index = messageId - 1; index >= 0 && list[index] && list[index].is_user; index -= 1) {
-            const directive = challengeDirectiveOf(parseChallengeReport(String(list[index].mes ?? '')), index);
+            const text = String(list[index].mes ?? '');
+            const directive = challengeDirectiveOf(parseChallengeReport(text), index) || battleDirectiveOf(parseBattleReport(text), { isHero, floor: index });
             if (directive) found.unshift(directive);
         }
         return found;
+    }
+
+    // ---- 特质接线 ----
+    // 本楼之前几楼 AI 正文（由近到远），本楼没写场景标签时沿用最近的地点与天气。
+    const previousBodies = (c, messageId) => messages(c).slice(0, messageId).reverse().filter((m) => m && !m.is_user && !m.is_system).slice(0, 6).map((m) => String(m.mes ?? ''));
+    // 副模型复核识别的事件：下一次新结算的楼消费一次（写进该楼 meta，重算同一楼沿用）。
+    let pendingEvents = { bond: [], review: [] };
+    const takeBondEvents = () => { const out = pendingEvents.bond; pendingEvents = { ...pendingEvents, bond: [] }; return out; };
+    const takeReviewEvents = () => { const out = pendingEvents.review; pendingEvents = { ...pendingEvents, review: [] }; return out; };
+    let reviewTouched = new Set();
+    const TRAIT_IDS = TRAIT_DEFS.map((d) => d.id);
+    let reviewing = false;
+    // 检定的特质与恩仇奖惩骰（只对主角发起的检定；rev ≥ 2 的楼才用）。
+    function traitEdgeFor(state, { skill, toward = null, engine = null } = {}) {
+        const eng = engine || memoEngineOf();
+        const cat = traitCatalogOf(catalog.traits, isNsfw());
+        return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, state, PROTAGONIST, skill).value) || 0, present: present(state), skillOf: (name) => { const p = profileOf(eng, state, name, skill); return p && p.kind === 'skill' && p.learned && !p.provisional ? Number(p.value) || 0 : 0; } });
+    }
+    // 主角检定带特质：万事通技能下限、贵人相助失败重掷；favorFrom 随结果一并带上。
+    function resolveHeroCheck(engine, state, request) {
+        const te = traitEdgeFor(state, { skill: request.skill, toward: request.toward || request.against || null, engine });
+        const req = { ...request, edge: te.edge, floor: te.floor };
+        const check = luckyReroll(state, traitCatalogOf(catalog.traits, isNsfw()), resolveCheck(engine, state, req, cryptoRandom), () => resolveCheck(engine, state, req, cryptoRandom));
+        return { ...check, ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
+    }
+    const applyCatalog = (next) => { catalog = sanitizeCatalog({ ...next, intimacyForced: [] }); };
+    function announceTraits(notices, texts = []) {
+        const lines = [...notices.map(traitNoticeText), ...texts];
+        lines.forEach((text, i) => setNotice(`trait:${Date.now()}:${i}`, { kind: 'info', text, ttl: true }));
+    }
+    // 合成刷新：所有挂了特质的角色各算一次。
+    function refreshAllCombos(state, prevCatalog, prevState) {
+        const texts = [];
+        for (const name of Object.keys(catalog.traits || {})) {
+            const r = refreshCombos(catalog, state, name, { catalog: prevCatalog, state: prevState });
+            if (r.catalog !== catalog) applyCatalog(r.catalog);
+            texts.push(...comboNotices(r.notices));
+        }
+        return texts;
+    }
+    function lightGlobalCodex(state) {
+        if (!traitCodexStore) return;
+        try {
+            const next = lightCodex(traitCodexStore.get(), catalog, state, { cardName: cardOf(ctx()), nsfwOn: isNsfw() });
+            if (next) traitCodexStore.set(next);
+        } catch (error) { diag('stats-trait-codex-failed'); }
+    }
+    // 每楼结算后的特质收尾：初体验摘下、成就计数与授予、合成刷新、图鉴点亮、复核触发。只对新结算的 rev ≥ 2 楼。
+    function traitPass(entry, messageId, body) {
+        const meta = entry.meta || {};
+        if (!(Number(meta.strengthRev) >= 2)) return;
+        const state = entry.after;
+        const prevCatalog = catalog;
+        const notices = [];
+        for (const drop of (meta.flags && meta.flags.traitDrops) || []) {
+            const r = applyTraitChange(state, catalog, drop.name, drop.id, false, 'story');
+            if (r.notices.length) { applyCatalog(r.catalog); notices.push(...r.notices); }
+        }
+        const ach = achievementPass(catalog, state, entry, catalog.romanceSeen);
+        if (ach.catalog !== catalog) applyCatalog(ach.catalog);
+        notices.push(...ach.notices);
+        const texts = refreshAllCombos(state, prevCatalog, entry.before);
+        if (JSON.stringify(catalog.traits) !== JSON.stringify(prevCatalog.traits) || JSON.stringify(catalog.counters) !== JSON.stringify(prevCatalog.counters)) {
+            announceTraits(notices, texts);
+            lightGlobalCodex(state);
+            persist();
+            push();
+        }
+        scheduleTraitReview(messageId, body);
+    }
+    function scheduleTraitReview(messageId, body) {
+        const s = settings();
+        const directives = parseStatDirectives(body, { rev: 2 }).directives;
+        for (const d of directives) reviewTouched.add(d.target || PROTAGONIST);
+        if (reviewing || generating || !requester()) return;
+        if (pendingInitial().length) { runInitialTraits(); return; }
+        const last = Number(catalog.counters.reviewFloor) || 0;
+        const scan = scanFloorForReview(directives, messageId, last, s.traitReviewN, { recentChars: [...reviewTouched], text: stripStatDirectives(body), protagonist: PROTAGONIST });
+        if (!scan.send) return;
+        reviewTouched = new Set();
+        applyCatalog({ ...catalog, counters: { ...catalog.counters, reviewFloor: messageId } });
+        persist();
+        runTraitReview(scan.chars, messageId);
+    }
+    // 评定诊断：每个角色送去的人设字数、对不上的特质名、标签与依据、被跳过的结果。
+    const personaReport = new Map();
+    const logReviewParse = (dropped, tags) => {
+        if (dropped.length) diag('stats-trait-review-dropped', { words: dropped.map((d) => `${d.charName}:${d.word}`) });
+        for (const [name, t] of Object.entries(tags)) if (t.tags.length) diag('stats-trait-review-tags', { name, tags: t.tags, basis: t.basis });
+    };
+    const logReviewSkipped = (skipped) => {
+        const kept = (skipped || []).filter((s) => s.why !== 'no-change');
+        if (kept.length) diag('stats-trait-review-skipped', { items: kept.map((s) => `${s.charName}:${s.id}:${s.why}`) });
+    };
+    // 初始特质：主角与已建档角色各评一次（每人最多 3 项，src=auto），按 SHEET_BATCH_MAX 人一批依次发给备用模型。
+    // 只有拿到回复的批次才记为已评；失败的 10 分钟内不重发。
+    let initialJob = null;
+    let initialRetryAt = 0;
+    // manual：设置页「补全角色特质」，已评过但仍没有任何特质的角色也再评一次。
+    const pendingInitial = (manual = false) => {
+        if (!ledger) return [];
+        const done = new Set(catalog.traitInit || []);
+        const npcs = [...new Set([...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})])].filter((n) => n !== PROTAGONIST && !isHero(n));
+        const bare = (n) => !listTraits(catalog, n).some((t) => t.src !== 'achieve');
+        return [PROTAGONIST, ...npcs].filter((n) => !done.has(n) || (manual && bare(n)));
+    };
+    function runInitialTraits({ manual = false } = {}) {
+        if (initialJob) return initialJob;
+        if (!active() || !ledger) return Promise.resolve({ ok: false, reason: ledger ? 'stats-inactive' : 'stats-no-ledger' });
+        if (!manual && Date.now() < initialRetryAt) return Promise.resolve({ ok: false });
+        if (manual && generating) return Promise.resolve({ ok: false, reason: 'stats-generating' });
+        if (reviewing) return Promise.resolve({ ok: false, reason: 'stats-trait-busy' });
+        const request = requester();
+        if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        const chatId = chatIdOf(ctx());
+        const filled = [];
+        const run = async () => {
+            let total = 0;
+            const names = pendingInitial(manual);
+            if (!names.length) return { ok: true, applied: 0, filled, asked: 0 };
+            for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
+                if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+                const batch = names.slice(i, i + SHEET_BATCH_MAX);
+                let people;
+                try { people = await describeWithHero(batch); } catch (error) { people = batch.map((name) => ({ name, summary: '' })); }
+                const persona = new Map((Array.isArray(people) ? people : []).filter(Boolean).map((p) => [p.name, String(p.summary || '')]));
+                for (const p of Array.isArray(people) ? people : []) {
+                    if (!p) continue;
+                    personaReport.set(p.name, { len: String(p.summary || '').length, from: p.from || '' });
+                    if (Array.isArray(p.errors) && p.errors.length) diag('stats-trait-persona-read-failed', { name: p.name, reasons: p.errors });
+                }
+                const c = ctx();
+                const state = currentStatsState(ledger);
+                const nsfw = isNsfw();
+                const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
+                const floors = messages(c).filter((m) => m && !m.is_system).slice(-6)
+                    .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
+                let client = null;
+                try { client = getPushClient(); } catch (error) { client = null; }
+                let aliases = {};
+                try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+                const chars = batch.map((n) => ({
+                    name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST, persona: persona.get(n) || '', note: catalog.traitNotes[n] || '',
+                    relation: state.characters[n] ? stageLabel(Number(state.characters[n].dims.好感) || 0, isRomance(state.characters[n], n, catalog.romanceSeen)) : '',
+                    traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
+                    attrs: gateAttrsOf(n),
+                }));
+                const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
+                const prompt = { system: '你是角色设定评定助手，只依据人设与正文作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'initial', [], null, WORLD_GENRES) };
+                let text;
+                try {
+                    const reply = await ask(request, prompt);
+                    text = reply && typeof reply === 'object' ? reply.text : reply;
+                } catch (error) {
+                    diag('stats-trait-initial-failed');
+                    initialRetryAt = Date.now() + 10 * 60 * 1000;
+                    return { ok: false, reason: 'stats-trait-initial-failed', applied: total, filled };
+                }
+                if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+                const now = currentStatsState(ledger);
+                const prevCatalog = catalog;
+                const dropped = [];
+                const tags = {};
+                const results = parseReviewReply(text, defs, { chars: batch, dropped, tags }).filter((r) => r.on);
+                storeWorlds(parseReviewWorlds(text, WORLD_GENRES));
+                logReviewParse(dropped, tags);
+                const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'initial' });
+                logReviewSkipped(applied.skipped);
+                // 人设为空且本批没有结果的角色不记已评，下次自动重评。
+                const judged = judgedNames(batch, persona, results);
+                applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...judged])] });
+                if (applied.applied.length) {
+                    total += applied.applied.length;
+                    for (const r of applied.applied) if (!filled.includes(r.charName)) filled.push(r.charName);
+                    const texts = refreshAllCombos(now, prevCatalog, now);
+                    announceTraits(applied.notices, texts);
+                    lightGlobalCodex(now);
+                }
+                persist();
+                push();
+            }
+            if (manual) onChange(currentStatsState(ledger), null);
+            return { ok: true, applied: total, filled, asked: names.length };
+        };
+        reviewing = true;
+        initialJob = run().catch(() => { diag('stats-trait-initial-failed'); return { ok: false }; })
+            .finally(() => { reviewing = false; initialJob = null; });
+        return initialJob;
+    }
+    // 复核：6 楼正文 + 纪要表 + 恋爱日记表 + 当前特质 → 副模型（现有后台请求通道）→ 解析 → applyTraitChange，并记下识别出的事件。
+    // 人多时按 SHEET_BATCH_MAX 人一批依次发送，避免一次请求过长被截断或超时。
+    function runTraitReview(names, messageId) {
+        const all = [...new Set(names)];
+        if (all.length <= SHEET_BATCH_MAX) return runTraitReviewBatch(all, messageId);
+        const bond = [];
+        const review = [];
+        let applied = 0;
+        let ok = false;
+        let chain = Promise.resolve();
+        for (let i = 0; i < all.length; i += SHEET_BATCH_MAX) {
+            const batch = all.slice(i, i + SHEET_BATCH_MAX);
+            chain = chain.then(() => runTraitReviewBatch(batch, messageId)).then((r) => {
+                if (r && r.ok) { ok = true; applied += r.applied || 0; }
+                bond.push(...pendingEvents.bond);
+                review.push(...pendingEvents.review);
+                pendingEvents = { bond: [], review: [] };
+            });
+        }
+        return chain.then(() => {
+            pendingEvents = { bond, review };
+            return { ok, applied, events: bond.length + review.length };
+        });
+    }
+    function runTraitReviewBatch(names, messageId) {
+        const request = requester();
+        if (!request || !ledger) return Promise.resolve({ ok: false });
+        const c = ctx();
+        const chatId = chatIdOf(c);
+        const state = currentStatsState(ledger);
+        const nsfw = isNsfw();
+        const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
+        const floors = messages(c).slice(0, messageId + 1).filter((m) => m && !m.is_system).slice(-6)
+            .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
+        let client = null;
+        try { client = getPushClient(); } catch (error) { client = null; }
+        let aliases = {};
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        const chars = [...new Set(names)].filter((n) => n === PROTAGONIST || state.characters[n]).map((n) => {
+            const own = state.characters[n];
+            return {
+                name: n, aliases: aliases[n] || [], protagonist: n === PROTAGONIST,
+                relation: own ? stageLabel(Number(own.dims.好感) || 0, isRomance(own, n, catalog.romanceSeen)) : '',
+                traits: listTraits(catalog, n).filter((t) => !t.id.startsWith('combo:')).map((t) => ({ id: t.id, src: t.src })),
+                attrs: gateAttrsOf(n),
+                note: catalog.traitNotes[n] || '',
+                recent: reviewMemoryOf(catalog.counters, [], [n], TRAIT_IDS, state.clock.day).recent[n] || [],
+            };
+        });
+        if (!chars.length) return Promise.resolve({ ok: false });
+        const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
+        const prompt = { system: '你是剧情评定助手，只依据正文与资料作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'story', TRAIT_REVIEW_PROMPT_EVENTS, STATUS_DEFS.filter((d) => subInWorlds(d.sub, worldsNow())), WORLD_GENRES) };
+        reviewing = true;
+        return ask(request, prompt).then((reply) => {
+            if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+            const text = reply && typeof reply === 'object' ? reply.text : reply;
+            const only = chars.map((x) => x.name);
+            const dropped = [];
+            const tags = {};
+            const results = parseReviewReply(text, defs, { chars: only, dropped, tags });
+            logReviewParse(dropped, tags);
+            const events = parseReviewEvents(text, { bondTypes: BOND_EVENT_TYPES, chars: only });
+            storeWorlds(parseReviewWorlds(text, WORLD_GENRES));
+            const now = currentStatsState(ledger);
+            const prevCatalog = catalog;
+            const memory = reviewMemoryOf(catalog.counters, results, [...new Set(results.map((r) => r.charName))], TRAIT_IDS, now.clock.day);
+            const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: memory.changeLog, recent: memory.recent });
+            logReviewSkipped(applied.skipped);
+            // 状态补漏：副模型给出的状态挂摘，来源只升不降。
+            const statusRes = applyReviewStatuses(parseReviewStatuses(text, STATUS_DEFS, { chars: only }), { statuses: catalog.statuses }, applyStatusChange, { day: now.clock.day });
+            if (statusRes.applied.length) { catalog = sanitizeCatalog({ ...catalog, statuses: statusRes.catalog.statuses }); persist(); push(); }
+            pendingEvents = { bond: events.bond, review: events.review };
+            if (applied.applied.length) {
+                applyCatalog({ ...applied.catalog, counters: reviewMemoryWrite(applied.catalog.counters, applied.applied, TRAIT_IDS, now.clock.day) });
+                const texts = refreshAllCombos(now, prevCatalog, now);
+                announceTraits(applied.notices, texts);
+                lightGlobalCodex(now);
+                persist();
+                push();
+            }
+            return { ok: true, applied: applied.applied.length, events: events.bond.length + events.review.length };
+        }).catch(() => { diag('stats-trait-review-failed'); return { ok: false }; }).finally(() => { reviewing = false; });
     }
 
     function settleAt(messageId, options = {}) {
@@ -984,7 +1595,8 @@ export function createStatsRuntime({
         const floor = { messageId, swipeId: Number(m.swipe_id) || 0 };
         const s = settings();
         if (worldRoles) worldRoles.sync(chatIdOf(c));
-        const resolve = resolveCharacter || defaultResolver(c, s.register, worldRoles);
+        const autoTable = !resolveCharacter && s.register !== 'manual';
+        const resolve = resolveCharacter || defaultResolver(c, s.register, worldRoles, autoTable ? tableNameSet() : null, isHero);
         const prior = ledger.entries.get(ledgerKey(ledger, messageId, floor.swipeId));
         const priorMeta = (prior && prior.meta) || {};
         const p = plan || { check: givenCheck(priorMeta), preroll: priorMeta.preroll || null, note: priorMeta.note || null, ruleset: (priorMeta.check && priorMeta.check.ruleset) || (priorMeta.preroll && priorMeta.preroll.ruleset) };
@@ -993,8 +1605,14 @@ export function createStatsRuntime({
         const engine = memoEngineOf(ruleset);
         const chatId = chatIdOf(c);
         const body = String(m.mes ?? '');
-        // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼。
-        const favorMode = prior ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : s.favorMode;
+        // 重算同一楼沿用当时结算的好感档，改档只影响之后的楼；旧楼没有 favorTier 时按旧 favorMode 还原（缺省旧普通，'hard' 旧困难）。
+        const favorTier = prior ? (FAVOR_TIERS.includes(priorMeta.favorTier) ? priorMeta.favorTier : null) : normalizeFavorTier(s.favorMode);
+        // 好感强度规则版本：新楼写 1；重算同一楼沿用 meta.strengthRev，没有则按旧规则（改档或升级只影响之后的楼）。
+        // rev 2：悟性、顿悟、交心、误会解除、离体、随身与无实体、恋爱判定、十年跳跃上限等；新楼写 2，重算沿用 meta 值（旧楼 0、1 不变）。
+        const strengthRev = prior ? (Number(priorMeta.strengthRev) >= 2 ? 2 : Number(priorMeta.strengthRev) >= 1 ? 1 : 0) : 2;
+        const favorMode = prior && !favorTier ? (priorMeta.favorMode === 'hard' ? 'hard' : 'normal') : undefined;
+        // 亲密体力：重算旧楼按当时写进 meta 的档位，旧楼没有该字段就不结算；新楼（含新 swipe）取当前设置。
+        const intimateCost = prior ? priorMeta.intimateCost : s.intimateCost;
         // 手改关系挂在楼上：重算、重 roll 同一楼都沿用，否则一重 roll 就丢。
         const manual = priorMeta.manual || manualOfFloor(messageId);
         // 同一楼同一 swipe 的结算种子与骰序都由「聊天 + 楼序号 + swipe」决定（确定性）。
@@ -1006,7 +1624,9 @@ export function createStatsRuntime({
         const money = currencyContext();
         const available = { ...money, balance: Math.max(0, money.balance - priorCurrency) };
         let currencyFailure = '';
-        const settle = (before, random) => {
+        const settle = (before0, random) => {
+            // 旧档修复：起始关系·恋人漏记的恋爱对象、开局猜忌 / 心结没有关系状态、吃醋记录，按账本里的变动记录补上。
+            const before = repairLegacyStart(before0, legacyStartInfo());
             let storyChecks = [];
             let npcChecks = [];
             if (s.storyCheck === 'preroll' && /\[igs-check:/.test(body)) {
@@ -1015,8 +1635,11 @@ export function createStatsRuntime({
                 else diag('stats-check-replay-unavailable', { messageId, reason: back.reason });
             }
             const r = settleFloorText(before, body, {
+                env: traitEnvOf(body, previousBodies(c, messageId)), bondEvents: priorMeta.bondEvents || takeBondEvents(), reviewEvents: priorMeta.reviewEvents || takeReviewEvents(),
+                traitEdge: strengthRev >= 2 ? (st, req) => traitEdgeFor(st, { ...req, engine }) : null,
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(name, before), engine,
-                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorMode, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), currency: available, extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), currency: available, extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
+                seedCharacters: autoTable ? tableSeedOf(before, messageId) : null, fameBars: catalog.fameBars,
             });
             const meta = { ...r.meta };
             let changes = r.changes;
@@ -1047,6 +1670,23 @@ export function createStatsRuntime({
         const meta = r.entry.meta || {};
         if (currencyFailure) currencyFailed(currency, currencyFailure);
         if (meta.note && meta.note.reason === 'stats-roll-skipped') diag('stats-roll-skipped', { messageId });
+        // 状态（B 批）：本楼标签与日推进改动经 meta.statuses 带回，写回聊天级目录。
+        if ((meta.statuses && typeof meta.statuses === 'object') || (meta.cycles && typeof meta.cycles === 'object')) catalog = sanitizeCatalog({ ...catalog, ...(meta.statuses && typeof meta.statuses === 'object' ? { statuses: meta.statuses } : {}), ...(meta.cycles && typeof meta.cycles === 'object' ? { cycles: meta.cycles } : {}) });
+        // E1：成瘾最近接触日（counters 里 瘾:角色名 → 游戏日）。
+        if (meta.touch && typeof meta.touch === 'object') catalog = sanitizeCatalog({ ...catalog, counters: { ...catalog.counters, ...meta.touch } });
+        // 已知雷点：先撤掉首次记在本楼的（重新生成、编辑后本楼可能不再踩雷），再记本楼新踩的。
+        const prevKnown = catalog.landmineKnown || {};
+        const stale = Object.values(prevKnown).some((own) => Object.values(own).some((at) => Number(at) === Number(messageId)));
+        const mines = Array.isArray(meta.landmines) ? meta.landmines : [];
+        if (stale || mines.length) {
+            const known = {};
+            for (const [name, own] of Object.entries(prevKnown)) {
+                const kept = Object.fromEntries(Object.entries(own).filter(([, at]) => Number(at) !== Number(messageId)));
+                if (Object.keys(kept).length) known[name] = kept;
+            }
+            for (const { name, key } of mines) if (!(known[name] && Object.hasOwn(known[name], key))) known[name] = { ...(known[name] || {}), [key]: messageId };
+            catalog = sanitizeCatalog({ ...catalog, landmineKnown: known });
+        }
         for (const entry of meta.newSkills || []) commitSkill(entry.name, { attribute: entry.attribute, floor: messageId });
         // 楼层记录接在上一条存活记录之后；重算同一楼时沿用原来的上游。
         const before = activeEntryBefore(ledger, messageId);
@@ -1060,12 +1700,14 @@ export function createStatsRuntime({
         onChange(currentStatsState(ledger), r.entry);
         push();
         const hurt = meta.flags && meta.flags.battleHurt;
-        refreshLife({ write: true, messageIds: [messageId], battleHurts: new Map(hurt ? [[messageId, hurt]] : []) });
+        // 主角离体的楼不记伤势：生命类标签（hurt、battle）不写进战斗账本；写入只在这里发生，其他刷新都是只读。
+        if (!(meta.flags && meta.flags.detached)) refreshLife({ write: true, messageIds: [messageId], battleHurts: new Map(hurt ? [[messageId, hurt]] : []), naturalHeals: (meta.heal || []).map((h) => ({ messageId, name: h.name, amount: h.amount, reason: h.reason })) });
         if (meta.check && meta.check.source === 'roll' && !redo) playCheck(meta.check, messageId);
         if (meta.pendingRoll && s.storyCheck === 'manual') offerManualRoll(r.entry);
         detectNewCharacters();
         scheduleBackfill();
         confirmWorldRoles(meta.diagnostics, messageId);
+        if (!redo) traitPass(r.entry, messageId, body);
         return r;
     }
 
@@ -1087,12 +1729,35 @@ export function createStatsRuntime({
     }
 
     // 剧情新技能：进注册表、进补全队列、提示一次（v2 §6.1）。
-    function commitSkill(name, { attribute, floor } = {}) {
-        const r = registerStorySkill(catalog, name, { attribute, floor });
+    function commitSkill(name, { attribute, floor, exact = false } = {}) {
+        const r = registerStorySkill(catalog, name, { attribute, floor, exact });
         if (!r.created) return r.name;
         catalog = { ...r.catalog, queue: { ...catalog.queue, skills: [...new Set([...catalog.queue.skills, r.name])] } };
         setNotice(`skill:${r.name}`, { kind: 'info', text: `新技能：${r.name}（${r.entry.attribute}）`, ttl: true });
         return r.name;
+    }
+
+    // 随身系统里 IGS 没有的属性名（如「神识」）收进 IGS 技能，每个名字只收一次；收不进的（非法名、数量上限）记下，不再重试。
+    // 只在检定、注入、推送、采纳这些入口前调用，不放在读数函数里（登记会改目录）。加成本身不写进 IGS，仍由 readBonus 叠加。
+    const originMissed = new Set();
+    // 上次写表成功时写进去的主角技能生效值 { 技能: 值 }。表里某行仍等于它、而 IGS 当前值已变（如关闭随身系统后加成没了），
+    // 说明是还没刷新的旧值，不是用户手改：跳过采纳，等下次写表刷新，免得把旧加成固化成底数。
+    let pushedHeroSkills = {};
+    function collectOriginSkills() {
+        if (!ledger || !active()) return false;
+        let list = null;
+        try { list = originStats(); } catch (error) { list = null; }
+        if (!Array.isArray(list) || !list.length) return false;
+        const engine = engineOf();
+        let added = false;
+        for (const item of list) {
+            const name = String((item && item.name) ?? '').trim();
+            if (!name || originMissed.has(name) || heroBonusKey(engine, name)) continue;
+            const got = commitSkill(name);
+            if (got) added = true; else originMissed.add(name);
+        }
+        if (added) persist();
+        return added;
     }
 
     function onStarted(type, params, dryRun) {
@@ -1112,7 +1777,7 @@ export function createStatsRuntime({
         inject(g, c);
         if (g.check && g.type !== 'continue' && g.check.source === 'input') playCheck(g.check, null);
         // 生成前把被表格插件改掉的数值补写回真值，最多等 3 秒（易错点 F4/F6）。宿主会等待返回的 Promise。
-        return settings().push.enabled ? withTimeout(push()) : undefined;
+        return pushOn() ? withTimeout(push()) : undefined;
     }
 
     // 完整正文只在结束（或停止）时结算一次；注入只对本次生成有效（易错点 A3/A6）。
@@ -1161,6 +1826,8 @@ export function createStatsRuntime({
     function onChatChanged() {
         currencyEpoch += 1;
         currencyAsked.delete(chatIdOf(ctx()));
+        managedCache = null;
+        pushedHeroSkills = {};
         generating = null;
         clearPrompt();
         load();
@@ -1198,6 +1865,21 @@ export function createStatsRuntime({
         bind(types.MESSAGE_UPDATED, onUpdated);
         bind(types.MESSAGE_EDITED, onUpdated);
         bind(types.CHAT_CHANGED, onChatChanged);
+        // 数据库插件改表后的回调：表格人物名单作废，开了同步就用 IGS 数值盖回。
+        let tableClient = null;
+        try { tableClient = getPushClient(); } catch (error) { tableClient = null; }
+        if (tableClient && typeof tableClient.registerCallback === 'function') {
+            try {
+                tableClient.registerCallback(onTableUpdated);
+                if (typeof tableClient.registerFillStartCallback === 'function') tableClient.registerFillStartCallback(onTableFillStart);
+                offs.push(() => {
+                    if (tablePushTimer) { clearTimeout(tablePushTimer); tablePushTimer = null; }
+                    closeFillWindow();
+                    if (typeof tableClient.unregisterFillStartCallback === 'function') tableClient.unregisterFillStartCallback(onTableFillStart);
+                    if (typeof tableClient.unregisterCallback === 'function') tableClient.unregisterCallback(onTableUpdated);
+                });
+            } catch (error) { diag('stats-table-callback-failed'); }
+        }
         return true;
     }
 
@@ -1211,7 +1893,7 @@ export function createStatsRuntime({
     }
 
     // 本聊天启用。数据库里还没有数值表时先建表再重试一次（creating 防重入）。
-    function enableForChat({ initial, buildMode: pickedMode } = {}) {
+    function enableForChat({ initial, buildMode: pickedMode, skillAttributes } = {}) {
         ensureLoaded(true);
         if (unavailable) return { ok: false, reason: unavailable };
         if (blocked) return { ok: false, reason: blocked };
@@ -1228,11 +1910,13 @@ export function createStatsRuntime({
                 return Promise.resolve().then(() => t.ensure()).then((made) => {
                     if (!made || made.ok !== true) { diag('stats-log-create-failed', { reason: made && made.reason }); return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' }; }
                     load();
-                    return enableForChat({ initial, buildMode: pickedMode });
+                    return enableForChat({ initial, buildMode: pickedMode, skillAttributes });
                 }, () => ({ ok: false, reason: 'stats-log-create-failed' })).finally(() => { creating = false; });
             }
-            ledger = createStatsLedger(chatId, initial || createStatsState());
+            // 直接启用（快速开始、自动启用）不送技能，「我的角色」里提示选擅长技能（3+5）。
+            ledger = createStatsLedger(chatId, initial || createStatsState({ skills: [] }));
             extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
+            registerCustomSkills(skillAttributes);
         }
         chatEnabled = true;
         const mode = normalizeBuildMode(pickedMode) || (modePending ? modeDefault : null);
@@ -1274,6 +1958,57 @@ export function createStatsRuntime({
         } : null);
         refreshBuildAsk();
         refreshHeroOffer();
+        refreshHeroPick();
+    }
+
+    // 主角还没有任何内置技能、也没选过时，需要选擅长技能。剧情技能、世界观技能不算（补全出来的不顶替这一步）。
+    function needsHeroPick() {
+        if (!ledger || catalog.heroPicked) return false;
+        const own = currentStatsState(ledger).protagonist.skills || {};
+        const builtin = (name) => Object.hasOwn(BUILTIN_SKILLS, name);
+        return ![...Object.keys(own), ...Object.keys(catalog.protagonistBase), ...Object.keys(catalog.protagonistEdit)].some(builtin);
+    }
+
+    function refreshHeroPick() {
+        const chatId = chatIdOf(ctx());
+        const offer = Boolean(chatId) && active() && !heroPickAsked.has(chatId) && needsHeroPick();
+        setNotice('hero-pick', offer ? { kind: 'onboarding', text: '主角技能：请选3项擅长、5项比较擅长', actions: [['open', '去选择'], ['later', '稍后']] } : null);
+    }
+
+    // 建卡里玩家自定义的技能：注册表认不得的名字按所选六维登记成剧情技能；已认得的（内置或已登记）沿用原条目。
+    function registerCustomSkills(attributes) {
+        for (const [name, attribute] of Object.entries(attributes && typeof attributes === 'object' ? attributes : {})) {
+            if (!engineOf().registry.has(name)) commitSkill(name, { attribute, exact: true });
+        }
+    }
+
+    // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），写进底数层；之后成长、手改照常叠加。attributes 为自定义技能所选六维。
+    function pickHeroSkills(skills, attributes, slots) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        registerCustomSkills(attributes);
+        const engine = engineOf();
+        // 自定义技能（带所属六维的）只认同名，不按别名落到内置技能上。
+        const own = (name) => (attributes && Object.hasOwn(attributes, name) && engine.registry.has(name) ? name : null);
+        // 只收注册表里认得的技能（内置或自定义已登记的）；自定义新名先登记成剧情技能。
+        const entries = Object.entries(skills || {}).filter(([, v]) => Number(v) > 0)
+            .map(([name, v]) => [own(name) || engine.registry.resolve(name) || commitSkill(name), Number(v)]).filter(([name]) => Boolean(name));
+        if (!entries.length) return { ok: false, reason: 'stats-hero-pick-empty' };
+        const base = { ...catalog.protagonistBase };
+        for (const [name, value] of entries) base[name] = withoutHeroBonus(engine, name, value);
+
+        // 每格占的技能随聊天保存：界面给了格位就用，没给（旧调用）按起始值回填。
+        const picked = new Set(entries.map(([name]) => name));
+        const given = {};
+        for (const [slot, raw] of Object.entries(slots && typeof slots === 'object' ? slots : {})) {
+            const name = BUILD_PICK_SLOTS.includes(slot) ? engine.registry.resolve(raw) : null;
+            if (name && picked.has(name)) given[slot] = name;
+        }
+        const heroSlots = Object.keys(given).length ? given : backfillHeroSlots(entries);
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, heroPicked: true, heroSlots });
+        setNotice('hero-pick', null);
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
     }
 
     // CoC 且主角还没分配过技能时，每个聊天提示一次。
@@ -1315,7 +2050,8 @@ export function createStatsRuntime({
         const s = settings();
         if (s.sheetGen === 'off') return;
         const state = currentStatsState(ledger);
-        const fresh = Object.keys(state.characters).filter((n) => !catalog.sheets[n] && !catalog.notified.includes(n));
+        // 主角（含别名同组、设为User立绘的角色卡）不生成 NPC 角色卡。
+        const fresh = Object.keys(state.characters).filter((n) => !catalog.sheets[n] && !catalog.notified.includes(n) && !isHero(n));
         if (!fresh.length) return;
         const card = cardOf(ctx());
         const carried = [];
@@ -1366,7 +2102,10 @@ export function createStatsRuntime({
             return Promise.resolve({ ok: false, reason: 'stats-no-model' });
         }
         if (generating) return Promise.resolve({ ok: false, reason: 'stats-generating', queued: true });
-        const targets = (names && names.length ? names : catalog.queue.people).slice(0, SHEET_BATCH_MAX);
+        // 不点名时：待生成队列，加上有人际档却没有角色卡的角色（角色卡被删或生成失败丢失）。
+        const orphans = () => !ledger ? [] : Object.keys(currentStatsState(ledger).characters || {})
+            .filter((n) => n !== PROTAGONIST && !isHero(n) && !catalog.sheets[n]);
+        const targets = (names && names.length ? names : [...new Set([...catalog.queue.people, ...orphans()])]).slice(0, SHEET_BATCH_MAX);
         if (!targets.length) return Promise.resolve({ ok: true, skipped: true });
         setNotice('sheets', { kind: 'busy', text: `正在生成数值：${targets.join('、')}` });
         const chatSeed = chatIdOf(ctx());
@@ -1402,6 +2141,8 @@ export function createStatsRuntime({
                 ? { kind: 'sheets', text: `还有 ${catalog.queue.people.length} 位角色没有数值`, actions: [['generate', '生成数值'], ['dismiss', '稍后']] }
                 : { kind: 'info', text: `已生成数值：${done.join('、')}`, ttl: true });
             onChange(currentStatsState(ledger), null);
+            // 新角色卡生成后接着评初始特质（与角色卡分开请求，失败不影响角色卡）。
+            setTimeout(() => { if (!generating && !reviewing && pendingInitial().length) runInitialTraits(); }, 0);
             return { ok: true, names: done };
         };
         sheetJob = run().finally(() => { sheetJob = null; });
@@ -1419,13 +2160,18 @@ export function createStatsRuntime({
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
-        const skills = catalog.queue.skills.slice(0, 6);
+        // 队列空时（手动点「补全角色数值」）改补主角还没有数值的剧情技能；自动补全只在队列非空时触发，不会走到这里。
+        const heroLacks = () => {
+            const own = currentStatsState(ledger).protagonist.skills;
+            return (catalog.story || []).map((s) => s.name).filter((n) => !own[n] && !catalog.protagonistBase[n] && !catalog.protagonistEdit[n]);
+        };
+        const skills = (catalog.queue.skills.length ? catalog.queue.skills : heroLacks()).slice(0, 6);
         if (!skills.length) return Promise.resolve({ ok: true, skipped: true });
-        const npcs = Object.keys(catalog.sheets).slice(0, SHEET_BATCH_MAX - 1);
+        const npcs = Object.keys(catalog.sheets).filter((n) => !isHero(n)).slice(0, SHEET_BATCH_MAX - 1);
         const chatSeed = chatIdOf(ctx());
         const run = async () => {
             let people;
-            try { people = typeof describePeople === 'function' ? await describePeople([...npcs, PROTAGONIST]) : [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
+            try { people = typeof describePeople === 'function' ? await describeWithHero([...npcs, PROTAGONIST]) : [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             catch (error) { people = [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             const prompt = buildBackfillRequest(people, skills, { prompt: settings().prompts.backfill });
             let parsed = null;
@@ -1458,6 +2204,16 @@ export function createStatsRuntime({
 
     // ---- 主角技能（CoC）：按人设一次分配 + 玩家手改 ----
     // 可分配技能：核心（含默认特有）与当前世界观的附加技能；不含六维与理智、剧情技能。
+    // 「修改属性」预填：主角六维底数（剧情、升级加点之前，3–18）。战斗属性表没就绪时为 null，不显示按钮。
+    function heroAttrs() {
+        const source = life();
+        if (!source || source.ready !== true || typeof source.readAbilities !== 'function') return null;
+        let view = null;
+        try { view = source.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }); } catch (error) { view = null; }
+        if (!view || !view.base || view.table !== 'ok') return null;
+        return { base: { ...view.base }, className: view.className || '', role: view.role || '' };
+    }
+
     function heroSkillNames() {
         const world = new Set(worldSkillNames(worldviewOf()));
         return engineOf().registry.entries()
@@ -1488,7 +2244,7 @@ export function createStatsRuntime({
         setNotice('hero-skills', { kind: 'busy', text: '正在按人设分配主角技能' });
         const run = async () => {
             let people;
-            try { people = typeof describePeople === 'function' ? await describePeople([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
+            try { people = typeof describePeople === 'function' ? await describeWithHero([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
             catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
             const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills });
             let parsed = null;
@@ -1530,16 +2286,19 @@ export function createStatsRuntime({
         const skill = engine.registry.resolve(name);
         const entry = skill ? engine.registry.get(skill) : null;
         if (!entry || entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-skill-unknown' };
+        currentSlots();
         const edit = { ...catalog.protagonistEdit };
         const text = String(raw ?? '').trim();
         if (!text) delete edit[skill];
         else {
             const value = Number(text);
             if (!/^\d+$/.test(text) || value < 1 || value > 99) return { ok: false, reason: 'stats-hero-skill-invalid' };
+            if (overCap(engine, skill, text, currentSlots())) return { ok: false, reason: 'stats-hero-tier-over-cap' };
             // from 取不含手改的值（已学取账本值，未学取底数或基础值），与 markGrowth 登记的值一致。
             const own = currentStatsState(ledger).protagonist.skills[skill];
             const seed = own ? Number(own.value) || 0 : Number(profileOf(engine, currentStatsState(ledger), PROTAGONIST, skill).seed) || 0;
-            edit[skill] = { value, from: seed };
+            // 界面和表格里看到的是含随身系统加成的生效值，存回 IGS 的要先减掉加成。
+            edit[skill] = { value: withoutHeroBonus(engine, skill, value), from: seed };
         }
         catalog = sanitizeCatalog({ ...catalog, protagonistEdit: edit });
         persist();
@@ -1547,8 +2306,110 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 旧存档（v0.39.60 前选过技能）没有 heroSlots，每次按数值回填，删掉或改动一项后其余技能会换格。
+    // 第一次读到时把回填结果固定进目录，之后增删都在这份格位上做；随下一次保存写入存档。
+    const currentSlots = () => {
+        const slots = resolveHeroSlots(engineOf(), currentStatsState(ledger), catalog);
+        if (!catalog.heroSlots) catalog = { ...catalog, heroSlots: slots };
+        return slots;
+    };
+    // 熟练度封顶：返回是否越过封顶档（剧情技能且不占格的不限）。target 为档位词或数值。
+    function overCap(engine, skill, target, slots) {
+        const cap = heroSkillCap(engine, currentStatsState(ledger), catalog, skill, slots);
+        if (!cap.capped) return false;
+        const word = /^[0-9]+$/.test(String(target)) ? tierWordOfValue(Number(target)) : String(target);
+        return SKILL_TIER_ORDER.indexOf(word) > cap.rank;
+    }
+
+    // 3+5 换格：选新技能占格，原占格技能回到未学（剧情技能一并删除），新技能得该格起步值。已学且值不低于起步值的保持原值。
+    // 技能名不认识时需要 attribute 才登记成自定义技能，缺了返回 stats-slot-needs-attribute 由界面补问。
+    function setHeroSlot(slot, payload = {}) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        if (!BUILD_PICK_SLOTS.includes(slot)) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        const typed = String(payload.skill || '').trim();
+        if (!typed) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        const engine = engineOf();
+        // custom：玩家自定义的技能名，只认同名，不按别名归并到内置技能。
+        const custom = payload.custom === true;
+        let name = custom ? (engine.registry.has(typed) ? typed : null) : engine.registry.resolve(typed);
+        const entry = name ? engine.registry.get(name) : null;
+        if (entry && entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-edit-attribute' };
+        if (!name) {
+            if (!payload.attribute) return { ok: false, reason: 'stats-slot-needs-attribute' };
+            name = commitSkill(typed, { attribute: payload.attribute, exact: custom });
+            if (!name) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        }
+        const slots = { ...currentSlots() };
+        const old = slots[slot] || '';
+        if (old === name) return { ok: true, cancelled: true };
+        if (Object.values(slots).includes(name)) return { ok: false, reason: 'stats-build-pick-duplicate' };
+        const owned = currentStatsState(ledger).protagonist.skills;
+        const base = { ...catalog.protagonistBase };
+        const edit = { ...catalog.protagonistEdit };
+        if (old) {
+            delete base[old];
+            if (owned[old] && Number(owned[old].value) > 0) edit[old] = { value: 1, from: Number(owned[old].value) || 0 }; else delete edit[old];
+        }
+        const start = slotValue(slot);
+        delete base[name];
+        delete edit[name];
+        if (owned[name] && Number(owned[name].value) > 0) {
+            if (Number(owned[name].value) < start) edit[name] = { value: withoutHeroBonus(engine, name, start), from: Number(owned[name].value) || 0 };
+        } else base[name] = withoutHeroBonus(engine, name, start);
+        slots[slot] = name;
+        let next = { ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots: slots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((x) => x !== name && x !== old) } };
+        if (old) next = removeStorySkill(next, old);
+        catalog = sanitizeCatalog(next);
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
+    }
+
+    // 「编辑技能」：「技能 档位」或「技能 数值」，两种骰子通用。不认识的技能名登记成剧情技能。
+    // 已在账本里的（建卡、成长过的）走手改层，成长继续叠加；其余写底数。填「未学」：清掉底数与手改，账本里的降到 1（列表不再显示）。
+    function editHeroSkill(rawName, rawTier) {
+        if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        const typed = String(rawName || '').trim();
+        const tier = String(rawTier || '').trim();
+        if (!typed || !tier) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        const engine = engineOf();
+        let skill = engine.registry.resolve(typed);
+        const entry = skill ? engine.registry.get(skill) : null;
+        if (entry && entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-edit-attribute' };
+        const numeric = /^\d+$/.test(tier) ? Number(tier) : null;
+        if (numeric !== null && (numeric < 1 || numeric > 99)) return { ok: false, reason: 'stats-hero-skill-invalid' };
+        if (numeric === null && !Object.hasOwn(SKILL_TIERS, tier)) return { ok: false, reason: 'stats-hero-edit-invalid' };
+        // 不认识的技能名不在这里登记（新技能只能走 3+5 换格，剧情里出现的由剧情登记）。
+        if (!skill) return tier === '未学' ? { ok: true, cancelled: true } : { ok: false, reason: 'stats-hero-edit-unknown' };
+        const slots = currentSlots();
+        if (overCap(engine, skill, tier, slots)) return { ok: false, reason: 'stats-hero-tier-over-cap' };
+        const value = numeric !== null ? numeric : SKILL_TIERS[tier] ? bandValue(SKILL_TIERS[tier], `${chatIdOf(ctx())}|${PROTAGONIST}|${skill}`) : null;
+        const owned = currentStatsState(ledger).protagonist.skills[skill];
+        const base = { ...catalog.protagonistBase };
+        const edit = { ...catalog.protagonistEdit };
+        if (owned && Number(owned.value) > 0) {
+            delete base[skill];
+            edit[skill] = { value: value ? withoutHeroBonus(engine, skill, value) : 1, from: Number(owned.value) || 0 };
+        } else {
+            delete edit[skill];
+            if (value) base[skill] = withoutHeroBonus(engine, skill, value); else delete base[skill];
+        }
+        // 编辑过的技能不再进补全队列。
+        // 改为未学即腾出所占的格。
+        let heroSlots = slots;
+        if (tier === '未学' && Object.values(slots).includes(skill)) heroSlots = Object.fromEntries(Object.entries(slots).filter(([, v]) => v !== skill));
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
+    }
+
     function heroOp(op, name, payload = {}) {
         if (op === 'set') return setHeroSkill(name, payload.value);
+        if (op === 'edit') return editHeroSkill(name, payload.tier);
+        if (op === 'pick') return pickHeroSkills(payload.skills, payload.attributes, payload.slots);
+        if (op === 'slot') return setHeroSlot(name, payload);
+        if (op === 'attrs') return { ok: true, attrs: heroAttrs() };
         if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
         return { ok: false, reason: 'stats-hero-op-unknown' };
     }
@@ -1569,8 +2430,9 @@ export function createStatsRuntime({
         const entry = latestEntry();
         if (!entry || entry.messageId !== n.messageId || !entry.meta || !entry.meta.pendingRoll) { setNotice('roll', null); return { ok: false, reason: 'stats-roll-stale' }; }
         const pr = entry.meta.pendingRoll;
+        collectOriginSkills();
         const name = commitSkill(pr.skill, { attribute: pr.attribute, floor: entry.messageId }) || pr.skill;
-        const check = resolveCheck(engineOf(), entry.before, { actor: PROTAGONIST, skill: name, difficulty: pr.difficulty, against: pr.against, opposedSkill: pr.opposedSkill, source: 'manual' }, cryptoRandom);
+        const check = resolveHeroCheck(engineOf(), entry.before, { actor: PROTAGONIST, skill: name, difficulty: pr.difficulty, against: pr.against, opposedSkill: pr.opposedSkill, source: 'manual' });
         manualCheck = { messageId: entry.messageId, check };
         setNotice('roll', null);
         playCheck(check, entry.messageId);
@@ -1581,11 +2443,12 @@ export function createStatsRuntime({
     // ---- 选项骰子（v2 §5.1） ----
     function resolveDice(raw, { userName: who = '' } = {}) {
         if (!active()) return null;
+        collectOriginSkills();
         const command = parseDiceCommand(raw);
         if (command.kind !== 'check' && command.kind !== 'contest') return null;
         const state = currentStatsState(ledger);
         const c = ctx();
-        const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles);
+        const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles, tableNameSet(), isHero);
         const engine = memoEngineOf();
         const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(name, state) });
         if (!req) return null;
@@ -1650,6 +2513,11 @@ export function createStatsRuntime({
             refreshBuildAsk();
             return { ok: true, choice: action };
         }
+        if (id === 'hero-pick') {
+            heroPickAsked.add(chatIdOf(ctx()));
+            setNotice('hero-pick', null);
+            return action === 'open' ? { ok: true, openSettings: 'stats' } : { ok: true };
+        }
         if (id === 'hero-skills') {
             heroAsked.add(chatIdOf(ctx()));
             setNotice('hero-skills', null);
@@ -1678,6 +2546,85 @@ export function createStatsRuntime({
     });
 
     function diagnose(messageId) {
+        const text = diagnoseFloor(messageId);
+        const trail = ledger && chatEnabled && settings().enabled ? describeClockTrail(statsClockTrail(ledger)) : '';
+        const persona = personaReport.size ? `特质评定人设字数：${[...personaReport].map(([n, r]) => `${n} ${r.len}${r.from === 'floors' ? '（取自正文）' : ''}`).join('、')}` : '';
+        return [text, trail, persona].filter(Boolean).join('\n');
+    }
+
+    // 数值存档诊断：直接读一次数据库原表（不走缓存），列出表里实际存了什么、合并结果、内存状态与 archive 是否抛错。只读，不写。
+    function storageReport() {
+        const lines = [];
+        const add = (k, v) => lines.push(`${k}：${v}`);
+        const safe = (fn) => { try { return fn(); } catch (error) { return `抛错 ${String((error && (error.stack || error.message)) || error).split('\n').slice(0, 4).join(' | ')}`; } };
+        const c = ctx();
+        const chatId = chatIdOf(c);
+        add('时间', new Date().toISOString());
+        add('聊天ID', chatId || '（无）');
+        add('楼层数', messages(c).length);
+        const s = settings();
+        add('总开关', `${s.enabled}（战斗开启 ${safe(() => combatOn())}）`);
+        add('内存', `loadedChat=${loadedChat} loadedKey=${loadedKey} chatEnabled=${chatEnabled} ledger=${ledger ? `有（楼层记录 ${ledger.entries.size}，生效 ${ledger.active.size}）` : '无'} blocked=${blocked || '-'} unavailable=${unavailable || '-'} declined=${declined} buildMode=${buildMode || '-'} inflight=${inflight}`);
+        const read = safe(() => store.read());
+        add('聊天元数据', typeof read === 'string' ? read : `ok=${read.ok} 旧整体存档igs_stats=${read.raw ? '有' : '无'} declined=${read.declined === true} 旧备份=${read.hasBackup === true}`);
+        const t = tables();
+        add('数据库接口', t.ok ? `可用 version=${safe(() => t.version)}` : `不可用 ${t.reason}`);
+        add('数据库原表', safe(() => {
+            const api = globalThis.AutoCardUpdaterAPI;
+            if (!api) return '未找到 AutoCardUpdaterAPI';
+            if (typeof api.exportTableAsJson !== 'function') return '缺 exportTableAsJson';
+            const data = api.exportTableAsJson();
+            if (!data || typeof data !== 'object') return `导出结果 ${data === null ? 'null' : typeof data}`;
+            const names = Object.entries(data).map(([k, v]) => (v && typeof v === 'object' && v.name) || k);
+            return names.length ? `${names.length} 张：${names.join('、')}` : '导出为空对象（数据库插件当前没有本聊天的表）';
+        }));
+        if (t.ok) {
+            const rows = safe(() => t.read({ kinds: ['stats'] }));
+            if (typeof rows === 'string') add('读表', rows);
+            else if (!rows || rows.ok !== true) add('读表', `失败 ${(rows && rows.reason) || '?'}`);
+            else {
+                add('缺表', `${(rows.missing || []).join('、') || '无'}；可选缺 ${(rows.optionalMissing || []).join('、') || '无'}`);
+                if (!Array.isArray(rows.stats)) add('数值日志表', '不存在（IGS数值·日志 表没有）');
+                else {
+                    const list = rows.stats;
+                    const byType = {};
+                    for (const r of list) byType[(r && r.type) || '?'] = (byType[(r && r.type) || '?'] || 0) + 1;
+                    add('数值日志表记录数', `${list.length}（${Object.entries(byType).map(([k, n]) => `${k} ${n}`).join('，')}）`);
+                    const inits = list.filter((r) => r && r.type === 'init');
+                    add('建档记录', inits.length ? inits.map((r) => `${r.id} 有state=${Boolean(r.payload && r.payload.state)} 时间=${r.createdAt}`).join('；') : '无');
+                    const floors = list.filter((r) => r && r.type === 'floor');
+                    if (floors.length) {
+                        const ids = floors.map((r) => r.anchor && r.anchor.messageId).filter(Number.isInteger);
+                        add('楼层记录楼号范围', `${Math.min(...ids)}–${Math.max(...ids)}`);
+                        let matched = 0, missing = 0, mismatch = 0;
+                        for (const r of floors) {
+                            const a = r.anchor || {};
+                            const m = messages(c)[a.messageId];
+                            if (!m) { missing += 1; continue; }
+                            const text = Array.isArray(m.swipes) && m.swipes[a.swipeId] !== undefined ? m.swipes[a.swipeId] : (Number(m.swipe_id) || 0) === a.swipeId ? m.mes : null;
+                            if (text === null || text === undefined) { missing += 1; continue; }
+                            if (statTagHash(String(text)) === a.tagHash) matched += 1; else mismatch += 1;
+                        }
+                        add('楼层记录与正文核对', `标签相符 ${matched}，楼/swipe 不存在 ${missing}，正文标签已变 ${mismatch}`);
+                    }
+                    const keys = list.filter((r) => r && r.payload && typeof r.payload.key === 'string').map((r) => r.payload.key.split(':')[0]);
+                    const kc = {};
+                    for (const k of keys) kc[k] = (kc[k] || 0) + 1;
+                    add('聊天级记录键', Object.entries(kc).map(([k, n]) => `${k} ${n}`).join('，') || '无');
+                    const merged = safe(() => mergeStatLog(list, { chatId, chat: messages(c) }));
+                    if (typeof merged === 'string') add('合并', merged);
+                    else add('合并结果', `ledger=${merged.ledger ? `有（楼层 ${merged.ledger.entries.size}）` : '无'} chatEnabled=${merged.chatEnabled} 角色卡 ${Object.keys(merged.catalog.sheets || {}).length} 特质 ${Object.keys(merged.catalog.traits || {}).length} 诊断 ${merged.diagnostics.map((d) => d.code).join('、') || '无'}`);
+                    if (rows.diagnostics && rows.diagnostics.length) add('解码诊断', rows.diagnostics.slice(0, 10).map((d) => `${d.code}${d.key ? `(${String(d.key).slice(0, 30)})` : ''}`).join('、'));
+                }
+            }
+        }
+        const arch = safe(() => { ensureLoaded(true); const a = archiveModel(); return a ? `正常（角色 ${a.characters.length}，角色卡 ${a.sheets.length}，变动 ${a.total}）` : '返回空'; });
+        add('存档区模型', arch);
+        add('最近诊断', diagnostics.slice(-8).map((d) => d.code || d).join('、') || '无');
+        return `IGS 数值诊断\n${lines.join('\n')}`;
+    }
+
+    function diagnoseFloor(messageId) {
         const s = settings();
         if (!s.enabled) return '数值 总开关关闭';
         if (!chatEnabled || !ledger) return `数值 本聊天未启用${blocked || unavailable ? `（存档无法读取：${blocked || unavailable}）` : ''}`;
@@ -1700,6 +2647,24 @@ export function createStatsRuntime({
     }
 
     // ---- 设置页存档区操作 ----
+    // 角色（非主角）的体力条：由设置「显示角色的体力与压力」控制，默认不显示。
+    const npcStaminaShown = () => settings().npcBars === true;
+
+    // 扫生效楼的变动记录：起始关系变动的备注与吃醋记录（旧档修复用，只读）。
+    function legacyStartInfo() {
+        const notes = {};
+        const jealous = new Set();
+        for (const [messageId, swipeId] of ledger.active) {
+            const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+            for (const c of (entry && entry.changes) || []) {
+                if (!c || !c.target || c.target === PROTAGONIST) continue;
+                if (typeof c.note === 'string' && c.note.startsWith('起始关系·')) notes[c.target] = c.note;
+                else if (c.note === '吃醋') jealous.add(String(c.target));
+            }
+        }
+        return { notes, jealous: [...jealous] };
+    }
+
     function manualOfFloor(messageId) {
         for (const entry of ledger.entries.values()) if (entry.messageId === messageId && entry.meta && entry.meta.manual) return entry.meta.manual;
         return null;
@@ -1709,10 +2674,25 @@ export function createStatsRuntime({
     function relationOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         if (op === 'fill-start') return fillStartRelations();
+        if (op === 'fill-traits') return runInitialTraits({ manual: true });
+        if (op === 'import-table') return importTablePeople();
+        if (op === 'forced') return setIntimacyForced(name, payload && payload.forced === true);
+        if (op === 'trait') return setTrait(name, payload && payload.key, payload && payload.on === true);
+        if (op === 'trait-id') return setTraitById(name, payload && payload.id, payload && payload.on === true);
+        if (op === 'aptitude') return setAptitude(name, payload && payload.level);
+        if (op === 'note') return setHeroNote(name, payload && payload.text);
+        if (op === 'note-prompt') return heroNotePrompt(name);
+        if (op === 'trait-note') return setTraitNote(name, payload && payload.text);
+        if (op === 'set-worlds') return setWorlds(payload && payload.worlds);
+        if (op.startsWith('status-') || op.startsWith('cycle-')) return statusEditOp(op, name, payload || {});
+        if (op === 'fame-add') return addFameBar(payload || {});
+        if (op === 'fame-fill') return fameFill(payload && payload.sentence);
+        if (op === 'fame-draft') { const bar = payload && payload.template ? fameTemplateBar(payload.template) : catalog.fameBars.find((b) => b.name === name); return bar ? { ok: true, draft: fameDraftText(bar) } : { ok: false, reason: 'stats-fame-kind' }; }
+        if (op === 'fame-remove') return removeFameBar(name);
         if (op !== 'set') return { ok: false, reason: 'stats-relation-op-unknown' };
         if (generating) return { ok: false, reason: 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
-        if (!entry || !entry.after.characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        if (!(entry ? entry.after : ledger.initial).characters[name]) return { ok: false, reason: 'stats-relation-missing' };
         const dims = {};
         for (const key of MANUAL_DIMS) {
             const v = Number(payload[key]);
@@ -1720,7 +2700,200 @@ export function createStatsRuntime({
             if (Object.hasOwn(payload, key)) dims[key] = v;
         }
         if (!Object.keys(dims).length) return { ok: true, cancelled: true };
-        return commitManualRelations(entry, { [name]: dims });
+        return entry ? commitManualRelations(entry, { [name]: dims }) : commitInitialRelations({ [name]: dims });
+    }
+
+    // 亲密门槛豁免（剧情需要）：记在聊天级目录里，与楼层无关，swipe、删楼不丢。
+    function setIntimacyForced(name, on) {
+        const entry = activeEntryBefore(ledger, Infinity);
+        if (!(entry ? entry.after : ledger.initial).characters[name]) return { ok: false, reason: 'stats-relation-missing' };
+        catalog = sanitizeCatalog({ ...applyTraitChange(null, catalog, name, 'forced', on, 'manual').catalog, intimacyForced: [] });
+        persist();
+        push();
+        return { ok: true };
+    }
+
+    // 角色标记勾选（随身、无实体、亲人）、悟性档、「我对TA」备注：都记在聊天级目录里，写法同亲密门槛豁免。
+    const knownPerson = (name) => {
+        const entry = activeEntryBefore(ledger, Infinity);
+        return Boolean(name && ((entry ? entry.after : ledger.initial).characters[name] || catalog.sheets[name]));
+    };
+
+    function setTrait(name, key, on) {
+        if (!TRAIT_KEYS.includes(key)) return { ok: false, reason: 'stats-relation-op-unknown' };
+        if (!(key === 'fragile' && name === PROTAGONIST) && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        const changed = applyTraitChange(null, catalog, name, key, on, 'manual');
+        if (changed.reason && changed.reason !== 'absent') return { ok: false, reason: 'stats-relation-op-unknown' };
+        catalog = sanitizeCatalog({ ...changed.catalog, intimacyForced: [] });
+        persist();
+        push();
+        return { ok: true };
+    }
+
+    // 角色卡胶囊：按登记表键挂上、摘下（来源手动）；被拒绝（满格、互斥受保护等）时返回原因，目录不变。
+    function setTraitById(name, id, on) {
+        if (!getTraitDef(id)) return { ok: false, reason: 'stats-relation-op-unknown' };
+        if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        const changed = applyTraitChange(null, catalog, name, id, on, 'manual');
+        if (changed.reason && changed.reason !== 'absent') return { ok: false, reason: changed.reason === 'full' || changed.reason === 'achieve-full' ? 'stats-trait-full' : 'stats-trait-refused' };
+        const prevCatalog = catalog;
+        catalog = sanitizeCatalog({ ...changed.catalog, intimacyForced: [] });
+        const after = activeEntryBefore(ledger, Infinity);
+        const nowState = after ? after.after : ledger.initial;
+        announceTraits(changed.notices, refreshAllCombos(nowState, prevCatalog, nowState));
+        lightGlobalCodex(nowState);
+        persist();
+        push();
+        return { ok: true };
+    }
+
+    // 主角的悟性键为「主角」；平庸即删除记录。
+    function setAptitude(name, level) {
+        if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        catalog = sanitizeCatalog(withAptitude(catalog, name, APTITUDE_LEVELS.includes(level) ? level : '平庸', 'manual'));
+        persist();
+        return { ok: true };
+    }
+
+    function setHeroNote(name, text) {
+        if (!knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        const next = { ...catalog.heroNotes, [name]: String(text || '').trim() };
+        catalog = sanitizeCatalog({ ...catalog, heroNotes: next });
+        persist();
+        return { ok: true, text: catalog.heroNotes[name] || '' };
+    }
+
+    // 题材（E5）：手动多选优先，否则取副模型判定；为空表示不过滤。setWorlds(list) 设手动覆盖（空数组清除，回到自动）。
+    function worldsNow() { return (catalog.worldsManual && catalog.worldsManual.length ? catalog.worldsManual : catalog.worlds) || []; }
+    function storeWorlds(list) {
+        if (!Array.isArray(list) || !list.length || JSON.stringify(list) === JSON.stringify(catalog.worlds)) return;
+        catalog = sanitizeCatalog({ ...catalog, worlds: list });
+        persist();
+    }
+    function setWorlds(list) {
+        catalog = sanitizeCatalog({ ...catalog, worldsManual: Array.isArray(list) ? list : [] });
+        persist();
+        return { ok: true, worlds: worldsNow() };
+    }
+    // 角色卡「编辑」里的状态与周期：手动改过的写 src:'manual'、manualLock:true；注入开关只动该条的 inject 字段。
+    function statusEditOp(op, name, payload) {
+        if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        const day = Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0;
+        const floor = Math.max(0, messages(ctx()).length - 1);
+        const key = String(payload.key || payload.id || '');
+        let next = null;
+        if (op === 'status-add' || op === 'status-drop') {
+            const r = applyStatusChange(catalog, name, key, { on: op === 'status-add', src: 'manual', days: payload.days, toward: payload.toward, day, floor });
+            if (r.reason && r.reason !== 'absent') return { ok: false, reason: 'stats-status-refused' };
+            next = r.catalog;
+        } else if (op === 'status-days') {
+            const own = statusesOf(catalog, name)[key];
+            const days = Math.round(Number(payload.days));
+            if (!own || !(days >= 1 && days <= 3650)) return { ok: false, reason: 'stats-status-refused' };
+            next = { ...catalog, statuses: { ...catalog.statuses, [name]: { ...catalog.statuses[name], [key]: { ...own, until: day + days, src: 'manual', manualLock: true } } } };
+        } else if (op === 'status-inject') {
+            const own = statusesOf(catalog, name)[key];
+            if (!own) return { ok: false, reason: 'stats-status-refused' };
+            const { inject, ...rest } = own;
+            next = { ...catalog, statuses: { ...catalog.statuses, [name]: { ...catalog.statuses[name], [key]: payload.on === true ? { ...rest, manualLock: true } : { ...rest, inject: false, manualLock: true } } } };
+        } else if (op === 'cycle-set') {
+            next = setCycle(catalog, name, key, { period: payload.period, length: payload.length, last: payload.last, on: true });
+        } else if (op === 'cycle-start') {
+            next = startCycleToday(catalog, name, key, day, { floor }).catalog;
+        } else return { ok: false, reason: 'stats-relation-op-unknown' };
+        catalog = sanitizeCatalog(next);
+        persist();
+        push();
+        return { ok: true };
+    }
+    // 特质「评定注意」：用户自写，只用于特质评定，不进正文提示词。
+    function setTraitNote(name, text) {
+        if (name !== PROTAGONIST && !knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        catalog = sanitizeCatalog({ ...catalog, traitNotes: { ...catalog.traitNotes, [name]: String(text || '').trim() } });
+        persist();
+        return { ok: true, text: catalog.traitNotes[name] || '' };
+    }
+
+    // 声望条（聊天级，最多 FAME_BAR_MAX 条）：开条与改条都走确认过的草稿文本（模板、一句话补全、已有条各自生成）；replace 为被改条的条名（条名不变，数值按条名记）。
+    // 关条只从目录移除，已记的数值留在存档里，重开同名条时接着用。
+    function addFameBar({ draft, replace = '' }) {
+        const parsed = parseFameDraft(draft);
+        if (!parsed.ok) return { ok: false, reason: 'stats-fame-draft', field: parsed.field };
+        const bar = replace ? { ...parsed.bar, name: replace } : parsed.bar;
+        if (replace ? !catalog.fameBars.some((b) => b.name === replace) : catalog.fameBars.some((b) => b.name === bar.name)) return { ok: false, reason: replace ? 'stats-fame-missing' : 'stats-fame-dup' };
+        if (!replace && catalog.fameBars.length >= FAME_BAR_MAX) return { ok: false, reason: 'stats-fame-max' };
+        catalog = sanitizeCatalog({ ...catalog, fameBars: replace ? catalog.fameBars.map((b) => (b.name === replace ? bar : b)) : [...catalog.fameBars, bar] });
+        persist();
+        push();
+        return { ok: true };
+    }
+
+    // 一句话补全声望：副模型读该句与世界书，返回待确认的草稿文本（不建条）；返回不合格 JSON 时给出原因。
+    async function fameFill(sentence) {
+        const text = String(sentence || '').trim().slice(0, 100);
+        if (!text) return { ok: false, reason: 'stats-fame-sentence' };
+        const request = requester();
+        if (!request) return { ok: false, reason: 'stats-no-model' };
+        let people = [];
+        try { people = typeof describePeople === 'function' ? await describePeople([text]) : []; } catch (error) { people = []; }
+        try {
+            const reply = await ask(request, buildFameFillPrompt(text, { worldview: worldviewOf(), people }));
+            const parsed = parseFameFill(reply && typeof reply === 'object' ? reply.text : reply);
+            if (!parsed.ok) return { ok: false, reason: 'stats-fame-fill-bad', field: parsed.field };
+            return { ok: true, draft: fameDraftText(parsed.bar) };
+        } catch (error) { return { ok: false, reason: 'stats-fame-fill-failed' }; }
+    }
+
+    function removeFameBar(name) {
+        if (!catalog.fameBars.some((b) => b.name === name)) return { ok: true, skipped: true };
+        catalog = sanitizeCatalog({ ...catalog, fameBars: catalog.fameBars.filter((b) => b.name !== name) });
+        persist();
+        push();
+        return { ok: true };
+    }
+
+    // 状态栏主角区的声望条：设置「状态栏显示声望」开着且本聊天开了声望才出；「显示细项」决定汇总一行还是逐条。
+    const heroFameMetrics = (s) => (s.hudFame && catalog.fameBars.length ? fameHudMetrics(currentStatsState(ledger), catalog.fameBars, { detail: s.hudFameDetail === true }) : []);
+
+    // 「按剧情拟写」的请求内容：最近若干楼正文（去掉数值标签与网页标签），由设置页交给副模型。
+    function heroNotePrompt(name) {
+        if (!knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        const hero = userName() || PROTAGONIST;
+        const lines = messages(ctx()).filter((m) => m && !m.is_system && typeof m.mes === 'string').slice(-HERO_NOTE_FLOORS)
+            .map((m) => `${m.is_user ? hero : (m.name || '旁白')}：${m.mes.replace(/\[igs-[^\]]*\]/g, '').replace(/<[^>]+>/g, '').trim()}`)
+            .filter((line) => line.length > 2);
+        if (!lines.length) return { ok: false, reason: 'stats-note-no-text' };
+        const user = lines.join('\n').slice(-HERO_NOTE_CHARS);
+        const system = `根据下面的剧情正文，用一句话写出${hero}（主角）对${name}的态度，以及两人之间已经发生的事。只写正文里明确出现的内容，不推测，不按身份套路补写。不超过四十字，只输出这句话。`;
+        return { ok: true, system, user };
+    }
+
+    // 演出层 romance 第 3 栏出现过的对象：names 为候选写法（场景素材键、原文），取已登记的那个；都未登记时记第一个。去重后存聊天级目录。
+    function noteRomanceSeen(names) {
+        if (!active()) return { ok: false, reason: 'stats-inactive' };
+        const list = (Array.isArray(names) ? names : [names]).map((n) => String(n || '').trim()).filter((n) => n && !isHero(n));
+        if (!list.length) return { ok: true, skipped: true };
+        const known = currentStatsState(ledger).characters;
+        const name = list.find((n) => known[n]) || list[0];
+        if (catalog.romanceSeen.includes(name)) return { ok: true, skipped: true };
+        catalog = sanitizeCatalog({ ...catalog, romanceSeen: [...catalog.romanceSeen, name] });
+        persist();
+        return { ok: true };
+    }
+
+    // 把数据库表格里的人物登记进数值账本：关系一律从 0 起，表格里的数字不采用（以 IGS 为准）。
+    // 记在最近一楼的 meta.manual 上（空对象只建档不改值），重算本楼也保留。
+    function importTablePeople() {
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const entry = activeEntryBefore(ledger, Infinity);
+        const known = entry ? entry.after.characters : ledger.initial.characters;
+        const fresh = [...new Set([...tableNames({ fresh: true }), ...rosterNames()])].filter((name) => !known[name]);
+        if (!fresh.length) return { ok: false, reason: 'stats-table-none' };
+        const manual = Object.fromEntries(fresh.map((name) => [name, {}]));
+        const result = entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
+        if (!result.ok) return result;
+        detectNewCharacters();
+        return { ok: true, imported: fresh };
     }
 
     // 按人设补填起始关系：只处理好感、信任、了解都还在 ±START_FILL_SPAN 以内的已登记角色（视为没定过初值）。
@@ -1728,29 +2901,45 @@ export function createStatsRuntime({
     function fillStartRelations() {
         if (startJob) return startJob;
         if (generating) return Promise.resolve({ ok: false, reason: 'stats-generating' });
+        // 表格里有、账本还没有的人物先登记，补填时一并算上。
+        importTablePeople();
         const entry = activeEntryBefore(ledger, Infinity);
-        if (!entry) return Promise.resolve({ ok: false, reason: 'stats-relation-missing' });
-        const blank = (c) => MANUAL_DIMS.every((key) => Math.abs(Number(c.dims && c.dims[key]) || 0) <= START_FILL_SPAN);
-        const names = Object.entries(entry.after.characters).filter(([name, c]) => !isHero(name) && blank(c)).map(([name]) => name);
-        if (!names.length) return Promise.resolve({ ok: false, reason: 'stats-start-none' });
+        const blank =(c) => START_FILL_DIMS.every((key) => Math.abs(Number(c.dims && c.dims[key]) || 0) <= START_FILL_SPAN);
+        const pending = Object.entries((entry ? entry.after : ledger.initial).characters).filter(([name, c]) => !isHero(name) && blank(c)).map(([name]) => name);
+        if (!pending.length) return Promise.resolve({ ok: false, reason: 'stats-start-none' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
         const chatId = chatIdOf(ctx());
+        // 每次只补一批（每人资料最多 3000 字）；本聊天已问过的（判为陌生的仍是空白）排到后面，再点一次补下一批。
+        if (startAsked.chatId !== chatId) { startAsked.chatId = chatId; startAsked.names = new Set(); }
+        const ordered = [...pending.filter((n) => !startAsked.names.has(n)), ...pending.filter((n) => startAsked.names.has(n))];
+        const names = ordered.slice(0, SHEET_BATCH_MAX);
+        const left = pending.filter((n) => !startAsked.names.has(n) && !names.includes(n)).length;
         const run = async () => {
             const relations = {};
+            const mods = {};
+            // 主角资料（用户人设）只取一次，每批都带上。
+            let hero = '';
+            try { if (typeof describePeople === 'function') hero = String(((await describeWithHero([PROTAGONIST]))[0] || {}).summary || ''); }
+            catch (error) { hero = ''; }
+            let plot = '';
+            try { plot = String(plotSetting() || ''); } catch (error) { plot = ''; }
             for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
                 const batch = names.slice(i, i + SHEET_BATCH_MAX);
                 let people;
                 try { people = typeof describePeople === 'function' ? await describePeople(batch) : batch.map((n) => ({ name: n, summary: '' })); }
                 catch (error) { people = batch.map((n) => ({ name: n, summary: '' })); }
-                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations });
+                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations, hero, plot });
                 let parsed = null;
                 for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
                     try { parsed = parseStartRelationReply(await ask(request, prompt), { names: batch }); }
                     catch (error) { parsed = { ok: false, reason: 'stats-start-request-failed' }; }
                 }
-                if (parsed && parsed.ok) Object.assign(relations, parsed.relations);
-                else diag(parsed ? parsed.reason : 'stats-start-request-failed');
+                if (parsed && parsed.ok) {
+                    Object.assign(relations, parsed.relations);
+                    Object.assign(mods, parsed.mods || {});
+                    for (const n of batch) startAsked.names.add(n);
+                } else diag(parsed ? parsed.reason : 'stats-start-request-failed');
             }
             if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
             if (generating) return { ok: false, reason: 'stats-generating' };
@@ -1759,20 +2948,26 @@ export function createStatsRuntime({
             const latest = activeEntryBefore(ledger, Infinity);
             const manual = {};
             for (const [name, tier] of Object.entries(relations)) {
-                const cur = latest && latest.after.characters[name];
-                if (!cur || !blank(cur) || tier === '陌生') continue;
+                const cur = (latest ? latest.after : ledger.initial).characters[name];
+                const fix = startFixOffsets(mods[name]);
+                if (!cur || !blank(cur) || (tier === '陌生' && !Object.keys(fix).length)) continue;
                 const dims = {};
-                for (const key of MANUAL_DIMS) dims[key] = Math.max(-100, Math.min(100, (Number(cur.dims[key]) || 0) + (START_DIMS[tier][key] || 0)));
+                for (const key of START_FILL_DIMS) dims[key] = Math.max(-100, Math.min(100, (Number(cur.dims[key]) || 0) + (START_DIMS[tier][key] || 0) + (fix[key] || 0)));
+                if (fix.芥蒂) dims.芥蒂 = Math.max(-100, Math.min(100, (Number(cur.dims.芥蒂) || 0) + fix.芥蒂));
+                if (isNsfw() && START_DIMS[tier].欲望) dims.欲望 = Math.max(0, Math.min(100, (Number(cur.dims.欲望) || 0) + START_DIMS[tier].欲望));
+                if (tier === '恋人') dims.romance = true;
                 manual[name] = dims;
             }
-            const filled = Object.keys(manual).map((name) => `${name} ${relations[name]}`);
-            if (!filled.length) return { ok: true, filled: [], relations };
-            const result = commitManualRelations(latest, manual, (name) => `起始关系·${relations[name]}`);
-            return result.ok ? { ok: true, filled, relations } : result;
+            const label = (name) => [relations[name], ...(mods[name] || [])].join('+');
+            const filled = Object.keys(manual).map((name) => `${name} ${label(name)}`);
+            if (!filled.length) return { ok: true, filled: [], relations, left };
+            const result = latest ? commitManualRelations(latest, manual, (name) => `起始关系·${label(name)}`) : commitInitialRelations(manual);
+            return result.ok ? { ok: true, filled, relations, left } : result;
         };
         setNotice('start-relations', { kind: 'busy', text: `正在按人设计算初始关系：${names.join('、')}` });
         startJob = run().then((result) => {
-            setNotice('start-relations', result && result.ok && result.filled.length ? { kind: 'info', text: `已补填初始关系：${result.filled.join('、')}`, ttl: true } : null);
+            const more = result && result.ok && result.left ? `；还有 ${result.left} 个角色，再点一次继续` : '';
+            setNotice('start-relations', result && result.ok && (result.filled.length || more) ? { kind: 'info', text: `${result.filled.length ? `已补填初始关系：${result.filled.join('、')}` : '本批没有需要改动的角色'}${more}`, ttl: true } : null);
             return result;
         }, (error) => { setNotice('start-relations', null); throw error; }).finally(() => { startJob = null; });
         return startJob;
@@ -1781,12 +2976,15 @@ export function createStatsRuntime({
     // 把 manual（{ 角色: { 好感, 信任, 了解 } }）写进该楼结算结果并记到 meta.manual，重算或重 roll 这一楼仍保留。
     function commitManualRelations(entry, manual, noteOf = null) {
         const changes = [];
-        const after = applyManualRelations(entry.after, manual, changes);
-        if (!changes.length) return { ok: true };
+        const after = applyManualRelations(entry.after, manual, changes, { nsfw: isNsfw() });
+        if (after === entry.after) return { ok: true };
         if (noteOf) for (const row of changes) row.note = noteOf(row.target) || row.note;
         const prev = (entry.meta && entry.meta.manual) || {};
         const merged = { ...prev };
-        for (const [name, dims] of Object.entries(manual)) merged[name] = { ...(prev[name] || {}), ...dims };
+        for (const [name, dims] of Object.entries(manual)) {
+            merged[name] = { ...(prev[name] || {}), ...dims };
+            if (dims && dims.bars) merged[name].bars = { ...((prev[name] && prev[name].bars) || {}), ...dims.bars };
+        }
         const meta = { ...(entry.meta || {}), manual: merged };
         const m = messages(ctx())[entry.messageId];
         if (!m) return { ok: false, reason: 'stats-relation-missing' };
@@ -1801,11 +2999,23 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 还没有结算楼层时，改动写进初始状态并重存 init 记录，之后各楼都从这里往下结算。
+    function commitInitialRelations(manual) {
+        const next = applyManualRelations(ledger.initial, manual, [], { nsfw: isNsfw() });
+        if (next === ledger.initial) return { ok: true };
+        ledger.initial = next;
+        persist([initRecord(next, { createdAt: Date.now() })]);
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true };
+    }
+
     function sheetOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         const sheets = { ...catalog.sheets };
         if (op === 'remove') { delete sheets[name]; catalog = { ...catalog, sheets, notified: catalog.notified.filter((n) => n !== name) }; }
-        else if (op === 'regen') { delete sheets[name]; catalog = { ...catalog, sheets }; persist(); return generateSheets([name]); }
+        // 重新生成不先删旧卡：成功后整张覆盖，失败时旧卡保留。
+        else if (op === 'regen') return generateSheets([name]);
         else if (op === 'edit') {
             const cur = sheets[name] || { rank: '普通人', attributes: {}, skills: {}, signature: [], provisional: {} };
             // 「理智」在注册表里会被映射成智力，属性档要先按原名认。
@@ -1835,14 +3045,61 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 整理剧情技能：向辅助模型（与角色卡生成同一个 requester / ask 通道）要合并与改名建议，不写入；勾选后由 tidy-apply 写入。
+    async function tidySuggest() {
+        const request = requester();
+        if (!request) return { ok: false, reason: 'stats-no-model' };
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        const chatId = chatIdOf(ctx());
+        const state = currentStatsState(ledger);
+        const engine = engineOf();
+        const rows = (catalog.story || []).map((s) => ({ name: s.name, attribute: s.attribute, value: Math.round(Number(profileOf(engine, state, PROTAGONIST, s.name).value) || 0) }));
+        if (rows.length < 2) return { ok: true, items: [] };
+        let reply;
+        try { reply = await ask(request, buildTidyPrompt(rows)); }
+        catch (error) { diag('stats-tidy-request-failed'); return { ok: false, reason: 'stats-tidy-failed' }; }
+        if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
+        return { ok: true, items: parseTidyReply(reply, catalog) };
+    }
+
     function skillOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
-        if (op === 'edit') catalog = editStorySkill(catalog, name, payload);
-        else if (op === 'merge') catalog = mergeStorySkill(catalog, name, engineOf().registry.resolve(payload.to) || payload.to);
-        else if (op === 'remove') catalog = removeStorySkill(catalog, name);
+        if (op === 'tidy-suggest') return tidySuggest();
+        if (op === 'tidy-apply') {
+            const done = applyTidy(catalog, Array.isArray(payload.items) ? payload.items : []);
+            catalog = sanitizeCatalog(done.catalog);
+            persist();
+            onChange(currentStatsState(ledger), null);
+            return { ok: true, applied: done.applied };
+        }
+        const isStory = (catalog.story || []).some((s) => s.name === name);
+        if (op === 'edit' && payload.attribute !== undefined && !isStory) {
+            // 内置技能改所属属性：记在 catalog.attributes，注册表读取时覆盖。
+            const entry = engineOf().registry.get(name);
+            if (!entry || entry.kind !== 'skill' || !BASE_ATTRIBUTES.includes(payload.attribute)) return { ok: false, reason: 'stats-skill-op-unknown' };
+            catalog = { ...catalog, attributes: { ...(catalog.attributes || {}), [name]: payload.attribute } };
+        }
+        else if (op === 'edit') {
+            const slots = currentSlots();
+            catalog = editStorySkill(catalog, name, payload);
+            const renamed = catalog.story.find((x) => x.name === payload.name);
+            if (renamed && payload.name !== name && Object.values(slots).includes(name)) catalog = { ...catalog, heroSlots: Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, v === name ? payload.name : v])) };
+        }
+        else if (op === 'merge') {
+            const slots = currentSlots();
+            const to = engineOf().registry.resolve(payload.to) || payload.to;
+            catalog = mergeStorySkill(catalog, name, to);
+            if (Object.values(slots).includes(name)) catalog = { ...catalog, heroSlots: Object.fromEntries(Object.entries(slots).filter(([, v]) => v !== name || !Object.values(slots).includes(to)).map(([k, v]) => [k, v === name ? to : v])) };
+        }
+        else if (op === 'remove') {
+            // 删除技能：先把主角这项降为未学（不然数值格里还在），剧情技能再从登记表里移除。
+            editHeroSkill(name, '未学');
+            catalog = removeStorySkill(catalog, name);
+        }
         else return { ok: false, reason: 'stats-skill-op-unknown' };
         catalog = sanitizeCatalog(catalog);
         persist();
+        onChange(currentStatsState(ledger), null);
         return { ok: true };
     }
 
@@ -1882,6 +3139,12 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
+    function archiveModel() {
+        ensureLoaded();
+        const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot(), isHero, heroName: userName() }) : null;
+        return model ? { ...model, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+    }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;
     return {
@@ -1891,6 +3154,22 @@ export function createStatsRuntime({
         refreshBuildAsk,
         getState: () => (ledger ? currentStatsState(ledger) : null),
         getLedger: () => ledger,
+        // 只读：声望快照 [{ name, owner, cls, value, tier, pairs? }]；未开声望、无账本、无聊天都返回 []，每次全新对象。
+        fameSnapshot() {
+            try {
+                if (!ledger) return [];
+                const bars = catalog.fameBars;
+                if (!Array.isArray(bars) || !bars.length) return [];
+                const state = currentStatsState(ledger);
+                return bars.map((bar) => {
+                    const head = { name: bar.name, owner: bar.owner, cls: bar.cls };
+                    if (!bar.pair) { const value = fameValue(state, bar); return { ...head, value, tier: fameTier(bar, value) }; }
+                    const pairs = famePairs(state, bar).map((p) => ({ partner: p.partner, value: p.value, tier: fameTier(bar, p.value) }));
+                    const top = pairs.length ? pairs[0].value : 0;
+                    return { ...head, value: top, tier: fameTier(bar, top), pairs };
+                });
+            } catch (error) { return []; }
+        },
         getCatalog: () => catalog,
         getDiagnostics: () => diagnostics.slice(),
         isChatEnabled: () => chatEnabled,
@@ -1919,15 +3198,14 @@ export function createStatsRuntime({
         quoteExchange: ev(quoteExchange),
         exchangePoints: ev(exchangePoints),
         retryExchange: ev(() => runExchange(() => ({ ok: true }))),
+        noteRomanceSeen: ev(noteRomanceSeen),
         skillOp: ev(skillOp),
         heroOp: ev(heroOp),
         // 旧版备份已不再写入；这里只保留「删除旧版备份」按钮的清理入口。
         dropBackup: () => store.dropBackup(),
         // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
-        archive: ev(() => {
-            ensureLoaded();
-            return ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot() }) : null;
-        }),
+        archive: ev(() => archiveModel()),
+        storageReport: ev(storageReport),
         // 设置页「本聊天」区块用。
         chatStatus: ev(() => {
             ensureLoaded();
@@ -1939,15 +3217,48 @@ export function createStatsRuntime({
         // 状态栏 / 人际关系页的数据源：只有总开关与本聊天都启用时才接管，否则返回 null 让调用方读表格（易错点 H3）。
         metricsLookup: ev(() => {
             if (!active()) return null;
-            return createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), sheets: catalog.sheets, engine: memoEngineOf() });
+            const lookup = createStatsMetricsLookup(currentStatsState(ledger), { hudLabel: settings().hudLabel, nsfw: isNsfw(), stamina: npcStaminaShown(), favorTier: normalizeFavorTier(settings().favorMode), sheets: catalog.sheets, engine: memoEngineOf(), isRomanceOf: (c, n) => isRomance(c, n, catalog.romanceSeen) });
+            return (name) => (isHero(name) ? { metrics: [], stages: [] } : lookup(name));
+        }),
+        // 修罗场情敌（ROMANCE_RIVAL_FIX_PLAN）：近 7 天吃过醋、芥蒂不低于 26、或仍是恋爱对象；未启用时返回 null，演出层退回旧规则。
+        rivalSet: ev(() => (active() ? statsRivalSet(ledger) : null)),
+        // 好感总览：总开关与本聊天都启用时返回已登记角色（好感从高到低）及其数值条、关系阶段、变动记录和 nsfw 状态；否则 null，页面照旧读表格。
+        favorOverview: ev(() => {
+            if (!active()) return null;
+            const s = settings();
+            const nsfw = isNsfw();
+            const state = currentStatsState(ledger);
+            // 恋爱与亲人判定统一走 isRomance / hasMark：演出层记录（romanceSeen）与档案勾选（traits）同样算数。
+            const people = statsFavorOverview(ledger, { isHero }).map((p) => {
+                const c = state.characters[p.name];
+                const romance = isRomance(c, p.name, catalog.romanceSeen);
+                return {
+                    ...p,
+                    romance,
+                    kin: hasTrait(state, traitCatalogOf(catalog.traits), p.name, 'kin'),
+                    metrics: characterStatMetrics(c, { hudLabel: s.hudLabel, nsfw, stamina: npcStaminaShown(), favorTier: normalizeFavorTier(s.favorMode) }),
+                    stage: stageLabel(Number(p.dims.好感) || 0, romance),
+                };
+            });
+            return { nsfw, people };
         }),
         // 状态栏主角条：积分沿用原余额，剧情货币单独读取物品表。
         protagonistLookup: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() });
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() }).concat(heroFameMetrics(s));
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
+        // 好战者名单：主角与在场角色里挂有「战斗狂」的名字；没有启用数值系统或没有人时为 null。
+        combatEager: () => {
+            if (!active()) return null;
+            const state = currentStatsState(ledger);
+            const cat = traitCatalogOf(catalog.traits, isNsfw());
+            const names = [];
+            if (hasTrait(state, cat, '主角', '战斗狂')) names.push(userName() || '主角');
+            for (const name of present(state)) if (hasTrait(state, cat, name, '战斗狂')) names.push(name);
+            return names.length ? { names } : null;
+        },
         // 日常挑战建局与额度门禁用的只读快照：生活条、技能值与时钟；没有启用时为 null。
         challengeSnapshot: () => {
             if (!active()) return null;
@@ -1965,7 +3276,7 @@ export function createStatsRuntime({
         protagonistBlock: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() });
+            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() }).concat(heroFameMetrics(s));
             return metrics.length ? { name: userName() || PROTAGONIST, metrics } : null;
         }),
         // 积分中的旧数值侧份额保留原存储；战斗账本按需合并，未启用时为 0。

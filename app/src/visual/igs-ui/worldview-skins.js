@@ -19,7 +19,10 @@ import { DIALOG_SKIN_QINGLV } from './dialog-theme-guofeng.js';
 import { DIALOG_SKIN_XIANXIA_INK } from './dialog-theme-xianxia.js';
 import { DIALOG_SKIN_WUXIA_INK } from './dialog-theme-wuxia.js';
 import { DIALOG_SKIN_FAIRY_TALE } from './dialog-theme-fairytale.js';
-import { DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
+import { DIALOG_SKIN_HORROR_GORE } from './dialog-theme-horror-blood.js';
+import { DIALOG_SKIN_HORROR_MONITOR } from './dialog-theme-horror-monitor.js';
+import { DIALOG_SKIN_HORROR_WARD } from './dialog-theme-horror-ward.js';
+import { DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
 import { listDlcSkins } from './dlc-skin-registry.js';
@@ -36,7 +39,7 @@ export const WORLDVIEW_DIALOG_SKINS = Object.freeze({
     apocalypse: Object.freeze([DIALOG_SKIN_WASTELAND_RUST, DIALOG_SKIN_GRADIENT_VEIL]),
     taisho: Object.freeze([DIALOG_SKIN_RETRO_JAPANESE]),
     magic: Object.freeze([DIALOG_SKIN_MAGIC_ACADEMY, DIALOG_SKIN_FAIRY_TALE, DIALOG_SKIN_WARM_PICTUREBOOK]),
-    horror: Object.freeze([DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_PSYCH]),
+    horror: Object.freeze([DIALOG_SKIN_HORROR_GORE, DIALOG_SKIN_HORROR_MONITOR, DIALOG_SKIN_HORROR_WARD, DIALOG_SKIN_HORROR_PSYCH]),
 });
 
 export function worldviewDialogSkins(worldview) {

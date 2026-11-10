@@ -45,6 +45,7 @@ import { combatBattleOn, dailyChallengeOn, normalizeCombatExpansionSettings } fr
 import { INTIMATE_FOUGHT_KEY, fallbackMechanic, getIntimateGate, intimateOn, readFoughtKeys, resolveIntimateGate } from '../scene/intimate-duel.js';
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
+import { createCombatTraitSeed } from '../host/combat-trait-seed.js';
 
 // 建表失败里「表还没就绪/读失败」属于暂时性原因，不记成该聊天的建表失败
 const TRANSIENT_TABLE_REASONS = new Set(['combat-table-not-ready', 'combat-table-read-failed']);
@@ -117,6 +118,8 @@ export function createCombatServices(options = {}) {
         if (typeof held.context.saveMetadata === 'function') Promise.resolve(held.context.saveMetadata()).catch(() => null);
     }
     const getChatId = () => String((typeof options.getChatId === 'function' ? options.getChatId() : '') || '');
+    const traitSeeds = createCombatTraitSeed(global, getChatId);
+    let traitEpoch = 0;
     const getChat = () => {
         const context = getSillyTavernContext(global);
         return context && Array.isArray(context.chat) ? context.chat : [];
@@ -265,6 +268,7 @@ export function createCombatServices(options = {}) {
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,
+                onReportSettled: () => { Promise.resolve(refreshGrowth()).catch(() => null); },
                 challenge: {
                     state: () => (typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null),
                     allowEscape: () => settings().daily.allowEscape,
@@ -419,6 +423,7 @@ export function createCombatServices(options = {}) {
             messageIds,
             battleHurts: b.battleHurts !== undefined ? b.battleHurts : a.battleHurts,
             heroPrefs: b.heroPrefs !== undefined ? b.heroPrefs : a.heroPrefs,
+            naturalHeals: [...(a.naturalHeals || []), ...(b.naturalHeals || [])],
         };
     }
 
@@ -442,7 +447,7 @@ export function createCombatServices(options = {}) {
         let scan = null;
         if (params.write) {
             try {
-                scan = await ledgerImpl.scanLife({ messageIds: params.messageIds, battleHurts: params.battleHurts, heroPrefs: params.heroPrefs });
+                scan = await ledgerImpl.scanLife({ messageIds: params.messageIds, battleHurts: params.battleHurts, heroPrefs: params.heroPrefs, naturalHeals: params.naturalHeals });
             } catch {
                 scan = { ok: false, reason: 'combat-ledger-scan-failed' };
             }
@@ -461,8 +466,8 @@ export function createCombatServices(options = {}) {
         return { ok: true, scan };
     }
 
-    function refreshLife({ write = false, messageIds, battleHurts, heroPrefs } = {}) {
-        const params = { write, messageIds, battleHurts, heroPrefs };
+    function refreshLife({ write = false, messageIds, battleHurts, heroPrefs, naturalHeals } = {}) {
+        const params = { write, messageIds, battleHurts, heroPrefs, naturalHeals };
         // 空闲且缓存有效的只读请求：不排队，直接返回
         if (!write && !lifeRunning && !lifeQueued && lifeCacheUsable()) {
             counters.refreshLifeCacheHits += 1;
@@ -536,7 +541,8 @@ export function createCombatServices(options = {}) {
     }
 
     // 手动写入初始化（设置页）：写完刷新生命与成长
-    async function writeManualInit(name, value, { signal } = {}) {
+    // replace：已初始化的角色也覆盖（设置页「修改属性」）。
+    async function writeManualInit(name, value, { signal, replace = false } = {}) {
         const chatId = getChatId();
         if (!chatId) return { ok: false, reason: 'combat-generate-unavailable' };
         getTables();
@@ -544,7 +550,7 @@ export function createCombatServices(options = {}) {
         const stillValid = () => getChatId() === chatId && ledger === ledgerImpl && !signal?.aborted;
         let written;
         try {
-            written = await ledgerImpl.writeInit(name, value, { signal, shouldStart: stillValid, manual: true });
+            written = await ledgerImpl.writeInit(name, value, { signal, shouldStart: stillValid, manual: true, replace });
         } catch {
             written = { ok: false, reason: 'combat-init-write-failed' };
         }
@@ -1242,29 +1248,37 @@ export function createCombatServices(options = {}) {
         return written?.ok !== true ? { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, tier, tierName: tierProfile.tierName, cost: tierRule.cost };
     }
 
-    async function drawTrait({ signal } = {}) {
+    async function drawTrait({ signal, onPlan } = {}) {
+        const actionChatId = getChatId();
+        const actionEpoch = traitEpoch;
         const context = await heroActionContext('drawTrait', 'trait');
         if (!context.ok) return context;
         const { ledgerImpl, state, hero } = context;
+        const alive = () => !signal?.aborted && actionEpoch === traitEpoch && getChatId() === actionChatId && settings().enabled && getLedger() === ledgerImpl;
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (hero.pendingTrait) return { ok: false, reason: 'combat-trait-pending' };
         if ((hero.points || 0) < TRAIT_DRAW_COST) return { ok: false, reason: 'combat-points-insufficient' };
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return llmFailure(llm);
-        const seed = traitSeed(hero.id, hero.traitDraws);
+        const savedSeed = await traitSeeds.ensure({ signal });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        if (!savedSeed.ok) return savedSeed;
+        const seed = traitSeed(hero.id, hero.traitDraws, savedSeed.seed);
         const { rarity } = planTrait(seed);
         const shape = planTraitShape(seed, rarity);
         const link = planTraitLink(seed, rarity);
         // 规则 v6 遗物特性（G5f）：是否出遗物、出哪件、原版或拆解都由程序按种子定，副 LLM 只写来历。
         const relic = planTraitRelic({ seed, rarity, archetype: hero.classProfile?.archetype, owned: ownedRelicIds(hero) });
+        try { onPlan?.({ rarity }); } catch { /* 界面回调失败不改变抽取结果。 */ }
         const traitId = `tr-${Date.now().toString(36)}`;
         const kept = keptInnateKinds(hero);
         const innate = [kept.includes('active') ? hero.profile?.heroSkill : null, kept.includes('passive') ? hero.profile?.personalPassive : null].filter(Boolean);
         const entities = await withCharacterLore([traitEntity({ character: hero, rarity, traitId, shape, link, relic, existing: [...innate, ...(hero.traits || [])] })], readLore);
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const trait = (generated.accepted || []).find((item) => item.kind === 'trait')?.trait;
         if (!trait) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-trait-generation-failed' };
@@ -1625,6 +1639,7 @@ export function createCombatServices(options = {}) {
 
     // 切换聊天：丢弃会话与缓存，取消进行中的后台任务，让表客户端缓存失效
     function resetChat() {
+        traitEpoch += 1;
         retireSession();
         session = null;
         sessionChatId = null;

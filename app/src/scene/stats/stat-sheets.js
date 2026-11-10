@@ -5,7 +5,7 @@ import { LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat
 import { PROTAGONIST, RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
 import { seededRandom } from './stat-ledger.js';
 import { DEFAULT_STAT_PROMPTS } from './stat-prompt.js';
-import { START_RELATIONS, normalizeTier } from './stat-vocab.js';
+import { parseStartRelation } from './stat-vocab.js';
 
 // 档位词 → 区间。六维存战斗分数（3–30，ABILITY_SCORE_TIERS）；理智值（SAN）仍是百分制（ATTRIBUTE_TIERS）。
 export const ATTRIBUTE_TIERS = Object.freeze({ 很弱: [20, 30], 偏弱: [35, 45], 普通: [45, 55], 出众: [60, 70], 顶尖: [75, 90], 超凡: [91, 99] });
@@ -22,10 +22,16 @@ export const NPC_SKILL_BASELINE = 50;
 export const NPC_SKILL_MIN = 5;
 export const NPC_SKILL_MAX = 95;
 export const NPC_SKILL_JITTER = 5;
-export const PROTAGONIST_BACKFILL_MAX = '熟练';
+// 主角补全不设上限（11-07 用户放开），补出来不合适时在「我的角色」里手改。
+export const PROTAGONIST_BACKFILL_MAX = '大师';
 export const SHEET_BATCH_MAX = 8;
+// 角色卡 3+5：与主角选技能同值（擅长 60、比较擅长 30）。
+export const NPC_STRONG_COUNT = 3;
+export const NPC_GOOD_COUNT = 5;
+export const NPC_STRONG_VALUE = 60;
+export const NPC_GOOD_VALUE = 30;
 export const BACKFILL_SKILL_MAX = 6;
-export const SUMMARY_MAX = 600;
+export const SUMMARY_MAX = 3000;
 export const BACKFILL_SUMMARY_MAX = 300;
 const NUMERIC = /[0-9０-９]/;
 const ATTR_SYNONYM = Object.freeze({ 弱: '偏弱', 差: '偏弱', 一般: '普通', 中等: '普通', 强: '出众', 优秀: '出众', 很强: '顶尖', 极强: '顶尖', 非人: '超凡' });
@@ -136,12 +142,17 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
             else if (tier && validSkillName(k)) skills[validSkillName(k)] = tier;
             else diagnostics.push({ code: 'stats-sheet-cell-dropped', name, key: k });
         }
+        // 3+5：擅长 3 项、比较擅长 5 项（与主角选技能同一套起步值）；旧格式的「技能」档位表仍可识别。
+        const pickList = (list, max) => (Array.isArray(list) ? list : []).map((k) => (registry ? registry.resolve(k) : null) || validSkillName(k))
+            .filter((k) => k && !BASE_ATTRIBUTES.includes(k)).filter((k, i, all) => all.indexOf(k) === i).slice(0, max);
+        const strong = pickList(raw.擅长 || raw.strong, NPC_STRONG_COUNT);
+        const good = pickList(raw.比较擅长 || raw.good, NPC_GOOD_COUNT).filter((k) => !strong.includes(k));
         const signature = [];
         for (const item of Array.isArray(raw.招牌技能 || raw.signature) ? (raw.招牌技能 || raw.signature) : []) {
             const skillName = validSkillName(item && (item.名 || item.name));
             if (skillName && signature.length < 3) signature.push({ name: skillName, attribute: normalizeAttribute(item.属性 || item.attribute) });
         }
-        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], attributes, skills, signature };
+        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], attributes, skills, strong, good, signature };
     }
     if (!Object.keys(sheets).length) return { ok: false, reason: 'stats-sheet-empty', sheets, diagnostics };
     return { ok: true, sheets, diagnostics };
@@ -161,6 +172,8 @@ export function sheetFromTiers(name, tiers, { chatSeed = '', heroSkill = null } 
         const v = npcSkillValue(tier, heroOf(skill), `${chatSeed}|${name}|${skill}`);
         if (v) skills[skill] = v;
     }
+    for (const skill of tiers.strong || []) if (!skills[skill]) skills[skill] = NPC_STRONG_VALUE;
+    for (const skill of tiers.good || []) if (!skills[skill]) skills[skill] = NPC_GOOD_VALUE;
     for (const sig of tiers.signature || []) {
         if (!skills[sig.name]) skills[sig.name] = npcSkillValue('精通', heroOf(sig.name), `${chatSeed}|${name}|${sig.name}`);
     }
@@ -249,7 +262,8 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 
 // 主角技能一次性分配（CoC）：每个档位的名额上限，超额按回复顺序降一档；未学不限。
 export const HERO_TIER_LIMITS = Object.freeze({ 大师: 1, 精通: 2, 熟练: 6, 入门: 8 });
-export const HERO_SUMMARY_MAX = 800;
+export const HERO_SUMMARY_MAX = 2000;
+export const PLOT_SETTING_MAX = 3000;
 
 // skills：可分配的技能名。回复格式 { "技能名": "档位" }。
 export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
@@ -286,25 +300,33 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
 }
 
 // 起始关系一次性补填：people 为 [{ name, summary }]，回复格式 { "角色名": "关系档" }。
-export function buildStartRelationRequest(people, { prompt } = {}) {
+// hero 为主角资料（用户人设）：玩家常把「谁喜欢主角」写在这里，角色资料里反而没有。
+// plot 为剧情注入器的设定条目，人物关系常写在这里。
+export function buildStartRelationRequest(people, { prompt, hero = '', plot = '' } = {}) {
     const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, SUMMARY_MAX) || '（没有资料）'}`);
+    const heroText = clip(hero, HERO_SUMMARY_MAX);
+    const plotText = clip(plot, PLOT_SETTING_MAX);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
-        user: `主角：${PROTAGONIST}\n角色资料：\n${list.join('\n')}`,
+        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}角色资料：\n${list.join('\n')}`,
     };
 }
 
-// 返回 { ok, relations: { 角色: 关系档 } }：只收名单内角色与白名单档位（含近义词），含数字的项丢弃。
+// 返回 { ok, relations: { 角色: 关系档 }, mods: { 角色: [修饰] } }：只收名单内角色与白名单档位（含近义词），含数字的项丢弃。
+// 关系档可带修饰（「恋人+猜忌」），修饰词不认识的单个丢弃，不影响关系档。
 export function parseStartRelationReply(reply, { names = [] } = {}) {
     const obj = extractJson(reply);
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-start-invalid', relations: {} };
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-start-invalid', relations: {}, mods: {} };
     const allowed = new Set(names);
     const relations = {};
+    const mods = {};
     for (const [name, raw] of Object.entries(obj)) {
-        const tier = allowed.has(name) ? normalizeTier('start', START_RELATIONS, raw) : null;
-        if (tier) relations[name] = tier;
+        const parsed = allowed.has(name) && typeof raw === 'string' ? parseStartRelation(raw) : null;
+        if (!parsed) continue;
+        relations[name] = parsed.tier;
+        if (parsed.mods.length) mods[name] = parsed.mods;
     }
-    return Object.keys(relations).length ? { ok: true, relations } : { ok: false, reason: 'stats-start-empty', relations };
+    return Object.keys(relations).length ? { ok: true, relations, mods } : { ok: false, reason: 'stats-start-empty', relations, mods };
 }
 
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。

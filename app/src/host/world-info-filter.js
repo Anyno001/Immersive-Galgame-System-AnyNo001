@@ -71,7 +71,19 @@ export function attachWorldInfoExclude(ctx, value) {
     };
 }
 
-const SOURCE_LABELS = Object.freeze({ chat: '聊天', primary: '角色主世界书', additional: '角色附加', global: '全局', persona: '用户人设', card: '角色卡内嵌' });
+// 剧情注入器不写世界书文件，只在扫描事件里往聊天世界书推虚拟条目，条目的 world 固定为这个名字。
+export const PLOT_INJECTOR_BOOK = '剧情注入器';
+
+// 剧情注入器单例挂在酒馆主窗口的 __plotInjector 上；脚本跑在 iframe 时从父窗口找。
+function hasPlotInjector(globalObject) {
+    const probe = target => {
+        try { return Boolean(target && target.__plotInjector); } catch { return false; }
+    };
+    if (probe(globalObject)) return true;
+    try { return probe(globalObject && globalObject.parent); } catch { return false; }
+}
+
+const SOURCE_LABELS = Object.freeze({ chat: '聊天', primary: '角色主世界书', additional: '角色附加', global: '全局', persona: '用户人设', card: '角色卡内嵌', plotInjector: '剧情注入器' });
 
 // 当前会参与扫描的书名与来源；条目按需读取。
 export function listActiveWorldInfoBooks(globalObject = globalThis) {
@@ -107,7 +119,44 @@ export function listActiveWorldInfoBooks(globalObject = globalThis) {
     const books = [...found.values()];
     const embedded = card && card.data && card.data.character_book && card.data.character_book.entries;
     if (Array.isArray(embedded) && embedded.length) books.push({ name: CARD_BOOK, label: SOURCE_LABELS.card, sources: [] });
+    if (hasPlotInjector(globalObject)) books.push({ name: PLOT_INJECTOR_BOOK, label: PLOT_INJECTOR_BOOK, sources: [SOURCE_LABELS.plotInjector] });
     return { ok: true, books };
+}
+
+// 按名字找条目：标题（comment）或正文开头含任一名字即算命中，补原生关键词扫描漏掉的（条目关键词写的是别名时）。
+const HEAD_CHARS = 80;
+export async function readWorldInfoByNames(globalObject, names, value) {
+    const ctx = getSillyTavernContext(globalObject);
+    const words = [...new Set((Array.isArray(names) ? names : []).map(n => String(n || '').trim()).filter(n => n.length >= 2))];
+    if (!ctx || !words.length) return { ok: false, reason: 'context-unavailable', entries: [] };
+    const exclude = normalizeWorldInfoExclude(value);
+    const listed = listActiveWorldInfoBooks(globalObject);
+    const hit = (entry) => {
+        const head = `${entry.comment || entry.name || ''}\n${String(entry.content || '').slice(0, HEAD_CHARS)}`;
+        return words.some(w => head.includes(w));
+    };
+    const texts = [];
+    let failed = '';
+    for (const book of listed.books) {
+        if (book.name === PLOT_INJECTOR_BOOK || exclude.books.includes(book.name)) continue;
+        let rows = [];
+        if (book.name === CARD_BOOK) {
+            const characters = Array.isArray(ctx.characters) ? ctx.characters : [];
+            const card = ctx.characterId != null ? characters[ctx.characterId] : null;
+            const list = card && card.data && card.data.character_book && card.data.character_book.entries;
+            rows = (Array.isArray(list) ? list : []).map((entry, index) => ({ entry, uid: entry && entry.id != null ? entry.id : index })).filter(({ entry }) => entry && entry.enabled !== false);
+        } else if (typeof ctx.loadWorldInfo === 'function') {
+            try {
+                const data = await ctx.loadWorldInfo(book.name);
+                rows = data && data.entries ? Object.entries(data.entries).map(([key, entry]) => ({ entry, uid: entry && entry.uid != null ? entry.uid : key })).filter(({ entry }) => entry && !entry.disable) : [];
+            } catch (error) { failed = 'book-read-failed'; }
+        } else failed = 'loader-unavailable';
+        for (const { entry, uid } of rows) {
+            if (!String(entry.content || '').trim() || isWorldInfoExcluded(exclude, book.name, uid) || !hit(entry)) continue;
+            texts.push(String(entry.content).trim());
+        }
+    }
+    return { ok: !failed || texts.length > 0, reason: failed || undefined, entries: texts };
 }
 
 const entryTitle = (entry, uid) => {
@@ -130,6 +179,7 @@ export async function readWorldInfoBookEntries(globalObject, book) {
             .map(({ entry, uid }) => ({ uid, title: entryTitle(entry, uid) }));
         return { ok: true, entries };
     }
+    if (book === PLOT_INJECTOR_BOOK) return { ok: true, entries: [], note: '条目由剧情注入器临时生成，只能整本排除。' };
     if (typeof ctx.loadWorldInfo !== 'function') return { ok: false, reason: 'loader-unavailable', entries: [] };
     try {
         const data = await ctx.loadWorldInfo(book);

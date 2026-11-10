@@ -56,7 +56,10 @@ export const RECORD_ICONS = Object.freeze({
     inventory: svg('<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m-4 0v14"/>'),
     relationships: svg('<circle cx="7" cy="8" r="3"/><circle cx="17" cy="8" r="3"/><path d="M2 20v-2a5 5 0 0 1 10 0v2m0 0v-2a5 5 0 0 1 10 0v2"/>'),
     favor: svg('<path d="M12 20s-7.5-4.6-7.5-10.1A4.2 4.2 0 0 1 12 7.4a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20Z"/>'),
-    combat: svg('<path d="M14.5 17.5 3.5 6.5v-3h3l11 11M13 19l6-6M16 16l3.5 3.5"/><path d="M9.5 17.5 20.5 6.5v-3h-3l-11 11M11 19l-6-6M8 16l-3.5 3.5"/>'),
+    // 人物状态：与战斗界面「技能」按钮同一图标（combat-skin-canvas.js 的 SKILL_ICON_SVG）。
+    combat: svg('<path d="M4 4l12 12M13 17.5l4.5-4.5M16.5 16.5l3 3"/><path d="M20 4L8 16M11 17.5L6.5 13M7.5 16.5l-3 3"/>'),
+    // 随身系统：挂绳 + 圆牌 + 牌心一点（沿用原入口的圆环加圆点）。
+    origin: svg('<path d="M9 3.5 12 7l3-3.5"/><circle cx="12" cy="14" r="6.5"/><circle cx="12" cy="14" r="2"/>'),
     zoomIn: svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>'),
     zoomOut: svg('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/>'),
     locate: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'),

@@ -1,5 +1,5 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAGE_TEXT_PLATONIC, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
@@ -17,13 +17,26 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
     autoSkill: true,
     register: 'auto',
     hudLabel: 'number',
-    favorMode: 'normal',
+    favorMode: 'vivid',
     intimacyGate: true,
+    intimateCost: 'standard',
+    dateRegex: '',
+    timeRegex: '',
     ruleset: DEFAULT_RULESET,
     newChat: 'ask',
     storyCheck: 'preroll',
     checkFx: true,
     optionChance: true,
+    heroNotePrompt: false,
+    npcBars: false,
+    // 特质复核：距上次发送满多少楼自动复核一次，0 为关闭（大事件另算）。
+    traitReviewN: 30,
+    hudFame: false,
+    hudFameDetail: false,
+    // 自然回血（D 批）：按天（每天 5/10/15%）或按楼（每楼 1/3/5%，只算 AI 楼）。
+    healMode: 'day',
+    healDay: 10,
+    healFloor: 3,
     sheetGen: 'prompt',
     backfill: 'auto',
     bars: Object.freeze({ stamina: true, money: true, stress: true }),
@@ -32,11 +45,16 @@ export const STATS_SETTINGS_DEFAULTS = Object.freeze({
 
 const REGISTER_MODES = new Set(['auto', 'manual']);
 const HUD_LABELS = new Set(['stage', 'number', 'both']);
-const FAVOR_MODES = new Set(['normal', 'hard']);
+const FAVOR_MODES = new Set(['vivid', 'normal', 'hard']);
+const INTIMATE_COSTS = new Set(['off', 'light', 'standard', 'heavy']);
 const NEW_CHAT = new Set(['ask', 'auto', 'off']);
 const STORY_CHECK = new Set(['preroll', 'manual', 'off']);
 const SHEET_GEN = new Set(['prompt', 'auto', 'off']);
 const BACKFILL = new Set(['auto', 'manual', 'off']);
+const HEAL_MODES = new Set(['day', 'floor']);
+const HEAL_DAY = Object.freeze([5, 10, 15]);
+const HEAL_FLOOR = Object.freeze([1, 3, 5]);
+const healPct = (list, value, fallback) => (list.includes(Number(value)) ? Number(value) : fallback);
 
 function bool(value, fallback) {
     return typeof value === 'boolean' ? value : fallback;
@@ -51,6 +69,11 @@ const HUD_LABEL_VERSION = 2;
 function hudLabelOf(src, d) {
     if (src.hudLabelVersion !== HUD_LABEL_VERSION && src.hudLabel === 'stage') return d.hudLabel;
     return pick(HUD_LABELS, src.hudLabel, d.hudLabel);
+}
+
+// 日期、时间正则：只收字符串，去首尾空白并截断；是否合法由结算时编译判断。
+function regexText(value) {
+    return typeof value === 'string' ? value.trim().slice(0, 300) : '';
 }
 
 // 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
@@ -149,11 +172,24 @@ export function normalizeStatsSettings(raw) {
         hudLabelVersion: HUD_LABEL_VERSION,
         favorMode: pick(FAVOR_MODES, src.favorMode, d.favorMode),
         intimacyGate: bool(src.intimacyGate, d.intimacyGate),
+        intimateCost: pick(INTIMATE_COSTS, src.intimateCost, d.intimateCost),
+        dateRegex: regexText(src.dateRegex),
+        timeRegex: regexText(src.timeRegex),
         ruleset: rulesetOf(src, d),
         newChat: pick(NEW_CHAT, src.newChat, d.newChat),
         storyCheck: pick(STORY_CHECK, src.storyCheck, d.storyCheck),
         checkFx: bool(src.checkFx, d.checkFx),
         optionChance: bool(src.optionChance, d.optionChance),
+        // 「我对TA」备注是否注入 present 段；角色（非主角）的体力条是否显示在状态栏与好感总览。
+        heroNotePrompt: bool(src.heroNotePrompt, d.heroNotePrompt),
+        npcBars: bool(src.npcBars, d.npcBars),
+        traitReviewN: Number.isFinite(Number(src.traitReviewN)) ? Math.min(200, Math.max(0, Math.floor(Number(src.traitReviewN)))) : d.traitReviewN,
+        // 状态栏显示声望（汇总一行）；开了它之后「显示细项」才生效（每条、每一对各自成条）。
+        hudFame: bool(src.hudFame, d.hudFame),
+        hudFameDetail: bool(src.hudFameDetail, d.hudFameDetail),
+        healMode: pick(HEAL_MODES, src.healMode, d.healMode),
+        healDay: healPct(HEAL_DAY, src.healDay, d.healDay),
+        healFloor: healPct(HEAL_FLOOR, src.healFloor, d.healFloor),
         sheetGen: pick(SHEET_GEN, src.sheetGen, d.sheetGen),
         backfill: pick(BACKFILL, src.backfill, d.backfill),
         bars: {
@@ -168,6 +204,8 @@ export function normalizeStatsSettings(raw) {
         staleNoticeSeen: bool(src.staleNoticeSeen, false),
         segments: segmentMap(src.segments),
         stageText: textMap(src.stageText, Object.keys(DEFAULT_STAGE_TEXT), DEFAULT_STAGE_TEXT),
+        // 非恋爱对象的阶段文案覆盖：只含四档正向阶段，与恋爱向文案分开存。
+        stageTextPlatonic: textMap(src.stageTextPlatonic, Object.keys(DEFAULT_STAGE_TEXT_PLATONIC), DEFAULT_STAGE_TEXT_PLATONIC),
         // 建卡（倾向 / 手动六维 / 职业 / 特有技能）；「按分配启用」时用它生成本聊天初始数值。
         build: normalizeBuild(src.build),
     };

@@ -1,13 +1,14 @@
 // Origin 系统核心 · 操作 → 状态。
 // 来源：vicliaaa/origin-sillytavern v1.5 的 completeTask / applyEffects / addItem / addPerk / addSkill / drawCore / 成就 / applyBlock（作者已授权移植）。
 // 所有函数就地改写传入的 st，调用方必须传「写时浅拷」出来的副本（见 origin-state 的 cloneForWrite）。
-// cx：{ turn, floor, s(设置), random, events[], uses[], draws[], logged[], grantT{}, ptT[] }。本楼内的去重表在 cx 里，不进状态。
+// cx：{ turn, floor, s(设置), random, wallet, scale, economy, events[], uses[], draws[], logged[], grantT{}, ptT[] }。本楼内的去重表在 cx 里，不进状态。
+// cx.scale：记账当时的体系倍数（D&D 为 5，其余 1），属性奖励按它换成百分制再存。
 import { cleanNum, parseBlock } from './origin-parse.js';
-import { hostOf } from './origin-state.js';
+import { hostOf, statToPercent } from './origin-state.js';
 import { approveTask, chargeOrigin, creditOrigin, originSource, putOriginItem, takeOriginItem, withOriginSource } from './origin-economy.js';
 
 export function createCx(over = {}) {
-    return { turn: 0, floor: null, s: {}, random: Math.random, events: [], uses: [], draws: [], logged: [], grantT: {}, ptT: [], ...over };
+    return { turn: 0, floor: null, s: {}, random: Math.random, scale: 1, events: [], uses: [], draws: [], logged: [], grantT: {}, ptT: [], ...over };
 }
 // points 保留 Origin 净流水，wallet 是操作开始时来自数据库的其他积分份额。
 export const pointBalance = (st, cx = {}) => st.points + (Number(cx.wallet) || 0);
@@ -112,7 +113,7 @@ export function applyEffects(st, str, sign, cx) {
         if (name === '积分' || !name) continue;
         let s2 = st.stats.find((x) => x.name === name);
         if (!s2) { s2 = { name, val: 0 }; st.stats.push(s2); }
-        s2.val += cleanNum(m[2]);
+        s2.val += statToPercent(name, cleanNum(m[2]), cx.scale);
     }
 }
 
@@ -227,7 +228,7 @@ function opNewTask(st, op, cx, ext) {
     const title = op.title || ext.proseTitle || '';
     if (!title) return false;
     const host = hostOf(cx.s);
-    const t = newTaskOf(st, cx, { type: op.ty, owner: ((op.owner || host || '宿主').trim() || '宿主'), title, desc: op.desc, cond: op.cond, reward: op.reward, penalty: op.penalty, limit: op.limit });
+    const t = newTaskOf(st, cx, { type: op.ty, owner: ((op.owner || host || '宿主').trim() || '宿主'), title, desc: op.desc, cond: op.cond, reward: op.reward, penalty: op.penalty, limit: cx.s.limitMax > 0 ? op.limit : 0 });
     st.tasks.push(t);
     st.lastTaskTurn = cx.turn;
     pushLog(st, '新任务[' + t.type + ']「' + t.title + '」', '·', cx);
@@ -281,7 +282,7 @@ export function applyOps(st, ops, cx, ext = {}) {
             case 'stat': {
                 let s2 = st.stats.find((x) => x.name === op.name);
                 if (!s2) { s2 = { name: op.name, val: 0 }; st.stats.push(s2); }
-                s2.val += op.n; changed += 1; break;
+                s2.val += statToPercent(op.name, op.n, cx.scale); changed += 1; break;
             }
             case 'shopItem': {
                 const it = { name: op.name, price: op.price, desc: op.desc, effect: op.effect };
@@ -307,7 +308,7 @@ export function applyOps(st, ops, cx, ext = {}) {
             case 'skill': hit(addSkill(st, op.name, op.desc, cx)); break;
             case 'limit': {
                 const t = findTask(st, op.ref);
-                if (t && t.status === 'active' && op.n > 0) { t.limit = op.n; t.startTurn = cx.turn; pushLog(st, t.title + '：时限改为 ' + op.n + ' 回合', '·', cx); changed += 1; }
+                if (t && t.status === 'active' && op.n > 0 && cx.s.limitMax > 0) { t.limit = op.n; t.startTurn = cx.turn; pushLog(st, t.title + '：时限改为 ' + op.n + ' 回合', '·', cx); changed += 1; }
                 break;
             }
             case 'achieve': hit(unlockAch(st, op.key, op.name, op.desc, 100, cx)); break;
@@ -422,7 +423,7 @@ function mList(st, op, cx) {
         case 'deleteShop': { const i = st.shop.findIndex((b) => b.name === name); if (i < 0) return fail('no-goods', '商城里没有「' + name + '」'); st.shop.splice(i, 1); return OK; }
         case 'addGacha': if (!name) return fail('empty', '奖品名为空'); st.gachaPool.push({ name, tier: String(op.tier || 'R').trim(), weight: parseInt(op.weight, 10) || 20, desc: op.desc || '', effect: String(op.effect || '').trim() }); return OK;
         case 'deleteGacha': { const i = st.gachaPool.findIndex((b) => b.name === name); if (i < 0) return fail('no-prize', '奖池里没有「' + name + '」'); st.gachaPool.splice(i, 1); return OK; }
-        case 'addStat': if (!name) return fail('empty', '属性名为空'); st.stats.push({ name, val: parseInt(op.val, 10) || 0 }); return OK;
+        case 'addStat': if (!name) return fail('empty', '属性名为空'); st.stats.push({ name, val: statToPercent(name, parseInt(op.val, 10) || 0, cx.scale) }); return OK;
         case 'deleteStat': { const i = st.stats.findIndex((b) => b.name === name); if (i < 0) return fail('no-stat', '没有属性「' + name + '」'); st.stats.splice(i, 1); return OK; }
         case 'addSkill': return addSkill(st, name, op.desc || '', cx) ? OK : fail('exists', '技能「' + name + '」已存在或名称无效');
         case 'deleteSkill': { const i = st.skills.findIndex((b) => b.name === name); if (i < 0) return fail('no-skill', '没有技能「' + name + '」'); st.skills.splice(i, 1); return OK; }

@@ -111,15 +111,15 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-table-pick.is-on>i{border-color:var(--igs-settings-on-accent);background:var(--igs-settings-on-accent)}
 .igs-table-pick.is-missing{opacity:.66}
 /* 输入框不用四边描线分块，靠底色加一条底部浅线（部分主题的 line 是 transparent，所以直接混 ink）。 */
-.igs-settings-field input,.igs-settings-field select,.igs-settings-field textarea{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid color-mix(in srgb,var(--igs-settings-ink) 16%,transparent);background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;transition:background-color .14s ease,border-color .14s ease}
+.igs-settings-field input,.igs-settings-field select,.igs-stats-hero-actions>select,.igs-settings-field textarea{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid color-mix(in srgb,var(--igs-settings-ink) 16%,transparent);background:var(--igs-settings-field);color:var(--igs-settings-ink);border-radius:var(--igs-settings-radius-control);padding:8px 10px;font:inherit;font-size:13px;line-height:1.5;outline:none;transition:background-color .14s ease,border-color .14s ease}
 .igs-settings-range{display:flex;align-items:center;gap:10px;min-width:0;width:100%}
 .igs-settings-field .igs-settings-range input[type="range"]{min-width:0;flex:1;height:36px;padding:0 8px;cursor:pointer;accent-color:var(--igs-settings-accent)}.igs-settings-range output{flex:none;min-width:3.5em;text-align:right;color:var(--igs-settings-ink-2);font-size:12px}
-.igs-settings-field option{background:var(--igs-settings-panel);color:var(--igs-settings-ink)}
+.igs-settings-field option,.igs-stats-hero-actions>select option{background:var(--igs-settings-panel);color:var(--igs-settings-ink)}
 .igs-settings-field input[type="color"]{width:42px;height:36px;padding:3px;border-radius:var(--igs-settings-radius-small);cursor:pointer}
 .igs-settings-field input[type="color"]::-webkit-color-swatch-wrapper{padding:0}
 .igs-settings-field input[type="color"]::-webkit-color-swatch{border:0;border-radius:var(--igs-settings-radius-small)}
 .igs-settings-field textarea{min-height:132px;resize:vertical;line-height:1.55;font-family:ui-monospace,Consolas,monospace}
-.igs-settings-field input:focus,.igs-settings-field select:focus,.igs-settings-field textarea:focus{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
+.igs-settings-field input:focus,.igs-settings-field select:focus,.igs-stats-hero-actions>select:focus,.igs-settings-field textarea:focus{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 .igs-settings-field input:disabled,.igs-settings-field select:disabled,.igs-settings-field textarea:disabled{opacity:.5;cursor:not-allowed}
 .igs-settings-secret{display:flex;align-items:center;gap:8px}
 .igs-settings-secret input{flex:1;min-width:0}
@@ -159,6 +159,11 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-switch[disabled]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .igs-source-filter{grid-column:1/-1;padding:14px 16px 16px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-surface);display:flex;flex-direction:column;gap:14px;min-width:0;max-width:100%;box-sizing:border-box}
 .igs-source-filter-title{font-size:13px;line-height:20px;font-weight:600;letter-spacing:.04em;color:var(--igs-settings-ink)}
+details.igs-log-calc>summary{cursor:pointer;list-style:none}
+details.igs-log-calc>summary::-webkit-details-marker{display:none}
+details.igs-log-calc>summary::after{content:"";display:inline-block;width:5px;height:5px;margin:0 0 3px 8px;border-right:1.5px solid var(--igs-settings-ink-3);border-bottom:1.5px solid var(--igs-settings-ink-3);transform:rotate(-45deg);transition:transform .15s;vertical-align:middle}
+details.igs-log-calc[open]>summary::after{transform:rotate(45deg)}
+details.igs-log-calc>.igs-source-filter-note{padding-left:14px}
 .igs-source-filter-note{font-size:11px;line-height:16px;font-weight:400;color:var(--igs-settings-ink-4);overflow-wrap:anywhere}
 .igs-tts-voice-lib{display:flex;flex-direction:column;gap:6px}
 .igs-tts-voice-lib .igs-asset-folder-bar>span:first-child{display:inline-flex;align-items:center;gap:6px}
@@ -184,6 +189,13 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-tts-inline-control>select{flex:1 1 auto;min-width:0}
 .igs-tts-inline-control>.igs-table-pick{flex:0 0 auto}
 .igs-tts-pool{display:flex;flex-wrap:wrap;gap:6px;max-height:168px;overflow-y:auto}
+.igs-tts-pool-groups{display:flex;flex-direction:column;max-height:240px;overflow-y:auto}
+.igs-tts-pool-groups .igs-tts-pool{max-height:none;overflow:visible}
+.igs-tts-pool-groups>.igs-asset-folder{flex-shrink:0}
+.igs-tts-voice-search{display:flex;flex-direction:column;gap:6px;min-width:0;width:100%}
+.igs-char-voice-main>.igs-tts-voice-search,.igs-tts-inline-control>.igs-tts-voice-search{flex:1;min-width:0}
+.igs-tts-voice-search>input,.igs-tts-voice-search>select{width:100%;min-width:0}
+.igs-tts-voice-search [hidden]{display:none}
 .igs-wi-entries{display:flex;flex-direction:column;gap:4px;min-width:0;max-height:240px;overflow-y:auto}
 .igs-wi-entries>.igs-table-pick{width:100%;flex:0 0 auto;justify-content:flex-start;text-align:left}
 .igs-card-skin-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:-6px}
@@ -206,6 +218,120 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-settings-field textarea.igs-image-prompt-text{font-family:inherit;line-height:1.7}
 [data-image-prompt-panel] .igs-image-prompt-preset-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 @media (max-width:520px){[data-image-prompt-panel] .igs-image-prompt-preset-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 数值页「同步到数据库表格」的四个模板按钮：两列等宽，文字不折行。 */
+.igs-stats-template-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.igs-stats-template-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 数值页「我的角色」：数值一格一项（名在上、数在下），按钮两两并排。 */
+.igs-stats-hero-grid,.igs-stats-hero-grid.is-attrs,.igs-stats-hero-grid.is-skills{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px}
+.igs-stats-hero-cell{position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:2px 0 2px 10px;min-width:0}
+.igs-stats-hero-cell::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:2px;background:var(--igs-settings-accent)}
+.igs-stats-hero-cell>span{min-width:0;font-size:13px;line-height:20px;color:var(--igs-settings-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.igs-stats-hero-cell>b{flex-shrink:0;font-size:13px;line-height:20px;font-weight:500;color:var(--igs-settings-ink);font-variant-numeric:tabular-nums}
+.igs-stats-hero-cell>b>small{margin-left:3px;font-size:11px;font-weight:400;color:var(--igs-settings-ink-4)}
+.igs-stats-hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.igs-stats-hero-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.igs-stats-hero-actions.is-three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.igs-stats-hero-actions>.igs-settings-action:only-child,.igs-stats-hero-actions>.igs-settings-action.is-wide{grid-column:1/-1}
+.igs-stats-hero-actions>select{min-width:0;height:34px;padding:0 8px;text-overflow:ellipsis;cursor:pointer}
+.igs-stats-skill-ops{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);height:auto;padding:0;gap:8px;background:transparent;overflow:visible}
+.igs-stats-skill-ops>.igs-segmented-btn{height:34px;background:var(--igs-settings-raised);color:var(--igs-settings-ink-2)}
+.igs-stats-skill-ops>.igs-segmented-btn:hover,.igs-stats-skill-ops>.igs-segmented-btn:focus-visible{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
+/* 数值页「存档与记录」的角色卡：名字、阶段一行，数值格同「我的角色」，按钮两两并排。 */
+.igs-stats-person{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 0;border-bottom:1px solid var(--igs-settings-field)}
+.igs-stats-person:last-of-type{border-bottom:0}
+.igs-stats-person-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;min-width:0}
+.igs-stats-person-head>b{font-size:14px;font-weight:600;color:var(--igs-settings-ink);overflow-wrap:anywhere}
+.igs-stats-person-head>span{font-size:12px;color:var(--igs-settings-ink-4)}
+.igs-stats-person-head>em{margin-left:auto;font-style:normal;font-size:11px;color:var(--igs-settings-accent)}
+details.igs-stats-person{display:block;margin-top:6px;padding:0;border-bottom:0}
+details.igs-stats-person>summary:has(em)::after{margin-left:0}
+details.igs-stats-person[open]>:not(summary){margin:8px 12px 0}
+details.igs-stats-person details.igs-settings-advanced{background:transparent;border-top:1px solid var(--igs-settings-raised);border-radius:0}
+details.igs-stats-person details.igs-settings-advanced>summary{padding-left:0;padding-right:0}
+/* 特质胶囊：只显示已挂的；点开说明，「+」按分组添加。底色复用 .igs-mood-review-chip。 */
+.igs-stats-sec{display:flex;flex-direction:column;gap:8px;min-width:0}
+.igs-stats-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px;font-size:13px;color:var(--igs-settings-ink-2)}
+.igs-stats-sec-head>b{font-weight:600;color:var(--igs-settings-ink)}
+.igs-stats-sec-head>em{font-style:normal;font-size:12px;color:var(--igs-settings-ink-4);font-variant-numeric:tabular-nums}
+.igs-stats-sec-head:has(>em.is-inline){justify-content:flex-start}
+.igs-settings-action.is-small{height:30px;padding:0 12px;flex:0 0 auto;white-space:nowrap}
+.igs-trait-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.igs-trait-toggle{position:absolute;opacity:0;width:0;height:0;margin:0;pointer-events:none}
+.igs-mood-review-chip.igs-trait-chip{box-sizing:border-box;height:28px;padding:0 10px;line-height:28px;font-size:12px;border:0;cursor:pointer;user-select:none;order:1}
+.igs-trait-chip>b{font-weight:500;letter-spacing:0}
+.igs-trait-chip.is-add{justify-content:center;width:28px;padding:0;font-size:16px;color:var(--igs-settings-ink-2)}
+.igs-trait-chip.is-off{opacity:.45;cursor:default}
+.igs-trait-chip.is-dim{background:var(--igs-settings-panel);color:var(--igs-settings-ink-4);cursor:default}
+.igs-trait-chip.is-pick{cursor:pointer;font:inherit;font-size:12px;order:0}
+.igs-trait-chip.is-pick:hover,.igs-trait-chip.is-pick:focus-visible{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent);outline:none}
+.igs-trait-chip small{font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-trait-chip.is-pick:hover small,.igs-trait-chip.is-pick:focus-visible small{color:inherit}
+.igs-trait-toggle:checked+.igs-trait-chip{background:var(--igs-settings-raised);color:var(--igs-settings-ink)}
+.igs-trait-toggle:focus-visible+.igs-trait-chip{outline:1px solid var(--igs-settings-accent)}
+.igs-trait-body,.igs-stats-card{box-sizing:border-box;flex-direction:column;gap:6px;min-width:0;padding:10px 12px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);font-size:12px;line-height:1.6;color:var(--igs-settings-ink-2)}
+.igs-trait-body{display:none;order:2;flex:1 1 100%}
+.igs-stats-card{display:flex}
+.igs-trait-toggle:checked+.igs-trait-chip+.igs-trait-body{display:flex}
+.igs-trait-body>p,.igs-stats-card>p{margin:0;overflow-wrap:anywhere}
+.igs-trait-card-head{display:flex;align-items:center;gap:6px;min-width:0;min-height:30px}
+.igs-trait-card-head>b{font-size:13px;font-weight:600;color:var(--igs-settings-ink);overflow-wrap:anywhere}
+.igs-trait-card-head>span{color:var(--igs-settings-ink-4)}
+.igs-trait-card-head>.igs-settings-action{margin-left:auto}
+.igs-trait-drops{display:flex;flex-wrap:wrap;gap:8px}
+.igs-trait-body.is-add{padding:6px 12px}
+.igs-trait-panel{display:flex;flex-direction:column;gap:2px;min-width:0}
+summary.igs-stats-person-head{flex-wrap:nowrap;align-items:center}
+summary.igs-stats-person-head>b,summary.igs-stats-person-head>span{flex:0 0 auto;white-space:nowrap}
+.igs-person-chips{display:inline-flex;align-items:center;gap:4px;flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap}
+.igs-person-chips .igs-trait-chip{height:20px;line-height:20px;padding:0 6px;font-size:11px;flex:0 0 auto}
+.igs-person-more{font-size:11px;color:var(--igs-settings-ink-4);flex:0 0 auto}
+details.igs-stats-person details.igs-edit-fold>:not(summary){margin-left:0;margin-right:0}
+details.igs-stats-person details.igs-edit-fold>summary{padding-left:0}
+.igs-edit-fold{display:block}
+.igs-edit-fold>.igs-stats-sec,.igs-edit-fold>.igs-stats-hero-actions,.igs-edit-fold>.igs-settings-field{margin-top:10px}
+/* 酒馆全局 input[type=checkbox]:not(#nothing) 会给勾选框尺寸与外边距，隐藏的开关要压过它，否则在卡片里占位 */
+#igs-unified-settings input.igs-edit-toggle:not(#igs-none),#igs-unified-settings input.igs-trait-toggle:not(#igs-none){display:none}
+.igs-person-chips .igs-trait-chip{order:0}
+.igs-edit-tags{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.igs-edit-empty{font-size:12px;color:var(--igs-settings-ink-4)}
+.igs-trait-chip.is-tag{cursor:default}
+.igs-edit-card{display:flex;flex-direction:column;box-sizing:border-box;min-width:0;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);padding:2px 12px}
+.igs-edit-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:10px 0;border-bottom:1px solid var(--igs-settings-raised)}
+.igs-edit-main{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12px;line-height:1.5;color:var(--igs-settings-ink-3)}
+.igs-edit-main>b{font-size:13px;font-weight:600;color:var(--igs-settings-ink)}
+.igs-edit-main>span{overflow-wrap:anywhere}
+.igs-edit-ops{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}
+.igs-edit-note{display:inline-flex;align-items:center;justify-content:flex-end;box-sizing:border-box;min-width:52px;height:30px;padding:0 12px;font-size:12px;color:var(--igs-settings-ink-4)}
+.igs-edit-card .igs-settings-action{background:var(--igs-settings-raised)}
+.igs-edit-card .igs-settings-action:hover{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
+.igs-edit-add{display:flex;align-items:center;min-height:40px;border:0;background:transparent;color:var(--igs-settings-ink-2);font:inherit;font-size:13px;cursor:pointer;text-align:left;padding:0}
+.igs-edit-add:hover{color:var(--igs-settings-ink)}
+.igs-edit-add.is-off{opacity:.45;cursor:default}
+.igs-edit-row.is-off{opacity:.45}
+.igs-add-fold>summary{list-style:none}.igs-add-fold>summary::-webkit-details-marker{display:none}.igs-add-fold[open]>summary.igs-edit-add{color:var(--igs-settings-accent)}
+.igs-edit-card .igs-trait-panel{display:none;padding-bottom:6px}
+.igs-edit-row:last-of-type{border-bottom:1px solid var(--igs-settings-raised)}
+.igs-edit-card .igs-add-fold[open]>.igs-trait-panel{display:flex}
+.igs-edit-card .igs-trait-pick .igs-trait-chip{background:var(--igs-settings-raised)}
+.igs-trait-limits{padding:4px 0;font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-edit-main>.igs-status-src{font-size:11px;color:var(--igs-settings-ink-4)}
+.igs-cycle-box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:0 0 10px;border-bottom:1px solid var(--igs-settings-raised)}
+.igs-cycle-row{border-bottom:0;padding-bottom:6px}
+@media (max-width:520px){.igs-status-row{flex-wrap:wrap}.igs-status-row>.igs-edit-main{flex:1 1 100%}.igs-status-row>.igs-edit-ops{max-width:100%;flex:1 1 100%;justify-content:flex-start}}
+.igs-world-pick{display:flex;flex-wrap:wrap;gap:6px}
+.igs-world-pick .igs-settings-action.is-on{background:var(--igs-settings-accent);color:var(--igs-settings-on-accent)}
+details.igs-stats-person .igs-stats-hero-actions>.igs-settings-action{background:var(--igs-settings-raised)}
+details.igs-stats-person .igs-stats-hero-actions>.igs-settings-action:hover{background:var(--igs-settings-accent)}
+.igs-trait-group>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px;font-size:12px;color:var(--igs-settings-ink-2);cursor:pointer;user-select:none}
+.igs-trait-group>summary>b{font-weight:500}
+.igs-trait-group>summary>span,.igs-trait-count{font-size:11px;color:var(--igs-settings-ink-4);font-variant-numeric:tabular-nums}
+.igs-trait-pick{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 8px}
+.igs-trait-pick .igs-trait-chip{background:var(--igs-settings-highlight)}
+.igs-trait-progress{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--igs-settings-ink-2)}
+.igs-trait-progress progress{width:100%;height:4px;border:0;border-radius:2px;appearance:none;background:var(--igs-settings-field)}
+.igs-trait-progress progress::-webkit-progress-bar{background:var(--igs-settings-field);border-radius:2px}
+.igs-trait-progress progress::-webkit-progress-value{background:var(--igs-settings-accent);border-radius:2px}
+.igs-trait-progress progress::-moz-progress-bar{background:var(--igs-settings-accent);border-radius:2px}
 [data-image-prompt-panel] .igs-image-prompt-preset-actions>.igs-settings-inline-action,.igs-image-prompt-more>summary{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;min-width:0;height:var(--igs-compact-h);padding:0 10px;line-height:1;cursor:pointer;white-space:nowrap}
 [data-image-prompt-panel] .igs-segmented{height:var(--igs-compact-h);padding:2px}
 [data-image-prompt-panel] .igs-segmented-btn{height:calc(var(--igs-compact-h) - 4px)}

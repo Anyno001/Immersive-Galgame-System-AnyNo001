@@ -62,6 +62,8 @@ export const ASCEND_TAG_HASH = 'ascend';
 export const TRAIT_TAG_HASH = 'trait';
 export const PANEL_TAG_HASH = 'panel';
 export const USE_TAG_HASH = 'use';
+// 数值系统的自然回血（按楼/按天/跳过天数）：锚定楼层与 swipe，不需要正文标签。
+export const NATURAL_HEAL_TAG_HASH = 'nat';
 export const ALLOC_TAG_HASH = 'alloc';
 // 日常挑战圆满后的经验牌：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
@@ -299,7 +301,7 @@ function inactiveReason(entry, scanFloor) {
     const needsTag = !(FLOOR_ONLY_TYPES.has(entry.type) || challengeReward || levelUpgrade
         || ((entry.type === 'equip' || entry.type === 'unequip') && anchor.tagHash === GEAR_TAG_HASH)
         || (entry.type === 'equip' && anchor.tagHash === INIT_GEAR_TAG_HASH)
-        || (entry.type === 'heal' && anchor.tagHash === USE_TAG_HASH));
+        || (entry.type === 'heal' && (anchor.tagHash === USE_TAG_HASH || anchor.tagHash === NATURAL_HEAL_TAG_HASH)));
     if (needsTag && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
     if (challengeReward && floor.challenge?.outcome !== '圆满') return 'challenge-reward-invalid';
     if (entry.type === 'exp' && floor.report?.result === 'lose') return 'defeat-no-exp';
@@ -1465,7 +1467,8 @@ function foldAttributes(records, index, scanFloor, diagnostics) {
     const inits = records.filter((record) => record.type === 'init').sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
     for (const record of inits) {
         const bucket = bucketOf(record.character);
-        if (bucket.init) diagnostics.push({ code: 'combat-attribute-init-duplicate', id: record.id, character: record.character });
+        // 设置页「修改属性」写的记录（change 为「手改」）按时间顺序覆盖之前的初始化。
+        if (bucket.init && record.change !== INIT_EDIT_CHANGE) diagnostics.push({ code: 'combat-attribute-init-duplicate', id: record.id, character: record.character });
         else bucket.init = record.payload;
     }
     for (const record of records.filter((item) => item.type !== 'init').sort(compareAttributes)) {
@@ -1480,6 +1483,7 @@ function foldAttributes(records, index, scanFloor, diagnostics) {
 const defaultRole = (name, archetype) => (ARCHETYPES.includes(archetype) ? archetype : ARCHETYPES[hash32(`role:${name}`) % ARCHETYPES.length]);
 const abilityAdjustments = (records) => records.filter((record) => record.payload.ability !== 'free').map((record) => record.payload);
 const freePoints = (records) => records.reduce((sum, record) => sum + (record.payload.ability === 'free' ? record.payload.amount : 0), 0);
+const INIT_EDIT_CHANGE = '手改';
 const EMPTY_ATTRIBUTE_CONTEXT = Object.freeze({ fold: new Map(), heroLevel: 1, table: 'missing' });
 
 // 计算一个角色的六维属性视图。
@@ -1977,6 +1981,19 @@ export function scanLifeTags(snapshot, chat, options = {}) {
     const entries = [];
     const alreadyWritten = (kind, character, anchor) => candidateEntryIds(index, kind, character, userName, anchor)
         .some((id) => snapshot.ids.has(id) || entries.some((entry) => entry.id === id));
+    // 自然回血（数值系统结算给出的 { messageId, name, amount }，amount 为最大生命的百分比 1–100）：每个角色每楼每 swipe 只写一条，
+    // 重新生成换了 swipe 后旧记录自动失效，不会重复计；回血量不乘难度倍率（scale 固定 100）。
+    for (const heal of Array.isArray(options.naturalHeals) ? options.naturalHeals : []) {
+        const floor = floors[heal && heal.messageId];
+        if (!isObject(floor) || floor.is_user === true || !heal.name) continue;
+        const anchor = { messageId: heal.messageId, swipeId: swipeOf(floor), tagHash: NATURAL_HEAL_TAG_HASH, occurrence: 0 };
+        if (alreadyWritten('heal', heal.name, anchor)) continue;
+        const key = characterKeyFor(index, heal.name, userName);
+        entries.push({
+            id: ledgerEntryId('heal', key, anchor), type: 'heal', character: key, anchor,
+            payload: { amount: Math.min(100, Math.max(1, Math.round(Number(heal.amount) || 1))), mode: 'percent', scale: 100, reason: String(heal.reason || '自然回血').slice(0, 80) }, createdAt: now,
+        });
+    }
     for (const messageId of messageIds) {
         const floor = floors[messageId];
         if (!isObject(floor) || floor.is_user === true) continue;
@@ -2637,13 +2654,13 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         return { ...scanned, ok, write, attributeWrite };
     }
 
-    async function scanLife({ messageIds, battleHurts, heroPrefs } = {}) {
+    async function scanLife({ messageIds, battleHurts, heroPrefs, naturalHeals } = {}) {
         const snapshot = await readSnapshot();
         if (!snapshot.ok) return snapshot;
         const floors = getChat();
         const effectiveState = resolveState(snapshot, floors, false).state;
         const life = scanLifeTags(snapshot, floors, {
-            userName: getUserName(), sourceFilter: getSourceFilter(), messageIds, now: now(), healScale: getHealScale(), battleHurts, heroPrefs, effectiveState,
+            userName: getUserName(), sourceFilter: getSourceFilter(), messageIds, now: now(), healScale: getHealScale(), battleHurts, heroPrefs, naturalHeals, effectiveState,
         });
         if (!life.ok) return life;
         const write = life.entries.length ? await append(life.entries) : null;
@@ -2701,7 +2718,8 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         initTail = run.catch(() => {});
         return run;
     }
-    async function writeInitNow(name, init, { signal, shouldStart, manual = false } = {}) {
+    // replace 为真（须同时 manual）：已初始化的角色也写一条「手改」记录覆盖原初始化，剧情与升级加点照常叠加。
+    async function writeInitNow(name, init, { signal, shouldStart, manual = false, replace = false } = {}) {
         const alive = () => !signal?.aborted && (!shouldStart || shouldStart() === true);
         const stale = () => ({ ok: false, reason: 'request-stale' });
         if (!alive()) return stale();
@@ -2717,9 +2735,13 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         const user = getUserName();
         const state = resolveState(snapshot, getChat(), false).state;
         if (!state.ok) return state;
-        if (abilitiesForName(state, characterName, user)?.initialized) return { ok: true, unchanged: true };
+        const edit = manual && replace === true && Boolean(abilitiesForName(state, characterName, user)?.initialized);
+        if (!edit && abilitiesForName(state, characterName, user)?.initialized) return { ok: true, unchanged: true };
         const key = characterKeyFor(indexProfiles(snapshot.profiles, []), characterName, user);
-        const record = { id: ledgerEntryId('init', key), type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: now(), change: '初始化' };
+        const at = now();
+        const record = edit
+            ? { id: `${ledgerEntryId('init', key)}|edit|${at}`, type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: at, change: INIT_EDIT_CHANGE }
+            : { id: ledgerEntryId('init', key), type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: at, change: '初始化' };
         if (!alive()) return stale();
         let written;
         try {

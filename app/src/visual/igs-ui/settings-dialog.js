@@ -26,8 +26,20 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 `;
 
 function nativeFallback(globalObj) {
-    return (kind, message, value) => {
+    return (kind, message, value, fields = []) => {
         if (kind === 'busy') return true;
+        // 数字表单退回逐项输入框；有一项取消或不合格就整体作废。
+        if (kind === 'numbers') {
+            if (!globalObj || typeof globalObj.prompt !== 'function') return null;
+            const values = {};
+            for (const field of fields) {
+                const answer = globalObj.prompt(`${message}\n${field.label}（${field.min}到${field.max}的整数）`, field.value);
+                const v = Number(String(answer == null ? '' : answer).trim());
+                if (answer == null || !String(answer).trim() || !Number.isInteger(v) || v < field.min || v > field.max) return null;
+                values[field.key] = v;
+            }
+            return values;
+        }
         if (kind === 'confirm') return globalObj && typeof globalObj.confirm === 'function' ? Boolean(globalObj.confirm(message)) : true;
         if (kind === 'alert' || kind === 'view') {
             if (globalObj && typeof globalObj.alert === 'function') globalObj.alert(message);
@@ -85,7 +97,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const doc = host.ownerDocument;
         if (!doc || typeof doc.createElement !== 'function') return null;
         const el = doc.createElement('div');
-        el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose' || entry.kind === 'pick'
+        el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose' || entry.kind === 'pick' || entry.kind === 'numbers'
             ? `igs-settings-dialog is-${entry.kind}`
             : 'igs-settings-dialog';
         el.setAttribute('role', entry.kind === 'busy' ? 'status' : entry.kind === 'confirm' || entry.kind === 'alert' ? 'alertdialog' : 'dialog');
@@ -107,6 +119,46 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             input.addEventListener('input', () => { entry.value = input.value; });
             wrap.appendChild(input);
             el.appendChild(wrap);
+        }
+        // 数字表单：每项一个数字框，填的值记在 entry.fields[i].value，重绘补回时保留。
+        let numberInputs = [];
+        let numberError = null;
+        let totalNote = null;
+        // 合计行（可选 labels.total）：随输入实时刷新，超出上限时保存键禁用；没有合计行时是空操作。
+        let syncTotal = () => {};
+        if (entry.kind === 'numbers') {
+            // 沿用设置器的字段样式：两列网格，每项「名称 + 数字框」，与「我的角色」技能值同一写法。
+            const grid = doc.createElement('div');
+            grid.className = 'igs-source-filter-grid';
+            numberInputs = entry.fields.map((field) => {
+                const wrap = doc.createElement('label');
+                wrap.className = 'igs-settings-field';
+                const name = doc.createElement('span');
+                name.textContent = `${field.label}（${field.min}到${field.max}）`;
+                const box = doc.createElement('input');
+                box.type = 'number';
+                box.inputMode = 'numeric';
+                box.min = String(field.min);
+                box.max = String(field.max);
+                box.step = '1';
+                box.value = field.value;
+                box.setAttribute('aria-label', name.textContent);
+                box.addEventListener('input', () => { field.value = box.value; box.removeAttribute('aria-invalid'); syncTotal(); });
+                wrap.append(name, box);
+                grid.appendChild(wrap);
+                return box;
+            });
+            el.appendChild(grid);
+            numberError = doc.createElement('div');
+            numberError.className = 'igs-source-filter-note';
+            numberError.hidden = true;
+            el.appendChild(numberError);
+            if (entry.total) {
+                totalNote = doc.createElement('div');
+                totalNote.className = 'igs-source-filter-note';
+                totalNote.setAttribute('data-result', 'dialog-total');
+                el.appendChild(totalNote);
+            }
         }
         let current = null;
         // 下拉式选择：一个下拉框加确定 / 取消，选项少而说明短时比一排大按钮清爽。
@@ -182,6 +234,16 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             actions.appendChild(btn);
         }
         if (buttons.length) el.appendChild(actions);
+        if (totalNote) {
+            const okButton = actions.querySelector('[data-settings-dialog="ok"]');
+            syncTotal = () => {
+                const total = entry.fields.reduce((sum, field) => sum + (Number.isFinite(Number(field.value)) ? Math.round(Number(field.value)) : 0), 0);
+                const left = entry.total.max - total;
+                totalNote.textContent = entry.total.note(left, total);
+                if (okButton) okButton.disabled = left < 0;
+            };
+            syncTotal();
+        }
         const picked = () => entry.choices.map((choice) => choice.value).filter((value) => entry.selected.has(value));
         const syncPick = () => {
             for (const btn of el.querySelectorAll('[data-settings-dialog="toggle"]')) {
@@ -190,7 +252,26 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 btn.setAttribute('aria-pressed', on ? 'true' : 'false');
             }
         };
-        const accept = () => settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
+        // 数字表单：全部为范围内整数才确定，否则标红第一个不合格的框并提示。
+        const acceptNumbers = () => {
+            const values = {};
+            for (let i = 0; i < entry.fields.length; i += 1) {
+                const field = entry.fields[i];
+                const text = String(field.value).trim();
+                const v = Number(text);
+                if (!text || !Number.isInteger(v) || v < field.min || v > field.max) {
+                    numberInputs[i].setAttribute('aria-invalid', 'true');
+                    numberError.textContent = `${field.label}须为${field.min}到${field.max}的整数。`;
+                    numberError.hidden = false;
+                    numberInputs[i].focus();
+                    return;
+                }
+                values[field.key] = v;
+            }
+            if (entry.total && Object.values(values).reduce((sum, v) => sum + v, 0) > entry.total.max) return;
+            settle(entry, values);
+        };
+        const accept = () => entry.kind === 'numbers' ? acceptNumbers() : settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
         el.addEventListener('click', (event) => {
             event.stopPropagation();
             const btn = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-settings-dialog]') : null;
@@ -215,13 +296,13 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : true)) {
+            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : entry.kind === 'numbers' ? numberInputs.includes(event.target) : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
             }
         });
-        entry.focusTarget = () => input || current || actions.lastChild || el;
+        entry.focusTarget = () => input || numberInputs[0] || current || actions.lastChild || el;
         if (entry.kind === 'busy') el.tabIndex = -1;
         return el;
     }
@@ -239,14 +320,14 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const target = entry.focusTarget();
         if (target && typeof target.focus === 'function') {
             try { target.focus({ preventScroll: true }); } catch (error) { target.focus(); }
-            if (entry.kind === 'prompt' && typeof target.select === 'function') target.select();
+            if ((entry.kind === 'prompt' || entry.kind === 'numbers') && typeof target.select === 'function') target.select();
         }
         return el;
     }
 
-    function open(kind, message, value, labels = {}, choices = [], selected = []) {
+    function open(kind, message, value, labels = {}, choices = [], selected = [], fields = []) {
         const container = getContainer();
-        if (!findHost(container)) return Promise.resolve(askNative(kind, message, value));
+        if (!findHost(container)) return Promise.resolve(askNative(kind, message, value, fields));
         if (pending) settle(pending, cancelValue(pending));
         return new Promise((resolve) => {
             pending = {
@@ -257,15 +338,17 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 cancelLabel: labels.cancelLabel || '取消',
                 multiline: kind === 'edit',
                 choices,
+                fields,
                 selected: new Set(selected),
                 dropdown: kind === 'choose' && labels.dropdown === true,
+                total: kind === 'numbers' && labels.total && Number.isFinite(Number(labels.total.max)) && typeof labels.total.note === 'function' ? { max: Number(labels.total.max), note: labels.total.note } : null,
                 resolve,
                 el: null,
             };
             if (!mount(container)) {
                 const entry = pending;
                 pending = null;
-                resolve(askNative(kind, entry.message, entry.value));
+                resolve(askNative(kind, entry.message, entry.value, entry.fields));
             }
         });
     }
@@ -290,6 +373,11 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         pick: (message, choices = [], selected = [], labels) => open('pick', message, (Array.isArray(selected) ? selected : []).join('、'), labels || {}, (Array.isArray(choices) ? choices : [])
             .map((item) => ({ value: String(item && item.value != null ? item.value : ''), label: String(item && item.label != null ? item.label : item && item.value), note: String((item && item.note) || '') }))
             .filter((item) => item.value), (Array.isArray(selected) ? selected : []).map(String)),
+        // 数字表单：fields 为 [{ key, label, value, min, max }]；确定返回 { key: 整数 }（全部项），取消返回 null。
+        // labels.total = { max, note(剩余, 合计) => 文案 } 时多一行实时合计，合计超过 max 则保存键禁用。
+        numbers: (message, fields = [], labels) => open('numbers', message, '', labels || {}, [], [], (Array.isArray(fields) ? fields : [])
+            .map((f) => ({ key: String(f && f.key || ''), label: String(f && (f.label || f.key) || ''), value: f && f.value != null ? String(f.value) : '', min: Number(f && f.min), max: Number(f && f.max) }))
+            .filter((f) => f.key && Number.isFinite(f.min) && Number.isFinite(f.max))),
         remount(container) {
             const el = mount(container || getContainer());
             if (!el && pending) settle(pending, cancelValue(pending));
@@ -299,6 +387,6 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             if (pending) settle(pending, cancelValue(pending));
         },
         isOpen: () => Boolean(pending),
-        hasTextInput: () => Boolean(pending && (pending.kind === 'prompt' || pending.kind === 'edit')),
+        hasTextInput: () => Boolean(pending && (pending.kind === 'prompt' || pending.kind === 'edit' || pending.kind === 'numbers')),
     };
 }

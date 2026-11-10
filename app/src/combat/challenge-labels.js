@@ -15,14 +15,14 @@ export const challengeSkillName = (templateKey) => (Object.hasOwn(CHALLENGE_SKIL
 
 export const INTIMATE_LABELS = Object.freeze({
     合拍: Object.freeze({
-        enemy: '对方', hp: '氛围', foeHp: '隔阂', damage: '靠近', block: '稳住', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '合拍', defeat: '错拍',
-        statuses: Object.freeze({ weak: '慌乱', vulnerable: '心动', poison: '余温' }),
-        intents: Object.freeze({ attack: '打乱', defend: '紧张', buff: '放松', debuff: '羞涩', heal: '平复', special: '特殊' }),
+        enemy: '对方', hp: '氛围', foeHp: '隔阂', damage: '靠近', block: '克制', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '合拍', defeat: '错拍',
+        statuses: Object.freeze({ weak: '慌乱', vulnerable: '动容', poison: '余温' }),
+        intents: Object.freeze({ attack: '打乱', defend: '紧张', buff: '放松', debuff: '羞涩', heal: '平复', special: '出其不意' }),
     }),
     主导: Object.freeze({
         enemy: '对方', hp: '掌控', foeHp: '对方掌控', damage: '进逼', block: '招架', battle: '亲密', energy: '心绪', turn: '回合', escape: '停下', victory: '占上风', defeat: '落下风',
-        statuses: Object.freeze({ weak: '动摇', vulnerable: '破绽', poison: '沉溺' }),
-        intents: Object.freeze({ attack: '反扑', defend: '观望', buff: '蓄势', debuff: '挑衅', heal: '平复', special: '特殊' }),
+        statuses: Object.freeze({ weak: '动摇', vulnerable: '破绽', poison: '迷乱' }),
+        intents: Object.freeze({ attack: '还击', defend: '观望', buff: '蓄势', debuff: '撩拨', heal: '平复', special: '出其不意' }),
     }),
 });
 

@@ -6,7 +6,7 @@ import { extractCombatStart, extractGrowthDirectives } from '../src/scene/combat
 import { stripMarkerDirectives } from '../src/scene/directive-tags.js';
 import { buildIgsTextPayload } from '../src/scene/message-source.js';
 import { logRowsOf, logTextOf } from '../src/visual/igs-ui/log-reader-model.js';
-import { applyCombatRuleModifiers, defaultCombatRuleText } from '../src/scene/combat-prompt.js';
+import { applyCombatRuleModifiers, defaultCombatRuleText, isDefaultCombatRuleText } from '../src/scene/combat-prompt.js';
 import { BATTLE_SFX_PARTIALS } from '../src/visual/igs-ui/fx-battle-sfx.js';
 import { KO_FALL_KINDS, koFallKind, koFallSfx, playKoFall } from '../src/visual/igs-ui/combat-ko-fall.js';
 import { COMBAT_LINE_HIT_GAP_MS, createCombatLines, indexCombatLines, matchCombatLine } from '../src/visual/igs-ui/combat-lines.js';
@@ -93,6 +93,15 @@ test('提示词：规则里有 lines 一条；冷却期连同 lines 行一起去
     const rule = defaultCombatRuleText({ combatExpansion: { enabled: true } });
     assert.ok(rule.includes('[igs-combat:lines|角色|开场|出招|受击|倒下]'));
     assert.ok(rule.includes('每句不超过15字'));
+    assert.equal(rule.includes('已登记'), false);
+    assert.ok(rule.includes('本场首次登场的具名敌人'));
+    // 旧默认文本仍识别为默认（没有自定义）
+    const legacy = rule.replace(/- \[igs-combat:lines\|.*/, '- [igs-combat:lines|角色|开场|出招|受击|倒下]：只给有名有姓、已登记的参战角色写（敌我都可），写在战斗块内、awaken 行与开战标签之前；每个角色一条，一场最多6条；四段各写一到两句，多句用「/」隔开，每句不超过15字，受击写短促的语气词（如 唔！/呃……/啧）；无名杂兵不写');
+    assert.notEqual(legacy, rule);
+    assert.equal(isDefaultCombatRuleText(legacy), true);
+    assert.equal(isDefaultCombatRuleText(rule), true);
+    assert.equal(isDefaultCombatRuleText(`${rule}
+自定义`), false);
     const cooled = applyCombatRuleModifiers(rule, { combatSinceStart: 1, combatExpansion: { cooldownFloors: 4 } });
     assert.equal(cooled.includes('- [igs-combat:lines|'), false);
     assert.equal(cooled.includes('- [igs-combat:start|'), false);

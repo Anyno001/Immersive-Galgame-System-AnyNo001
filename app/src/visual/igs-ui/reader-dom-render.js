@@ -6,6 +6,7 @@ import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { SETTINGS_NAV_GROUPS } from './settings-pages.js';
 import { normalizeCombatExpansionSettings } from './combat-settings.js';
+import { resolveOriginBinding } from './origin-panel.js';
 import { ORIGINAL_READER_ICONS, ORIGINAL_READER_TOOLBAR_BUTTONS } from './original-reader-source.js';
 import { DIALOG_ONLY_BUTTONS, TOOLBAR_ACTIONS } from './reader-host-constants.js';
 import { normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarSplit, applySpriteDisplayScale, renderDialogueHtml, resolveActiveTheme, resolveSpriteLayout, spriteHeightLayoutKey } from './settings-normalize.js';
@@ -35,7 +36,7 @@ import { repositionBattleImpacts } from './fx-battle.js';
 import { renderDailyFx } from './fx-daily.js';
 import { enabledPackIds } from './fx-daily-model.js';
 import { audioCuesOf } from './fx-camera-gate.js';
-import { peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
+import { FALLBACK_HEAD, HEAD_ASPECT, peekSpriteHead, probeSpriteHead, resolveSpriteHead, spriteBackgroundSize, spriteWidthPercent } from './fx-anchor.js';
 import { applyCreatureScale, applyGiantLayer, creatureDisplayProfileOf, giantAsideCenter, placeCreature, posXForCenterPct, setCreatureFloat, syncCastFloat } from './creature-layout.js';
 import { applyWeatherFx, resolveWeatherFxTime } from './weather-fx-runtime.js';
 import { applySceneGrade } from './scene-grade.js';
@@ -984,17 +985,18 @@ const STATUS_HUD_TOGGLE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" 
 const STATUS_HUD_LOCATION_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.3"/></svg>';
 
 const STATUS_HUD_COLOR_VARS = Object.freeze({
-    trust: 'var(--igs-hud-bar-trust,#4ab3da)',
-    like: 'var(--igs-hud-bar-like,#ee83b6)',
-    grudge: 'var(--igs-hud-bar-grudge,#b3263e)',
-    cold: 'var(--igs-hud-bar-cold,#6a8fc4)',
-    know: 'var(--igs-hud-bar-know,#e8a355)',
+    trust: 'var(--igs-hud-bar-trust,#2fb8e0)',
+    like: 'var(--igs-hud-bar-like,#f27ab0)',
+    grudge: 'var(--igs-hud-bar-grudge,#1f6f66)',
+    desire: 'var(--igs-hud-bar-desire,#e03a4e)',
+    cold: 'var(--igs-hud-bar-cold,#5b72e0)',
+    know: 'var(--igs-hud-bar-know,#e8d03a)',
     'slot-1': 'var(--igs-hud-bar-1,#57aaee)',
-    'slot-2': 'var(--igs-hud-bar-2,#55c795)',
-    'slot-3': 'var(--igs-hud-bar-3,#eec254)',
-    'slot-4': 'var(--igs-hud-bar-4,#b57fe0)',
-    'slot-5': 'var(--igs-hud-bar-5,#ea8a8a)',
-    'slot-6': 'var(--igs-hud-bar-6,#8896ea)',
+    'slot-2': 'var(--igs-hud-bar-2,#5cc46a)',
+    'slot-3': 'var(--igs-hud-bar-3,#f5b52e)',
+    'slot-4': 'var(--igs-hud-bar-4,#b45be0)',
+    'slot-5': 'var(--igs-hud-bar-5,#f0584f)',
+    'slot-6': 'var(--igs-hud-bar-6,#f58a3a)',
 });
 
 const STATUS_HUD_RADIUS = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
@@ -1052,6 +1054,44 @@ export function applyStatusHudPosition(host, position) {
     }
 }
 
+// 状态栏头像跟随立绘：方框里放整张立绘，按头位把脸摆到框中心；取景框约 2.4 个头宽，再叠用户设的缩放与偏移。
+// 偏移、缩放单位：头像框宽的百分比 / 百分比倍率。头位没探测过时先按默认头位摆，探测完再挪到位。
+export function statusHudSpriteCrop(probe, crop) {
+    const head = probe && probe.head && Number(probe.head.w) > 0 ? probe.head : FALLBACK_HEAD;
+    const aspect = probe && probe.naturalW > 0 && probe.naturalH > 0 ? probe.naturalH / probe.naturalW : 1.6;
+    const zoom = crop && Number(crop.zoom) > 0 ? Number(crop.zoom) / 100 : 1;
+    const w = Math.max(0.02, Number(head.w));
+    const imgW = zoom / (w * 2.4);
+    const faceX = Number(head.x) * imgW;
+    const faceY = (Number(head.top) * aspect + w * HEAD_ASPECT * 0.55) * imgW;
+    const round = (n) => Math.round(n * 100) / 100;
+    return {
+        width: round(imgW * 100),
+        left: round((0.5 - faceX) * 100 + (Number(crop && crop.x) || 0)),
+        top: round((0.5 - faceY) * 100 + (Number(crop && crop.y) || 0)),
+    };
+}
+
+function statusHudSpriteAvatar(doc, url, crop, radius) {
+    const box = doc.createElement('div');
+    box.className = 'igs-hud-avatar igs-hud-avatar-sprite';
+    box.style.borderRadius = typeof radius === 'number' ? `calc(${radius}px * var(--igs-hud-scale,1))` : radius;
+    const img = doc.createElement('img');
+    img.setAttribute('src', url);
+    img.setAttribute('alt', '');
+    const place = (probe) => {
+        const at = statusHudSpriteCrop(probe, crop);
+        img.style.width = `${at.width}%`;
+        img.style.left = `${at.left}%`;
+        img.style.top = `${at.top}%`;
+    };
+    const known = peekSpriteHead(url, doc);
+    place(known);
+    if (!known) probeSpriteHead(url, doc).then((probe) => { if (probe && img.isConnected) place(probe); }, () => {});
+    box.appendChild(img);
+    return box;
+}
+
 export function applyStatusHudToDom(root, snapshot) {
     const host = findStatusHudHost(root);
     if (!host) return;
@@ -1101,7 +1141,9 @@ export function applyStatusHudToDom(root, snapshot) {
     if (hud.character) {
         const avatarFrame = doc.createElement('div');
         avatarFrame.className = 'igs-hud-avatar-frame';
-        if (hud.avatar) {
+        if (hud.avatar && hud.avatarCrop) {
+            avatarFrame.appendChild(statusHudSpriteAvatar(doc, hud.avatar, hud.avatarCrop, radius));
+        } else if (hud.avatar) {
             const img = doc.createElement('img');
             img.className = 'igs-hud-avatar';
             img.setAttribute('src', hud.avatar);
@@ -1161,12 +1203,14 @@ export function applyStatusHudToDom(root, snapshot) {
     menu.className = 'igs-hud-entry-menu';
     menu.setAttribute('aria-label', '资料入口');
     if (!recordMenuOpen) menu.setAttribute('hidden', '');
-    // 好感总览入口只在当前 HUD 已有好感度条时出现；数据仍来自状态栏所选表。
-    const hasFavorBar = hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || '')));
+    // 好感总览入口：当前 HUD 有好感度条，或本聊天有好感数据可看（hud.favorData：数值系统有已登记角色 / 状态栏已选读取表）。
+    const hasFavorBar = Boolean(hud && hud.favorData) || (hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || ''))));
     // 「人物状态」项只在卡牌战斗扩展开启时出现。
     const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
-    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : [])];
-    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '人物状态' })[name]])) {
+    // 「随身系统」项只在接了引擎且总开关开着时出现，名字跟随设置里的系统名。
+    const origin = resolveOriginBinding({});
+    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : []), ...(origin ? ['origin'] : [])];
+    for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '人物状态', origin: origin ? origin.settings.sysName || '随身系统' : '' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'igs-hud-entry-item';
@@ -1205,6 +1249,19 @@ export function applyStatusHudToDom(root, snapshot) {
             row.appendChild(label);
             row.appendChild(track);
             row.appendChild(value);
+            // 心意槽：好感条旁五个小点，亮几个就是槽里几格。
+            if (Number.isFinite(Number(metric.heart))) {
+                const dots = doc.createElement('span');
+                dots.className = 'igs-hud-heart';
+                dots.setAttribute('role', 'img');
+                dots.setAttribute('aria-label', `心意槽 ${metric.heart} / 5`);
+                for (let i = 0; i < 5; i += 1) {
+                    const dot = doc.createElement('i');
+                    dot.className = i < Number(metric.heart) ? 'igs-hud-heart-dot is-on' : 'igs-hud-heart-dot';
+                    dots.appendChild(dot);
+                }
+                value.appendChild(dots);
+            }
             metrics.appendChild(row);
         }
     };
@@ -1217,7 +1274,7 @@ export function applyStatusHudToDom(root, snapshot) {
     if (hasMetrics || !heroRows.length) {
         const metrics = doc.createElement('div');
         metrics.className = 'igs-hud-metrics';
-        appendMetricRows(metrics, hasMetrics ? hud.metrics.slice(0, 4) : []);
+        appendMetricRows(metrics, hasMetrics ? hud.metrics.slice(0, 6) : []);
         host.appendChild(metrics);
     }
     const toggle = doc.createElement('button');

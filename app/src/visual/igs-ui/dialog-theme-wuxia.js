@@ -4,7 +4,7 @@ import { WX_BAR, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, w
 export const DIALOG_SKIN_WUXIA_INK = 'wuxia-ink';
 
 // 水墨武侠：夜墨拓本。几何、渐变节点、纹理与笔形一律取 plan/wuxia-ink-ui/v6 定稿原值（笔形与滤镜见 wuxia-ink-svg.js）。
-// 对话框不画框：自下而上一层墨纱，纱内极淡的拓本石纹；姓名尾端拖出一道月白干笔。朱砂只落在演出的印章上。
+// 对话框不画框：自下而上一层墨纱，纱内极淡的拓本石纹；姓名尾端拖出一道月白干笔。朱砂只落在演出的印章与等待提示点上。
 const INK_RGB = '12,11,10';
 const MOON_RGB = '236,231,221';
 const MOON = '#ece7dd';
@@ -86,8 +86,11 @@ export const WUXIA_HUD_THEME = Object.freeze({
     placeholder: 'background:linear-gradient(160deg,#5b5852,#2e2c29);color:rgba(236,231,221,.72);',
     placeholderSvg: `fill:none;stroke:${moon('.6')};stroke-width:1.2;`,
     track: `height:${s(9)};border:0;border-radius:0;background:${moon('.16')};${maskOf(WX_BAR)}`,
-    fill: `background:rgb(${MOON_RGB}) !important;border-radius:0;${maskOf(WX_BAR)}`,
+    fill: `background:var(--igs-hud-fill-color) !important;border-radius:0;${maskOf(WX_BAR)}`,
     value: 'font-weight:400;',
+    // 淡彩色板：矿物色掺墨降饱和，同一明度档，墨底上只淡淡分色；好感褪红、信任黛青、了解淡黄、芥蒂暗青、负好感灰蓝。
+    vars: '--igs-hud-bar-like:#b87a8f;--igs-hud-bar-trust:#4f78a0;--igs-hud-bar-know:#d4b83a;--igs-hud-bar-grudge:#3a5553;--igs-hud-bar-desire:#b3382f;--igs-hud-bar-cold:#6f7a9a;'
+        + '--igs-hud-bar-1:#4f9a96;--igs-hud-bar-2:#6f9a5a;--igs-hud-bar-3:#d99a2b;--igs-hud-bar-4:#8a6aa8;--igs-hud-bar-5:#c05a4a;--igs-hud-bar-6:#d9772e;',
 });
 
 

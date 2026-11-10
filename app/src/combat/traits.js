@@ -78,8 +78,10 @@ export function traitSwap(character, newTrait, targetId) {
     return { traits: next.traits, innateDropped: next.innateDropped, blocked };
 }
 
-// 特性随机种子：`<标识>|<序号>`，序号非整数按 0。
-export const traitSeed = (id, index) => `${id ?? ''}|${Number.isInteger(index) ? index : 0}`;
+// 新抽取使用聊天持久种子；省略第三项仍保留旧种子的计算结果。
+export const traitSeed = (id, index, chatSeed) => chatSeed === undefined
+    ? `${id ?? ''}|${Number.isInteger(index) ? index : 0}`
+    : JSON.stringify([chatSeed, id ?? '', Number.isInteger(index) ? index : 0]);
 
 // 按权重抽稀有度（同种子恒定）。
 export function planTrait(seed = '') {

@@ -63,7 +63,7 @@ function extraSwitches(reader, extras) {
         text: [
             ['漫画演出模式', on('comicMode')],
             ['双语台词', on('bilingual')],
-            ['窄屏阅读模式', on('logReader')],
+            ['纵向阅读模式', on('logReader')],
             extras.sentencePaging ? ['旁白按句号分页', extras.sentencePagingOn === true] : null,
             extras.dialogueSentencePaging ? ['对白／心理话也按句分页', extras.dialogueSentencePagingOn === true] : null,
         ],

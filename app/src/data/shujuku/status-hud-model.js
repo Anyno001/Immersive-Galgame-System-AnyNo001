@@ -12,8 +12,13 @@ export const STATUS_HUD_LOCATION_SCALE = Object.freeze({ small: 1.2, medium: 1.4
 const STATUS_HUD_OVERALL_SCALE = 0.8;
 export const STATUS_HUD_AVATAR_RADIUS_IDS = Object.freeze(['square', 'soft', 'small', 'medium', 'large', 'circle']);
 export const STATUS_HUD_AVATAR_RADIUS_PX = Object.freeze({ square: 0, soft: 6, small: 10, medium: 16, large: 24, circle: '50%' });
+export const STATUS_HUD_AVATAR_SOURCE_IDS = Object.freeze(['upload', 'sprite']);
+export const STATUS_HUD_AVATAR_SHIFT_MAX = 60;
+export const STATUS_HUD_AVATAR_ZOOM_MIN = 50;
+export const STATUS_HUD_AVATAR_ZOOM_MAX = 250;
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
+export const STATUS_HUD_TABLES_MODE_IDS = Object.freeze(['auto', 'manual']);
 // NSFW 黑幕强度：只调边缘暗角渐变的中心/边缘透明度，
 // 背景图本身不加模糊、压暗或去饱和滤镜。
 export const NSFW_VEIL_LEVEL_IDS = Object.freeze(['light', 'medium', 'strong']);
@@ -65,9 +70,14 @@ export const STATUS_HUD_DEFAULTS = Object.freeze({
     nsfwCgPortraitShiftX: 0,
     nsfwCgPortraitZoom: 100,
     avatarRadius: 'circle',
+    avatarSource: 'upload',
+    avatarShiftX: 0,
+    avatarShiftY: 0,
+    avatarZoom: 100,
     background: 'none',
     barColor: 'color',
     tables: [],
+    tablesMode: 'auto',
     position: Object.freeze({ pc: STATUS_HUD_POSITION_DEFAULT, mobile: STATUS_HUD_POSITION_DEFAULT }),
 });
 
@@ -105,11 +115,59 @@ export function normalizeStatusHudSettings(raw) {
         nsfwCgPortraitShiftX: clampPortraitShift(src.nsfwCgPortraitShiftX),
         nsfwCgPortraitZoom: clampPortraitZoom(src.nsfwCgPortraitZoom),
         avatarRadius: STATUS_HUD_AVATAR_RADIUS_IDS.includes(src.avatarRadius) ? src.avatarRadius : STATUS_HUD_DEFAULTS.avatarRadius,
+        // 头像来源：upload 用上传 / 生成的头像；sprite 从本页立绘裁脸（跟衣服、表情走），取不到立绘时退回上传头像。
+        avatarSource: STATUS_HUD_AVATAR_SOURCE_IDS.includes(src.avatarSource) ? src.avatarSource : STATUS_HUD_DEFAULTS.avatarSource,
+        // 跟随立绘时的取景：左右、上下为头像框宽的百分比（正数 = 图往右 / 往下），缩放为百分比。
+        avatarShiftX: Math.round(clampNumber(src.avatarShiftX, -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX, 0)),
+        avatarShiftY: Math.round(clampNumber(src.avatarShiftY, -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX, 0)),
+        avatarZoom: Math.round(clampNumber(src.avatarZoom, STATUS_HUD_AVATAR_ZOOM_MIN, STATUS_HUD_AVATAR_ZOOM_MAX, 100)),
         background: STATUS_HUD_BACKGROUND_IDS.includes(src.background) ? src.background : STATUS_HUD_DEFAULTS.background,
         barColor: STATUS_HUD_BAR_COLOR_IDS.includes(src.barColor) ? src.barColor : STATUS_HUD_DEFAULTS.barColor,
         tables: normalizeStatusHudTables(src.tables),
+        tablesMode: resolveStatusHudTablesMode(src),
         position: normalizeStatusHudPosition(src.position),
     };
+}
+
+// 旧配置没有 tablesMode：勾过表的按手动保留原选择，没勾过的改为自动识别。
+function resolveStatusHudTablesMode(src) {
+    if (STATUS_HUD_TABLES_MODE_IDS.includes(src.tablesMode)) return src.tablesMode;
+    return normalizeStatusHudTables(src.tables).length ? 'manual' : 'auto';
+}
+
+const AUTO_NAME_COLUMNS = Object.freeze(['角色姓名', '角色名', '角色名称', '人物名称', '姓名', '名字', '人物', '角色']);
+// 有人名列的物品、任务等表也不自动读：HUD 会把其中的进度类数值误挂到相关人物头上。
+const AUTO_SKIP_TABLE_RE = /物品|道具|装备|背包|任务|地点|场景|技能|事件|日志|记录|总结|大纲|剧情/;
+
+export function isStatusHudAutoTable(table) {
+    if (!table || !Array.isArray(table.columns) || !Array.isArray(table.rows)) return false;
+    if (AUTO_SKIP_TABLE_RE.test(String(table.name || ''))) return false;
+    const columns = table.columns.map((column) => String(column || '').trim());
+    const nameIndex = columns.findIndex((column) => AUTO_NAME_COLUMNS.includes(column));
+    if (nameIndex < 0) return false;
+    if (columns.some((column, index) => index !== nameIndex && RELATION_COLUMN_RE.test(column))) return true;
+    return table.rows.some((values) => Array.isArray(values) && values.some((cell, index) => index !== nameIndex
+        && !isRowIdColumn(columns[index]) && Boolean(parseMetricCell(cell, columns[index]))));
+}
+
+export function autoStatusHudTables(parsedTables) {
+    return (Array.isArray(parsedTables) ? parsedTables : [])
+        .filter(isStatusHudAutoTable)
+        .map((table) => ({ uid: String(table.uid || ''), name: String(table.name || '') }));
+}
+
+export function statusHudUsesTables(statusHud) {
+    const settings = normalizeStatusHudSettings(statusHud);
+    return settings.tablesMode === 'auto' || settings.tables.length > 0;
+}
+
+// 实际读取的表：手动取用户所选；自动按当前表格识别角色数值表与关系表。
+export function resolveStatusHudPicks(statusHud, readResult, parsedTables) {
+    const settings = normalizeStatusHudSettings(statusHud);
+    if (settings.tablesMode === 'manual') return settings.tables;
+    if (parsedTables) return autoStatusHudTables(parsedTables);
+    if (!readResult || readResult.ok === false) return [];
+    return autoStatusHudTables(parseTables(readResult.data));
 }
 
 export function normalizeStatusHudTables(raw) {
@@ -214,6 +272,9 @@ export function buildStatusHudModel(input = {}) {
     const emotion = character ? String(input.emotion || '').trim() : '';
     // 服装属于当前立绘角色：说话人与立绘角色一致时才取服装头像。
     const outfit = input.outfitFor && input.outfitFor.character === character ? String(input.outfitFor.outfit || '') : '';
+    const spriteAvatar = settings.avatarSource === 'sprite' && character && input.spriteAvatar
+        && (resolveCharacterKey(characters, sceneAssets.characterAliases, input.spriteAvatar.character) || input.spriteAvatar.character) === character
+        ? String(input.spriteAvatar.url || '').trim() : '';
 
     // 地点栏只在没有角色的旁白页显示；内心页属于角色页，与对白页同样不显示地点。
     const showSceneInfo = settings.showLocation && input.isNarration === true && !rawCharacter;
@@ -225,9 +286,10 @@ export function buildStatusHudModel(input = {}) {
         time: showSceneInfo && settings.showLocationDetails ? String(input.time || '').trim() : '',
         weather: showSceneInfo && settings.showLocationDetails ? String(input.weather || '').trim() : '',
         showLocationDetails: settings.showLocationDetails,
-        // 当前服装设了头像时优先用它，未设时沿用角色头像。
-        avatar: resolveStatusAvatar({ [character]: outfitAvatarOf(sceneAssets.characterOutfits, sceneAssets.characterAliases, character, outfit) }, character)
-            || resolveStatusAvatar(sceneAssets.statusAvatars, character),
+        // 跟随立绘且本页取得到说话人立绘时用立绘裁脸；否则当前服装设了头像时优先用它，未设时沿用角色头像。
+        avatar: (spriteAvatar || resolveStatusAvatar({ [character]: outfitAvatarOf(sceneAssets.characterOutfits, sceneAssets.characterAliases, character, outfit) }, character)
+            || resolveStatusAvatar(sceneAssets.statusAvatars, character)),
+        avatarCrop: spriteAvatar ? { x: settings.avatarShiftX, y: settings.avatarShiftY, zoom: settings.avatarZoom } : null,
         avatarRadius: settings.avatarRadius,
         background: settings.background,
         barColor: settings.barColor,
@@ -238,14 +300,15 @@ export function buildStatusHudModel(input = {}) {
         loadReason: '',
     };
     if (!settings.enabled || !character) return model;
-    if (!settings.tables.length) return model;
+    if (!statusHudUsesTables(settings)) return model;
     const readResult = input.readResult;
     if (!readResult || readResult.ok === false) {
+        if (settings.tablesMode === 'auto') return model;
         model.loadState = 'error';
         model.loadReason = String((readResult && readResult.reason) || 'missing-api');
         return model;
     }
-    const resolved = resolveSelectedStatusHudTables(settings.tables, readResult, input.parsedTables);
+    const resolved = resolveSelectedStatusHudTables(resolveStatusHudPicks(settings, readResult, input.parsedTables), readResult, input.parsedTables);
     const metrics = [];
     let missingTables = 0;
     for (const entry of resolved) {
@@ -285,13 +348,18 @@ export function extractStatusHudMetrics(table, character, characterAliases, pick
         const parsed = parseMetricCell(row.values[index], table.columns[index]);
         if (!parsed) continue;
         for (const metric of parsed) {
+            const negative = metric.signed < 0;
+            const colorKey = resolveMetricColorKey(metric.label, index);
             metrics.push({
                 label: metric.label,
                 percent: metric.percent,
                 display: metric.display,
-                colorKey: resolveMetricColorKey(metric.label, index),
+                // 负好感与数值系统一致换冷色。
+                colorKey: negative && colorKey === 'like' ? 'cold' : colorKey,
                 sourceUid: String((pick && pick.uid) || table.uid || ''),
                 sourceName: String((pick && pick.name) || table.name || ''),
+                // 负值带原始值，演出层按真实增减判断（负区间继续下降也要提示）。
+                ...(negative ? { statValue: metric.signed } : {}),
             });
         }
     }
@@ -474,9 +542,9 @@ function parseMetricSegment(segment, header, segmentCount, index) {
     if (!hasLabel && !hasPercentSign) return null;
     const value = parseFloat(single[1]);
     if (!Number.isFinite(value)) return null;
-    if (value < 0 || value > 100) return null;
-    const percent = value;
-    return { label, percent, display: formatNumber(percent) + '%' };
+    if (value < -100 || value > 100) return null;
+    // 负值（如好感 -12%）：条长按绝对值画，数字照实显示；signed 供颜色与增减提示使用。
+    return { label, percent: Math.abs(value), display: formatNumber(value) + '%', signed: value };
 }
 
 function buildCharacterNameSet(character, characterAliases) {

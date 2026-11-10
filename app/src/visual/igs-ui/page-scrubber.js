@@ -1,4 +1,4 @@
-// 页码进度条：窄屏阅读模式 / 漫画演出模式下贴在画面底边，拖到本楼某一页、松手即跳过去。
+// 页码进度条：窄屏阅读模式 / 漫画演出模式下贴在画面边缘（漫画在底边，窄屏阅读在顶边），拖到本楼某一页、松手即跳过去。
 // 只管 DOM 与拖动；何时显示、跳页由 reader-host 决定（syncPageScrubber 传 null 即隐藏）。
 const STYLE_ID = 'igs-page-scrubber-style';
 
@@ -11,9 +11,11 @@ const STYLE_TEXT = `
 #igs-page-scrubber.is-dragging .igs-ps-knob,#igs-page-scrubber:hover .igs-ps-knob{opacity:1;}
 #igs-page-scrubber .igs-ps-tip{position:absolute;bottom:18px;transform:translateX(-50%);padding:3px 9px;border-radius:999px;background:#1c1c1e;color:#f5f5f7;font-size:12px;line-height:1.2;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;}
 #igs-page-scrubber.is-dragging .igs-ps-tip{opacity:1;}
-/* 窄屏阅读模式：抬到底部工具栏上方并隔开一段，免得手机上点工具栏误触；列表底边跟着让出进度条的高度。 */
-#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber{bottom:calc(var(--igs-log-foot,64px) + 10px);}
-#igs-overlay[data-igs-log-reader="on"]:has(#igs-page-scrubber:not([hidden])) #igs-log .igs-log-scroll{bottom:calc(var(--igs-log-foot) + 32px);}
+/* 窄屏阅读模式：放在画面顶边，避开底部的编辑条、物品卡与输入框；页码气泡改在线下方。顶部常是亮背景，加一层投影保证看得清。 */
+#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber{top:env(safe-area-inset-top,0px);bottom:auto;filter:drop-shadow(0 0 2px rgba(0,0,0,.55));}
+#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber .igs-ps-track,#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber .igs-ps-fill{top:10px;bottom:auto;}
+#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber .igs-ps-knob{top:7px;bottom:auto;}
+#igs-overlay[data-igs-log-reader="on"] #igs-page-scrubber .igs-ps-tip{top:20px;bottom:auto;}
 `;
 
 function ensureStyle(doc) {

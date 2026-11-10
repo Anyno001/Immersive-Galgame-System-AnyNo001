@@ -46,8 +46,8 @@ export function sameFoeName(a, b) {
     return Boolean(x) && x === y;
 }
 
-// 卡牌战斗同名多只加的编号后缀（combat/session.js：甲乙丙丁戊，再往后是数字）；数字只认接在汉字后面的，「R2D2」这类不拆。
-const UNIT_SUFFIX_RE = /(?:[甲乙丙丁戊]|(?<=[一-鿿])\d+)$/;
+// 卡牌战斗同名多只加的编号后缀（combat/session.js：甲乙丙丁戊，再往后是数字），正文常写的「路人B」单个字母也算；数字和字母只认接在汉字后面的，「R2D2」这类不拆。
+const UNIT_SUFFIX_RE = /(?:[甲乙丙丁戊]|(?<=[一-鿿])(?:\d+|[A-Za-z]))$/;
 // 去掉后缀后至少留两个字才算，避免「小丁」退成「小」、「观众」退成「观」。
 const SHORT_BASE = 2;
 // 战斗单位找立绘的候选名，按顺序试：原名、去编号后缀、去群体后缀。去掉后太短的不算，重复的只留一个。
@@ -59,6 +59,23 @@ export function combatPortraitNames(name) {
     add(value.replace(UNIT_SUFFIX_RE, ''));
     for (const candidate of [...out]) add(foeBaseName(candidate));
     return out;
+}
+
+// 立绘模糊兜底：精确候选都没图时，在已登记名字里找与对手名互相包含（都不短于 2 字）的，「起夜巡逻的护卫」对上「护卫」。
+// 按重合长度从长到短排；最长的有并列且是不同名字时不猜，返回空数组。
+export function fuzzyPortraitNames(name, registered) {
+    const base = foeBaseName(text(name).replace(UNIT_SUFFIX_RE, ''));
+    if (base.length < SHORT_BASE) return [];
+    const hits = [];
+    for (const raw of registered || []) {
+        const other = foeBaseName(raw);
+        if (other.length < SHORT_BASE || other === base) continue;
+        const overlap = base.includes(other) ? other.length : other.includes(base) ? base.length : 0;
+        if (overlap && !hits.some((hit) => hit.name === text(raw))) hits.push({ name: text(raw), overlap, size: other.length });
+    }
+    hits.sort((a, b) => b.overlap - a.overlap || a.size - b.size);
+    if (hits.length > 1 && hits[0].overlap === hits[1].overlap && hits[0].size === hits[1].size) return [];
+    return hits.map((hit) => hit.name);
 }
 
 // 在对手名单里找 hit 的目标 / 出手者：精确匹配优先；只有名单里没有任何精确匹配时才允许「一方包含另一方」（都不短于 2 字），

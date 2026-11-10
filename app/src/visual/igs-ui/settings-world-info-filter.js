@@ -12,6 +12,7 @@ const bookLabel = name => name === CARD_BOOK ? '角色卡内嵌' : name;
 function entryChips(exclude, name, loaded) {
     if (!loaded) return '<div class="igs-scene-empty">正在读取</div>';
     if (!loaded.ok) return '<div class="igs-scene-empty">读取失败</div>';
+    if (loaded.note && !loaded.entries.length) return `<div class="igs-scene-empty">${esc(loaded.note)}</div>`;
     const chip = (uid, title, missing) => {
         const on = !isWorldInfoExcluded(exclude, name, uid);
         return `<button type="button" class="igs-table-pick${on ? ' is-on' : ''}${missing ? ' is-missing' : ''}" data-action="${act('entry', [name, uid])}" aria-pressed="${on ? 'true' : 'false'}" title="${esc(title)}"><i></i><span>${esc(title)}</span></button>`;

@@ -82,10 +82,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-source-filter-title">图像来源</div>
     {{imageSourceField}}
     <div class="igs-source-filter-note">{{imageSourceNote}}</div>
-    {{globalArtistField}}
-    <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
-      {{externalSpriteDnaField}}
-    </div>
     <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
       {{autoMatteField}}
       {{spriteMatteColorField}}
@@ -129,11 +125,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
   </div>
-  <div class="igs-source-filter" data-image-prompt-entry{{sourceBuiltinHidden}}>
-    <div class="igs-source-filter-title">提示词组</div>
-    <div class="igs-source-filter-note">已内置默认词组。</div>
-    <div class="igs-settings-row"><button type="button" class="igs-settings-action" data-setting-go="image-prompt-presets">查看 / 编辑</button></div>
-  </div>
 </div>
 `.trim();
 
@@ -162,8 +153,6 @@ const IMAGE_LLM_TEMPLATE = `
       </details>
     </div>
   </div>
-  {{imagePromptPanel}}
-  {{worldInfoFilterPanel}}
   <div class="igs-source-filter" data-image-feature="llm-prompts">
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="llm-prompts"{{autoLlmPromptsOpen}}>
       <summary><b>附加词</b></summary>
@@ -171,6 +160,22 @@ const IMAGE_LLM_TEMPLATE = `
       <div class="igs-settings-full">{{autoLlmJailbreakTailField}}</div>
     </details>
   </div>
+</div>
+`.trim();
+
+const IMAGE_PROMPT_TEMPLATE = `
+<div class="igs-settings-grid" data-image-pane="img-prompt">
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">生图提示词</div>
+    <div class="igs-source-filter-note">写词走「备用模型」页的连接。</div>
+    <div class="igs-source-filter-note" data-image-feature="llm-warn"{{autoLlmWarnHidden}}>{{autoLlmWarn}}</div>
+    {{globalArtistField}}
+    <div class="igs-settings-sub" data-image-feature="external-sprite-dna"{{sourceExternalHidden}}>
+      {{externalSpriteDnaField}}
+    </div>
+  </div>
+  {{imagePromptPanel}}
+  {{worldInfoFilterPanel}}
 </div>
 `.trim();
 
@@ -410,7 +415,7 @@ const COMBAT_TEMPLATE = `
     <div class="igs-source-filter-note"{{battleCardHidden}}>需要已安装数据库（shujuku）并接好写词模型（副 LLM），开启后数值系统随之启用。</div>
     <div class="igs-source-filter-grid"{{battleCardHidden}}>{{combatFields}}</div>
   </div>
-  <div class="igs-settings-sub"{{battleStoryHidden}}>
+  <div class="igs-settings-sub igs-settings-full"{{battleStoryHidden}}>
     <div class="igs-source-filter">
       <div class="igs-settings-section">{{battleStoryFields}}</div>
       <div class="igs-source-filter-note">数值系统开启时，由数值系统速算胜负与伤势。</div>
@@ -444,14 +449,14 @@ const COMBAT_TEMPLATE = `
 </div>
 `.trim();
 
-// 数值系统：总开关在最上；关闭时下方整块隐藏。版面按「只懂 RPG」的玩家排：我的角色、玩法、其他角色、高级。
+// 数值系统分三个子页：我的角色（总开关 + 主角）、其他角色、设置。总开关关闭时各页内容整块隐藏。
 const STATS_TEMPLATE = `
 <div class="igs-settings-grid" data-settings-pane="stats">
   <div class="igs-source-filter">
     <div class="igs-source-filter-title">数值系统</div>
     <div class="igs-settings-row">{{statsToggle}}</div>
   </div>
-  <div class="igs-stats-content"{{statsHidden}}>
+  <div class="igs-settings-sub igs-settings-full"{{statsHidden}}>
     <div class="igs-source-filter igs-stats-hero-section">
       <div class="igs-source-filter-title">我的角色</div>
       <div class="igs-source-filter-note" data-result="stats-chat"{{statsChatNoteHidden}}>{{statsChatNote}}</div>
@@ -459,55 +464,99 @@ const STATS_TEMPLATE = `
         <button class="igs-settings-action" data-action="stats-chat-enable" type="button">快速开始</button>
         <button class="igs-settings-action" data-action="stats-build-mode:manual" type="button">自己建卡</button>
       </div>
+      <div class="igs-settings-row"{{statsBlockedDiagHidden}}>
+        <button class="igs-settings-action" data-action="stats-storage-report" type="button">复制数值诊断</button>
+      </div>
       <div{{statsMainBuildHidden}}>{{statsMainBuildFields}}</div>
-      <div{{statsHeroHidden}}>
+      <div class="igs-settings-section"{{statsHeroHidden}}>
         {{statsHeroCard}}
-        <div class="igs-settings-row">
-          <button class="igs-settings-action" data-action="stats-chat-disable" type="button">暂停本聊天</button>
-        </div>
+        {{statsHeroTail}}
+        {{statsHeroMore}}
+        {{statsHeroActions}}
       </div>
     </div>
+  </div>
+</div>
+`.trim();
+
+const STATS_NPC_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="stats-npc">
+  <div class="igs-source-filter-note"{{statsOffNoteHidden}}>未启用数值系统，可在「我的角色」页开启。</div>
+  <div class="igs-settings-sub igs-settings-full"{{statsHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">其他角色（本聊天）</div>
+      {{statsPeopleFields}}
+    </div>
+  </div>
+</div>
+`.trim();
+
+const STATS_CODEX_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="stats-codex">
+  <div class="igs-source-filter-note"{{statsOffNoteHidden}}>未启用数值系统，可在「我的角色」页开启。</div>
+  <div class="igs-settings-sub igs-settings-full"{{statsHidden}}>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">特质图鉴</div>
+      {{statsCodexFields}}
+    </div>
+  </div>
+</div>
+`.trim();
+
+const STATS_SET_TEMPLATE = `
+<div class="igs-settings-grid" data-settings-pane="stats-set">
+  <div class="igs-source-filter-note"{{statsOffNoteHidden}}>未启用数值系统，可在「我的角色」页开启。</div>
+  <div class="igs-settings-sub igs-settings-full"{{statsHidden}}>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">玩法</div>
       <div class="igs-source-filter-grid">{{diceFeelField}}{{storyCheckField}}</div>
-      <div class="igs-settings-section">{{optionChanceField}}{{checkFxField}}{{intimacyField}}</div>
-      <div class="igs-source-filter-grid">{{favorModeField}}</div>
-      <div class="igs-settings-subhead">状态栏</div>
-      <div class="igs-settings-section">{{barsFields}}</div>
+      <div class="igs-settings-section">{{autoSkillField}}{{optionChanceField}}{{checkFxField}}{{intimacyField}}{{heroNotePromptField}}</div>
+      <div class="igs-source-filter-grid">{{favorModeField}}{{intimateCostField}}</div>
+      <div class="igs-source-filter-grid">{{healModeField}}{{worldviewField}}</div>
     </div>
     <div class="igs-source-filter">
-      <div class="igs-source-filter-title">其他角色</div>
-      <div class="igs-source-filter-grid">{{sheetGenField}}</div>
-      <div class="igs-settings-row">
-        <button class="igs-settings-action" data-action="stats-op:generate" type="button">为缺数值的角色生成</button>
-        <button class="igs-settings-action" data-action="stats-op:backfill" type="button">补全新技能</button>
+      <div class="igs-source-filter-title">状态栏</div>
+      <div class="igs-source-filter-note">主角区显示</div>
+      <div class="igs-settings-section">{{barsFields}}</div>
+      <div class="igs-source-filter-grid">{{hudLabelField}}</div>
+      <div class="igs-settings-section">{{npcBarsField}}{{hudFameField}}</div>
+    </div>
+    <div class="igs-source-filter">
+      <div class="igs-source-filter-title">登记与补全</div>
+      <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{backfillField}}{{sheetGenField}}{{traitReviewField}}</div>
+      <div class="igs-source-filter-note">以下操作作用于本聊天全部角色，由辅助模型给出结果；需要在自动插图设置里接好写词模型。</div>
+      <div class="igs-stats-hero-actions">
+        <button class="igs-settings-action" data-action="stats-op:relation-import" type="button">导入表格角色</button>
+        <button class="igs-settings-action" data-action="stats-op:relation-fill" type="button">补全初始关系</button>
+        <button class="igs-settings-action" data-action="stats-op:fill-all" type="button">补全角色数值</button>
+        <button class="igs-settings-action" data-action="stats-op:trait-fill" type="button">补全角色特质</button>
       </div>
     </div>
     <details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-more"{{statsMoreOpen}}>
       <summary>高级</summary>
+      <div class="igs-source-filter-note">骰子手感中，百分骰对应CoC第七版，二十面骰对应D&D第五版；切换后从下一次检定起生效，已有数值按新规则换算显示，存档不变。</div>
       <div class="igs-source-filter">
         <div class="igs-source-filter-title">同步到数据库表格</div>
         <div class="igs-settings-section">{{pushField}}</div>
         {{statsMappingFields}}
-        <div class="igs-settings-row">
-          <button class="igs-settings-action" data-action="stats-template-import" type="button">存为模板预设</button>
+        <div class="igs-stats-template-actions">
           <button class="igs-settings-action" data-action="stats-template-apply-chat" type="button">用于本聊天</button>
-          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板</button>
+          <button class="igs-settings-action" data-action="stats-template-download" type="button">下载模板到本地</button>
+          <button class="igs-settings-action" data-action="stats-table-migrate" type="button">迁移到新表结构</button>
         </div>
       </div>
+      <div class="igs-source-filter">
+        <div class="igs-source-filter-title">状态栏日期与时间</div>
+        <div class="igs-source-filter-grid">{{dateRegexField}}{{timeRegexField}}</div>
+      </div>
       <div class="igs-source-filter">{{statsPromptFields}}</div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">存档与记录</div>
-        {{statsArchiveFields}}
-      </div>
-      <div class="igs-source-filter">
-        <div class="igs-source-filter-title">其他选项</div>
-        <div class="igs-source-filter-grid">{{newChatField}}{{hudLabelField}}{{registerField}}{{backfillField}}</div>
-        <div class="igs-settings-section">{{autoSkillField}}</div>
-      </div>
       <div class="igs-source-filter"{{statsBuildAdvancedHidden}}>
         <div class="igs-source-filter-title">建档方式</div>
         {{statsBuildModeField}}{{statsBuildFields}}
+      </div>
+      <div class="igs-source-filter">
+        <div class="igs-source-filter-title">存档与记录</div>
+        {{statsArchiveFields}}
       </div>
     </details>
   </div>
@@ -522,7 +571,7 @@ const ORIGIN_TEMPLATE = `
     <div class="igs-settings-row">{{originToggle}}</div>
     <div class="igs-source-filter-note"{{originOffNoteHidden}}>开启后，阅读器左上角出现随身系统入口，系统会在剧情中派发任务、结算积分，并提供背包、商城、抽奖与成就。</div>
   </div>
-  <div class="igs-settings-sub"{{originHidden}}>
+  <div class="igs-settings-sub igs-settings-full"{{originHidden}}>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">本聊天</div>
       <div class="igs-source-filter-note" data-result="origin-chat">{{originChatNote}}</div>
@@ -598,9 +647,13 @@ const PAGE_TEMPLATES = Object.freeze({
     source: IMAGE_SOURCE_TEMPLATE,
     kinds: IMAGE_AUTO_TEMPLATE,
     llm: IMAGE_LLM_TEMPLATE,
+    'img-prompt': IMAGE_PROMPT_TEMPLATE,
     rules: RULES_TEMPLATE,
     parse: PARSE_TEMPLATE,
     stats: STATS_TEMPLATE,
+    'stats-npc': STATS_NPC_TEMPLATE,
+    'stats-set': STATS_SET_TEMPLATE,
+    'stats-codex': STATS_CODEX_TEMPLATE,
     combat: COMBAT_TEMPLATE,
     data: BACKUP_TEMPLATE,
     logs: IMAGE_LOGS_TEMPLATE,

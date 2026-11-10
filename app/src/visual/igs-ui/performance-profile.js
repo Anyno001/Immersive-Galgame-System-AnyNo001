@@ -47,18 +47,18 @@ function normalizeSound(value) {
 const LEVELS = Object.freeze({ off: 0, light: 1, standard: 2, full: 3 });
 
 export const PROFILE_QUESTIONS = Object.freeze([
-    Object.freeze({ id: 'types', title: '你常玩什么类型的卡？', note: '可多选，决定战斗、直播、线上聊天这些只在特定剧情里用的演出开不开。', multi: true, options: CARD_TYPES }),
+    Object.freeze({ id: 'types', title: '平时爱玩什么类型的卡呀？', note: '战斗、直播、线上聊天这些演出只在特定剧情里出现，选了对应类型才会打开。', multi: true, options: CARD_TYPES }),
     Object.freeze({ id: 'level', title: '喜欢多热闹的画面？', options: Object.freeze([['light', '安静看字'], ['standard', '适度点缀'], ['full', '越热闹越好']]) }),
-    Object.freeze({ id: 'sound', title: '要哪些声音？', note: '都不选就是静音。', multi: true, options: SOUND_OPTIONS }),
+    Object.freeze({ id: 'sound', title: '想听到哪些声音？', note: '都不选就是静音哦。', multi: true, options: SOUND_OPTIONS }),
     Object.freeze({ id: 'adult', title: '卡里有成人向内容吗？', options: Object.freeze([['no', '没有'], ['yes', '有']]) }),
-    Object.freeze({ id: 'device', title: '主要在哪看？', options: Object.freeze([['pc', '电脑'], ['phone', '手机']]) }),
+    Object.freeze({ id: 'device', title: '主要在哪里玩？', options: Object.freeze([['pc', '电脑'], ['phone', '手机']]) }),
     // 细调题分章：展开那一章才问，没展开的章不改对应设置。
-    Object.freeze({ id: 'typing', section: 'pace', title: '文字怎么出来？', options: Object.freeze([['instant', '整段直接显示'], ['fast', '快速打字'], ['medium', '中速打字'], ['slow', '慢慢打字']]) }),
-    Object.freeze({ id: 'cghold', section: 'pace', title: '日常 CG 出来后留几页？', options: Object.freeze([['2', '2 页'], ['4', '4 页'], ['6', '6 页'], ['8', '8 页']]) }),
-    Object.freeze({ id: 'cards', section: 'pace', title: '换场景、打电话时要不要过场卡和分屏？', options: Object.freeze([['on', '要，有仪式感'], ['off', '不要，直接切']]) }),
+    Object.freeze({ id: 'typing', section: 'pace', title: '文字怎么出现？', options: Object.freeze([['instant', '整段直接显示'], ['fast', '快速打字'], ['medium', '中速打字'], ['slow', '慢慢打字']]) }),
+    Object.freeze({ id: 'cghold', section: 'pace', title: '日常CG出现后停留几页？', options: Object.freeze([['2', '2页'], ['4', '4页'], ['6', '6页'], ['8', '8页']]) }),
+    Object.freeze({ id: 'cards', section: 'pace', title: '换场景、打电话时，要不要过场卡和分屏？', options: Object.freeze([['on', '要，有仪式感'], ['off', '不要，直接切换']]) }),
     Object.freeze({ id: 'mood', section: 'look', title: '喜欢什么气质的对话框？', options: Object.freeze([['plain', '简洁现代'], ['classic', '西式古典'], ['guofeng', '古风国画'], ['cute', '可爱绘本'], ['dark', '暗黑恐怖'], ['veil', '电影黑幕']]) }),
-    Object.freeze({ id: 'size', section: 'look', title: '字号？', options: Object.freeze([['small', '小'], ['normal', '适中'], ['large', '大']]) }),
-    Object.freeze({ id: 'cinema', section: 'look', title: '背景要电影黑边吗？', note: '上下两条黑边只盖背景，人物照常。', options: Object.freeze([['off', '不要'], ['on', '要']]) }),
+    Object.freeze({ id: 'size', section: 'look', title: '字号多大？', options: Object.freeze([['small', '小'], ['normal', '适中'], ['large', '大']]) }),
+    Object.freeze({ id: 'cinema', section: 'look', title: '背景要加电影黑边吗？', note: '上下两条黑边只盖住背景，人物照常显示。', options: Object.freeze([['off', '不要'], ['on', '要']]) }),
 ]);
 
 export const PROFILE_SECTIONS = Object.freeze([

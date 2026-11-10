@@ -51,7 +51,10 @@ test('D&D：属性值 = 底数/5、修正向下取整；熟练与专精按底数
     assert.equal(dnd5e.bonusOf(p(60, { attributeValue: 50 })), 2);
     assert.equal(dnd5e.bonusOf(p(80, { attributeValue: 50 })), 4);
     assert.equal(dnd5e.bonusOf(p(80, { attributeValue: 50, rank: '精英' })), 8);
-    assert.equal(dnd5e.bonusOf(p(30, { attributeValue: 70 })), 2);
+    // 25–49 半熟练：熟练加值减半向下取整（普通人 +2 → +1；老手 +3 → +1）。
+    assert.equal(dnd5e.bonusOf(p(30, { attributeValue: 70 })), 3);
+    assert.equal(dnd5e.bonusOf(p(30, { attributeValue: 50, rank: '老手' })), 1);
+    assert.equal(dnd5e.bonusOf(p(20, { attributeValue: 50 })), 0);
     assert.equal(dnd5e.bonusOf({ kind: 'attribute', value: 70, learned: true, attributeValue: 70, rank: '传奇' }), 2);
 });
 
@@ -108,10 +111,10 @@ test('好感影响社交检定：深爱给奖励骰 / 优势，仇恨给 2 颗�
 
 test('对抗 NPC：按对方被动值定难度（CoC）/ DC（D&D）；没卡的 NPC 按普通人', () => {
     const state = createStatsState();
-    const sheets = { 林晚: { rank: '普通人', scale: 'score', attributes: { 力量: 10, 敏捷: 10, 体质: 10, 智力: 10, 感知: 16, 魅力: 10 }, skills: { 心理学: 70 }, provisional: {} } };
+    const sheets = { 林晚: { rank: '普通人', scale: 'score', attributes: { 力量: 10, 敏捷: 10, 体质: 10, 智力: 10, 感知: 16, 魅力: 10 }, skills: { 察言观色: 70 }, provisional: {} } };
     const coc = resolveCheck(mk({ sheets }, 'coc7'), state, { actor: PROTAGONIST, skill: '话术', against: '林晚' }, () => 0.1);
     assert.equal(coc.threshold, 25);
-    assert.equal(coc.opposed.skill, '心理学');
+    assert.equal(coc.opposed.skill, '察言观色');
     const dnd = resolveCheck(mk({ sheets }, 'dnd5e'), state, { actor: PROTAGONIST, skill: '话术', against: '林晚' }, () => 0.1);
     assert.equal(dnd.dc, 10 + 3 + 2);
     const nobody = resolveCheck(mk({}, 'coc7'), state, { actor: PROTAGONIST, skill: '话术', against: '路人' }, () => 0.1);

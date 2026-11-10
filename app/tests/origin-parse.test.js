@@ -7,7 +7,7 @@ import { applyFloor } from '../src/scene/origin/origin-prose.js';
 import { makeEntry } from '../src/scene/origin/origin-ledger.js';
 import { cloneForWrite, createInitialState, fillSettings, seededRandom } from '../src/scene/origin/origin-state.js';
 
-const S = fillSettings({ enabled: true });
+const S = fillSettings({ enabled: true, limitMax: 99 });
 const KEYS = ['points', 'level', 'exp', 'expMax', 'stats', 'tasks', 'bag', 'shop', 'gachaPool', 'achievements', 'skills', 'perks', 'rewardsLog', 'log', 'chat', 'lastTaskTurn', 'lastShopTurn', 'lastGachaTurn', 'nextId'];
 // 新核心给记录加了 floor 字段，对照时去掉
 const plain = (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === 'floor' ? undefined : v)));
