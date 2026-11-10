@@ -748,6 +748,8 @@ export function createWaitStageRuntime(options = {}) {
             return true;
         },
         isPlaying: () => Boolean(root && play),
+        // 等待层里点开了某个小游戏（不论是否从工具栏主动打开）：方向键等按键归游戏。
+        hasGame: () => Boolean(root && game),
         enterWait,
         close: closeRoot,
     };

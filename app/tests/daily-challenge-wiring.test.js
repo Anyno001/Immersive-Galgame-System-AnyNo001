@@ -213,11 +213,16 @@ test('代价轻重只偏移代价档位：战报与挑战记录显示标签原�
     assert.equal(deriveChallengeHistory([{ floor: 1, text: sent[0] }]).entries[0].tier, '艰难');
 });
 
-test('战斗频率只在少与多时追加一行，适中与旧存档的规则文本不变', () => {
+test('战斗频率三档各追加一行，任何频率都追加必然开战一句', () => {
     const base = resolveCombatPromptRule({ combatExpansion: { enabled: true } });
     assert.equal(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'normal' } }), base);
-    assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'low' } }).endsWith('平常的摩擦用剧情解决。'));
+    assert.ok(base.includes('战斗频率：剧情出现明确的敌意'));
+    const low = resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'low' } });
+    assert.ok(low.includes('平常的摩擦用剧情解决。'));
     assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'high' } }).includes('积极安排交战'));
+    for (const text of [base, low]) {
+        assert.ok(text.endsWith('无论战斗频率高低都必须在本层最后一行写开战标签，不得用剧情带过、跳过或改写成不交手。'));
+    }
     assert.equal(normalizeCombatExpansionSettings({ frequency: 'x', cooldownFloors: 3 }).frequency, 'normal');
     assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 3 }).cooldownFloors, 0);
     assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 8 }).cooldownFloors, 8);
@@ -235,7 +240,7 @@ test('冷却内去掉开战与觉醒行并提示间隔，其余成长标签保�
     const text = resolveCombatPromptRule({ combatExpansion: { enabled: true, frequency: 'high', cooldownFloors: 4 }, combatSinceStart: 3 });
     assert.ok(!text.includes('igs-combat:start|') && !text.includes('igs-combat:awaken|'));
     assert.ok(text.includes('igs-combat:exp|') && text.includes('igs-combat:heal|'));
-    assert.ok(text.endsWith('距离上一场战斗不足4楼，本层不安排开战。') && !text.includes('积极安排交战'));
+    assert.ok(text.endsWith('距离上一场战斗不足4楼，本层不安排开战。') && !text.includes('积极安排交战') && !text.includes('必然开战'));
     assert.ok(resolveCombatPromptRule({ combatExpansion: { enabled: true, cooldownFloors: 4 }, combatSinceStart: 4 }).includes('igs-combat:start|'));
 });
 
@@ -266,8 +271,9 @@ test('重新生成或滑动换页时扫描跳过末尾正被替换的 AI 楼，�
 test('卡牌战斗条目文本也追加频率行，冷却时去掉开战觉醒行，自由格式文本只追加不开战一句', () => {
     const entry = '- [igs-combat:start|遭遇|敌方]：开战\n- [igs-combat:awaken|角色|类型]：觉醒\n- [igs-combat:exp|角色|数值]：历练';
     const high = { combatExpansion: { enabled: true, frequency: 'high' } };
-    assert.equal(applyCombatRuleModifiers(entry, { combatExpansion: { enabled: true } }), entry);
+    assert.ok(applyCombatRuleModifiers(entry, { combatExpansion: { enabled: true } }).startsWith(`${entry}\n战斗频率：`));
     assert.ok(applyCombatRuleModifiers(entry, high).startsWith(`${entry}\n战斗频率：`));
+    assert.ok(applyCombatRuleModifiers(entry, high).includes('必然开战：'));
     const cooling = { combatExpansion: { enabled: true, frequency: 'high', cooldownFloors: 2 }, combatSinceStart: 1 };
     assert.equal(applyCombatRuleModifiers(entry, cooling), '- [igs-combat:exp|角色|数值]：历练\n距离上一场战斗不足2楼，本层不安排开战。');
     const free = '遇到战斗时在最后一行写 [igs-combat:start|遭遇|敌方]，觉醒写 [igs-combat:awaken|角色|类型]。';
@@ -288,14 +294,15 @@ test('两者模式同层只出一个对决：一方冷却时只给另一方开�
     assert.equal(normalizeCombatExpansionSettings({ cooldownFloors: 1 }).cooldownFloors, 1);
 });
 
-test('合并模式下数值段的开战规则：冷却内不含开战行但含不开战一句，默认设置与改动前逐字一致', () => {
+test('合并模式下数值段的开战规则：冷却内不含开战行但含不开战一句，默认设置在原模板后追加频率与必然开战', () => {
     const state = createStatsState();
     const ruleSettings = { combatExpansion: { enabled: true, cooldownFloors: 4 }, combatSinceStart: 1 };
     const before = buildStatsPrompt(state, { combatOn: true }).segments.find((s) => s.id === 'combat').text;
     assert.ok(before.includes('igs-combat:start|'));
     const plain = buildStatsPrompt(state, { combatOn: true, combatRule: { settings: { combatExpansion: { enabled: true } }, rulePrompt: '' } }).segments.find((s) => s.id === 'combat').text;
-    assert.equal(plain, before);
-    assert.equal(plain, DEFAULT_STAT_PROMPTS.combat);
+    assert.equal(before, DEFAULT_STAT_PROMPTS.combat);
+    assert.ok(plain.startsWith(`${before}\n战斗频率：`));
+    assert.ok(plain.includes('必然开战：'));
     const cooling = buildStatsPrompt(state, { combatOn: true, combatRule: { settings: ruleSettings, rulePrompt: '' } }).segments.find((s) => s.id === 'combat').text;
     assert.ok(!cooling.includes('[igs-combat:start') && !cooling.includes('[igs-combat:awaken') && cooling.includes('本层不安排开战'));
     assert.ok(cooling.includes('igs-combat:exp|'));
@@ -305,6 +312,8 @@ test('合并模式下战斗页自定义规则代替默认 combat 段，数值系
     const state = createStatsState();
     const rule = { settings: { combatExpansion: { enabled: true } }, rulePrompt: '战斗页自定义规则' };
     const text = (opts) => buildStatsPrompt(state, { combatOn: true, combatRule: rule, ...opts }).segments.find((s) => s.id === 'combat').text;
-    assert.equal(text({}), '战斗页自定义规则');
-    assert.equal(text({ prompts: { combat: '数值系统自定义' } }), '数值系统自定义');
+    assert.ok(text({}).startsWith('战斗页自定义规则\n战斗频率：'));
+    assert.ok(text({}).includes('必然开战：'));
+    assert.ok(text({ prompts: { combat: '数值系统自定义' } }).startsWith('数值系统自定义\n战斗频率：'));
+    assert.ok(!text({ prompts: { combat: '数值系统自定义' } }).includes('战斗页自定义规则'));
 });

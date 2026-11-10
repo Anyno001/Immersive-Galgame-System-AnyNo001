@@ -5231,6 +5231,8 @@ ${row.key}`;
                 }
                 return;
             }
+            // 等回复时点开的小游戏同样盖在正文上：方向键、空格等交给游戏，不翻底下的楼层；Esc 仍走下面的关闭流程。
+            if (waitStage.hasGame?.() && event.key !== 'Escape') return;
             const optionLayer = state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');
             if (event.key === 'Escape' && optionLayer && !optionLayer.hasAttribute('hidden') && optionLayer.hasAttribute('data-igs-panel')) {
                 event.preventDefault(); event.stopPropagation?.();

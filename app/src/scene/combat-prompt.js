@@ -110,8 +110,11 @@ export function combatPromptMerged(settings) {
 export const COMBAT_RULE_PROMPT_MAX = 8000;
 const FREQUENCY_LINES = Object.freeze({
     low: '战斗频率：只在冲突无法回避时才写开战标签，平常的摩擦用剧情解决。',
+    normal: '战斗频率：剧情出现明确的敌意、拦路、袭击或比斗时安排交战，不刻意回避，也不硬造遭遇。',
     high: '战斗频率：剧情中出现敌意、挑衅、拦路、切磋或危险时，积极安排交战，可以主动引出遭遇。',
 });
+// 频率只决定可打可不打的遭遇；剧情已经确定开打时不受频率影响。
+const MUST_FIGHT_LINE = '必然开战：剧情已经确定进入交战（对方已经动手或袭来、主角决意出手、双方摆开架势、比斗或切磋正式开始等）时，无论战斗频率高低都必须在本层最后一行写开战标签，不得用剧情带过、跳过或改写成不交手。';
 const COOLDOWN_TAG_LINE = /^\s*(?:[-*•]\s*)?\[igs-combat[:：]\s*(?:start|awaken|lines)\b/i;
 const COOLDOWN_TAG_MENTION = /\[igs-combat[:：]\s*(?:start|awaken|lines)\b/i;
 const COOLDOWN_BLOCKED_TAGS = ['start', 'awaken', 'lines'];
@@ -159,7 +162,7 @@ export function applyCombatRuleModifiers(text, settings) {
         return `${COOLDOWN_TAG_MENTION.test(stripped) ? source : stripped}\n距离上一场战斗不足${cooldown}楼，本层不安排开战。`;
     }
     const bothOpen = combatKindOf(settings) === 'both' && asObject(settings).challengeOpen === true;
-    return [source, FREQUENCY_LINES[combatFrequencyOf(settings)], bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
+    return [source, FREQUENCY_LINES[combatFrequencyOf(settings)], MUST_FIGHT_LINE, bothOpen ? ONLY_ONE_DUEL_LINE : ''].filter(Boolean).join('\n');
 }
 
 // 战斗规则段正文；战斗未开启返回空串。

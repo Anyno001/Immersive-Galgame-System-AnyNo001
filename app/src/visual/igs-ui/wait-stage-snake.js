@@ -401,9 +401,11 @@ export function startSnake(ctx, rounds) {
         const dir = snakeKeyDir(event.key);
         if (dir && phase === 'run') {
             event.preventDefault();
+            event.stopPropagation?.();
             queueDir(dir);
         } else if ((event.key === ' ' || event.key === 'p' || event.key === 'P') && (phase === 'run' || phase === 'pause')) {
             event.preventDefault();
+            event.stopPropagation?.();
             if (phase === 'run') pause(); else resume();
         }
     }

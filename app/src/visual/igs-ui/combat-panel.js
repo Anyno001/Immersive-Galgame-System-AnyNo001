@@ -2083,6 +2083,10 @@ export function createCombatPanelController(doc, options = {}) {
         event.preventDefault?.();
     }
 
+    function onContextMenu(event) {
+        event.preventDefault?.();
+    }
+
     // 炉石式拖牌：按住手牌拖过 DRAG_SLOP 后按点选流程选中这张牌，影子卡跟随指针；松在高亮的承受方上按点选同一条路径打出（影子卡从松手处飞出），松在别处撤销选中。
     // 主动特性圆球同样可拖（助手 10-28）：拖过阈值按点选流程选中这项技能，影子圆球跟随指针，松在高亮的承受方上发动，不选目标的技能松在战场上也发动，松在别处撤销。
     // 不可出的牌与不可用的技能照常给出原因提示；点选、取消按钮与 Esc 不变，Esc 在拖动中同样撤销。drag.sel 为对应的选中标记（牌为实例 ID，技能为 skillSelection）。
@@ -2356,6 +2360,8 @@ export function createCombatPanelController(doc, options = {}) {
         root.addEventListener('click', onClick);
         // 战斗演出全程（战前、开战过场、战斗、结算）不拖动立绘、卡面等素材；框选文字由样式层禁止。
         root.addEventListener('dragstart', onDragStart);
+        // 右键不弹浏览器菜单（长按菜单由样式层的 -webkit-touch-callout 处理）。
+        root.addEventListener('contextmenu', onContextMenu);
         // 拖牌的指针事件挂在根节点：拖动中指针捕获到根节点，移出手牌区也能跟随。
         for (const [type, fn] of pointerListeners) root.addEventListener(type, fn);
         root.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -2419,6 +2425,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (speedWatch) { speedWatch.disconnect(); speedWatch = null; }
         root.removeEventListener?.('click', onClick);
         root.removeEventListener?.('dragstart', onDragStart);
+        root.removeEventListener?.('contextmenu', onContextMenu);
         for (const [type, fn] of pointerListeners) root.removeEventListener?.(type, fn);
         root.removeEventListener?.('touchmove', onTouchMove);
         closePicker();
