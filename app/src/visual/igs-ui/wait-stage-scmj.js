@@ -12,7 +12,7 @@ import { mulberry32 } from './scmj/host.js';
 import { createScmjController } from './scmj/controller.js';
 import { createScmjPlayer } from './scmj/player.js';
 import { youlinToCode } from './scmj/profile.js';
-import { createMahjongPointsSession } from './wait-stage-mahjong-points.js';
+import { createMahjongPointsSession, mahjongPointsErrorText } from './wait-stage-mahjong-points.js';
 
 export const SCMJ_SAVE_KEY = 'igs-wait-mahjong-scmj-v1';
 export const MAHJONG_MODE_KEY = 'igs-wait-mahjong-mode-v1';
@@ -971,7 +971,7 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
     });
     match.points = points;
     match.canPlay = () => !leaving && points.allowed() && (!points.state.enabled || !host.isSettled?.());
-    match.canDissolve = () => !points.state.enabled
+    match.canDissolve = () => !points.state.enabled || points.unopened()
         || Boolean(!points.state.error && (points.state.inactive || points.state.result?.settled));
     const atBoundary = () => ['result', 'final'].includes(match.phase());
 
@@ -989,7 +989,7 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
         const status = el(doc, 'div', 'igs-ws-status igs-scmj-points');
         status.setAttribute('aria-live', 'polite');
         status.appendChild(el(doc, 'span', '', busy ? '积分确认中'
-            : error ? `积分未确认：${error}`
+            : error ? mahjongPointsErrorText(error)
                 : result?.settled ? `本桌积分已结算 ${result.amount > 0 ? '+' : ''}${result.amount}`
                     : `本桌待结算 ${result?.amount || 0} 积分`));
         if (error && !busy) {
@@ -1003,7 +1003,7 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
     async function leaveTable(next) {
         if (leaving || match.generation < 0) return;
         view.stopHold();
-        if (points.state.enabled) {
+        if (points.state.enabled && !points.unopened()) {
             if (!atBoundary() || points.state.busy) { persist(); return; }
             leaving = true;
             const result = await points.exit();
@@ -1169,7 +1169,7 @@ export function openScmjTable(ctx, cast, saved, options = {}) {
         points.checkpoint();
         confirmPoints();
         const phase = match.phase();
-        end.disabled = points.state.enabled && (!atBoundary() || points.state.busy);
+        end.disabled = points.state.enabled && !points.unopened() && (!atBoundary() || points.state.busy);
         const pendingNow = `${match.hands.length}:${match.view().pending || ''}`;
         if (pendingNow !== selectedFor) {
             selected = [];

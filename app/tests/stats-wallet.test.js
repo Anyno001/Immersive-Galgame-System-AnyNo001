@@ -1216,6 +1216,27 @@ test('成都牌桌界面：局末超额亏损写失败保留义务，确认后�
     assert.equal(h.db.calls.insertRow, writes);
 });
 
+test('成都牌桌界面：共享积分不足开桌被拒时显示原因，可直接离桌且不写账', async t => {
+    const h = await sharedRuntime(t, 0);
+    const at = h.game.ai('积分不足开桌'); await h.runtime.engine.whenSaved();
+    const ui = await scmjUiHarness(t, h, at);
+    assert.equal(ui.match.points.state.error, 'points-insufficient');
+    assert.equal(ui.match.points.unopened(), true);
+    assert.equal(ui.match.canPlay(), false);
+    assert.match(ui.board.textContent, /共享积分不足，无法开桌/);
+    const end = [...ui.board.querySelectorAll('button')]
+        .find(node => /结束这局|结算并退出/.test(`${node.getAttribute('aria-label') || ''}${node.title || ''}`));
+    assert.ok(end, '牌桌必须有离桌按钮');
+    assert.equal(end.disabled, false);
+    end.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(ui.closed, 1);
+    assert.equal(h.services.points().read().rounds.size, 0);
+    assert.equal(h.services.points().pending().record, null);
+    assert.equal((await h.services.readSharedPoints()).balance, 0);
+});
+
+
 
 test('成都牌桌界面：出牌存档失败立即停局，重试保存后才恢复原桌', async t => {
     const h = await sharedRuntime(t, 500);

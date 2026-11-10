@@ -9,7 +9,7 @@ import { createMahjongFelt } from './wait-stage-mahjong-felt.js';
 import { avatarCrop, createMahjongTable, cropInto, faceFor, openMahjongAlbum, pictureBrief, setMahjongImageLoader } from './wait-stage-mahjong-table.js';
 export { avatarCrop };
 import { bindScmjFace, openScmjTable, readMahjongMode, readScmjSave, scmjLiveMatch, writeMahjongMode } from './wait-stage-scmj.js';
-import { createMahjongPointsSession } from './wait-stage-mahjong-points.js';
+import { createMahjongPointsSession, mahjongPointsErrorText } from './wait-stage-mahjong-points.js';
 import { riichiPointsEvidence, riichiPointsHand } from './riichi-points-settlement.js';
 
 import { ORIGINAL_READER_ICONS as ICONS } from './reader-icons.js';
@@ -989,7 +989,7 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
     function paintPoints() {
         if (!points.state.enabled) return;
         const { busy, error, result } = points.state;
-        status.replaceChildren(el(doc, 'span', '', busy ? '积分确认中' : error ? `积分未确认：${error}`
+        status.replaceChildren(el(doc, 'span', '', busy ? '积分确认中' : error ? mahjongPointsErrorText(error)
             : result?.settled ? `本桌积分已结算 ${result.amount > 0 ? '+' : ''}${result.amount}`
                 : `本桌待结算 ${result?.amount || 0} 积分`));
         if (error && !busy) {
@@ -1001,13 +1001,13 @@ function openMahjongTable(ctx, seats, revived, options = {}) {
         if (session.next) session.next.disabled = !canPlay();
         if (session.exit) session.exit.disabled = busy || Boolean(error) || leaving;
         for (const node of session.rematchButtons || []) node.disabled = busy || Boolean(error) || !result?.settled;
-        end.disabled = !atBoundary() || busy || Boolean(error);
+        end.disabled = !points.unopened() && (!atBoundary() || busy || Boolean(error));
         labelTool(end, '结算并退出');
     }
     function atBoundary() { return Boolean(session.wait || match.finished); }
     async function leaveTable(next) {
         if (leaving || !alive()) return;
-        if (points.state.enabled) {
+        if (points.state.enabled && !points.unopened()) {
             if (!atBoundary() || points.state.busy || points.state.error) return;
             if (!points.state.result?.settled) {
                 leaving = true;
