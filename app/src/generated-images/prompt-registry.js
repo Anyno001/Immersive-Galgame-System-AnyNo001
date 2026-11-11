@@ -53,7 +53,7 @@ export const BUILTIN_PROMPTS = Object.freeze({
         // 用户自选的抠图底色：角色主色与灰白相近时改用绿底或紫底，避开撞色。
         green: 'simple background, green background, flat color background',
         purple: 'simple background, purple background, flat color background',
-        transparent: 'transparent background',
+        transparent: '2::transparent background::',
     }),
     // 非人角色（妖魔鬼怪、怪物、使魔、半人形）：与人类立绘分开的固定词。{tags} = 角色词与当次姿态；{framing} = 按体型取的取景词；{matte} = 底色词。
     // framing 与 anchor 的 positive / negative 按档位拼入；人类立绘词不借用。
