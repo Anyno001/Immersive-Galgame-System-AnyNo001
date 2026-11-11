@@ -70,7 +70,7 @@ const playableIn = (defs, filter) => Object.keys(defs).filter((id) => {
 const randomCards = (ctx, unit, kit, effect) => {
     const source = poolDefs(ctx, unit, effect.pool);
     const keep = (def) => !effect.cardType || def.type === effect.cardType;
-    for (let i = 0; i < effect.amount; i += 1) {
+    for (let i = 0; i < (effect.amount ?? 1); i += 1) {
         const pool = source ? playableIn(source, keep) : catalogIds(ctx, unit, keep);
         if (!pool.length) return;
         const cardId = pool[kit.rollInt(ctx.state, pool.length)];
