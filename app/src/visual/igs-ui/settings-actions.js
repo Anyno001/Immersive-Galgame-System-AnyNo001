@@ -2347,6 +2347,17 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction.startsWith('status-hud-toggle-entry:')) {
+        const id = normalizedAction.slice('status-hud-toggle-entry:'.length);
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeStatusHudSettings(readerDraft.statusHud);
+        const hiddenEntries = current.hiddenEntries.includes(id) ? current.hiddenEntries.filter((x) => x !== id) : [...current.hiddenEntries, id];
+        readerDraft.statusHud = { ...current, hiddenEntries };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'status-hud-avatar-reset') {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         readerDraft.statusHud = { ...normalizeStatusHudSettings(readerDraft.statusHud), avatarShiftX: 0, avatarShiftY: 0, avatarZoom: 100 };

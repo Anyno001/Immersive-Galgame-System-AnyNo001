@@ -167,6 +167,9 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-mode-embedded #igs-status-hud{top:14px;left:12px;--igs-hud-edge-x:12px;width:calc(320px * var(--igs-hud-scale,1));}
 #igs-overlay #igs-status-hud[data-igs-hud-pos]{z-index:6;--igs-hud-px:var(--igs-hud-x,0);--igs-hud-py:var(--igs-hud-y,0);top:calc(14px + (100% - 28px) * var(--igs-hud-py) / 100);left:calc(var(--igs-hud-edge-x,14px) + (100% - var(--igs-hud-edge-x,14px) * 2) * var(--igs-hud-px) / 100);transform:translate(calc(var(--igs-hud-px) * -1%),calc(var(--igs-hud-py) * -1%));}
 #igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-no-metrics{width:max-content;}
+/* 有背景时按内容撑宽：资料入口多了（人物状态、随身系统）也包在背景里；原宽度作下限，屏宽作上限。 */
+#igs-overlay #igs-status-hud.igs-hud-bg-dialog:not(.igs-hud-collapsed){width:max-content;min-width:calc(340px * var(--igs-hud-scale,1));}
+#igs-overlay.igs-mode-embedded #igs-status-hud.igs-hud-bg-dialog:not(.igs-hud-collapsed){min-width:calc(320px * var(--igs-hud-scale,1));}
 /* 折叠态与入口坞同宽 38px，坞内入口（电脑 28px、手机 24px）按中线居中：--igs-hud-scale 只挂在状态栏上，入口坞拿不到它，跟着缩放会让两者中心错开。 */
 #igs-overlay #igs-status-hud.igs-hud-collapsed,#igs-overlay #igs-status-hud[data-igs-hud-pos].igs-hud-collapsed{width:38px;height:38px;padding:0;}
 @media ${STATUS_HUD_PHONE_MEDIA}{#igs-overlay #igs-status-hud[data-igs-hud-pos]{--igs-hud-px:var(--igs-hud-mx,0);--igs-hud-py:var(--igs-hud-my,0);}}

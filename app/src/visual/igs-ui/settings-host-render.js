@@ -43,7 +43,8 @@ import { esc, toHex } from './reader-value-utils.js';
 
 import { normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale } from './settings-normalize.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
-import { listStatusHudTables, normalizeStatusHudSettings, resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
+import { listStatusHudTables, normalizeStatusHudSettings, resolveStatusHudPicks, STATUS_HUD_ENTRY_ITEMS } from '../../data/shujuku/status-hud-model.js';
+import { renderStatusHudEntryToggles } from './settings-fields.js';
 import { isStatusHudPhone, renderStatusHudAvatarFraming, renderStatusHudPositionField, statusHudPositionDevice } from './status-hud-position-fields.js';
 import { renderSectionResetButton, sectionResetPlaceholders } from './settings-sections.js';
 import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLabel } from '../../generated-images/image-job-log.js';
@@ -215,6 +216,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 field('readerSettings.statusHud.background', '状态栏背景', segmentedInput('readerSettings.statusHud.background', statusHud.background, [['none', '无背景'], ['dialog', '跟随对话框']], '状态栏背景')),
                 field('readerSettings.statusHud.barColor', 'HUD条配色', segmentedInput('readerSettings.statusHud.barColor', statusHud.barColor, [['color', '彩色'], ['grayscale', '灰白']], 'HUD条配色')),
                 '</div>',
+                renderStatusHudEntryToggles(STATUS_HUD_ENTRY_ITEMS, statusHud.hiddenEntries, isOpenKey('status-hud-entries')),
                 tablesFold,
                 '</div>',
             ].join('');

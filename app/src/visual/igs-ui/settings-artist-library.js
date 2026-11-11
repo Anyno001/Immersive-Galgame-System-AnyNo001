@@ -75,7 +75,7 @@ export async function handleArtistLibraryAction(action, ctx) {
         let entry = null;
         if (verb !== 'create') {
             if (!library.value.length) return { ok: false, reason: '画师串库为空' };
-            const id = await dialogs.choose(verb === 'edit' ? '编辑哪一条画师串？' : '删除哪一条画师串？', library.value.map(row => ({ value: row.id, label: row.name })));
+            const id = await dialogs.choose(verb === 'edit' ? '编辑哪一条画师串？' : '删除哪一条画师串？', library.value.map(row => ({ value: row.id, label: row.name })), library.value[0].id, { dropdown: true });
             if (!current()) return stale();
             if (id === null || id === undefined || id === '') return { ok: true, cancelled: true };
             entry = library.value.find(row => row.id === id);

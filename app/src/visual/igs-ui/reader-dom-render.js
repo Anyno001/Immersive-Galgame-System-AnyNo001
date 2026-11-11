@@ -1028,7 +1028,7 @@ function statusHudKey(root, snapshot, hud, radius) {
     // 资料菜单的「人物状态」项随扩展开关增减，开关必须进重建签名。
     const combat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     try {
-        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size] : null, optionsVisible, radius, combat]);
+        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size, hudSettings.hiddenEntries] : null, optionsVisible, radius, combat]);
     } catch {
         return '';
     }
@@ -1209,7 +1209,10 @@ export function applyStatusHudToDom(root, snapshot) {
     const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     // 「随身系统」项只在接了引擎且总开关开着时出现，名字跟随设置里的系统名。
     const origin = resolveOriginBinding({});
-    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : []), ...(origin ? ['origin'] : [])];
+    const hiddenEntries = Array.isArray(hudSettings?.hiddenEntries) ? hudSettings.hiddenEntries : [];
+    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : []), ...(origin ? ['origin'] : [])].filter(name => !hiddenEntries.includes(name));
+    // 入口全部隐藏时连展开箭头一起不放。
+    if (!items.length) arrow.remove?.();
     for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '人物状态', origin: origin ? origin.settings.sysName || '随身系统' : '' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
