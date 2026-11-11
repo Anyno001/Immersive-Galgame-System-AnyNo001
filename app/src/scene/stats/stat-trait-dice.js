@@ -45,7 +45,7 @@ export function diceCategories(skill, { social = false, versus = false } = {}) {
 
 // request：{ actor, skill, toward, social, skillValue }。返回 { edge, favorFrom }：
 // favorFrom 为被求助时「欠你人情」的 NPC 名（本次检定用掉，由结算消耗）。
-export function traitEdgeOf(state, cat, { actor = '主角', skill = '', toward = null, social = false, skillValue = 0, present = [], skillOf = null } = {}) {
+export function traitEdgeOf(state, cat, { actor = '主角', skill = '', toward = null, social = false, skillValue = 0, present = [], skillOf = null, heroSide = false } = {}) {
     if (actor !== '主角' || !state) return { edge: 0, favorFrom: null, floor: 0 };
     const categories = diceCategories(skill, { social, versus: Boolean(toward) });
     const here = toward ? present.includes(toward) : false;
@@ -57,7 +57,7 @@ export function traitEdgeOf(state, cat, { actor = '主角', skill = '', toward =
     for (const category of categories) {
         edge += traitDice(state, cat, actor, category, { skillValue, here, hates }) - traitDice(state, cat, actor, '通用', { skillValue, here, hates });
         // 对方身上写的是「主角对其」的惩罚 / 奖励骰（腹黑、绿茶）。
-        if (toward && state.characters && state.characters[toward]) edge += traitDice(state, cat, toward, category, { skillValue, here });
+        if (toward && state.characters && state.characters[toward]) edge += traitDice(state, cat, toward, category, { skillValue, here, heroSide });
     }
     let favorFrom = null;
     if (toward && state.characters && state.characters[toward]) {

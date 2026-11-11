@@ -31,8 +31,10 @@ export const NPC_GOOD_COUNT = 5;
 export const NPC_STRONG_VALUE = 60;
 export const NPC_GOOD_VALUE = 30;
 export const BACKFILL_SKILL_MAX = 6;
-export const SUMMARY_MAX = 3000;
-export const BACKFILL_SUMMARY_MAX = 300;
+// 角色资料分两段：own 是角色自己的资料（卡面人设与写着名字的条目），逐人发送；world 是其余世界书，整批只发一份。
+export const SUMMARY_MAX = 6000;
+export const BACKFILL_SUMMARY_MAX = 2000;
+export const WORLD_REF_MAX = 30000;
 const NUMERIC = /[0-9０-９]/;
 const ATTR_SYNONYM = Object.freeze({ 弱: '偏弱', 差: '偏弱', 一般: '普通', 中等: '普通', 强: '出众', 优秀: '出众', 很强: '顶尖', 极强: '顶尖', 非人: '超凡' });
 const SKILL_SYNONYM = Object.freeze({ 不会: '未学', 无: '未学', 新手: '入门', 初学: '入门', 会: '熟练', 擅长: '熟练', 专精: '精通', 专家: '精通', 宗师: '大师' });
@@ -107,13 +109,22 @@ function clip(text, max) {
     return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-// people：[{ name, summary }]；skills：[[技能名, 所属属性]]。
+const ownOf = (p) => (p && (p.own ?? p.summary)) || '';
+// 各人扫到的常驻条目相同，按行去重后只留一份。
+function worldRef(people, max = WORLD_REF_MAX) {
+    const seen = new Set();
+    const lines = (people || []).flatMap((p) => String((p && p.world) || '').split('\n')).map((l) => l.trim()).filter((l) => l && !seen.has(l) && seen.add(l));
+    const text = clip(lines.join(' '), max);
+    return text ? `世界观与背景资料（各角色共用；其中写到某个角色的内容也算该角色的资料）：${text}\n` : '';
+}
+
+// people：[{ name, summary, own?, world? }]；skills：[[技能名, 所属属性]]。
 export function buildSheetRequest(people, { worldview = '', skills = [], prompt } = {}) {
-    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, SUMMARY_MAX) || '（没有资料，按普通人处理）'}`);
+    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(ownOf(p), SUMMARY_MAX) || '（没有资料，按普通人处理）'}`);
     const skillText = skills.map(([name, attribute]) => `${name}（${attribute}）`).join('、');
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.sheetGen,
-        user: `世界观：${worldview || '现代'}\n可用技能：${skillText}\n角色资料：\n${list.join('\n')}`,
+        user: `世界观：${worldview || '现代'}\n可用技能：${skillText}\n${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}`,
     };
 }
 
@@ -235,7 +246,7 @@ export function abilityLine(engine, state, actor) {
 
 // people：[{ name, summary }]（含主角，名字为「主角」）；skills：待补的技能名。
 export function buildBackfillRequest(people, skills, { prompt } = {}) {
-    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, BACKFILL_SUMMARY_MAX) || '（没有资料）'}`);
+    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(ownOf(p), BACKFILL_SUMMARY_MAX) || '（没有资料）'}`);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.backfill,
         user: `需要补的技能：${skills.slice(0, BACKFILL_SKILL_MAX).join('、')}\n角色资料：\n${list.join('\n')}`,
@@ -262,7 +273,7 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 
 // 主角技能一次性分配（CoC）：每个档位的名额上限，超额按回复顺序降一档；未学不限。
 export const HERO_TIER_LIMITS = Object.freeze({ 大师: 1, 精通: 2, 熟练: 6, 入门: 8 });
-export const HERO_SUMMARY_MAX = 2000;
+export const HERO_SUMMARY_MAX = 6000;
 export const PLOT_SETTING_MAX = 3000;
 
 // skills：可分配的技能名。回复格式 { "技能名": "档位" }。
@@ -271,8 +282,8 @@ export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.heroSkills,
         user: `可分配技能：${skills.join('、')}
-角色资料：
-【${PROTAGONIST}】${clip(hero.summary, HERO_SUMMARY_MAX) || '（没有资料，按普通人处理）'}`,
+${worldRef([hero])}角色资料：
+【${PROTAGONIST}】${clip(ownOf(hero), HERO_SUMMARY_MAX) || '（没有资料，按普通人处理）'}`,
     };
 }
 
@@ -303,12 +314,12 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
 // hero 为主角资料（用户人设）：玩家常把「谁喜欢主角」写在这里，角色资料里反而没有。
 // plot 为剧情注入器的设定条目，人物关系常写在这里。
 export function buildStartRelationRequest(people, { prompt, hero = '', plot = '' } = {}) {
-    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(p.summary, SUMMARY_MAX) || '（没有资料）'}`);
+    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(ownOf(p), SUMMARY_MAX) || '（没有资料）'}`);
     const heroText = clip(hero, HERO_SUMMARY_MAX);
     const plotText = clip(plot, PLOT_SETTING_MAX);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
-        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}角色资料：\n${list.join('\n')}`,
+        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}`,
     };
 }
 

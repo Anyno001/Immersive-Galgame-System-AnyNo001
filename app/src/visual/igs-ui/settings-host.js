@@ -1,3 +1,4 @@
+import { clearNaiQuota, syncNaiQuota, querySettingsNaiQuota, renderNaiQuota } from './settings-nai-quota.js';
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
 import { updateCharCounts } from './prompt-entries-fields.js';
@@ -48,7 +49,7 @@ import { createSettingsRenderer } from './settings-host-render.js';
 import { createImagePromptEditor } from './settings-image-prompt-editor.js';
 import { handleImagePromptAction } from './settings-image-prompt-actions.js';
 import { describeFailure, imagePromptStatusClass, imagePromptStatusText } from './settings-image-prompt-labels.js';
-import { handleArtistLibraryAction, setArtistLibraryField, setArtistSelection } from './settings-artist-library.js';
+import { handleArtistLibraryAction, setArtistSelection } from './settings-artist-library.js';
 import { preserveConfiguredArtists } from '../../generated-images/artist-library.js';
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { previewStatusHudAvatarFraming, previewStatusHudPosition } from './status-hud-position-fields.js';
@@ -213,6 +214,7 @@ export function createSettingsHost(deps) {
             return { ok: false, reason: 'settings-not-open' };
         }
         state.activeSettings.reuseNormalized = Boolean(renderOptions && renderOptions.draftUnchanged === true);
+        syncNaiQuota(state.activeSettings);
         const snapshot = buildSettingsSnapshot(state.activeSettings);
         state.activeSettings.snapshot = snapshot;
         updateMountedSettings(snapshot);
@@ -304,6 +306,7 @@ export function createSettingsHost(deps) {
             }
             return { ok: true, pending: true, completion: current.asyncState.closingRecovery };
         }
+        clearNaiQuota(current);
         cancelSearchIndexPrebuild(current);
         state.live2dEditor?.close(true);
         settingsDialogs.cancel();
@@ -447,17 +450,6 @@ export function createSettingsHost(deps) {
             setValue(path, value, editOptions) {
                 return updateSettingsValue(path, value, editOptions);
             },
-            setArtistLibraryField(key, value) {
-                touchDraft();
-                const panel = state.activeSettings;
-                if (!panel) return { ok: false, reason: 'settings-not-open' };
-                const result = setArtistLibraryField(panel, key, value);
-                if (!result.ok) {
-                    (panel.asyncState.artistLibrary ||= {}).status = `操作失败：${result.reason}`;
-                }
-                rerenderSettings();
-                return result;
-            },
             setArtistSelection(target, id) {
                 touchDraft();
                 const panel = state.activeSettings;
@@ -510,6 +502,11 @@ export function createSettingsHost(deps) {
         if (!state.activeSettings) return { ok: false, reason: 'settings-not-open' };
         touchDraft();
         const draft = state.activeSettings.draft;
+        if (/^bridge\.autoIllustration\.nai\.(apiKey|endpoint|transport)$/.test(path)) {
+            clearNaiQuota(state.activeSettings);
+            const quota = state.activeSettings.dom?.root?.querySelector('[data-nai-quota]');
+            if (quota) quota.outerHTML = renderNaiQuota();
+        }
 
         if (path === 'bridge.openMode') {
             const nextMode = normalizeReaderMode(value, draft.bridge);
@@ -716,6 +713,29 @@ export function createSettingsHost(deps) {
         return { ok: true };
     }
 
+    // 「按剧情估算」：副模型读最近正文给出主角侧各项，结果只用来预填数字框，确认后才写入。
+    async function estimateHeroDims(op, name, dims) {
+        if (typeof options.requestSecondaryText !== 'function') return { ok: false, reason: 'stats-no-model' };
+        const req = await op('relation', 'hero-prompt', name, {});
+        if (!req || !req.ok) return req || { ok: false };
+        const panel = state.activeSettings;
+        const busy = typeof settingsDialogs.busy === 'function' ? settingsDialogs.busy('正在估算。') : null;
+        let text = '';
+        try {
+            text = secondaryLlmText(await options.requestSecondaryText({ system: req.system, user: req.user }, resolveSecondaryLlm(panel && panel.draft && panel.draft.bridge && panel.draft.bridge.autoIllustration)));
+        } catch (error) {
+            return { ok: false, reason: 'stats-estimate-failed' };
+        } finally { if (busy) busy.close(); }
+        const values = {};
+        for (const key of dims) {
+            const hit = new RegExp(`${key}\\s*[=:：]\\s*(-?\\d+)`).exec(text);
+            if (hit) values[key] = Math.max(key === '欲望' || key === '芥蒂' ? 0 : -100, Math.min(100, Number(hit[1])));
+        }
+        if (!Object.keys(values).length) return { ok: false, reason: 'stats-estimate-failed' };
+        if (state.activeSettings !== panel) return { ok: false, reason: 'settings-closed' };
+        return { ok: true, values };
+    }
+
     async function runStatsOp(spec) {
         const op = typeof options.statsOp === 'function' ? options.statsOp : null;
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
@@ -723,7 +743,7 @@ export function createSettingsHost(deps) {
         // hero-set 的参数是「编码后的技能名|数值」，数值为空表示清除手改。
         // relation-set 的参数是「编码后的角色名|好感,信任,了解[,欲望]」（当前值，用来预填数字框）。
         // skill-attr 的参数是「编码后的技能名|属性」（来自剧情技能的属性下拉）。
-        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'relation-set' || kind === 'relation-forced' || kind === 'trait' || kind === 'trait-id' || kind === 'trait-note' || kind === 'skill-attr' || kind === 'skill-tier' || kind.startsWith('status-') || kind.startsWith('cycle-') ? raw.split('|') : [raw];
+        const [namePart, valuePart = '', oldPart = ''] = kind === 'hero-slot' || kind === 'hero-set' || kind === 'money-set' || kind === 'address-set' || kind === 'relation-set' || kind === 'hero-dims' || kind === 'hero-estimate' || kind === 'relation-forced' || kind === 'trait' || kind === 'trait-id' || kind === 'trait-note' || kind === 'skill-attr' || kind === 'skill-tier' || kind.startsWith('status-') || kind.startsWith('cycle-') ? raw.split('|') : [raw];
         const name = namePart ? decodeURIComponent(namePart) : '';
         let result;
         try {
@@ -734,7 +754,7 @@ export function createSettingsHost(deps) {
                 steps.push(await op('backfill'));
                 const assign = await op('hero', 'assign', '', {});
                 if (assign && assign.reason === 'needs-confirm') {
-                    if (await settingsDialogs.confirm('主角技能已分配过。重新分配会覆盖已分配与手改的技能值，继续？')) steps.push(await op('hero', 'assign', '', { overwrite: true }));
+                    if (await settingsDialogs.confirm('其他角色已补全。主角技能已分配过，重新分配会覆盖已分配与手改的技能值，是否覆盖？')) steps.push(await op('hero', 'assign', '', { overwrite: true }));
                 }
                 else if (!(assign && assign.reason === 'stats-hero-skills-coc-only')) steps.push(assign);
                 result = steps.find((r) => r && r.ok === false) || { ok: true };
@@ -935,6 +955,43 @@ export function createSettingsHost(deps) {
                 if (result && result.ok && typeof settingsDialogs.alert === 'function') {
                     await settingsDialogs.alert(result.filled.length ? `已补填初始关系：${result.filled.join('、')}` : '按人设判断，这些角色与主角都还是陌生关系，数值未改动。');
                 }
+            } else if (kind === 'money-set') {
+                const raw = await settingsDialogs.prompt(`修改「${name}」的金钱余额：`, valuePart);
+                const next = raw == null ? '' : String(raw).trim();
+                result = /^\d+$/.test(next) && next !== valuePart ? await op('relation', 'money-set', name, { value: Number(next) }) : { ok: true, cancelled: true };
+            } else if (kind === 'address-set') {
+                const oldPrivate = decodeURIComponent(valuePart);
+                const oldPublic = decodeURIComponent(oldPart);
+                const rawPrivate = await settingsDialogs.prompt(`修改「${name}」私下对主角的称呼（清空即删除）：`, oldPrivate);
+                const rawPublic = rawPrivate == null ? null : await settingsDialogs.prompt(`修改「${name}」人前对主角的称呼（清空即沿用私下的称呼）：`, oldPublic);
+                const payload = {};
+                if (rawPrivate != null && String(rawPrivate).trim() !== oldPrivate) payload.private = String(rawPrivate).trim();
+                if (rawPublic != null && String(rawPublic).trim() !== oldPublic) payload.public = String(rawPublic).trim();
+                result = Object.keys(payload).length ? await op('relation', 'address-set', name, payload) : { ok: true, cancelled: true };
+            } else if (kind === 'money-config') {
+                const model = await op('relation', 'money-config-read', '', {});
+                if (!model || model.ok === false || !model.config) result = model || { ok: false, reason: 'stats-currency-unset' };
+                else {
+                    const cur = model.config;
+                    const tiers = ['少量', '普通', '昂贵', '巨额'];
+                    const values = await settingsDialogs.numbers(`${cur.name}档位金额`, tiers.map((key) => ({ key, label: key, value: cur.table[key], min: 1, max: 100000000 })), { okLabel: '保存' });
+                    result = values && tiers.some((key) => values[key] !== cur.table[key])
+                        ? await op('relation', 'money-config', '', { table: Object.fromEntries(tiers.map((key) => [key, values[key]])) }) : { ok: true, cancelled: true };
+                }
+            } else if (kind === 'expenses-toggle') {
+                const open = state.activeSettings.asyncState.advancedOpen || {};
+                state.activeSettings.asyncState.advancedOpen = { ...open, 'stats-expenses': !open['stats-expenses'] };
+                result = { ok: true, cancelled: true };
+            } else if (kind === 'expenses-add' || kind === 'expenses-del' || kind === 'expenses-save') {
+                const cur = ((await op('relation', 'expenses-read', '', {})) || {}).expenses || [];
+                const list = kind === 'expenses-add' ? [...cur, { name: '支出', amount: 1, every: 1 }]
+                    : kind === 'expenses-del' ? cur.filter((e, i) => i !== Number(raw))
+                        // 某行填了不合法的值时保留该行原来的内容，不让整行消失。
+                        : JSON.parse(decodeURIComponent(raw)).map((row, i) => {
+                            const whole = (v, max) => /^\d+$/.test(String(v ?? '').trim()) && Number(v) >= 1 && Number(v) <= max;
+                            return String(row.name ?? '').trim() && whole(row.amount, Number.MAX_SAFE_INTEGER) && whole(row.every, 365) ? row : cur[i] || row;
+                        });
+                result = await op('relation', 'expenses-set', '', { expenses: list });
             } else if (kind === 'relation-set') {
                 const before = valuePart.split(',').map((v) => (v === '' ? NaN : Number(v)));
                 // 第四项是欲望，只有开启 NSFW 后建档的角色才带。
@@ -943,8 +1000,24 @@ export function createSettingsHost(deps) {
                 // 只提交改动过的项，没改的维度不记手改。
                 const payload = values ? Object.fromEntries(dims.filter((key, i) => values[key] !== before[i]).map((key) => [key, values[key]])) : {};
                 result = Object.keys(payload).length ? await op('relation', 'set', name, payload) : { ok: true, cancelled: true };
+            } else if (kind === 'hero-dims' || kind === 'hero-estimate') {
+                const before = valuePart.split(',').map((v) => (v === '' ? NaN : Number(v)));
+                const dims = ['好感', '信任', '了解', '芥蒂', '欲望'].slice(0, Math.max(4, before.length));
+                const guess = kind === 'hero-estimate' ? await estimateHeroDims(op, name, dims) : null;
+                const fill = (guess && guess.values) || {};
+                const values = guess && !guess.ok ? null : await settingsDialogs.numbers(`修改主角对「${name}」的态度`, dims.map((key, i) => ({ key, label: key, value: Number.isFinite(fill[key]) ? fill[key] : Number.isFinite(before[i]) ? before[i] : 0, min: key === '欲望' || key === '芥蒂' ? 0 : -100, max: 100 })), { okLabel: '保存' });
+                const payload = values ? Object.fromEntries(dims.filter((key, i) => values[key] !== before[i]).map((key) => [key, values[key]])) : {};
+                result = guess && !guess.ok ? guess : Object.keys(payload).length ? await op('relation', 'set-hero', name, payload) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-regen') {
                 result = await settingsDialogs.confirm(`重新生成「${name}」的数值？手改过的内容会被覆盖。`) ? await op('sheet', 'regen', name) : { ok: true, cancelled: true };
+            } else if (kind === 'person-rename') {
+                const to = String((await settingsDialogs.prompt(`把「${name}」改名为：`, name)) || '').trim();
+                result = to && to !== name ? await op('relation', 'rename', name, { to }) : { ok: true, cancelled: true };
+                if (result && result.reason === 'stats-rename-exists') {
+                    result = await settingsDialogs.confirm(`已有名为「${to}」的角色。是否把「${name}」并入「${to}」？两份数值相加，特质、角色卡与备注以「${to}」为准。`) ? await op('relation', 'rename', name, { to, merge: true }) : { ok: true, cancelled: true };
+                }
+            } else if (kind === 'alias-drop') {
+                result = await settingsDialogs.confirm(`移除曾用名「${name}」？之后正文再写「${name}」会当作另一个人。`) ? await op('relation', 'rename-drop', name, {}) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-remove') {
                 result = await settingsDialogs.confirm(`删除「${name}」的角色卡？之后按普通人参与检定。`) ? await op('sheet', 'remove', name) : { ok: true, cancelled: true };
             } else result = { ok: false, reason: 'stats-op-unknown' };
@@ -952,7 +1025,7 @@ export function createSettingsHost(deps) {
             result = { ok: false, reason: 'stats-op-threw', thrown: error };
         }
         if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开十条。', 'stats-fame-draft': '声望设定不完整，请检查条名、谁在看、类与两端叫法。', 'stats-fame-missing': '该声望已不存在。', 'stats-fame-fill-bad': '辅助模型返回的内容无法使用，未建立声望，可稍后重试。', 'stats-fame-fill-failed': '补全失败，辅助模型未返回结果，可稍后重试。', 'stats-fame-sentence': '请先写一句话。', 'stats-fame-kind': '请选择声望的性质。', 'stats-trait-full': '特质已满格，请先摘下一项。', 'stats-trait-refused': '该特质当前无法挂上。', 'stats-trait-initial-failed': '评定失败，辅助模型未返回结果，可稍后重试。', 'stats-trait-busy': '正在复核特质，稍后再试。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-estimate-failed': '估算失败，辅助模型未返回结果，可稍后重试。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': '补填失败，辅助模型的回复无法解析，可稍后重试。', 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开十条。', 'stats-fame-draft': '声望设定不完整，请检查条名、谁在看、类与两端叫法。', 'stats-fame-missing': '该声望已不存在。', 'stats-fame-fill-bad': '辅助模型返回的内容无法使用，未建立声望，可稍后重试。', 'stats-fame-fill-failed': '补全失败，辅助模型未返回结果，可稍后重试。', 'stats-fame-sentence': '请先写一句话。', 'stats-fame-kind': '请选择声望的性质。', 'stats-trait-full': '特质已满格，请先摘下一项。', 'stats-trait-refused': '该特质当前无法挂上。', 'stats-trait-initial-failed': '评定失败，辅助模型未返回结果，可稍后重试。', 'stats-trait-busy': '正在复核特质，稍后再试。', 'stats-rename-invalid': '名字须为1到20个字，不含竖线、方括号和冒号。', 'stats-rename-hero': '不能改成主角的名字。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();
@@ -1006,6 +1079,7 @@ export function createSettingsHost(deps) {
     }
 
     function handleSettingsAction(action) {
+        if (action === 'query-nai-quota') return querySettingsNaiQuota({ state, options, rerenderSettings });
         if (action === 'anchor-cg-viewport') return Promise.resolve(anchorCgViewport());
         if (String(action).startsWith('origin-op:')) return runOriginOp(String(action).slice('origin-op:'.length));
         if (action === 'origin-chat-pause') return runOriginOp('pause');
@@ -1644,6 +1718,11 @@ export function createSettingsHost(deps) {
         root.addEventListener('change', (event) => {
             const target = event.target;
             // 数值页「我的角色」的技能值输入：不进设置草稿，直接写聊天存档。
+            if (target?.getAttribute?.('data-stats-expense') != null) {
+                const rows = [...root.querySelectorAll('[data-stats-expense-row]')].map((row) => Object.fromEntries(['name', 'amount', 'every'].map((f) => [f, row.querySelector(`[data-stats-expense="${f}"]`)?.value ?? ''])));
+                controller.invoke(`stats-op:expenses-save:${encodeURIComponent(JSON.stringify(rows))}`);
+                return;
+            }
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
             if (heroSkill != null) {
                 controller.invoke(`stats-op:hero-set:${encodeURIComponent(heroSkill)}|${String(target.value).trim()}`);
@@ -1682,11 +1761,6 @@ export function createSettingsHost(deps) {
             const artistSelection = target?.getAttribute?.('data-artist-selection');
             if (artistSelection != null) {
                 controller.setArtistSelection(artistSelection, target.value);
-                return;
-            }
-            const artistField = target?.getAttribute?.('data-artist-library-field');
-            if (artistField != null) {
-                controller.setArtistLibraryField(artistField, target.value);
                 return;
             }
             if (target?.getAttribute && state.activeSettings?.asyncState.imagePromptEditor) {

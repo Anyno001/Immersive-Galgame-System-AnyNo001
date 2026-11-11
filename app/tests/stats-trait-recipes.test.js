@@ -65,7 +65,7 @@ test('关系状态作组成项，不占格', () => {
   assert.deepEqual(r.combos.map((c) => c.name), ['以身相许']);
   assert.equal(r.slotsUsed, 1);
   assert.equal(resolveCombos(['知恩图报']).combos.length, 0);
-  const r2 = resolveCombos(['已标记'], { states: ['信息素契合'] });
+  const r2 = resolveCombos(['永久标记'], { states: ['信息素契合'] });
   assert.deepEqual(r2.combos.map((c) => c.name), ['灵魂伴侣']);
 });
 

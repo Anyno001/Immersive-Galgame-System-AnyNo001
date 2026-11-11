@@ -86,6 +86,16 @@ export function withClock(state, patch) {
     return { ...state, clock: { ...state.clock, ...patch } };
 }
 
+// 主角对角色的态度：已有 hero 用它，没有就照抄角色侧好感、信任、了解，芥蒂与欲望从 0 起。
+export function heroDimsOf(character, { nsfw = false } = {}) {
+    const own = character && character.hero && character.hero.dims;
+    if (own && typeof own === 'object') return own;
+    const dims = (character && character.dims) || {};
+    const out = { 好感: Number(dims.好感) || 0, 信任: Number(dims.信任) || 0, 了解: Number(dims.了解) || 0, 芥蒂: 0 };
+    if (nsfw) out.欲望 = 0;
+    return out;
+}
+
 export function withCharacter(state, name, character) {
     return state.characters[name] === character ? state : { ...state, characters: { ...state.characters, [name]: character } };
 }

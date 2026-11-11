@@ -57,6 +57,7 @@ export function settleNaturalHeal(state, ctx) {
         if (!base.full) {
             if (from < HEAVY_WOUND_PCT) { mult *= 0.5; calc.push({ label: '重伤减半', value: 0.5 }); }
             if (hasTrait(state, cat, name, '自愈')) { mult *= 2; calc.push({ label: '自愈', value: 2 }); }
+            if (hasTrait(state, cat, name, '身经百战')) { mult *= 1.5; calc.push({ label: '身经百战', value: 1.5 }); }
             if (hasTrait(state, cat, name, '伤口难愈')) { mult *= 0.5; calc.push({ label: '伤口难愈', value: 0.5 }); }
             if (helper) { mult *= HEAL_HELPER_BONUS; calc.push({ label: '贤惠/医术在场', value: HEAL_HELPER_BONUS }); }
         }

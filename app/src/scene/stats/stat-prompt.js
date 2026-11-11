@@ -1,6 +1,6 @@
 // 数值系统提示词注入段（§9）：每段一个可编辑模板，用户覆盖优先，可单独关闭。
 // 模板变量写错或缺失时原样保留变量名并记诊断，不中断（§9 末条）。
-import { grudgeTier, isRomance } from './stat-state.js';
+import { grudgeTier, heroDimsOf, isRomance } from './stat-state.js';
 import { hasTrait, traitCatalogOf } from './stat-traits.js';
 import { compileCaptureRegex } from './stat-date.js';
 import { landmineMandate } from './stat-trait-landmines.js';
@@ -58,9 +58,10 @@ const BASE_PROMPTS = {
         '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约/顶撞/命令/冷落/炫耀]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；顶撞、命令、冷落、炫耀只记主角对TA做的：主角当面反驳TA或与TA硬碰硬、主角不容商量地对TA下令、主角有意不理睬TA或把TA晾在一旁、主角当面向TA夸耀财富成就或魅力；与上一行的关键事件不同，不影响关系进展）',
         '[igs-stat:event|角色名|吸血/歌唱/发情]（正文有吸血、歌唱、发情的描写时写一次）',
         '[igs-stat:gift|角色名|礼物类别]',
+        '[igs-stat:address|角色名|新称呼]（角色真的改口叫主角时写一次，人前的叫法加第四段「人前」）',
         '生活（档位前可加角色名，不写角色名则指主角）：',
         '[igs-stat:stamina|{{体力档位}}]',
-        '[igs-stat:money|收入/花费|{{金钱档位}}]',
+        '[igs-stat:money|收入/花费|{{金钱档位}}]（正文写了具体数目就写数字，没有数目才用档位）',
         '[igs-stat:stress|上升/下降|{{压力强度}}]（上升：小＝琐事烦心，中＝受批评、争吵，大＝重大失败、亲友出事，极大＝创伤性事件，如遭到侵犯、目睹亲友死亡、被至亲背叛；下降：小＝小憩，中＝娱乐、倾诉，大＝心事彻底解决）',
         '[igs-stat:hurt|{{伤势档位}}]',
         '[igs-stat:hero|离体/复归]（主角死亡、昏迷或灵魂离体时写离体，回到身体时写复归）',
@@ -203,6 +204,12 @@ export const NPC_TIRED = '很疲惫，动作变慢，容易走神';
 export const NPC_EXHAUSTED = '体力耗尽，撑不住了，需要立刻休息';
 export const NPC_STRESSED = '有心事，睡不好，容易烦躁';
 export const NPC_STRESS_EXTREME = '神经紧绷到了极限，一点小事就可能失态';
+// 称呼：在场角色目前怎么叫主角；旁人在场且记了人前叫法时用人前的。没有记录返回空串。
+export function addressNote(character, crowd) {
+    const a = character && character.address && typeof character.address === 'object' ? character.address : null;
+    const word = a ? ((crowd && a.public) || a.private || '') : '';
+    return word ? `目前叫主角「${word}」。` : '';
+}
 function staminaNote(character, name) {
     const own = character.bars && typeof character.bars === 'object' ? character.bars : null;
     const notes = [];
@@ -219,9 +226,35 @@ function staminaNote(character, name) {
 }
 
 // 「我对TA」备注（设置开启时由调用方传入 heroNotes）：该角色有备注才附一句，空则不附。
-function heroNoteText(name, notes) {
+function heroNoteText(name, notes, prefix = true) {
     const text = notes && typeof notes[name] === 'string' ? notes[name].trim().replace(/[。.]+$/, '') : '';
-    return text ? `主角对其：${text}。` : '';
+    return text ? `${prefix ? '主角对其：' : ''}${text}。` : '';
+}
+
+export const HERO_TAG_LINE = '[igs-stat:my|角色名|好感/信任/了解/芥蒂/欲望|上升/下降|强度]（主角对该角色态度的变化；只在正文写出了主角的心理、选择或用户输入表明了态度时写，角色单方面的举动不写）';
+export const HERO_PRESENT_RULE = '主角的心理与主动举动须符合上面写的主角态度，不得替主角改变态度；用户输入中主角的言行与此不符时，以用户输入为准。';
+
+// 主角视角的组合描述，写法同 describeCombination。
+function describeHeroCombination(dims) {
+    const favor = Number(dims.好感) || 0;
+    const trust = Number(dims.信任) || 0;
+    const know = Number(dims.了解) || 0;
+    const notes = [];
+    if (favor > 25 && trust <= 0) notes.push('喜欢但仍有防备');
+    if (favor < 0 && trust > 25) notes.push('不喜欢但信得过');
+    else if (trust > 50) notes.push('信得过');
+    if (grudgeTier(dims.芥蒂)) notes.push('心里有疙瘩');
+    if (know < 0) notes.push('对其有误解');
+    else if (know > 50) notes.push('很了解对方');
+    return notes.length ? `（${notes.join('，')}）` : '';
+}
+
+// 主角对其的态度句：五项全为 0 时不附；角色单恋较深而主角好感不高时补一句不接受表白。
+function heroFeelingText(name, c, opts) {
+    const dims = heroDimsOf(c, { nsfw: opts.nsfw });
+    if (!['好感', '信任', '了解', '芥蒂', '欲望'].some((k) => Number(dims[k]))) return '';
+    const favor = Number(dims.好感) || 0;
+    return `主角对其：${stageOf(favor).name}${describeHeroCombination(dims)}。${(Number(c.dims.好感) || 0) > 50 && favor <= 25 ? '主角目前不会接受其表白。' : ''}`;
 }
 
 // 开战规则段：数值系统没自定义 combat 段时，战斗页自定义的规则提示词（combatRule.rulePrompt）代替默认模板；两者都自定义以数值系统的为准。
@@ -260,6 +293,10 @@ export function buildStatsPrompt(state, opts = {}) {
     if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));
     if (opts.perceptionLine) push('perception', fillTemplate(prompts.perception, { 感知档位: opts.perceptionLine }, diagnostics));
     const present = (opts.present || []).filter((name) => state.characters[name]);
+    const heroLineOf = (name, c) => {
+        const feeling = opts.heroFeelings ? heroFeelingText(name, c, opts) : '';
+        return feeling + heroNoteText(name, opts.heroNotes, !feeling);
+    };
     if (present.length) {
         push('present', present.map((name) => {
             const c = state.characters[name];
@@ -272,8 +309,8 @@ export function buildStatsPrompt(state, opts = {}) {
             return fillTemplate(prompts.present, {
                 角色: name, 阶段: stage, 阶段文案: text || '', 组合描述: describeCombination(c.dims),
                 突破提示: breakthroughHint(c, romance ? prompts.breakthrough : prompts.breakthroughPlatonic), 亲密约束: intimacyNote(c, { ...opts, role, forced: (opts.forcedNames || []).includes(name) }, prompts.intimacy, prompts.intimacyForced),
-            }, diagnostics) + staminaNote(c, name) + heroNoteText(name, opts.heroNotes);
-        }).concat(prompts.presentRule ? [fillTemplate(prompts.presentRule, {}, diagnostics)] : []).join('\n'));
+            }, diagnostics) + staminaNote(c, name) + heroLineOf(name, c) + addressNote(c, present.length > 1);
+        }).concat(prompts.presentRule ? [fillTemplate(prompts.presentRule, {}, diagnostics)] : []).concat(opts.heroFeelings ? [HERO_PRESENT_RULE] : []).join('\n'));
     }
     // 状态（B 批）：只给在场角色；来源与单条开关由 statusPromptLines 把关，旧特质注入五项并入此段。opts.statusCat 为 { statuses }，特质读 opts.traits。
     const statusLines = statusPromptLines(state, { ...(opts.statusCat || {}), traits: opts.traits, nsfw: opts.nsfw }, present);
@@ -298,9 +335,15 @@ export function buildStatsPrompt(state, opts = {}) {
     if (cocVars) dice.push(fillCheckRolls(opts.prompts && opts.prompts.dice ? prompts.dice : COC_CHECK_ROLLS_TEMPLATE, cocVars));
     else if (d20Vars) dice.push(fillCheckRolls(prompts.dice, d20Vars));
     if (dice.length) push('dice', dice.join('\n'));
-    push('tags', fillTemplate(prompts.tags, {
+    const heroTags = (text) => {
+        if (!opts.heroFeelings) return text;
+        const line = opts.nsfw ? HERO_TAG_LINE : HERO_TAG_LINE.replace('/欲望', '');
+        const rule = text.replace('尚未针对主角的误会，以及主角自己的心意，都不写。', '尚未针对主角的误会都不写，主角自己的心意用my标签写，不写进角色的标签。');
+        return rule.includes('\n生活（') ? rule.replace('\n生活（', `\n${line}\n生活（`) : `${rule}\n${line}`;
+    };
+    push('tags', heroTags(fillTemplate(prompts.tags, {
         好感档位: FAVOR_PROMPT_GROUPS.map((g) => `${g.label}：${g.words.join('/')}`).join('；'), 压力强度: STRESS_STRENGTHS.slice(0, 3).join('/'), 强度: FAVOR_STRENGTHS.join('/'), 好感强度: FAVOR_STRENGTHS.join('/'), 体力档位: STAMINA_EVENTS.join('/'), 金钱档位: MONEY_TIERS.join('/'), 伤势档位: HURT_TIERS.join('/'),
-    }, diagnostics) + [...conditionalTagLines(state, opts), ...fameTagLines(opts.fameBars), ...strainTagLines(state), STATUS_TAG_LINE(opts.worlds)].map((line) => `\n${line}`).join('') + (opts.nsfw ? `\n${DESIRE_TAG_LINE}` : '') + (opts.nsfw && opts.intimateCost && opts.intimateCost !== 'off' ? `\n${INTIMATE_TAG_LINE}` : ''));
+    }, diagnostics)) + [...conditionalTagLines(state, opts), ...fameTagLines(opts.fameBars), ...strainTagLines(state), STATUS_TAG_LINE(opts.worlds)].map((line) => `\n${line}`).join('') + (opts.nsfw ? `\n${DESIRE_TAG_LINE}` : '') + (opts.nsfw && opts.intimateCost && opts.intimateCost !== 'off' ? `\n${INTIMATE_TAG_LINE}` : ''));
     if (opts.combatOn) push('combat', combatSegmentText(prompts, opts, diagnostics));
     const party = (opts.partyLines || []).filter(Boolean);
     if (opts.combatOn && party.length) push('party', fillTemplate(prompts.party, { 同伴: party.join('\n') }, diagnostics));
@@ -319,6 +362,12 @@ export function mandatesFromFlags(flags = {}, vitals = null, { fame = false } = 
     if (flags.forcedRest) out.push('主角体力耗尽，写出主角昏睡或休息');
     // 关键事件大失败：只在紧接着的下一楼出现一次（flags 来自上一楼）。
     if (flags.keyFumble && flags.keyFumble.event) out.push(`上一楼的${flags.keyFumble.event}出了岔子，本楼正文需体现`);
+    if (Array.isArray(flags.stageUp) && flags.stageUp.length) out.push(`${flags.stageUp.join('、')}与主角的关系近了一档，合适时可以改口`);
+    if (flags.coldWar) {
+        for (const n of flags.coldWar.start || []) out.push(`${n}与主角开始冷战，可以改回生分的叫法`);
+        for (const n of flags.coldWar.end || []) out.push(`${n}与主角和好了，可以叫回原来的称呼`);
+    }
+    if (Array.isArray(flags.expenseShort) && flags.expenseShort.length) out.push(`这一期的${flags.expenseShort.join('、')}没有付上`);
     if (flags.landmine) { const line = landmineMandate(flags.landmine); if (line) out.push(line); }
     if (healthStatus(vitals) === '倒下') out.push('主角已倒下，写出被救、被俘或醒来的情节');
     return out;

@@ -1,7 +1,7 @@
 // 状态底座（计划 docs/STATS_STATUS_TIME_PLAN.md B 批）：读写、日推进、提示词句子、正文标签结算。
 // 全部是纯函数：输入的 cat 只读，改动时浅拷出新对象返回（存储配置共享只读，写时浅拷）。
 // cat 即 catalog 的一部分：{ statuses, cycles, traits?, nsfw? }；存档结构与定义表见 stat-status-defs.js。
-import { CYCLE_DEFS, LEGACY_INJECT_STATUS, STATUS_INJECT_SRC, STATUS_KINDS, STATUS_SRC, STATUS_SRC_RANK, STATUS_TAG_OFF, STATUS_TAG_ON, STATUS_DEFS, getStatusDef, statusInjectText, subInWorlds, withCalc } from './stat-status-defs.js';
+import { CYCLE_DEFS, LEGACY_INJECT_STATUS, STATUS_RENAME, STATUS_INJECT_SRC, STATUS_KINDS, STATUS_SRC, STATUS_SRC_RANK, STATUS_TAG_OFF, STATUS_TAG_ON, STATUS_DEFS, getStatusDef, statusInjectText, subInWorlds, withCalc } from './stat-status-defs.js';
 
 const plain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const NAME_MAX = 20;
@@ -10,7 +10,7 @@ const CHAR_MAX = 60;
 const DAY_MAX = 1e6;
 
 // 系统按条件自动挂的状态：不进标签名单（正文不必写）。周期状态由 catalog.cycles 按日期挂摘，同样不进名单（标签「来了」仍可校准）。
-export const SYSTEM_AUTO_STATUS = Object.freeze(['宿醉', '醉酒', '心情很好', '手头紧', '犯瘾', '信物']);
+export const SYSTEM_AUTO_STATUS = Object.freeze(['宿醉', '醉酒', '心情很好', '囊中羞涩', '犯瘾', '信物', '闹别扭']);
 const CYCLE_ONLY = new Set(CYCLE_DEFS.map((c) => c.status));
 
 export const statusesOf = (cat, name) => (cat && plain(cat.statuses) && plain(cat.statuses[name]) ? cat.statuses[name] : {});
@@ -25,8 +25,10 @@ export function sanitizeStatuses(raw) {
     for (const [name, list] of Object.entries(raw).slice(0, CHAR_MAX)) {
         if (!name || name.length > NAME_MAX || !plain(list)) continue;
         const own = {};
-        for (const [key, e] of Object.entries(list).slice(0, 40)) {
+        for (const [rawKey, e] of Object.entries(list).slice(0, 40)) {
+            const key = STATUS_RENAME[rawKey] || rawKey;
             if (!key || key.length > KEY_MAX || !plain(e)) continue;
+            if (key !== rawKey && Object.hasOwn(list, key)) continue;
             const def = getStatusDef(key);
             const entry = {
                 src: STATUS_SRC.includes(e.src) ? e.src : 'story',

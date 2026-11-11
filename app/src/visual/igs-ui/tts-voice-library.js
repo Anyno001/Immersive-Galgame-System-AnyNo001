@@ -43,11 +43,13 @@ export function renameTtsVoiceLibraryItem(value, from, to) {
 
 export function groupTtsVoiceOptions(entries, value) {
     const library = normalizeTtsVoiceLibrary(value, entries.map(([id]) => id));
-    const options = new Map(entries.map(([id, title]) => {
-        const language = TTS_VOICE_LANGUAGES.find(([code]) => code === library.languages[id])?.[1];
-        const label = title ? `${title}（${id}）` : id;
-        return [id, [id, language ? `${label} · ${language}` : label]];
-    }));
+    // 选声处只显示名称和语言，不带声音 ID；没起名的显示 ID，名称与语言都相同的几个保留 ID 以便区分。
+    const languageOf = id => TTS_VOICE_LANGUAGES.find(([code]) => code === library.languages[id])?.[1];
+    const text = (name, id) => (languageOf(id) ? `${name} · ${languageOf(id)}` : name);
+    const count = new Map();
+    for (const [id, title] of entries) count.set(text(title || id, id), (count.get(text(title || id, id)) || 0) + 1);
+    const options = new Map(entries.map(([id, title]) => [id, [id,
+        title && count.get(text(title, id)) > 1 ? text(`${title}（${id}）`, id) : text(title || id, id)]]));
     if (!library.folders.folders.length) return [{ label: '', items: [...options.values()] }];
     return groupFolderItems(library.folders, [...options.keys()]).filter(group => group.items.length)
         .map(group => ({ label: group.folder || '未分类', items: group.items.map(id => options.get(id)) }));

@@ -6,8 +6,10 @@ import { SKILL_MAX, barsOf, clamp, isRomance, withBars, withClock, withSkills } 
 import { hasTrait, traitCatalogOf, traitFlag, traitScale } from './stat-traits.js';
 import { dailyTraitPass } from './stat-trait-hooks.js';
 import { relaxStress, shiftStress, stressRelaxCalc } from './stat-strain.js';
-import { advanceStatuses } from './stat-status.js';
+import { advanceStatuses, applyStatusChange } from './stat-status.js';
+import { coldWarDay, dueSulks } from './stat-trait-landmines.js';
 import { statusScale } from './stat-status-auto.js';
+import { shiftCurrency } from './stat-bars.js';
 import { withCalc } from './stat-status-defs.js';
 
 // 悟性三档（strengthRev ≥ 2）：平庸（默认）、出众、天纵。
@@ -125,6 +127,14 @@ function coolCharacters(characters, day, days, changes) {
 // strengthRev ≥ 2 的日结算角色处理：好感冷却（离体期间与随身角色暂停，跳跃楼在场角色视作一直在场）、芥蒂淡忘、非恋爱对象欲望淡去、
 // 作废超过 7 天的误会账、清每日上限。天数一次算完。ctx：{ detached, traits, nsfw, present, romanceSeen }。
 // 特质（只读 hasTrait / traitScale / traitFlag）：随身与「主角在场」类特质不冷却，冷却速度与芥蒂、欲望的消退按特质倍率或停摆。
+// 主角侧欲望的自然消退：规则同角色侧（恋爱对象只降到下限）。主角侧芥蒂不随时间淡化，角色的特质也不作用在主角侧。变动行的 key 带 my: 前缀，不与角色侧的行混淆。
+function fadeHeroSide(character, name, days, changes, floor) {
+    const r = fadeDesire({ dims: character.hero.dims }, days, floor);
+    if (!r.change) return character;
+    changes.push({ source: 'daily', target: name, heroSide: true, ...r.change, key: `my:${r.change.key}` });
+    return { ...character, hero: { ...character.hero, dims: r.character.dims } };
+}
+
 function coolCharactersRev2(characters, day, days, changes, ctx) {
     const next = {};
     const present = new Set(days > 1 && Array.isArray(ctx.present) ? ctx.present : []);
@@ -152,6 +162,7 @@ function coolCharactersRev2(characters, day, days, changes, ctx) {
             const desire = fadeDesire(current, days, isRomance(current, name, ctx.romanceSeen) ? DESIRE_ROMANCE_FLOOR : 0);
             if (desire.change) { current = desire.character; changes.push({ source: 'daily', target: name, ...desire.change }); }
         }
+        if (current.hero && current.hero.dims) current = fadeHeroSide(current, name, days, changes, isRomance(current, name, ctx.romanceSeen) ? DESIRE_ROMANCE_FLOOR : 0);
         if (Array.isArray(current.recentHurts)) {
             const live = liveHurts(current, day, misunderstandDaysOf(view, cat, name));
             if (live.length !== current.recentHurts.length) {
@@ -207,10 +218,47 @@ function pushBarChanges(from, to, changes, note, onlyBars = false, relaxDays = 0
     }
 }
 
+// 固定支出（rev ≥ 3，只管主角）：天数能被周期整除的那一天到期；一次推进多天时按到期期数逐期处理。
+// 有剧情货币时扣剧情货币（经 shiftCurrency 并入本楼货币增量，由运行时按差额写物品表）；货币未就绪时不扣并记诊断；未传剧情货币时扣 bars.money。
+// 余额不够付一期：不扣不记欠款，该条后面的期数不再扣，挂「囊中羞涩」并在 flags.expenseShort 记名称。
+function expensesDay(state, statusBox, day, days, { expenses, changes, flags, rev, currency, diagnostics }) {
+    if (!(Number(rev) >= 3) || !Array.isArray(expenses) || !expenses.length) return state;
+    const before = day - days;
+    const dueOf = (e) => Math.floor(day / e.every) - Math.floor(before / e.every);
+    if (currency && !currency.ready) {
+        if (diagnostics && expenses.some((e) => dueOf(e) > 0)) diagnostics.push({ code: 'stats-currency-unready', note: '固定支出' });
+        return state;
+    }
+    let money = currency ? currency.balance : Number(state.protagonist.bars.money) || 0;
+    const short = [];
+    for (const e of expenses) {
+        const due = dueOf(e);
+        let paid = 0;
+        for (let i = 0; i < due; i++) {
+            if (money < e.amount) { short.push(e.name); break; }
+            money -= e.amount;
+            paid += 1;
+        }
+        if (paid) {
+            const note = paid > 1 ? `${e.name}×${paid}` : e.name;
+            if (currency) shiftCurrency({ currency, changes, diagnostics }, -paid * e.amount, { source: 'daily', note });
+            else { const from = money + paid * e.amount; changes.push({ source: 'daily', target: '主角', key: 'money', from, to: from - paid * e.amount, note }); }
+        }
+    }
+    if (short.length) {
+        if (flags) flags.expenseShort = [...new Set(short)];
+        if (statusBox && statusBox.cat) {
+            const r = applyStatusChange(statusBox.cat, '主角', '囊中羞涩', { on: true, src: 'system', day });
+            if (!r.reason) { statusBox.cat = r.catalog; changes.push(...r.changes); }
+        }
+    }
+    return currency ? state : withBars(state, { ...state.protagonist.bars, money });
+}
+
 // 日结算：体力恢复（熬夜后只到 70）、压力 −10、技能成长、好感冷却、每日上限清零。
 // 生命不随过夜恢复（合并计划 Q4）：只有回复标签与战斗结果改变伤势。
 // rev ≥ 2：悟性（aptitudeOf）、主角离体（体力不恢复、好感冷却暂停）、随身角色不冷却（traits）、芥蒂淡忘与欲望淡去（romanceSeen 用于判恋爱对象）。
-export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox } = {}) {
+export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox, expenses, flags, currency, diagnostics } = {}) {
     const day = state.clock.day + 1;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -227,7 +275,10 @@ export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, 
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, '日结算', { stress: true, rev2: rev2 ? { day, days: 1, present } : null }) };
     next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
+    const due = Number(rev) >= 3 ? dueSulks(statusBox, day, 1) : [];
     advanceStatusBox(statusBox, day, 1, changes);
+    if (Number(rev) >= 3) next = coldWarDay(next, statusBox, day, 1, due, { random, changes, rev: Number(rev), has: (n, t) => hasTrait(next, traitCatalogOf(traits, nsfw), n, t) });
+    next = expensesDay(next, statusBox, day, 1, { expenses, changes, flags, rev, currency, diagnostics });
     return rev2 ? dailyTraitPass(next, { traits, nsfw, present, ...(env || {}) }, changes) : next;
 }
 
@@ -268,7 +319,7 @@ export function settleRest(state, { changes = [], frozen = false } = {}) {
 
 // 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 // rev ≥ 2：天数上限 3650（解析阶段决定），冷却、受伤天数、芥蒂淡忘、欲望淡去都按天数一次算完；跳跃楼在场角色（present）不冷却。
-export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox } = {}) {
+export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox, expenses, flags, currency, diagnostics } = {}) {
     const day = state.clock.day + days;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -280,7 +331,10 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf, re
     next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw));
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, days, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, days, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, `跳过${days}天`, { stress: rev2, rev2: rev2 ? { day, days, present } : null }) };
+    const due = Number(rev) >= 3 ? dueSulks(statusBox, day, days) : [];
     advanceStatusBox(statusBox, day, days, changes);
+    if (Number(rev) >= 3) next = coldWarDay(next, statusBox, day, days, due, { random, changes, rev: Number(rev), has: (n, t) => hasTrait(next, traitCatalogOf(traits, nsfw), n, t) });
+    next = expensesDay(next, statusBox, day, days, { expenses, changes, flags, rev, currency, diagnostics });
     return withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
 }
 

@@ -120,8 +120,8 @@ test('好胜 / 佛系 / 完美主义者：读战斗与挑战结果', () => {
 test('害羞鬼：欲望上升时压力小升；亲密那一楼好感小升', () => {
     const r = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:desire|林夏|上升|中]', traitsFor('林夏', '害羞鬼'));
     assert.equal(r.state.characters.林夏.bars.stress, 5);
-    const i = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:intimate|林夏|轻]');
-    const s = floor(npc({ dims: { 好感: 30 } }), '[igs-stat:intimate|林夏|轻]', traitsFor('林夏', '害羞鬼'));
+    const i = floor(npc({ dims: { 好感: 60 } }), '[igs-stat:intimate|林夏|轻]');
+    const s = floor(npc({ dims: { 好感: 60 } }), '[igs-stat:intimate|林夏|轻]', traitsFor('林夏', '害羞鬼'));
     assert.equal(dims(s).好感, dims(i).好感 + 2);
 });
 

@@ -135,3 +135,19 @@ test('默认提示词的好感标签带强度，并说明各档含义', () => {
     assert.match(r.content, /\[igs-stat:favor\|角色名\|正向[^\]]*\|小\/中\/大\/重大\]/);
     assert.match(r.content, /小＝日常小事/);
 });
+
+test('称呼注入：无记录不加句，有旁人在场用人前，升档一次性提示', () => {
+    const plain = buildStatsPrompt(withChars({ 小雪: {} }), { present: ['小雪'] });
+    assert.ok(!JSON.stringify(plain).includes('目前叫主角'));
+    const st = withChars({ 小雪: { address: { private: '阿昭', public: '昭同学' } }, 小夏: {} });
+    assert.ok(JSON.stringify(buildStatsPrompt(st, { present: ['小雪'] })).includes('目前叫主角「阿昭」'));
+    assert.ok(JSON.stringify(buildStatsPrompt(st, { present: ['小雪', '小夏'] })).includes('目前叫主角「昭同学」'));
+    assert.ok(mandatesFromFlags({ stageUp: ['小雪'] }).some((t) => t.includes('可以改口')));
+});
+
+test('冷战的一次性提示', () => {
+    const lines = mandatesFromFlags({ coldWar: { start: ['小雪'], end: ['阿月'] } });
+    assert.ok(lines.includes('小雪与主角开始冷战，可以改回生分的叫法'));
+    assert.ok(lines.includes('阿月与主角和好了，可以叫回原来的称呼'));
+    assert.ok(!mandatesFromFlags({}).some((t) => t.includes('冷战')));
+});

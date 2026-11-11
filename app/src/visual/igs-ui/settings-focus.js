@@ -19,7 +19,6 @@ const FOCUS_KEY_ATTRS = Object.freeze([
     ['data-image-prompt-select'],
     ['data-image-prompt-format-add'],
     ['data-image-prompt-import-choice'],
-    ['data-artist-library-field'],
     ['data-artist-selection'],
     ['data-chat-prompt-draft'],
     ['data-tts-batch'],

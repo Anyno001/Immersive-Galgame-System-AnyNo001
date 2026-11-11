@@ -1,14 +1,78 @@
 import { editTtsVoices, normalizeTtsSettings, ttsVoiceEntries } from './tts.js';
 import { editTtsVoiceLibrary, normalizeTtsVoiceLibrary, renameTtsVoiceLibraryItem, TTS_VOICE_LANGUAGES } from './tts-voice-library.js';
 
+function collapseRows(settingsState, source) {
+    const open = settingsState.asyncState && settingsState.asyncState.advancedOpen;
+    if (!open) return;
+    settingsState.asyncState.advancedOpen = Object.fromEntries(Object.entries(open).filter(([key]) => !key.startsWith(`perf-tts-voice-${source}-`)));
+}
+
 const decode = value => { try { return decodeURIComponent(value || ''); } catch { return String(value || ''); } };
+const BULK = ['select', 'pick', 'pick-all', 'bulk-delete', 'bulk-move', 'bulk-language'];
+// 选择对话框会丢掉空值选项，「未分类」「未设置」用占位值。
+const NONE = '__none__';
+
+// 多选只记在界面状态 asyncState.ttsVoiceSelect = { source, ids } 里；批量删除、移文件夹、设语言一次写回。
+async function handleBulk(command, source, parts, { settingsState, dialogs, persistSettingsDraft, rerenderSettings, isCurrent = () => true }) {
+    const asyncState = settingsState.asyncState || (settingsState.asyncState = {});
+    const cur = asyncState.ttsVoiceSelect && asyncState.ttsVoiceSelect.source === source ? asyncState.ttsVoiceSelect : null;
+    if (command === 'select') {
+        asyncState.ttsVoiceSelect = cur ? null : { source, ids: new Set() };
+        return rerenderSettings();
+    }
+    if (!cur) return rerenderSettings();
+    const reader = settingsState.draft.readerSettings || (settingsState.draft.readerSettings = {});
+    const tts = normalizeTtsSettings(reader.tts);
+    const api = tts[source];
+    const all = ttsVoiceEntries(api.voices).map(([id]) => id);
+    if (command === 'pick') {
+        const id = decode(parts[0]);
+        if (cur.ids.has(id)) cur.ids.delete(id); else if (all.includes(id)) cur.ids.add(id);
+        return rerenderSettings();
+    }
+    if (command === 'pick-all') {
+        cur.ids = cur.ids.size === all.length ? new Set() : new Set(all);
+        return rerenderSettings();
+    }
+    const ids = all.filter(id => cur.ids.has(id));
+    if (!ids.length) return rerenderSettings();
+    let library = api.voiceLibrary, voices = api.voices;
+    if (command === 'bulk-delete') {
+        if (!await dialogs.confirm(`删除选中的 ${ids.length} 个声音？`)) return rerenderSettings();
+        for (let index = all.length - 1; index >= 0; index -= 1) if (cur.ids.has(all[index])) voices = editTtsVoices(voices, { index, remove: true }).text;
+    } else if (command === 'bulk-move') {
+        const folders = library.folders.folders;
+        if (!folders.length) { await dialogs.alert('尚无文件夹，请先新建文件夹。'); return rerenderSettings(); }
+        const to = await dialogs.choose(`将 ${ids.length} 个声音移到：`, [{ value: NONE, label: '未分类' }, ...folders.map(name => ({ value: name, label: name }))]);
+        if (to === null || to === undefined || to === '') return rerenderSettings();
+        if (to !== NONE && !folders.includes(to)) return { ok: false, error: '文件夹已不存在' };
+        for (const item of ids) library = editTtsVoiceLibrary(library, 'move', { item, to: to === NONE ? '' : to });
+    } else {
+        const language = await dialogs.choose(`将 ${ids.length} 个声音的语言设为：`, TTS_VOICE_LANGUAGES.map(([code, label]) => ({ value: code || NONE, label })));
+        if (language === null || language === undefined || language === '') return rerenderSettings();
+        const code = language === NONE ? '' : language;
+        if (!TTS_VOICE_LANGUAGES.some(([known]) => known === code)) return { ok: false, error: '无效的语言' };
+        for (const item of ids) library = editTtsVoiceLibrary(library, 'language', { item, language: code });
+    }
+    if (!isCurrent()) return { ok: false, reason: 'settings-not-open' };
+    library = normalizeTtsVoiceLibrary(library, ttsVoiceEntries(voices).map(([id]) => id));
+    const before = reader.tts;
+    reader.tts = { ...tts, [source]: { ...api, voices, voiceLibrary: library } };
+    const persisted = persistSettingsDraft();
+    if (persisted.ok === false) { reader.tts = before; return persisted; }
+    asyncState.ttsVoiceSelect = null;
+    if (command === 'bulk-delete') collapseRows(settingsState, source);
+    return rerenderSettings();
+}
+
 const COMMANDS = ['add', 'remove', 'edit', 'folder-add', 'folder-rename', 'folder-remove', 'folder-toggle', 'folder-move'];
 
 export async function handleTtsVoiceLibraryAction(action, { settingsState, dialogs, persistSettingsDraft, rerenderSettings, isCurrent = () => true }) {
     const [commandText, source, ...parts] = action.split(':');
     const command = commandText.replace(/^tts-voice-/, '');
-    if (!commandText.startsWith('tts-voice-') || !COMMANDS.includes(command)) return null;
+    if (!commandText.startsWith('tts-voice-') || !(COMMANDS.includes(command) || BULK.includes(command))) return null;
     if (source !== 'api' && source !== 'narratorApi') return { ok: false, error: '未知的声音库' };
+    if (BULK.includes(command)) return handleBulk(command, source, parts, { settingsState, dialogs, persistSettingsDraft, rerenderSettings, isCurrent });
     let change, folderParams;
     if (command === 'add') {
         const id = String(await dialogs.prompt('声音 ID（接口里的声音名、音色 ID 或参考音频）：', '') || '').trim();
@@ -60,5 +124,6 @@ export async function handleTtsVoiceLibraryAction(action, { settingsState, dialo
     reader.tts = { ...tts, [source]: { ...api, voices, voiceLibrary: library } };
     const persisted = persistSettingsDraft();
     if (persisted.ok === false) { reader.tts = before; return persisted; }
+    if (command === 'remove') collapseRows(settingsState, source);
     return rerenderSettings();
 }

@@ -151,3 +151,100 @@ test('引起注意：同一游戏日只通过一次，未通过不动心意槽',
     const c = floor(s, ev('顶撞'), traitsFor('林夏', '强势'), { random: never });
     assert.equal(c.state.characters.林夏.heart || 0, 0);
 });
+
+// ───── 特质加深 A 批 ─────
+const tierOf = (r) => { const row = r.changes.find((c) => String(c.note).startsWith('踩雷') && c.key === '好感'); return row && row.calc.find((x) => x.label === '档位').value; };
+
+test('A1 新雷点：慢热过早告白、记仇失约、玻璃心批评', () => {
+    const a = floor(world({ 林夏: mk({ dims: { 好感: 20 } }) }), ev('告白'), traitsFor('林夏', '慢热'));
+    assert.deepEqual(a.meta.landmines, [{ name: '林夏', key: '慢热:early:告白' }]);
+    const b = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('失约'), traitsFor('林夏', '记仇'));
+    assert.ok(b.changes.some((c) => c.key === '好感' && c.note === '踩雷·记仇：被失约' && c.to - c.from === -3));
+    const c = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('批评'), traitsFor('林夏', '玻璃心'));
+    assert.equal(tierOf(c), '雷');
+});
+
+test('A1 醋坛子旁观约会不加芥蒂', () => {
+    const s = world({ 林夏: mk({ dims: { 好感: 40 } }), 苏晴: mk({ dims: { 好感: 60 } }) });
+    const r = floor(s, '[igs-stat:event|苏晴|约会]', traitsFor('林夏', '醋坛子'), { present: ['林夏', '苏晴'] });
+    assert.ok(r.changes.some((c) => c.target === '林夏' && c.note === '踩雷·醋坛子：主角与他人约会'));
+    assert.ok(!r.changes.some((c) => c.target === '林夏' && c.key === '芥蒂' && String(c.note).startsWith('踩雷')));
+});
+
+test('A2 反弹：傲娇被冷落、高岭之花被拒绝，强制事项按触发改写并累计 noticeCount', () => {
+    const a = floor(world({ 林夏: mk({ dims: { 好感: 30, 了解: 20 } }) }), ev('冷落'), traitsFor('林夏', '傲娇'), { random: low });
+    assert.equal(a.state.characters.林夏.heart, 2);
+    assert.deepEqual(a.state.characters.林夏.noticeCount, { 傲娇: 1 });
+    assert.match(mandatesFromFlags(a.meta.flags).join(''), /林夏被主角冷落后嘴上不说，却忍不住主动靠近/);
+    const b = floor(world({ 林夏: mk({ dims: { 好感: 30, 了解: 20 } }) }), ev('拒绝'), traitsFor('林夏', '高岭之花'), { random: low });
+    assert.match(mandatesFromFlags(b.meta.flags).join(''), /林夏被主角拒绝后反而在意起对方/);
+    assert.ok(!mandatesFromFlags(b.meta.flags).join('').includes('高岭之花'));
+});
+
+test('A2 反弹：好胜在场看主角赢下挑战', () => {
+    const win = { kind: 'challenge', reportId: 'rw1', outcome: '圆满', tier: '普通', stake: '压力', domain: '话术', floor: 3 };
+    const r = floor(world({ 林夏: mk({ dims: { 好感: 30, 了解: 20 } }) }), '', traitsFor('林夏', '好胜'), { random: low, present: ['林夏'], extraDirectives: [win] });
+    assert.equal(r.state.characters.林夏.heart, 2);
+    assert.match(mandatesFromFlags(r.meta.flags).join(''), /林夏输给主角后不服气/);
+    const away = floor(world({ 林夏: mk({ dims: { 好感: 30, 了解: 20 } }) }), '', traitsFor('林夏', '好胜'), { random: low, present: [], extraDirectives: [win] });
+    assert.equal(away.state.characters.林夏.heart || 0, 0);
+});
+
+test('A3 当众加重：大小姐当着他人被批评升为重雷，独处照常', () => {
+    const s = world({ 林夏: mk({ dims: { 好感: 40 } }), 苏晴: mk() });
+    const crowd = floor(s, ev('批评'), traitsFor('林夏', '大小姐'), { present: ['林夏', '苏晴'] });
+    assert.equal(tierOf(crowd), '重雷');
+    assert.ok(crowd.changes.some((c) => c.calc && c.calc.some((x) => x.label === '当众')));
+    const alone = floor(s, ev('批评'), traitsFor('林夏', '大小姐'), { present: ['林夏'] });
+    assert.equal(tierOf(alone), '雷');
+});
+
+test('A4 屡犯升级：7 天内再踩升一档，超期不升；记仇不设期限', () => {
+    const t = traitsFor('林夏', '强势');
+    const first = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('顶撞'), t, { random: never });
+    assert.equal(first.state.characters.林夏.mineLast['强势:event:顶撞'], first.state.clock.day);
+    const again = floor(first.state, ev('顶撞'), t, { random: never });
+    assert.equal(tierOf(again), '重雷');
+    const old = { ...first.state, clock: { ...first.state.clock, day: first.state.clock.day + 8 } };
+    assert.equal(tierOf(floor(old, ev('顶撞'), t, { random: never })), '雷');
+    const grudge = floor(old, ev('顶撞'), traitsFor('林夏', '强势', '记仇'), { random: never });
+    assert.equal(tierOf(grudge), '重雷');
+});
+
+test('A3+A4 当众加屡犯封顶重雷', () => {
+    const s0 = world({ 林夏: mk({ dims: { 好感: 60 } }), 苏晴: mk() });
+    const t = traitsFor('林夏', '大小姐');
+    const a = floor(s0, ev('批评'), t, { present: ['林夏'] });
+    const b = floor(a.state, ev('批评'), t, { present: ['林夏', '苏晴'] });
+    assert.equal(tierOf(b), '重雷');
+    const calc = b.changes.find((c) => c.key === '好感' && String(c.note).startsWith('踩雷')).calc.map((x) => x.label);
+    assert.ok(calc.includes('当众') && calc.includes('屡犯'));
+});
+
+test('A5 闹别扭：踩重雷挂 2 天，期间好感上升减半；记仇直到解除、宽容 1 天', () => {
+    const r = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('背叛'), traitsFor('林夏', '护短'));
+    const e = r.meta.statuses.林夏.闹别扭;
+    assert.equal(e.toward, '主角');
+    assert.equal(e.src, 'system');
+    assert.equal(e.until - e.since, 2);
+    const t = traitsFor('林夏', '护短');
+    const base = world({ 林夏: mk({ dims: { 好感: 30 } }) });
+    const plain = floor(base, '[igs-stat:favor|林夏|喜欢|中]', {}, {});
+    const sulky = floor(base, '[igs-stat:favor|林夏|喜欢|中]', t, { catalog: { statuses: r.meta.statuses } });
+    assert.ok(favorOf(sulky) - 30 < favorOf(plain) - 30);
+    assert.ok(sulky.changes.some((c) => c.key === '好感' && c.calc && c.calc.some((x) => x.label === '特质倍率' && x.value === 0.5)));
+    const forever = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('背叛'), traitsFor('林夏', '记仇'));
+    assert.equal(forever.meta.statuses.林夏.闹别扭.kind, 'until');
+    assert.equal(forever.meta.statuses.林夏.闹别扭.until, undefined);
+    const mild = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('背叛'), traitsFor('林夏', '护短', '宽容'));
+    const m = mild.meta.statuses.林夏.闹别扭;
+    assert.equal(m.until - m.since, 1);
+});
+
+test('A5 闹别扭提前解除：送礼当楼摘下', () => {
+    const t = traitsFor('林夏', '护短');
+    const r = floor(world({ 林夏: mk({ dims: { 好感: 40 } }) }), ev('背叛'), t);
+    const mend = floor(r.state, '[igs-stat:gift|林夏|花束]', t, { catalog: { statuses: r.meta.statuses } });
+    assert.equal((mend.meta.statuses.林夏 || {}).闹别扭, undefined);
+    assert.ok(mend.changes.some((c) => c.key === '闹别扭' && c.to === 0));
+});

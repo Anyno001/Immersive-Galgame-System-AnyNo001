@@ -1112,7 +1112,7 @@ test('tts: narrator interface keeps its own voice list and fetches it', async ()
         globalThis.fetch = realFetch;
     }
     const { ttsNarratorVoiceOptions } = await import('../src/visual/igs-ui/tts.js');
-    assert.deepEqual(ttsNarratorVoiceOptions({ narratorApi: { voices: 'n1#说书' } }), [['n1', '说书（n1）']]);
+    assert.deepEqual(ttsNarratorVoiceOptions({ narratorApi: { voices: 'n1#说书' } }), [['n1', '说书']]);
 });
 
 test('tts: thought page uses its own volume and style', () => {

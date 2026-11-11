@@ -237,7 +237,8 @@ function subEffectHook(state, api) {
         }
         // 腹黑：主角对其了解未过半时，角色卡好感记为隐藏（只写数据标记，显示交给界面）。
         if (has('腹黑')) {
-            const hidden = dimOf(next.characters[name], '了解') <= HALF;
+            const cur = next.characters[name];
+            const hidden = (ctx.heroSide && cur.hero && cur.hero.dims ? num(cur.hero.dims.了解) : dimOf(cur, '了解')) <= HALF;
             if (Boolean(next.characters[name].favorHidden) !== hidden) {
                 const { favorHidden, ...rest } = next.characters[name];
                 next = withCharacter(next, name, hidden ? { ...rest, favorHidden: true } : rest);

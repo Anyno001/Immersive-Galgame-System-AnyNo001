@@ -2,9 +2,8 @@ import { readArtistLibrary, importArtistLibrary, applyLibraryArtist, saveArtistE
 import { PROMPT_KINDS, globalArtist, normalizeArtistByKind } from '../../generated-images/prompt-artists.js';
 import { pickImagePromptFile } from './settings-image-prompt-io.js';
 import { esc } from './reader-value-utils.js';
+import { renderRowMenu } from './settings-outfit-fields.js';
 
-const button = (verb, label, disabled = false) => `<button type="button" class="igs-settings-action" data-action="artist-library:${verb}"${disabled ? ' disabled' : ''}>${label}</button>`;
-const MORE_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
 const options = (items, value) => items.map(([id, label]) => `<option value="${esc(id)}"${id === value ? ' selected' : ''}>${esc(label)}</option>`).join('');
 
 export function renderArtistSelector(nai, target = 'global', sourceMode = 'nai') {
@@ -22,7 +21,7 @@ export function renderArtistSelector(nai, target = 'global', sourceMode = 'nai')
     return `<label class="igs-settings-field"><span>${esc(label)}</span><select data-artist-selection="${esc(target)}" aria-label="${esc(label)}">
 ${custom ? '<option value="" selected disabled>当前已保存的画师串</option>' : ''}
 ${options([['', emptyLabel], ...entries.map(entry => [entry.id, entry.name])], selected?.id || (custom ? null : ''))}
-</select>${entries.length ? '' : '<em>画师串库位于「画师与模型」页底部。</em>'}</label>`;
+</select></label>`;
 }
 
 export function setArtistSelection(panel, target, id) {
@@ -43,63 +42,51 @@ export function setArtistSelection(panel, target, id) {
     return { ok: true };
 }
 
-export function renderArtistLibrary(nai, state = {}) {
+// 「通用」卡里的全局画师串一行：下拉选用，画师串库的新建、编辑、删除、导入收在右侧「⋯」。
+export function renderGlobalArtistRow(nai, sourceMode = 'nai', state = {}) {
     const library = readArtistLibrary(nai.artistLibrary);
-    const entries = library.ok ? library.value : [];
-    const selected = entries.find(entry => entry.id === state.id);
-    const item = (verb, label, disabled = false) => `<button type="button" class="igs-add-menu-item" data-action="artist-library:${verb}" role="menuitem"${disabled ? ' disabled' : ''}>${label}</button>`;
-    const menu = `<details class="igs-add-menu igs-row-menu"><summary class="igs-btn-mgr-icon" title="画师串库操作" aria-label="画师串库操作">${MORE_SVG}</summary><div class="igs-add-menu-list" role="menu">`
-        + `${item('create', '新建', !library.ok)}${item('edit', '编辑', !selected || !library.ok)}${item('delete', '删除', !selected || !library.ok)}${item('import', '导入JSON', !library.ok)}${item('import-text', '粘贴JSON', !library.ok)}</div></details>`;
-    const picker = `<label class="igs-settings-field"><select data-artist-library-field="id" aria-label="画师条目">${options([['', '请选择画师'], ...entries.map(entry => [entry.id, entry.name])], state.id || '')}</select></label>`;
-    return `<div class="igs-source-filter" data-artist-library-panel>
-<div class="igs-source-filter-title">画师串库</div>
-<div class="igs-source-filter-note">条目可在各画师串下拉框中选用。</div>
-<div class="igs-artist-lib-row">${picker}${state.dirty ? button('save', '保存') : ''}${menu}</div>
-${selected ? `<label class="igs-settings-field"><span>所选正向（预览）</span><textarea readonly rows="3">${esc(selected.positivePrompt)}</textarea></label><label class="igs-settings-field"><span>所选负向（预览）</span><textarea readonly rows="3">${esc(selected.negativePrompt)}</textarea></label>` : ''}
-<div class="igs-settings-result" role="status" data-result="artist-library">${esc(library.ok ? (state.status || `库中 ${entries.length} 条。`) : library.reason)}</div>
-</div>`;
-}
-
-export function setArtistLibraryField(panel, key, value) {
-    const library = readArtistLibrary(panel.draft.bridge.autoIllustration.nai.artistLibrary);
-    if (!library.ok) return library;
-    if (key === 'id' && value !== '' && !library.value.some(entry => entry.id === value))
-        return { ok: false, reason: '所选画师条目不存在' };
-    if (key !== 'id') return { ok: false, reason: '画师字段无效' };
-    const state = panel.asyncState.artistLibrary ||= {};
-    state[key] = value;
-    state.status = '可编辑或删除所选条目。';
-    return { ok: true };
+    const none = !library.ok || !library.value.length;
+    const item = (verb, label, { disabled = false, danger = false } = {}) => `<button type="button" class="igs-add-menu-item${danger ? ' is-danger' : ''}" data-action="artist-library:${verb}" role="menuitem"${disabled ? ' disabled' : ''}>${label}</button>`;
+    return `<div class="igs-artist-lib-row is-labeled" data-artist-library-panel>${renderArtistSelector(nai, 'global', sourceMode)}`
+        + renderRowMenu([item('create', '新建', { disabled: !library.ok }), item('edit', '编辑', { disabled: none }),
+            item('import', '导入JSON', { disabled: !library.ok }), item('import-text', '粘贴JSON', { disabled: !library.ok }),
+            item('delete', '删除', { disabled: none, danger: true })], '画师串库操作') + '</div>'
+        + `<div class="igs-settings-result" role="status" data-result="artist-library">${esc(library.ok ? (state.status || '') : library.reason)}</div>`;
 }
 
 export async function handleArtistLibraryAction(action, ctx) {
     const { panel, dialogs, isCurrent, persistSettingsDraft } = ctx;
     const state = panel.asyncState.artistLibrary ||= {};
     const nai = panel.draft.bridge.autoIllustration.nai;
-    const id = state.id;
     const current = () => isCurrent();
     const stale = () => ({ ok: false, reason: '画师配置已变化，请重新操作' });
     const verb = action.slice('artist-library:'.length);
     if (!current()) return stale();
-    if (verb === 'save') {
-        const result = persistSettingsDraft();
-        state.status = result.ok ? '画师库已保存。' : '正在自动恢复保存。';
-        if (result.ok) state.dirty = false;
-        return result;
-    }
+    // 改完即保存，界面上不再单独放「保存」。
+    const commit = (value, status) => {
+        panel.draft.bridge.autoIllustration.nai = { ...nai, artistLibrary: value };
+        const saved = typeof persistSettingsDraft === 'function' ? persistSettingsDraft() : { ok: true };
+        state.status = saved && saved.ok === false ? '正在自动恢复保存。' : status;
+        return { ok: true };
+    };
     if (verb === 'create' || verb === 'edit' || verb === 'delete') {
         const library = readArtistLibrary(nai.artistLibrary);
         if (!library.ok) return library;
-        const entry = library.value.find(row => row.id === id);
-        if (verb !== 'create' && !entry) return { ok: false, reason: '所选画师条目不存在' };
+        let entry = null;
+        if (verb !== 'create') {
+            if (!library.value.length) return { ok: false, reason: '画师串库为空' };
+            const id = await dialogs.choose(verb === 'edit' ? '编辑哪一条画师串？' : '删除哪一条画师串？', library.value.map(row => ({ value: row.id, label: row.name })));
+            if (!current()) return stale();
+            if (id === null || id === undefined || id === '') return { ok: true, cancelled: true };
+            entry = library.value.find(row => row.id === id);
+            if (!entry) return { ok: false, reason: '所选画师条目不存在' };
+        }
         if (verb === 'delete') {
             if (!await dialogs.confirm(`删除「${entry.name}」？已应用的画师文本保持不变。`)) return { ok: true, cancelled: true };
             if (!current()) return stale();
-            const removed = removeArtistEntry(nai.artistLibrary, id);
+            const removed = removeArtistEntry(nai.artistLibrary, entry.id);
             if (!removed.ok) return removed;
-            panel.draft.bridge.autoIllustration.nai = { ...nai, artistLibrary: removed.value };
-            state.id = ''; state.dirty = true; state.status = '条目已删除，保存后生效；已应用文本保持不变。';
-            return { ok: true };
+            return commit(removed.value, `已删除「${entry.name}」。`);
         }
         const values = {};
         for (const [key, label] of [['name', '画师串名称'], ['positivePrompt', '画师串正向内容（可留空）'], ['negativePrompt', '画师串负向内容（可留空）']]) {
@@ -115,9 +102,7 @@ export async function handleArtistLibraryAction(action, ctx) {
         }
         const saved = saveArtistEntry(nai.artistLibrary, { id: entryId, ...values }, { create: verb === 'create' });
         if (!saved.ok) return saved;
-        panel.draft.bridge.autoIllustration.nai = { ...nai, artistLibrary: saved.value };
-        state.id = entryId; state.dirty = true; state.status = '条目已更新，保存后可选用。';
-        return { ok: true };
+        return commit(saved.value, verb === 'create' ? '已新建，可在各画师串下拉中选用。' : '已更新。');
     }
     if (verb === 'import' || verb === 'import-text') {
         const file = verb === 'import-text'
@@ -139,10 +124,7 @@ export async function handleArtistLibraryAction(action, ctx) {
             }
         }
         if (!current()) return stale();
-        panel.draft.bridge.autoIllustration.nai = { ...nai, artistLibrary: imported.value };
-        state.dirty = true;
-        state.status = `已新增 ${imported.added} 条、覆盖 ${imported.overwritten} 条、跳过 ${imported.skipped} 条，保存后可选用。`;
-        return { ok: true };
+        return commit(imported.value, `已新增 ${imported.added} 条、覆盖 ${imported.overwritten} 条、跳过 ${imported.skipped} 条。`);
     }
     return { ok: false, reason: '画师操作无效' };
 }

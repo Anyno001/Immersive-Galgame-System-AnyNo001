@@ -8,7 +8,7 @@ const on = (src = 'manual', extra = {}) => ({ on: true, src, ...extra });
 
 test('迁出 25 项：旧键仍读得到，但带归类标记、不进评定候选', () => {
     const names = Object.keys(TRAIT_MIGRATION);
-    assert.equal(names.length, 27, '个人状态 11 + 关系 14 + 设置 1 + 备注 1');
+    assert.equal(names.length, 28, '个人状态 11 + 关系 15（含守护） + 设置 1 + 备注 1');
     for (const n of names) {
         const def = TRAIT_DEFS.find((d) => d.name === n);
         assert.ok(def, n);
@@ -29,7 +29,7 @@ test('迁出 25 项：旧键仍读得到，但带归类标记、不进评定候�
 test('迁出项不占特质格，特质格满时仍可挂', () => {
     let cat = { traits: { 林夏: { 失忆: on(), 诅咒: on(), 共犯: on() } } };
     assert.equal(slotUsage(cat, '林夏').slots, 0);
-    for (const n of ['坚韧', '黏人', '傲娇', '乐天派', '冰山']) cat = applyTraitChange(null, cat, '林夏', n, true, 'manual').catalog;
+    for (const n of ['坚韧', '讲义气', '傲娇', '乐天派', '冰山']) cat = applyTraitChange(null, cat, '林夏', n, true, 'manual').catalog;
     assert.equal(slotUsage(cat, '林夏').slots, 5);
     assert.equal(applyTraitChange(null, cat, '林夏', '浪漫主义者', true, 'manual').reason, 'full');
     assert.equal(applyTraitChange(null, cat, '林夏', '旧伤', true, 'manual').reason, undefined);

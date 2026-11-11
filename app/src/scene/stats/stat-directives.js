@@ -7,6 +7,7 @@ import { STRAIN_NAMES, normalizeStressSource } from './stat-strain.js';
 
 const tagPattern = () => /[\[【]\s*igs-stat\s*[:：]([^\]】]*)[\]】]/gi;
 const BATTLE_COUNT_MAX = 9;
+const MY_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂', '欲望']);
 const FREE_TEXT_MAX = 20;
 
 function freeText(raw) {
@@ -29,6 +30,19 @@ function parseFame(fields) {
     return { kind: 'fame', value, segs, ...(strength ? { strength } : {}) };
 }
 
+// 金额：纯数字（可带千分位逗号与小数），取整后为正；上限只防溢出，不设单楼限额。
+function moneyAmount(raw) {
+    const text = String(raw ?? '').trim().replace(/,/g, '');
+    if (!/^\d+(\.\d+)?$/.test(text)) return null;
+    const n = Math.round(Number(text));
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+// 称呼文本：去掉引号与尖括号（注入句用「」包称呼，中间不能再有引号），去首尾空白，截断到 12 字。
+export function addressText(raw) {
+    return String(raw ?? '').replace(/["“”「」『』<>]/g, '').replace(/^[\s'‘’]+|[\s'‘’]+$/g, '').slice(0, 12);
+}
+
 function battleCount(raw) {
     const text = String(raw ?? '').trim();
     if (!text) return 1;
@@ -36,7 +50,7 @@ function battleCount(raw) {
     return Number.isInteger(count) && count >= 1 ? Math.min(BATTLE_COUNT_MAX, count) : null;
 }
 
-// ctx：{ rev, moodGroups, diagnostics }。rev ≥ 1（新楼）才认新方向词、情绪组兜底、芥蒂与压力强度；rev ≥ 2 另认交心、clear、insight、hero、romance、起始关系标记、更多近义词与十年跳跃上限；缺省按旧规则，旧楼重算结果不变。
+// ctx：{ rev, moodGroups, diagnostics }。rev ≥ 1（新楼）才认新方向词、情绪组兜底、芥蒂与压力强度；rev ≥ 3 金钱标签可写具体数目；rev ≥ 2 另认交心、clear、insight、hero、romance、起始关系标记、更多近义词与十年跳跃上限；缺省按旧规则，旧楼重算结果不变。
 function parseFields([kindRaw, a, b, c, d, e], ctx = {}) {
     const rev = Number(ctx.rev) >= 1;
     const rev2 = Number(ctx.rev) >= 2;
@@ -55,6 +69,15 @@ function parseFields([kindRaw, a, b, c, d, e], ctx = {}) {
         const strength = given ? normalizeTier('strength', FAVOR_STRENGTHS, given) : null;
         if (given && !strength) return null;
         return target && value ? { kind: 'favor', target, dim: '好感', value, ...(strength ? { strength } : {}) } : null;
+    }
+    if (kind === 'my') {
+        if (!ctx.heroSide) return null;
+        const dim = MY_DIMS.includes(String(b ?? '').trim()) ? String(b).trim() : null;
+        const value = normalizeTier('dim', DIM_DIRECTIONS, c);
+        const given = String(d ?? '').trim();
+        const strength = given ? normalizeTier('strength', FAVOR_STRENGTHS, given) : null;
+        if (given && !strength) return null;
+        return target && dim && value ? { kind: 'my', target, dim, value, ...(strength ? { strength } : {}) } : null;
     }
     if (kind === 'start' || kind === '起始关系') {
         const parsed = parseStartRelation(b, c, { marks: rev2 });
@@ -107,9 +130,19 @@ function parseFields([kindRaw, a, b, c, d, e], ctx = {}) {
     case 'money': {
         const own = normalizeTier('flow', MONEY_FLOWS, a);
         const flow = own || normalizeTier('flow', MONEY_FLOWS, b);
-        const value = normalizeTier('moneyTier', MONEY_TIERS, own ? b : c);
+        const raw = own ? b : c;
+        // rev ≥ 3：金额段是正数时按具体数目入账（amount），否则照旧查档位词；旧楼带数字的写法仍丢弃。
+        const amount = Number(ctx.rev) >= 3 ? moneyAmount(raw) : null;
+        const value = amount ? String(amount) : normalizeTier('moneyTier', MONEY_TIERS, raw);
         const who = own ? null : freeText(a);
-        return flow && value && (own || who) ? { kind, flow, value, ...(who ? { target: who } : {}) } : null;
+        return flow && value && (own || who) ? { kind, flow, value, ...(amount ? { amount } : {}), ...(who ? { target: who } : {}) } : null;
+    }
+    // 称呼（rev ≥ 3）：address|角色名|新称呼，第四段写「人前」记人前的叫法；去首尾空白与引号，空的丢弃。
+    case 'address': case '称呼': {
+        if (Number(ctx.rev) < 3) return null;
+        const name = addressText(b);
+        const scope = String(c ?? '').trim() === '人前' ? 'public' : 'private';
+        return target && name ? { kind: 'address', target, value: name, scope } : null;
     }
     case 'intimate': case '亲密': {
         const level = normalizeTier('intimate', INTIMATE_LEVELS, b);
@@ -180,7 +213,7 @@ export function parseStatDirectives(text, opts = {}) {
     const diagnostics = [];
     for (const match of String(text ?? '').matchAll(tagPattern())) {
         const fields = match[1].split(/[|｜]/).map((field) => field.replace(/\s+/g, ' ').trim());
-        const directive = String(fields[0] || '').trim().toLowerCase() === 'roll' || fields[0] === '检定' ? parseRoll(fields) : parseFields(fields, { rev: opts.rev, moodGroups: opts.moodGroups, diagnostics });
+        const directive = String(fields[0] || '').trim().toLowerCase() === 'roll' || fields[0] === '检定' ? parseRoll(fields) : parseFields(fields, { rev: opts.rev, moodGroups: opts.moodGroups, heroSide: opts.heroSide === true, diagnostics });
         if (directive) directives.push(directive);
         else diagnostics.push({ code: 'stat-tag-rejected', raw: match[0].slice(0, 80) });
     }

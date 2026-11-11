@@ -48,10 +48,10 @@ export function shiftCurrency(ctx, delta, entry = {}) {
     return true;
 }
 
-// money 标签走剧情货币：档位按本聊天的四档价格换算；花费超过余额时不扣并返回 shortfall。
+// money 标签走剧情货币：写了具体数目（amount）按数目入账，否则按本聊天的四档价格换算；花费超过余额时不扣并返回 shortfall。
 export function applyCurrencyDirective(ctx, directive, entry = {}) {
     const c = ctx.currency;
-    const amount = Number(c.table[directive.value]) || 0;
+    const amount = directive.amount > 0 ? directive.amount : Number(c.table[directive.value]) || 0;
     if (!amount) return { shortfall: false };
     if (!c.ready) { ctx.diagnostics.push({ code: 'stats-currency-unready', note: entry.note || '' }); return { shortfall: false };}
     if (directive.flow === '花费' && amount > c.balance) return { shortfall: true };
@@ -78,7 +78,7 @@ export function applyBarDirective(bars, directive, moneyTable = DEFAULT_MONEY_TA
         return shift(bars, 'stress', (table && table[directive.strength]) || STRESS_DELTA[directive.value] || 0);
     }
     case 'money': {
-        const amount = Number(moneyTable[directive.value]) || 0;
+        const amount = directive.amount > 0 ? directive.amount : Number(moneyTable[directive.value]) || 0;
         if (directive.flow === '花费' && amount > walletBalance(bars, walletExtra)) return { bars, change: null, shortfall: true };
         // 扣款记在数值侧金钱上；战斗积分垫付的部分会让它为负，合并余额仍不小于零。
         return shift(bars, 'money', directive.flow === '花费' ? -amount : amount, Infinity, -Infinity);

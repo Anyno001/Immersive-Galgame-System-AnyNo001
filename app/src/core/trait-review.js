@@ -101,7 +101,10 @@ function currentTraits(char, catalog) {
 // 2. 发：组装发送内容。
 // floors：[{ no, role: 'ai'|'user', text }]（取最后 6 楼）；
 // chars：[{ name, aliases?, protagonist?, relation?, summary?, traits?, recent? }]
-export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, nsfw = false } = {}) {
+// 人设字数上限：每个角色自己的资料，与整批共用的世界观资料（只发一份）分开计。
+export const REVIEW_PERSONA_MAX = 6000;
+export const REVIEW_WORLD_MAX = 30000;
+export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, nsfw = false, world = '' } = {}) {
     const byId = new Map((Array.isArray(defs) ? defs : []).map((d) => [d.id, d]));
     const nameOf = (id) => (byId.has(id) ? byId.get(id).name : id);
     const people = (Array.isArray(chars) ? chars : []).filter((c) => c && clean(c.name));
@@ -109,6 +112,7 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
     const diary = diaryRows(tableList, people);
     return {
         nsfw: !!nsfw,
+        world: clean(world).slice(0, REVIEW_WORLD_MAX),
         floors: (Array.isArray(floors) ? floors : []).filter((f) => f && clean(f.text)).slice(-REVIEW_FLOOR_COUNT)
             .map((f) => ({ no: f.no, role: f.role === 'user' ? 'user' : 'ai', text: clean(f.text) })),
         summary: summaryRows(tableList, N),
@@ -117,7 +121,7 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
             protagonist: !!c.protagonist,
             relation: clean(c.relation),
             summary: clean(c.summary),
-            persona: clean(c.persona).slice(0, 1200),
+            persona: clean(c.persona).slice(0, REVIEW_PERSONA_MAX),
             note: clean(c.note).slice(0, 200),
             attrs: c.attrs && typeof c.attrs === 'object' ? c.attrs : null,
             traits: currentTraits(c, catalog).map((t) => ({ ...t, name: nameOf(t.id) })),
@@ -149,7 +153,14 @@ export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = []
     lines.push('', '可选特质（只能从下表选择，表外一律不要输出）：');
     const reqText = (d) => (d.req ? `（需 ${Object.entries(d.req).map(([k, v]) => `${k} ≥${v}`).join('、')}）` : '');
     const bundleText = (d) => (d.bundle ? `；挂上时附带「${d.bundle.name}」${d.bundle.waivable ? '' : '（不可免除）'}` : '');
-    for (const d of defList) lines.push(`- ${d.name}：${clean(d.judge)}${reqText(d)}${bundleText(d)}`);
+    // 按分组列出，近义项排在一起便于比较。
+    const groups = new Map();
+    for (const d of defList) { const g = clean(d.group) || '其他'; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(d); }
+    for (const [g, list] of groups) {
+        lines.push(`〔${g}〕`);
+        for (const d of list) lines.push(`- ${d.name}：${clean(d.judge)}${reqText(d)}${bundleText(d)}`);
+    }
+    lines.push('', '意思相近的特质只取最贴近的一项，不要同时给；拿不准就不给。只凭名字相似不算依据，必须符合冒号后的判定标准。');
     if (defList.some((d) => d.bundle && d.bundle.waivable)) lines.push('', '附带特质与人设或用户注明的性格相反时，可在 waive 里写上该附带特质名免掉；标为不可免除的不能免掉。');
     const statusList = Array.isArray(statusDefs) ? statusDefs.filter((d) => d && d.name) : [];
     if (statusList.length) {
@@ -157,6 +168,7 @@ export function buildReviewPrompt(payload, defs, mode = 'story', eventTypes = []
         for (const d of statusList) lines.push(`- ${d.name}${d.relation ? '（关系状态，需写 toward）' : ''}：${clean(d.desc)}`);
         lines.push('状态写在 status 里：on 为 true 表示正在经历，false 表示已经结束；src 写 setting 表示人设或开场设定里本来就有，写 story 表示由近期剧情产生；没有明确依据不写。');
     }
+    if (p.world) lines.push('', '世界观与背景资料（各角色共用；其中写到某个角色的内容也算该角色的人设）：', p.world);
     for (const c of p.chars || []) {
         lines.push('', `【角色：${c.name}${c.protagonist ? '（主角）' : ''}】`);
         if (c.note) lines.push(`用户注明：${c.note}`);

@@ -7,8 +7,8 @@ import { getTraitDef, hasTrait, isFoodGift, traitCatalogOf } from './stat-traits
 
 // 阈值（写在常量里，改这里即可）。
 export const MOOD_STRESS_MAX = 25;     // 心情很好：压力不高于此值
-export const BROKE_BELOW = 20;         // 手头紧：钱包余额低于此值挂上
-export const BROKE_CLEAR = 100;        // 手头紧：余额回到此值以上摘下
+export const BROKE_BELOW = 20;         // 囊中羞涩：钱包余额低于此值挂上
+export const BROKE_CLEAR = 100;        // 囊中羞涩：余额回到此值以上摘下
 export const ADDICT_DAYS = 3;          // 犯瘾：连续未碰天数
 const MOOD_EVENTS = ['约会', '告白', '共患难', '交心', '托付', '立誓'];
 const DRUNK_WORDS = /喝醉|醉酒|烂醉|酩酊|喝多了|醉倒|醉醺醺/;
@@ -24,7 +24,10 @@ export const TOUCH_KEY = (name) => `瘾:${name}`;
 // 状态数值效果：同类连乘。kind：'stressUp' 压力上升倍率；'staminaRecover' 过天体力恢复倍率。没有返回 1。
 export function statusScale(cat, name, kind) {
     let scale = 1;
-    for (const key of Object.keys(statusesOf(cat, name))) {
+    const own = statusesOf(cat, name);
+    for (const key of Object.keys(own)) {
+        // 抑制剂：发情期、易感期的压力倍率暂停。
+        if (kind === 'stressUp' && own.抑制剂 && (key === '发情期' || key === '易感期')) continue;
         const eff = STATUS_EFFECT[key];
         if (eff && eff[0] === kind) scale *= eff[1];
     }
@@ -70,11 +73,18 @@ export function autoStatuses(state, box, ctx = {}) {
         const stress = Number(own && own.bars && own.bars.stress);
         if (own && Number.isFinite(stress) && stress <= MOOD_STRESS_MAX && !statusesOf(box.cat, n).心情很好) put(box, n, '心情很好', true, { day, floor }, changes);
     }
-    // 手头紧（仅主角有钱包）：低于 BROKE_BELOW 挂上，回到 BROKE_CLEAR 以上摘下（只摘系统挂的）。
-    const wallet = (Number(hero.bars.money) || 0) + (Number(ctx.walletExtra) || 0);
-    const broke = statusesOf(box.cat, PROTAGONIST).手头紧;
-    if (wallet < BROKE_BELOW && !broke) put(box, PROTAGONIST, '手头紧', true, { day, floor }, changes);
-    else if (wallet >= BROKE_CLEAR && broke && systemOwned(box.cat, PROTAGONIST, '手头紧')) put(box, PROTAGONIST, '手头紧', false, {}, changes);
+    // 囊中羞涩（仅主角有钱包）：余额低于下限挂上，回到上限以上摘下（只摘系统挂的）。
+    // rev ≥ 3 且有剧情货币：读剧情货币余额，下限、上限取本聊天的「少量」「普通」档金额；货币未就绪时不挂不摘。
+    // 其余情况读积分口径（数值侧金钱 + 战斗积分），下限 BROKE_BELOW、上限 BROKE_CLEAR。
+    const money = Number(ctx.rev) >= 3 && ctx.currency ? ctx.currency : null;
+    if (!money || money.ready) {
+        const wallet = money ? money.balance : (Number(hero.bars.money) || 0) + (Number(ctx.walletExtra) || 0);
+        const below = money ? Number(money.table.少量) || BROKE_BELOW : BROKE_BELOW;
+        const clear = money ? Number(money.table.普通) || BROKE_CLEAR : BROKE_CLEAR;
+        const broke = statusesOf(box.cat, PROTAGONIST).囊中羞涩;
+        if (wallet < below && !broke) put(box, PROTAGONIST, '囊中羞涩', true, { day, floor }, changes);
+        else if (wallet >= clear && !ctx.keepBroke && broke && systemOwned(box.cat, PROTAGONIST, '囊中羞涩')) put(box, PROTAGONIST, '囊中羞涩', false, {}, changes);
+    }
     // 信物：非食物的礼物送出，收礼者对送礼者挂关系状态「信物」（toward 主角）。
     for (const d of directives) {
         if (d.kind !== 'gift' || !d.target || d.target === PROTAGONIST || isFoodGift(d.value) || /酒/.test(String(d.value || ''))) continue;

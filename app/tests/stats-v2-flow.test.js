@@ -246,21 +246,25 @@ test('战斗按 D&D：攻击检定对 AC，闪避为敏捷豁免；战败不死�
     assert.equal(r.state.protagonist.bars.health, undefined);
 });
 
-test('按人设补填初始关系：只补近似 0 的角色，初值叠加在当前值上，陌生不改，补过的不再补', async () => {
-    const reply = JSON.stringify({ 小雪: '朋友', 阿杰: '陌生' });
+test('按人设补填初始关系：只补没有过关系变动的角色，已有变动的跳过，补过的不再补', async () => {
+    const reply = JSON.stringify({ 小雪: '朋友', 阿杰: '朋友' });
     const { h, rt } = setup({ favorMode: 'hard' }, { getBackgroundRequest: () => async () => reply });
     rt.enableForChat();
+    // 阿杰作为群聊成员登记，才能记下他的好感变动。
+    h.ctx.groupMembers = ['小雪', '阿杰'];
     h.ctx.chat.push({ is_user: true, mes: '你好' });
-    generate(h, '[igs-stat:favor|小雪|开心][igs-stat:favor|阿杰|平淡]');
-    const before = rt.getState().characters.小雪.dims.好感;
-    assert.ok(before > 0 && before <= 10);
+    generate(h, '[igs-stat:favor|小雪|平淡][igs-stat:favor|阿杰|开心]');
+    const blank = rt.getState().characters.小雪.dims.好感;
+    const moved = rt.getState().characters.阿杰.dims.好感;
+    assert.equal(blank, 0);
+    assert.ok(moved > 0 && moved <= 10);
     const r = await rt.relationOp('fill-start');
     assert.equal(r.ok, true);
     assert.deepEqual(r.filled, ['小雪 朋友']);
     const after = rt.getState().characters;
-    assert.equal(after.小雪.dims.好感, before + 30);
+    assert.equal(after.小雪.dims.好感, 30);
     assert.equal(after.小雪.dims.信任, 25);
-    assert.equal(after.阿杰?.dims.好感 ?? 0, 0);
+    assert.equal(after.阿杰.dims.好感, moved);
     assert.ok(!rt.notices().some((n) => n.id === 'start-relations' && n.kind === 'busy'));
     const again = await rt.relationOp('fill-start');
     assert.equal(again.reason, 'stats-start-none');

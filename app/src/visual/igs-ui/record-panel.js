@@ -378,7 +378,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         if (!table()) activeUid = model.tables[0]?.uid || '';
         if (category === 'relationships') {
             const live = readFavorLive();
-            relationLive = new Map(live ? live.people.map(person => [person.name, { dims: person.dims, nsfw: live.nsfw, romance: Boolean(person.romance), kin: Boolean(person.kin) }]) : []);
+            relationLive = new Map(live ? live.people.map(person => [person.name, { dims: person.dims, nsfw: live.nsfw, romance: Boolean(person.romance), kin: Boolean(person.kin), hero: person.hero || null }]) : []);
             let tableLookup = null;
             try {
                 tableLookup = createCharacterMetricsLookup(readResult, {
@@ -823,7 +823,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const tags = [chosen?.role, age && (/^\d+$/.test(age) ? `${age}岁` : age)].filter(Boolean);
         const thought = chosen?.profile?.find(field => field.key === 'thought')?.value || '';
         const live = chosen ? relationLive.get(chosen.name) : null;
-        const relation = live ? relationLabel(live.dims, { nsfw: live.nsfw, romance: live.romance, kin: live.kin }) : null;
+        const relation = live ? relationLabel(live.dims, { nsfw: live.nsfw, romance: live.romance, kin: live.kin, hero: live.hero }) : null;
         const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}${relation ? `<span class="igs-record-tag igs-record-relation-tag" title="${escapeHtml(`${towardYou(chosen.name)}：${relation.desc}`)}">${escapeHtml(relation.name)}</span>` : ''}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
         // 档案表只展示外貌/打扮/过往经历（年龄进标题标签、当下想法做名下引语）；旧表没有这些列时才回退为描述 + 原始字段。
         const profile = (chosen?.profile || []).filter(field => field.key !== 'age' && field.key !== 'thought');
@@ -857,7 +857,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     function renderFavorLive() {
         const { people, nsfw } = favorLive;
         return `<div class="igs-record-favor" role="list" aria-label="全部角色好感度">${people.map(person => {
-            const label = relationLabel(person.dims, { nsfw, romance: person.romance, kin: person.kin });
+            const label = relationLabel(person.dims, { nsfw, romance: person.romance, kin: person.kin, hero: person.hero });
             const toward = towardYou(person.name);
             const open = favorOpen.has(person.name);
             const all = favorAll.has(person.name);

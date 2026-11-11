@@ -41,8 +41,7 @@ export function renderWorldInfoFilterPanel(imageApi, asyncState = {}) {
     if (open) {
         const state = asyncState.worldInfoFilter || {};
         const more = { isOpen: key => advancedOpen['perf-' + key] === true };
-        body = '<div class="igs-source-filter-note">取消勾选的书或条目不参与生图写词，不影响酒馆聊天。</div>'
-            + `<div class="igs-image-prompt-actions">${button('load', state.books ? '重新读取' : '读取', [], state.loading)}${button('reset', '全部恢复', [], !count)}</div>`;
+        body = `<div class="igs-image-prompt-actions">${button('load', state.books ? '重新读取' : '读取', [], state.loading)}${button('reset', '全部恢复', [], !count)}</div>`;
         if (!state.books) body += `<div class="igs-scene-empty">${state.loading ? '正在读取' : (state.error ? '世界书读取失败' : '尚未读取')}</div>`;
         else {
             const listed = new Set(state.books.map(book => book.name));

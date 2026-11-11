@@ -92,6 +92,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 [data-image-pane="source"] .igs-settings-sub:not(details):not([data-image-source="nai"]):not([data-model-profiles]):not([data-image-feature="consistency"]){margin-left:0;padding-left:0;border-left:0}
 .igs-artist-lib-row{display:flex;align-items:center;gap:8px;min-width:0}
 .igs-artist-lib-row>.igs-settings-field{flex:1 1 auto;min-width:0}
+.igs-artist-lib-row.is-labeled{align-items:flex-end}
 .igs-artist-lib-row>.igs-settings-action{flex:0 0 auto;height:30px;padding:0 10px}
 .igs-link-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0 6px;margin-top:-4px;font-size:11px;line-height:16px;color:var(--igs-settings-ink-4)}
 .igs-link-btn{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
@@ -196,6 +197,16 @@ details.igs-log-calc>.igs-source-filter-note{padding-left:14px}
 .igs-char-voice-main>.igs-tts-voice-search,.igs-tts-inline-control>.igs-tts-voice-search{flex:1;min-width:0}
 .igs-tts-voice-search>input,.igs-tts-voice-search>select{width:100%;min-width:0}
 .igs-tts-voice-search [hidden]{display:none}
+.igs-tts-voice-search-row{display:flex;align-items:center;gap:6px;min-width:0}
+.igs-tts-voice-search-row>select{flex:1 1 auto;min-width:0}
+.igs-tts-voice-search-fold{flex:0 0 auto}
+.igs-tts-voice-search-fold>summary{list-style:none;cursor:pointer}
+.igs-tts-voice-search-fold>summary::-webkit-details-marker{display:none}
+.igs-tts-voice-search-fold[open]>summary{background:var(--igs-settings-field)}
+.igs-tts-voice-search[data-tts-voice-search-kind="select"]:not(:has(.igs-tts-voice-search-fold[open]))>input{display:none}
+.igs-tts-voice-list>.igs-table-pick{width:100%;flex:0 0 auto;justify-content:flex-start;text-align:left}
+.igs-tts-voice-select-bar{flex-wrap:wrap}
+.igs-artist-lib-row>.igs-tts-pool{flex:1 1 auto;min-width:0}
 .igs-wi-entries{display:flex;flex-direction:column;gap:4px;min-width:0;max-height:240px;overflow-y:auto}
 .igs-wi-entries>.igs-table-pick{width:100%;flex:0 0 auto;justify-content:flex-start;text-align:left}
 .igs-card-skin-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:-6px}
@@ -214,10 +225,7 @@ details.igs-log-calc>.igs-source-filter-note{padding-left:14px}
 .igs-settings-actions>.igs-settings-action{flex:0 0 auto;white-space:nowrap}
 [data-image-prompt-panel] details>summary{overflow-wrap:anywhere}
 .igs-image-prompt-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
-.igs-image-prompt-more{min-width:0}
 .igs-settings-field textarea.igs-image-prompt-text{font-family:inherit;line-height:1.7}
-[data-image-prompt-panel] .igs-image-prompt-preset-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-@media (max-width:520px){[data-image-prompt-panel] .igs-image-prompt-preset-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* 数值页「同步到数据库表格」的四个模板按钮：两列等宽，文字不折行。 */
 .igs-stats-template-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .igs-stats-template-actions>.igs-settings-action{min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -332,7 +340,6 @@ details.igs-stats-person .igs-stats-hero-actions>.igs-settings-action:hover{back
 .igs-trait-progress progress::-webkit-progress-bar{background:var(--igs-settings-field);border-radius:2px}
 .igs-trait-progress progress::-webkit-progress-value{background:var(--igs-settings-accent);border-radius:2px}
 .igs-trait-progress progress::-moz-progress-bar{background:var(--igs-settings-accent);border-radius:2px}
-[data-image-prompt-panel] .igs-image-prompt-preset-actions>.igs-settings-inline-action,.igs-image-prompt-more>summary{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;min-width:0;height:var(--igs-compact-h);padding:0 10px;line-height:1;cursor:pointer;white-space:nowrap}
 [data-image-prompt-panel] .igs-segmented{height:var(--igs-compact-h);padding:2px}
 [data-image-prompt-panel] .igs-segmented-btn{height:calc(var(--igs-compact-h) - 4px)}
 .igs-image-prompt-row-name{flex:0 1 auto;min-width:0;font-size:13px;color:var(--igs-settings-ink-2);overflow-wrap:anywhere}
