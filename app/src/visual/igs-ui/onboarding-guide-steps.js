@@ -43,7 +43,7 @@ export const ONBOARDING_STEPS = Object.freeze([
     }),
     step({
         id: 'navAssets', page: 'dash', target: navGroup(2), nav: true, navGroup: 2,
-        title: '出素材',
+        title: '素材',
         body: '角色立绘、衣柜、背景与CG都在这里管理。',
     }),
     step({
