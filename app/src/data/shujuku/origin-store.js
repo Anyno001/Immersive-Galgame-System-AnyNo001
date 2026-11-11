@@ -39,7 +39,7 @@ export function createOriginStore({ tables } = {}) {
         if (before.revision !== intent.record.payload.parent) return { ok: false, reason: 'origin-database-conflict' };
         let result;
         let active = true;
-        try { result = await tables.append('ledger', [intent.record], { shouldStart: () => active && shouldStart(), retainOnFailure: false }); }
+        try { result = await tables.append('ledger', [intent.record], { shouldStart: () => active && shouldStart(), retainOnFailure: false, refresh: false }); }
         catch { result = { ok: false, reason: 'origin-database-write-failed' }; }
         finally { active = false; }
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };

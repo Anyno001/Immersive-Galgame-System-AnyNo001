@@ -32,7 +32,8 @@ export function createPointsStore({ tables, chat = () => [], chatId = () => '' }
         catch { return { ok: false, reason: 'points-ensure-failed' }; }
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
         if (!ready?.ok) return ready;
-        const before = read({ intent: record, fresh: true });
+        // 调用方在同一把锁里刚读过新数据；写入队列自己会作废缓存重读判重，这里用缓存即可。
+        const before = read({ intent: record });
         if (!before.ok) return before;
         const existing = before.rows.find(r => r.id === record.id);
         if (existing) return JSON.stringify(existing.payload) === JSON.stringify(record.payload)
@@ -42,12 +43,13 @@ export function createPointsStore({ tables, chat = () => [], chatId = () => '' }
         let result;
         let active = true;
         try { result = await tables.append('ledger', [record], {
-            retainOnFailure: false, shouldStart: () => active && shouldStart(),
+            retainOnFailure: false, refresh: false, shouldStart: () => active && shouldStart(),
         }); }
         catch { result = { ok: false, reason: 'points-write-failed' }; }
         finally { active = false; }
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-        const verified = read({ fresh: true });
+        // 写入成功时队列已作废缓存并整表读回核对过，复用那份读数。
+        const verified = read({ fresh: result?.ok !== true });
         if (verified.ok && verified.rows.some(r => r.id === record.id && JSON.stringify(r.payload) === JSON.stringify(record.payload))) return verified;
         return { ok: false, reason: result?.reason || verified.reason || 'points-write-unverified' };
     }
