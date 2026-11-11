@@ -65,3 +65,17 @@ test('捆绑项与合成组成项不进化', () => {
     assert.equal(evolveCandidates(s, { 林夏: { 傲娇: { on: true, src: 'bound', by: '猫系' } } }).length, 0);
     assert.equal(evolveCandidates(s, { 林夏: { 傲娇: on, 'combo:某某': { on: true, src: 'auto', parts: ['傲娇', '冰山'] } } }).length, 0);
 });
+
+test('玻璃心并肩取胜 8 次进化为坚韧；有互斥特质、不足 8 次、捆绑项不进化', () => {
+    const own = { 林夏: { 玻璃心: { on: true, src: 'story' } } };
+    assert.equal(evolveCandidates(world({ 林夏: mk({ comradeWins: 7 }) }), own).length, 0);
+    const list = evolveCandidates(world({ 林夏: mk({ comradeWins: 8 }) }), own);
+    assert.deepEqual(list, [{ name: '林夏', from: '玻璃心', to: '坚韧' }]);
+    assert.deepEqual(applyEvolutions(own, list), { 林夏: { 坚韧: { on: true, src: 'story' } } });
+    assert.equal(evolveCandidates(world({ 林夏: mk({ comradeWins: 9 }) }), { 林夏: { 玻璃心: on, 爱哭鬼: on } }).length, 0);
+});
+
+test('主角挂玻璃心：主角取胜 8 次（clock.heroBattleWins）进化', () => {
+    const s = { ...world({}), clock: { ...createStatsState().clock, heroBattleWins: 8 } };
+    assert.equal(evolveCandidates(s, { 主角: { 玻璃心: on } })[0].to, '坚韧');
+});

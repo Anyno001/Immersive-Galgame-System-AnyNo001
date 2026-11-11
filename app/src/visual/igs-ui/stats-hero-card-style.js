@@ -18,13 +18,15 @@ export const STATS_HERO_CARD_STYLE_TEXT = `
 #igs-unified-settings .igs-stats-meter-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:7px;font-size:12px;color:var(--igs-settings-ink-2)}
 #igs-unified-settings .igs-stats-meter-head b{color:var(--igs-settings-ink);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
 #igs-unified-settings .igs-stats-meter-head small{font-size:11px;font-weight:400;color:var(--igs-settings-ink-3)}
-#igs-unified-settings .igs-stats-meter-track{height:8px;border-radius:6px;overflow:hidden;background:color-mix(in srgb,var(--igs-settings-ink) 8%,var(--igs-settings-field))}
+#igs-unified-settings .igs-stats-meter-track{height:8px;border-radius:6px;overflow:hidden;background:var(--igs-settings-highlight)}
 #igs-unified-settings .igs-stats-meter-track>i{display:block;height:100%;border-radius:inherit}
 #igs-unified-settings .igs-stats-meter.is-life i{background:var(--igs-settings-danger)}
 #igs-unified-settings .igs-stats-meter.is-stamina i{background:var(--igs-settings-stamina)}
 #igs-unified-settings .igs-stats-meter.is-stress i{background:var(--igs-settings-stress)}
-#igs-unified-settings .igs-stats-wallets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}
-#igs-unified-settings .igs-stats-wallet{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 8px;min-width:0;font-size:13px;font-weight:500;color:var(--igs-settings-ink-2)}
+#igs-unified-settings .igs-stats-resources-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+#igs-unified-settings .igs-stats-resources-head>.igs-stats-day{font-size:11px;font-weight:400;color:var(--igs-settings-ink-3);font-variant-numeric:tabular-nums}
+#igs-unified-settings .igs-stats-wallets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;margin-top:8px}
+#igs-unified-settings .igs-stats-wallet{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 8px;min-width:0;font-size:13px;font-weight:500;color:var(--igs-settings-ink-2)}
 #igs-unified-settings .igs-stats-wallet>span{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}
 #igs-unified-settings .igs-stats-wallet>span>svg{width:16px;height:16px;flex:none;fill:none;stroke:var(--igs-settings-accent);stroke-width:1.8;stroke-linejoin:round}
 #igs-unified-settings .igs-stats-wallet>b{min-width:0;overflow-wrap:anywhere;color:var(--igs-settings-ink);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}

@@ -130,7 +130,7 @@ export function applyBattle(state, directive, ctx) {
     let next = withBars(state, bars);
     if (result.outcome !== '败') next = markSkill(next, result.attack);
     if (result.ally && result.outcome !== '败' && next.characters[result.ally]) {
-        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: keyEventSkill(engine, next, '共患难', ctx.rev), toward: result.ally }, ctx.random);
+        const roll = () => comradeRoll(engine, next, result.ally, ctx);
         const { character, result: ev } = applyKeyEvent(next.characters[result.ally], '共患难', { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(next, ctx.traitCat, result.ally) : [] });
         if (ev.success) ctx.changes.push({ source: 'battle', target: result.ally, key: '好感', from: ev.gate, to: ev.gate + 1, note: '共患难突破' });
         ctx.events.push({ target: result.ally, ...ev });
@@ -141,6 +141,13 @@ export function applyBattle(state, directive, ctx) {
     return next;
 }
 
+
+// 共患难突破检定：带上特质奖惩骰（生死之交等，rev ≥ 2 由运行时传入 traitEdge）。
+function comradeRoll(engine, state, ally, ctx) {
+    const skill = keyEventSkill(engine, state, '共患难', ctx.rev);
+    const te = ctx.rev >= 2 && typeof ctx.traitEdge === 'function' ? ctx.traitEdge(state, { skill, toward: ally }) : null;
+    return resolveCheck(engine, state, { actor: PROTAGONIST, skill, toward: ally, ...(te && te.edge ? { edge: te.edge } : {}) }, ctx.random);
+}
 // 卡牌战斗战报合成的战斗事件：只产出事件、标记与伤势档，交给特质、成就与共患难使用；
 // 经验、战利品与生命已由战斗账本结算，这里不掷骰、不扣钱、不给战利品。同一份战报只结算一次（clock.lastBattleReport）。
 export const REPORT_BATTLE_STRESS_LOSE = 10;
@@ -164,14 +171,14 @@ export function applyBattleReport(state, directive, ctx) {
     }
     if (outcome !== '败' && outcome !== '撤' && ally) {
         const engine = ctx.engine || createEngine();
-        const roll = () => resolveCheck(engine, next, { actor: PROTAGONIST, skill: keyEventSkill(engine, next, '共患难', ctx.rev), toward: ally }, ctx.random);
+        const roll = () => comradeRoll(engine, next, ally, ctx);
         const { character, result: ev } = applyKeyEvent(next.characters[ally], '共患难', { roll, random: ctx.random, extraGates: ctx.rev >= 2 ? extraGatesOf(next, ctx.traitCat, ally) : [] });
         if (ev.success) ctx.changes.push({ source: 'battle', target: ally, key: '好感', from: ev.gate, to: ev.gate + 1, note: '共患难突破' });
         ctx.events.push({ target: ally, ...ev });
         next = withCharacter(next, ally, character);
     }
     ctx.events.push({ kind: 'battle', outcome, tier: '卡牌', count: 1, ally, allies, fromReport: true, reportId: directive.reportId });
-    ctx.flags.battle = { outcome, tier: '卡牌', count: 1, ally, allies, fromReport: true };
+    ctx.flags.battle = { outcome, tier: '卡牌', count: 1, ally, allies, fromReport: true, heroStatus: directive.heroStatus || '无伤', party: Array.isArray(directive.party) ? directive.party : [], fallen: Array.isArray(directive.fallen) ? directive.fallen : [], weak: directive.weak === true, foes: Array.isArray(directive.foes) ? directive.foes : [] };
     return withClock(next, { lastBattleReport: directive.reportId });
 }
 

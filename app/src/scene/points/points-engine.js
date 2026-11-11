@@ -11,10 +11,18 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
         const id = chatId(), db = store(), path = chat();
         return { id, db, valid: () => chatId() === id && store() === db && chat() === path };
     }
+    let waiting = 0, working = 0, phase = '';
     function run(task) {
         const held = lease();
-        return lock(() => held.valid() ? task(held) : fail('request-stale'));
+        waiting += 1;
+        return lock(async () => {
+            waiting -= 1;
+            working += 1;
+            try { return held.valid() ? await task(held) : fail('request-stale'); }
+            finally { working -= 1; phase = ''; }
+        });
     }
+    const stage = () => (working ? phase || 'points-writing' : waiting ? 'points-lock-busy' : '');
     function pending(held) { return intents.read(held.id); }
     function view(state, roundId) {
         const round = state.rounds.get(roundId);
@@ -115,7 +123,9 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
             if (!message) return fail('points-floor-missing');
             const at = path.indexOf(message);
             if (at < 0 || pointsSwipe(message) !== swipeId || !pointFloors(path).some(f => f.messageId === at)) return fail('request-stale');
+            phase = 'points-floor-saving';
             const bound = await floors.ensure(at);
+            phase = '';
             if (!bound.ok || !held.valid()) return bound.ok ? fail('request-stale') : bound;
             if (bound.anchor.swipeId !== swipeId) return fail('request-stale');
             if (anchor && !same(bound.anchor, anchor)) return fail('points-round-stale');
@@ -205,6 +215,6 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
         return !state.ok ? state : blocked(state) ? fail('points-settlement-pending') : { ok: true };
     }
     const exchange = createPointsExchange({ run, fresh, commit, blocked, wallet, chat, floors, pending });
-    return { start, award, hand, settle, retry, spendingGate, ...exchange,
+    return { start, award, hand, settle, retry, spendingGate, stage, ...exchange,
         read: () => store().read(), pending: () => intents.read(chatId()) };
 }

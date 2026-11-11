@@ -37,6 +37,7 @@ import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { isRelicPassive } from './relics/draw.js';
 import { heldOffCombat, offCombatModel, refsHeld, relicRefKey } from './relics/off-combat.js';
+import { allCleanOf, freeRerollOf, traitWinKey } from './trait-reward-bias.js';
 import { rewardCardMarks } from './reward-cards.js';
 import { isOriginRecord, mergeOriginRecords, originPointsOf } from '../scene/origin/origin-log.js';
 import { foldPointsRecords, isPointsRecord } from '../scene/points/points-log.js';
@@ -272,7 +273,7 @@ function createFloorScanner(chat, sourceFilter) {
             const parsedReport = isUser ? combatReportResult(text) : null;
             // 规则 v6 G3d：战报块带 weak="1" 为弱敌战，不计胜场、不给删卡。
             const hpLost = reportHpLostOf(text);
-            const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text), ...(reportWeakOf(text) ? { weak: true } : {}), ...(hpLost === null ? {} : { hpLost }) } : null;
+            const report = parsedReport ? { ...parsedReport, reportId: reportIdOf(text), ...(reportWeakOf(text) ? { weak: true } : {}), ...(hpLost === null ? {} : { hpLost }), ...(allCleanOf(text) ? { allClean: true } : {}) } : null;
             const challenge = isUser && !report ? parseChallengeReport(text) : null;
             const body = isUser ? text : combatBodyText(text, { sourceFilter });
             // 用户楼只有战报才有标签；AI 楼的标签 + 受伤等生活标签
@@ -654,6 +655,12 @@ const handlers = Object.freeze({
                     const key = relicRefKey(ref);
                     state.flipWins.set(key, (state.flipWins.get(key) || 0) + 1);
                 }
+                // 特质翻牌便利（C 类）的胜场：按本场奖励单里记下的特质累计（键 trait:<特质名>）；旧账本没有 traitHeld，不动。
+                const offer = context.offers && [...context.offers.values()].find((item) => reportIdFor(item.combatId) === report.reportId && item.character === state.id);
+                for (const name of offer?.traitHeld || []) {
+                    const key = traitWinKey(name);
+                    state.flipWins.set(key, (state.flipWins.get(key) || 0) + 1);
+                }
             }
         }
         return null;
@@ -930,7 +937,9 @@ const handlers = Object.freeze({
         const slot = (payload.set === 'reserve' ? offer.reserve : offer.slots)?.[payload.slot.index];
         if (!slot || slot.kind !== payload.slot.kind || slot.name !== payload.slot.name || slot.rarity !== payload.slot.rarity) return 'combat-loot-slot-mismatch';
         if ((slot.junk === true) !== (payload.slot.junk === true)) return 'combat-loot-slot-mismatch';
-        if ((payload.set === 'reserve') !== (payload.cost > 0)) return 'combat-loot-cost-invalid';
+        // 备选组要付重抽费；特质免费重抽（offer 记了来源，完美主义者另需战报全员无伤）时为 0。
+        const reserved = payload.set === 'reserve';
+        if (reserved ? !(payload.cost > 0 || freeRerollOf(offer, floorReport?.allClean === true)) : payload.cost !== 0) return 'combat-loot-cost-invalid';
         if (payload.cost > 0 && heroId && state.id !== heroId) return 'combat-points-not-protagonist';
         const failure = applyLootSlot(state, slot, entry, heroStock === true && state.id === heroId, floorReport?.hpLost ?? null);
         if (failure) return failure;
@@ -1746,7 +1755,7 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
     if (choices && directive.pick === undefined) return { ok: false, reason: 'combat-loot-pick-missing' };
     const payload = {
         combatId: offer.combatId, reportId: directive.reportId, set: directive.set, slot: { ...slot },
-        cost: directive.set === 'reserve' ? REROLL_COST : 0,
+        cost: directive.set === 'reserve' && !freeRerollOf(offer, allCleanOf(text)) ? REROLL_COST : 0,
         ...(slot.kind === 'card' ? { merge: true } : {}),
         ...(choices ? { pick: directive.pick } : {}),
         ...(COMBAT_RULES.version >= 6 && slot.kind === 'card' && directive.pick !== 'skip' ? { added: true } : {}),

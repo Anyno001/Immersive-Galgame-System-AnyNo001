@@ -79,8 +79,8 @@ ${P} .igs-deck-btn:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-
 ${P} .igs-deck-btn[aria-pressed="true"]:not(.is-primary){background:var(--igs-rp-fill-active);color:var(--igs-rp-text);font-weight:600;}
 ${P} .igs-deck-btn.is-primary{min-height:40px;padding:9px 24px;background:var(--igs-rp-accent);color:var(--igs-rp-on-ink);font-size:14px;font-weight:600;letter-spacing:.14em;}
 ${P} .igs-deck-btn.is-primary:hover{opacity:.88;}
-${P} :is(.igs-deck-card,.igs-deck-keepsake,.igs-deck-pool,.igs-generation-form) .igs-deck-btn:not(.is-primary){background:var(--igs-rp-fill-hover);}
-${P} :is(.igs-deck-card,.igs-deck-keepsake,.igs-deck-pool,.igs-generation-form) .igs-deck-btn:not(.is-primary):hover{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
+${P} :is(.igs-deck-pool,.igs-generation-form) .igs-deck-btn:not(.is-primary){background:var(--igs-rp-fill-hover);}
+${P} :is(.igs-deck-pool,.igs-generation-form) .igs-deck-btn:not(.is-primary):hover{background:var(--igs-rp-fill-active);color:var(--igs-rp-text);}
 ${P} .igs-deck-btn.is-step{min-width:32px;padding:0;font-size:16px;line-height:1;}
 ${P} :is(.igs-deck-btn,.igs-deck-tab,.igs-deck-person):active{transform:scale(.97);}
 ${P} [aria-disabled="true"]{opacity:.42;cursor:default;}
@@ -91,10 +91,10 @@ ${P} .igs-deck-size.is-error,${P} .igs-deck-err{color:var(--igs-deck-danger);}
 ${P} .igs-deck-err{display:block;font-size:12px;overflow-wrap:anywhere;}
 ${P} .igs-deck-help{margin:0;color:var(--igs-rp-text-faint);font-size:12px;line-height:1.7;overflow-wrap:anywhere;}
 /* 六维：属性名在上、数值与调整值在下，格子不随面板拉宽。 */
-/* 六格纯文字排开，不套底色；左侧一道竖线，同设置器数值页的子项缩进线。 */
-${P} .igs-deck-abilities{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:0 28px;margin:0 0 0 6px;padding:2px 0 2px 14px;list-style:none;border-left:2px solid var(--igs-rp-accent,var(--igs-rp-text-soft));}
+/* 六格纯文字排开，不套底色；每格左侧各一道主题色竖线，同设置器数值页的子项。 */
+${P} .igs-deck-abilities{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px 24px;margin:0;padding:0;list-style:none;}
 ${P} .igs-deck-abilities.is-alloc{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
-${P} .igs-deck-ability{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 0;box-sizing:border-box;}
+${P} .igs-deck-ability{display:flex;align-items:center;gap:8px;min-height:36px;padding:2px 0 2px 12px;box-sizing:border-box;border-left:2px solid var(--igs-rp-accent,var(--igs-rp-text-soft));}
 ${P} .igs-deck-ability-name{flex:1;color:var(--igs-rp-text-faint);font-size:12px;font-weight:500;letter-spacing:.12em;}
 ${P} .igs-deck-ability-score{min-width:1.6em;color:var(--igs-rp-text);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;text-align:center;}
 ${P} .igs-deck-ability.is-added .igs-deck-ability-score{color:var(--igs-rp-accent);}
@@ -108,6 +108,7 @@ ${P} .igs-deck-name{display:inline-flex;align-items:center;flex:0 1 9em;min-widt
 ${P} .igs-deck-name.is-empty,${P} .igs-deck-name.is-locked{color:var(--igs-rp-text-faint);font-weight:400;}
 ${P} .igs-deck-count{flex:1 1 12em;min-width:0;color:var(--igs-rp-text-soft);font-size:12px;line-height:1.6;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
 ${P} .igs-deck-bag-acts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;}
+${P} .igs-deck-keepsake .igs-deck-count.is-qty{flex:none;margin-left:auto;}
 /* 御印选定：可刻副本按钮紧排在待刻项下方，选中后列出刻印前后，确认与取消随后。 */
 ${P} .igs-deck-seal{display:flex;flex-direction:column;gap:8px;padding:8px 12px 10px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
 ${P} .igs-deck-seal-picks{display:flex;flex-wrap:wrap;gap:6px;}
@@ -242,7 +243,7 @@ ${P}.igs-rp-narrow .igs-deck-card-stats{flex-direction:row;align-items:center;ga
 ${P}.igs-rp-narrow .igs-deck-tab{padding:6px 14px;}
 /* 窄屏列表行：说明另起一行占满整宽，不挤在名称右边的窄栏里。 */
 ${P}.igs-rp-narrow .igs-deck-keepsake .igs-deck-count{flex:1 1 100%;}
-${P}.igs-rp-narrow .igs-deck-keepsake .igs-deck-trait-body .igs-deck-count{flex:none;}
+${P}.igs-rp-narrow .igs-deck-keepsake :is(.igs-deck-trait-body .igs-deck-count,.igs-deck-count.is-qty){flex:none;}
 /* 窄屏按钮：分页签、操作按钮一律等宽铺满、文字居中。 */
 ${P}.igs-rp-narrow .igs-deck-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);align-self:stretch;}
 ${P}.igs-rp-narrow .igs-deck-tab{padding:6px 0;text-align:center;}

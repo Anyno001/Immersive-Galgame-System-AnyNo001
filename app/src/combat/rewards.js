@@ -7,6 +7,7 @@ import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 import { FIXED_GENERAL_CARDS, fixedClassPool } from './fixed-cards/index.js';
 import { drawRelic } from './relics/draw.js';
 import { flipRewardBonus, heldOffCombat } from './relics/off-combat.js';
+import { biasWeightOf, heldCounterTraits, pickBias, pickTraitFlip } from './trait-reward-bias.js';
 
 const RARITY_ORDER = Object.freeze(['common', 'uncommon', 'rare', 'epic', 'mythic']);
 const rarityIndex = (rarity) => RARITY_ORDER.indexOf(rarity);
@@ -180,13 +181,23 @@ function buildWeakSlots(seed, kinds, count, targets = null) {
 const FIXED_TOP = rarityIndex('rare');
 // 无色固定卡进战利品翻牌的比例：每个卡牌槽以此概率把一张固定候选换成无色牌（积分抽卡不出无色）。
 export const REWARD_GENERAL_SHARE = 0.25;
-function fixedCandidates(seed, rarity, pool, owned, count, taken = [], floor = 'common') {
+// weightOf（可选，特质偏向）：牌 -> 权重；不传时与原来的均匀抽逐位一致（每抽仍只消耗一个随机数）。
+function fixedCandidates(seed, rarity, pool, owned, count, taken = [], floor = 'common', weightOf = null) {
     const random = randomFrom(seed);
     const out = [];
     const top = Math.max(rarityIndex(floor), Math.min(rarityIndex(rarity), FIXED_TOP));
     for (let r = top; r >= 0 && out.length < count; r -= 1) {
         const left = pool.filter((card) => card.rarity === RARITY_ORDER[r] && !out.includes(card.id) && !taken.includes(card.id) && (owned.get(card.id) || 0) < cardCopyLimit(card.rarity));
-        while (out.length < count && left.length) out.push(left.splice(pickIndex(random, left.length), 1)[0].id);
+        while (out.length < count && left.length) {
+            let at;
+            if (weightOf) {
+                const weights = left.map(weightOf);
+                let roll = random() * weights.reduce((sum, weight) => sum + weight, 0);
+                at = weights.findIndex((weight) => (roll -= weight) < 0);
+                if (at < 0) at = left.length - 1;
+            } else at = pickIndex(random, left.length);
+            out.push(left.splice(at, 1)[0].id);
+        }
     }
     return out;
 }
@@ -194,13 +205,16 @@ function fixedCandidates(seed, rarity, pool, owned, count, taken = [], floor = '
 // 规则 v6：卡牌槽展开为 REWARD_CARD_CHOICES 张候选，本职业固定卡与随机卡 2:1，随机卡的位置由种子定；
 // 每槽以 REWARD_GENERAL_SHARE 的概率把最后一张固定候选换成无色固定卡。
 // 程序在槽位上记 fixedIds / randomAt / archetype，随机卡由副 LLM 按本职业模板命名。本职业固定池凑不齐时该槽照旧只出一张随机卡。
-function withCardCandidates(slots, seed, pool, owned, archetype, general = [], bonus = {}) {
+// heroTraits 为主角数值特质名单（可选）：命中偏向时本职业固定候选按牌类加权，applied 收集实际生效的 { trait, category }。
+function withCardCandidates(slots, seed, pool, owned, archetype, general = [], bonus = {}, heroTraits = null, applied = null) {
     return slots.map((slot) => {
         if (slot.kind !== 'card') return slot;
         const marked = { ...slot, ...(bonus.inscribe > 0 ? { inscribe: bonus.inscribe } : {}), ...(bonus.upgradeNoDamage ? { upgradeNoDamage: true } : {}) };
         if (!pool.length) return marked;
         const count = Math.min(REWARD_CARD_CHOICES_MAX, REWARD_CARD_CHOICES + (bonus.choices || 0));
-        const fixedIds = fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, count - 1);
+        const bias = heroTraits ? pickBias(heroTraits, pool) : null;
+        const fixedIds = fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, count - 1, [], 'common', bias ? biasWeightOf(bias.category) : null);
+        if (bias && applied && fixedIds.length >= REWARD_CARD_CHOICES - 1) applied.push(bias);
         if (fixedIds.length < REWARD_CARD_CHOICES - 1) return marked;
         const size = fixedIds.length + 1;
         if (general.length && randomFrom(`${seed}|cand-general|${slot.index}`)() < REWARD_GENERAL_SHARE) {
@@ -254,10 +268,13 @@ export function planCardDraw(character) {
 // inscribe 为真（规则 v5 胜利奖励）时卡组角色可出刻印槽；日常挑战等其他调用方不开启，槽位与旧规则一致。
 // candidates 为真（规则 v6 胜利奖励）时卡组角色的卡牌槽展开为三选一（本职业固定卡、按比例混入无色固定卡、本职业随机卡，见 withCardCandidates）。
 // weak 为真（规则 v6 G3d 弱敌战，只与 candidates 同开）时按 buildWeakSlots 出槽，经验按 1/4 向下取整。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false, weak = false } = {}) {
+// statTraits（可选）：{ hero: 主角数值特质名单, allies: 同场同伴的特质名单（只供福星）}，由宿主层读取后传入；不传时与旧规划逐位一致。
+// 生效来源记在返回值：traitBias { trait, category }（B 类牌类偏向）、traitFlip { trait, effect: 'choices' | 'reveal' | 'reroll', noDamage? }（C 类）、
+// traitHeld（需按胜场计数的 C 类特质，账本据此累计 flipWins 的 trait:<特质名>）。
+export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false, weak = false, statTraits = null } = {}) {
     const tierKey = Object.hasOwn(TIER_LOOT, tier) ? tier : 'normal';
     const rule = TIER_LOOT[tierKey];
-    const normalLinks = normalizeLinks(links);
+    let normalLinks = normalizeLinks(links);
     const seed = `reward|${combatId ?? ''}|${character?.id ?? ''}`;
     const deck = character?.kind === 'deck-character';
     // 只有牌组角色才掉卡牌与刻印；刻印另需调用方开启。
@@ -266,6 +283,13 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
     // 「再翻」关联多给一个槽位。
     const flipRelics = deck && candidates === true ? heldOffCombat(character?.traits, 'flip') : [];
     const bonus = flipRewardBonus(flipRelics, { tier: tierKey, wins: character?.flipWins, weak });
+    // 特质翻牌便利（C 类）：多一个可选项并进 bonus.choices（封顶 1，遗物已给时不叠加），透视 +1 封顶 2，免费重抽只记来源。
+    const traitFlip = deck && candidates === true && statTraits ? pickTraitFlip(statTraits, { tier: tierKey, weak: weak === true, wins: character?.flipWins, reveal: normalLinks.reveal, relicChoices: bonus.choices }) : null;
+    if (traitFlip?.effect === 'choices') bonus.choices = 1;
+    if (traitFlip?.effect === 'reveal') normalLinks = { ...normalLinks, reveal: Math.min(2, normalLinks.reveal + 1) };
+    const traitHeld = deck && candidates === true && statTraits ? heldCounterTraits(statTraits) : [];
+    const heroTraits = deck && candidates === true && weak !== true && Array.isArray(statTraits?.hero) && statTraits.hero.length ? statTraits.hero : null;
+    const biasApplied = [];
     const baseCount = REWARD_SLOT_COUNT + (normalLinks.reflip ? 1 : 0);
     const count = Math.min(REWARD_SLOT_MAX, baseCount + bonus.extra);
     const lootChance = difficultyRule(difficulty).loot;
@@ -289,9 +313,10 @@ export function planRewardSlots({ combatId, tier, enemyTiers = [], character = n
         }
         return list;
     };
-    const slots = relics(withCardCandidates(base(seed), seed, pool, owned, archetype, general, bonus), seed);
+    const slots = relics(withCardCandidates(base(seed), seed, pool, owned, archetype, general, bonus, heroTraits, biasApplied), seed);
     const reserveSeed = `${seed}|reserve`;
-    const reserve = relics(withCardCandidates(base(reserveSeed), reserveSeed, pool, owned, archetype, general, bonus), reserveSeed);
+    const reserve = relics(withCardCandidates(base(reserveSeed), reserveSeed, pool, owned, archetype, general, bonus, heroTraits), reserveSeed);
     const exp = weakOn ? weakShare(victoryExpFor(enemyTiers)) : victoryExpFor(enemyTiers);
-    return { seed, tier: tierKey, exp, links: normalLinks, slots, reserve, ...(flipRelics.length ? { flipRelics } : {}), ...(weakOn ? { weak: true } : {}) };
+    return { seed, tier: tierKey, exp, links: normalLinks, slots, reserve, ...(flipRelics.length ? { flipRelics } : {}), ...(weakOn ? { weak: true } : {}),
+        ...(biasApplied.length ? { traitBias: { trait: biasApplied[0].trait, category: biasApplied[0].category } } : {}), ...(traitFlip ? { traitFlip } : {}), ...(traitHeld.length ? { traitHeld } : {}) };
 }

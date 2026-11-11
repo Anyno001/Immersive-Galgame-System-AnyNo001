@@ -6,7 +6,7 @@ import { TRAIT_RECIPES, resolveCombos, diffCombos, comboNoticeText } from '../sr
 const R = (name, parts) => ({ id: name, name, parts, effect: { key: name, text: '说明。' } });
 
 test('配方表：条数、名称唯一、组成项不重复、独有效果有键与说明', () => {
-  assert.equal(TRAIT_RECIPES.length, 47);
+  assert.equal(TRAIT_RECIPES.length, 48);
   assert.equal(new Set(TRAIT_RECIPES.map((r) => r.name)).size, TRAIT_RECIPES.length);
   for (const r of TRAIT_RECIPES) {
     assert.equal(new Set(r.parts).size, r.parts.length, r.name);
@@ -112,4 +112,10 @@ test('diffCombos：被更大配方吞并时旧合成拆分、新合成成立', (
   const recipes = [R('甲', ['a', 'b']), R('乙', ['a', 'b', 'c'])];
   const out = diffCombos(['a', 'b'], ['a', 'b', 'c'], { charName: 'X', recipes });
   assert.deepEqual(out.map((n) => `${n.type}:${n.name}`), ['combo:乙', 'split:甲']);
+});
+
+test('生死之交：护短 + 讲义气两项即合成', () => {
+  const r = resolveCombos(['护短', '讲义气']);
+  assert.deepEqual(r.combos.map((c) => c.name), ['生死之交']);
+  assert.equal(r.slotsUsed, 1);
 });

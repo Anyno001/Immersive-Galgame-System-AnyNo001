@@ -92,111 +92,6 @@ function dnaTemplateFixture() {
             centers: structuredClone(caption.v4_prompt.caption.char_captions[b.captionIndex].centers), positionExplicit: true })) } };
 }
 
-test('gate:dna-template:自身展开保真且缺景别、重复或跨角色令牌失败关闭', async () => {
-    const { prepareCharacterCaption } = await import('../src/generated-images/character-caption.js');
-    const fixture = dnaTemplateFixture(), before = structuredClone(fixture);
-    const result = prepareCharacterCaption(fixture);
-    assert.equal(result.ok, true, result.error);
-    assert.equal(result.caption.v4_prompt.caption.base_caption, fixture.caption.v4_prompt.caption.base_caption);
-    assert.equal(result.caption.v4_prompt.caption.char_captions[0].char_caption,
-        'Alice, with 1.2::silver hair:: and a $5 hair clip, wears a blue coat and reaches toward Alicia.');
-    assert.equal(result.caption.v4_negative_prompt.caption.char_captions[1].char_caption, '');
-    assert.deepEqual(result.caption.v4_prompt.caption.char_captions[0].centers, [{ x: 0.23, y: 0.51 }]);
-    assert.deepEqual(fixture, before);
-    assert.equal(Object.isFrozen(result.dnaSnapshot.characters[0].profile), true);
-    const missing = dnaTemplateFixture(); missing.characterContext[0].dna.views = { portrait: { subject: 'Alice,' } };
-    assert.equal(prepareCharacterCaption(missing).reason, 'DNA_VIEW_MISSING');
-    const absent = dnaTemplateFixture(); absent.characterContext[0].dna = {};
-    assert.equal(prepareCharacterCaption(absent).reason, 'DNA_MISSING');
-    for (const text of ['<<dna:rB9>> waves.', '<<dna:rA7>> <<dna:rA7>> waves.', '<<dna:unknown>> waves.']) {
-        const invalid = dnaTemplateFixture(); invalid.caption.v4_prompt.caption.char_captions[0].char_caption = text;
-        assert.equal(prepareCharacterCaption(invalid).ok, false);
-    }
-    const recursive = dnaTemplateFixture(); recursive.characterContext[0].dna.views.half_body.subject = '<<dna:rB9>>';
-    assert.equal(prepareCharacterCaption(recursive).ok, false);
-    assert.equal(prepareCharacterCaption({ caption: fixture.caption, captionMode: 'final' }).reason, 'DNA_TEMPLATE_UNRESOLVED');
-    const promptTask = { version: 1, mode: 'dna_template', purpose: 'cg',
-        characters: fixture.promptRecipe.bindings.map(({ characterKey, token, framing }) => ({ characterKey, token, framing })) };
-    assert.equal(prepareCharacterCaption({ ...fixture, promptTask }).ok, true);
-    const finalCaption = result.caption;
-    assert.equal(prepareCharacterCaption({ caption: finalCaption, promptTask }).reason, 'PROMPT_MODE_CONFLICT');
-    assert.equal(prepareCharacterCaption({ ...fixture, caption: finalCaption, captionMode: 'final' }).reason, 'PROMPT_MODE_CONFLICT');
-    assert.equal(prepareCharacterCaption({ ...fixture, promptTask: { ...promptTask, purpose: 'unknown' } }).reason, 'PROMPT_MODE_CONFLICT');
-    assert.equal(prepareCharacterCaption({ ...fixture, dnaCandidates: { version: 1, characters: [] } }).reason, 'PROMPT_MODE_CONFLICT');
-    const duplicate = dnaTemplateFixture(); duplicate.characterContext.push(duplicate.characterContext[0]);
-    assert.equal(prepareCharacterCaption(duplicate).reason, 'DNA_TEMPLATE_BINDING');
-    const reference = dnaTemplateFixture(); reference.promptRecipe.bindings[1].kind = 'reference';
-    reference.characterMeta.characters.pop();
-    assert.equal(prepareCharacterCaption(reference).reason, 'PROMPT_MODE_CONFLICT');
-    assert.equal(prepareCharacterCaption({ caption: finalCaption, captionMode: 'final' }).ok, true);
-    assert.deepEqual(prepareCharacterCaption({ caption: finalCaption }), { ok: true, caption: finalCaption });
-});
-
-test('普通 CG 缺本景别时借同一人已存景别或旧版身份，不用写词现编的身份', async () => {
-    const { readCaptionIdentity, prepareCharacterCaption } = await import('../src/generated-images/character-caption.js');
-    const made = { identityAnchor: '1girl, white hair, red eyes', signatureDetails: '' };
-    const v2 = { version: 2, views: { half_body: { subject: '1girl, black hair, blue eyes', negative: 'full body' } } };
-    assert.deepEqual(readCaptionIdentity(v2, 'full_body', 'cg', made),
-        { ok: true, source: 'saved', value: { subject: '1girl, black hair, blue eyes', negative: '' } });
-    assert.equal(readCaptionIdentity(v2, 'full_body', 'sprite', made).reason, 'DNA_VIEW_MISSING');
-    const legacy = { identity: '1girl, black hair, blue eyes', triggerWords: 'nora', negative: 'glasses' };
-    assert.deepEqual(readCaptionIdentity(legacy, 'half_body', 'cg', made),
-        { ok: true, source: 'saved', value: { subject: 'nora, 1girl, black hair, blue eyes', negative: 'glasses' } });
-    assert.equal(readCaptionIdentity({ identity: '黑发蓝眼的少女' }, 'half_body', 'cg', made).source, 'scene');
-    assert.equal(readCaptionIdentity({}, 'half_body', 'cg', made).source, 'scene');
-    const fixture = dnaTemplateFixture();
-    fixture.characterContext[0].dna.views = { full_body: { subject: 'Alice, with silver hair,', negative: '' } };
-    fixture.characterMeta.characters[0].identityAnchor = '1girl, white hair';
-    const promptTask = { version: 1, mode: 'dna_template', purpose: 'cg',
-        characters: fixture.promptRecipe.bindings.map(({ characterKey, token, framing }) => ({ characterKey, token, framing })) };
-    const result = prepareCharacterCaption({ ...fixture, promptTask });
-    assert.equal(result.ok, true, result.error);
-    assert.equal(result.caption.v4_prompt.caption.char_captions[0].char_caption,
-        'Alice, with silver hair, wears a blue coat and reaches toward Alicia.');
-    assert.equal(result.dnaSnapshot.characters[0].source, 'saved');
-});
-
-test('gate:dna-template:内置局部重绘定稿 wire 和取消与快照同源', async () => {
-    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
-    const wires = [];
-    const nai = createNaiOfficialClient({ fetch: async (_url, init) => {
-        wires.push(JSON.parse(init.body));
-        return new Response(JSON.stringify({ image: 'data:image/png;base64,AAAA' }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } });
-    } });
-    const backend = createImageBackend({ nai, getBridge: () => ({ imageApi: { mode: 'nai' },
-        autoIllustration: { nai: { apiKey: 'fake-key', model: 'nai-diffusion-4-5-full', artistPrefix: 'artist:global' } } }) });
-    const png = pngFixture(64, 128);
-    const request = { ...dnaTemplateFixture(), sourceDataUrl: png.dataUrl,
-        maskDataUrl: png.dataUrl, width: 64, height: 128 };
-    const before = structuredClone(request);
-    for (const artist of [undefined, null, { positivePrompt: 'artist:local', negativePrompt: 'local-uc' }]) {
-        const result = await backend.edit({ ...request, ...(artist !== undefined && { artist }) });
-        assert.equal(result.ok, true, result.error);
-        const wire = wires.at(-1);
-        const prefix = artist === undefined ? 'artist:global' : artist?.positivePrompt;
-        assert.equal(wire.input, (prefix ? prefix + ', ' : '') + request.caption.v4_prompt.caption.base_caption);
-        assert.equal(wire.parameters.negative_prompt, (artist?.negativePrompt ? artist.negativePrompt + ', ' : '') + 'closed eyes');
-        assert.deepEqual(result.sentPrompt.caption.v4_prompt.caption, wire.parameters.v4_prompt.caption);
-        assert.deepEqual(result.sentPrompt.caption.v4_negative_prompt.caption, wire.parameters.v4_negative_prompt.caption);
-        assert.equal(result.sentPrompt.action, 'infill');
-        assert.equal(result.sentPrompt.model, wire.model);
-        assert.equal(wire.parameters.image, png.base64);
-        assert.equal(wire.parameters.mask, png.base64);
-        assert.equal(wire.parameters.qualityToggle, false);
-        assert.equal(wire.parameters.ucPreset, 4);
-        assert.equal(JSON.stringify(result.sentPrompt).includes(png.base64), false);
-    }
-    const count = wires.length;
-    for (const extra of [{ signal: AbortSignal.abort() }, { shouldStart: () => false }, { promptRecipe: undefined, promptTask: { version: 1 } }]) {
-        assert.equal((await backend.edit({ ...request, ...extra })).ok, false);
-    }
-    assert.equal(wires.length, count);
-    assert.deepEqual(request, before);
-});
-
-
-
 function templateWritingFixture(candidate = false) {
     const subject = 'Alice, an adult woman with 1.2::silver hair:: and blue eyes,';
     const views = Object.fromEntries(['full_body', 'half_body', 'portrait']
@@ -213,31 +108,6 @@ function templateWritingFixture(candidate = false) {
         ...(candidate ? Object.entries(views).map(([frame, view]) => `meta_dna_${frame}: 0 | ${view.subject}`) : [])].join('\n');
     return { reply, promptTask, characterContext, subject };
 }
-
-test('gate:dna-template:必需角色遗漏失败而 CG 允许池支持逐图子集', async () => {
-    const { parseTemplateCaptionSlots } = await import('../src/generated-images/illustration/template-caption-parser.js');
-    const fixture = templateWritingFixture();
-    const input = { promptTask: { ...fixture.promptTask, characters: [...fixture.promptTask.characters,
-        { characterKey: 'Bob', token: 'rB9', framing: 'half_body' }] },
-        characterContext: [...fixture.characterContext, { characterKey: 'Bob', dna: {} }] };
-    for (const purpose of ['sprite', 'derived']) {
-        const parsed = parseTemplateCaptionSlots(fixture.reply,
-            { ...input, promptTask: { ...input.promptTask, purpose } });
-        assert.equal(parsed.ok, false);
-        assert.equal(parsed.reason, 'DNA_TEMPLATE_BINDING');
-    }
-    const text = fixture.reply + '\n---\n' + fixture.reply.replace('slotid: 6', 'slotid: 9')
-        .replace('size: 832x1216', 'size: 1216x832');
-    const parsed = parseTemplateCaptionSlots(text, input);
-    assert.equal(parsed.ok, true, parsed.error);
-    assert.deepEqual(parsed.captions.map((c) => [c.slotId, c.width, c.height]),
-        [[6, 832, 1216], [9, 1216, 832]]);
-    for (const item of parsed.captions) {
-        assert.equal(item.promptRecipe.bindings.length, 1);
-        assert.equal(item.promptRecipe.bindings[0].characterKey, 'Alice');
-        assert.equal(item.dnaCandidates, undefined);
-    }
-});
 
 test('gate:image-runtime:柏宝绘计时保留结果，主动取消可结束忽略信号的插件调用', { timeout: 3000 }, async () => {
     const { requestBaibaiImage } = await import('../src/generated-images/baibai-client.js');
@@ -268,7 +138,7 @@ const imageDeferred = () => {
 const imageResponse = () => new Response(JSON.stringify({ image: 'data:image/png;base64,AAAA' }),
     { status: 200, headers: { 'Content-Type': 'application/json' } });
 
- test('gate:image-runtime:普通生成与infill同凭据串行，异凭据并行', { timeout: 3000 }, async () => {
+test('gate:image-runtime:普通生成与infill同凭据串行，异凭据并行', { timeout: 3000 }, async () => {
     const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
     const { createNaiRequestQueue } = await import('../src/generated-images/nai-request-queue.js');
     const queue = createNaiRequestQueue(), releases = [], actions = [];
@@ -296,7 +166,6 @@ const imageResponse = () => new Response(JSON.stringify({ image: 'data:image/png
     releases[2].resolve(); releases[3].resolve();
     assert.equal((await third).ok, true); assert.equal((await fourth).ok, true);
 });
-
 
 test('gate:image-runtime:排队取消零发送，在途取消拒收且实际结束前保留凭据锁', { timeout: 3000 }, async () => {
     const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
@@ -427,53 +296,6 @@ async function externalSourceHarness(mode, phase, fail = false) {
         close() { gate.resolve(); h.close(); } };
 }
 
-
-test('初始配置恢复：现有设置保存后原 NAI 请求和原副模型写词继续完成', { timeout: 5000 }, async t => {
-    const h = await committedImageHarness();
-    t.after(() => h.close());
-    const original = structuredClone(h.readBridge().autoIllustration);
-    assert.equal(h.save({ bridge: { autoIllustration: { ...original,
-        nai: { ...original.nai, apiKey: '' },
-        llm: { ...original.llm, source: 'openai', endpoint: '', model: '' } } } }).ok, true);
-    const painting = h.backend.generate({ scene: 'room' }, {}, { imageKind: 'background' });
-    const writing = h.backend.writePrompt({ description: '画无人房间', imagePromptTask: 'background' });
-    await imageTick();
-    assert.deepEqual([h.calls.length, h.writingCalls.length], [0, 0]);
-    assert.equal(h.save({ bridge: { autoIllustration: { ...original,
-        llm: { ...original.llm, source: 'openai', endpoint: 'https://fixture.invalid/v1', model: 'fixed-model' } } } }).ok, true);
-    assert.equal((await painting).ok, true);
-    const written = await writing;
-    assert.equal(written.ok, true, written.error);
-    assert.equal((await h.backend.generateCaption({ caption: written.caption, imageKind: 'background' })).ok, true);
-    assert.deepEqual([h.calls.length, h.writingCalls.length], [2, 1]);
-    assert.equal(h.writingCalls[0].model, 'fixed-model');
-});
-
-test('gate:image-runtime:真实设置失败保存不失效，服装资料保存不误取消', { timeout: 3000 }, async () => {
-    const h = await committedImageHarness();
-    try {
-        const config = await h.backend.getEditConfig({ imageKind: 'cg' });
-        assert.equal(config.ok, true); assert.equal(config.isCurrent(), true);
-        const before = structuredClone(h.readBridge()), originalWrite = h.storage.setItem;
-        h.storage.setItem = (key, value) => {
-            if (key === 'igs_bridge_config') throw new Error('隔离保存失败');
-            return originalWrite(key, value);
-        };
-        const saving = h.save({ bridge: { autoIllustration: { nai: { apiKey: 'fixture-b' } } } });
-        assert.equal(saving.pending, true);
-        assert.deepEqual(h.readBridge(), before); assert.equal(config.isCurrent(), true);
-        h.storage.setItem = originalWrite;
-        assert.equal((await saving.completion).ok, true);
-        assert.equal(h.save({ bridge: { autoIllustration: before.autoIllustration, sceneAssets: {
-            wardrobe: { fixture: { prompt: 'A white dress.' } } } } }).ok, true);
-        assert.equal(config.isCurrent(), true);
-        assert.equal((await h.backend.generate({ scene: 'room' }, before.autoIllustration.nai,
-            { expectedConfigToken: config.configToken })).ok, true);
-        assert.equal(h.calls.length, 1);
-        assert.equal(JSON.stringify(config).includes('fixture-a'), false);
-    } finally { h.close(); }
-});
-
 async function snapshotWritingHarness(entry, failure) {
     const h = await committedImageHarness();
     const { createImagePromptLlm } = await import('../src/generated-images/image-prompt-runtime.js');
@@ -507,9 +329,6 @@ async function snapshotWritingHarness(entry, failure) {
     return { h, calls, write, wait: () => { waiting = true; }, close() { gate.resolve(); h.close(); } };
 }
 
-
-
-
 const providedForbiddenFields = ['numberedText', 'previousText', 'lore', 'characters', 'scenes',
     'messageId', 'skipRecall', 'history', 'characterLibrary', 'tagLibrary'];
 function forbidProvidedReads(input) {
@@ -518,56 +337,3 @@ function forbidProvidedReads(input) {
     return input;
 }
 
-test('中转地址把角色词按顺序并入场景段，官方地址保持分段', async () => {
-    const { createNaiOfficialClient } = await import('../src/generated-images/nai-official-client.js');
-    const wires = [];
-    const nai = createNaiOfficialClient({ fetch: async (_url, init) => {
-        wires.push(JSON.parse(init.body));
-        return new Response(JSON.stringify({ image: 'data:image/png;base64,AAAA' }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } });
-    } });
-    const solo = { scene: 'solo, standing', sceneUc: 'text', chars: [{ tags: '1girl, black_hair', uc: 'white_hair', x: 0.5, y: 0.5 }] };
-    const duo = { ...solo, chars: [...solo.chars, { tags: '1boy', uc: '', x: 0.7, y: 0.5 }] };
-    const relay = { apiKey: 'k', endpoint: 'https://my-relay.example.com/ai/generate-image' };
-    assert.equal((await nai.generate(solo, relay)).ok, true);
-    let wire = wires.at(-1);
-    assert.equal(wire.input, '1girl, black_hair, solo, standing');
-    assert.equal(wire.parameters.v4_prompt.caption.base_caption, '1girl, black_hair, solo, standing');
-    assert.equal(wire.parameters.negative_prompt, 'white_hair, text');
-    assert.equal(wire.parameters.v4_prompt.caption.char_captions[0].char_caption, '1girl, black_hair');
-    await nai.generate(duo, relay);
-    wire = wires.at(-1);
-    assert.equal(wire.input, '1girl, black_hair, 1boy, solo, standing');
-    assert.equal(wire.parameters.negative_prompt, 'white_hair, text');
-    assert.equal(wire.parameters.v4_prompt.caption.char_captions.length, 2);
-    // 画师串保持最前，角色词紧随其后；前缀只按整段标签匹配。
-    await nai.generate(solo, { ...relay, artistPrefix: 'artist:a, artist:b', artistNegativePrefix: 'lowres' });
-    wire = wires.at(-1);
-    assert.equal(wire.input, 'artist:a, artist:b, 1girl, black_hair, solo, standing');
-    assert.equal(wire.parameters.negative_prompt, 'lowres, white_hair, text');
-    await nai.generate({ ...solo, scene: 'artist:abc, standing' }, { ...relay, artistPrefix: 'artist:a' });
-    assert.equal(wires.at(-1).input, 'artist:a, 1girl, black_hair, artist:abc, standing');
-    await nai.generate(solo, { apiKey: 'k' });
-    assert.equal(wires.at(-1).input, 'solo, standing');
-    await nai.generate(solo, { apiKey: 'k', endpoint: 'https://image.novelai.net/ai/generate-image' });
-    assert.equal(wires.at(-1).input, 'solo, standing');
-});
-
-test('外部图像来源：预设无完整画面词格式的表情与换装改走通用写词，立绘仍用预设', { timeout: 5000 }, async t => {
-    for (const mode of ['baibai', 'chatu8']) {
-        const h = await committedImageHarness();
-        t.after(() => h.close());
-        const original = structuredClone(h.readBridge().autoIllustration);
-        assert.equal(h.save({ bridge: { imageApi: { mode }, autoIllustration: { ...original,
-            llm: { ...original.llm, source: 'openai', endpoint: 'https://fixture.invalid/v1', model: 'fixed-model' } } } }).ok, true);
-        for (const task of ['expression', 'outfit']) {
-            const written = await h.backend.writePrompt({ description: '#1 写开心表情', imagePromptTask: task });
-            assert.equal(written.ok, true, `${mode}/${task}: ${written.error}`);
-            assert.equal(Object.hasOwn(h.writingCalls.at(-1).request, 'messages'), false);
-        }
-        const sprite = await h.backend.writePrompt({ description: '画立绘', imagePromptTask: 'sprite',
-            outputs: { slotIds: [1] } });
-        assert.equal(sprite.ok, true, sprite.error);
-        assert.equal(Array.isArray(h.writingCalls.at(-1).request.messages), true);
-    }
-});

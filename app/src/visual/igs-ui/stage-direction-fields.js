@@ -124,7 +124,8 @@ function renderSoundFields(bgm, ambient, ui, master, more, ownPack = '') {
     const ambientBody = featureRow(more, 'ambient-kinds', `${P}.ambientSound.enabled`, ambient.enabled, '环境音', '鸟鸣、雨声、人声', field(`${P}.ambientSound.volume`, '环境音量', rangeInput(`${P}.ambientSound.volume`, ambient.volume, '环境音量'))
         + grid(AMBIENT_KINDS.map((kind) => checkbox(`${P}.ambientSound.${kind}`, ambient[kind], AMBIENT_LABELS[kind])).join('')));
     const uiBody = featureRow(more, 'ui-sound', `${P}.uiSound.enabled`, ui.enabled, '界面音效', '', field(`${P}.uiSound.volume`, '界面音量', rangeInput(`${P}.uiSound.volume`, ui.volume, '界面音量')));
-    const masterBody = perfItem(more, 'audio-master', field(`${P}.audioMaster.volume`, '总音量', rangeInput(`${P}.audioMaster.volume`, master.volume, '总音量')));
+    const masterBody = perfItem(more, 'audio-master', field(`${P}.audioMaster.volume`, '总音量', rangeInput(`${P}.audioMaster.volume`, master.volume, '总音量'))
+        + checkbox(`${P}.audioMaster.background`, master.background, '切到其他页面或程序时继续播放'));
     return { master: masterBody, bgm: bgmBody, ambient: ambientBody, ui: uiBody };
 }
 

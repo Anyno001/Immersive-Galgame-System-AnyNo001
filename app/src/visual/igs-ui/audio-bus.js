@@ -3,7 +3,7 @@
 // BGM 能跨域读取的曲目走 bgm 子总线；不能跨域的外链仍是独立 HTMLAudio，总音量对它按乘数生效。
 // 另有一路 dry：人声直进压限器、不送空间混响，给贴耳的悄悄话和电话听筒用（busInput('dry')）。
 export const AUDIO_BUS_NAMES = Object.freeze(['bgm', 'ambient', 'sfx', 'voice']);
-export const AUDIO_MASTER_DEFAULTS = Object.freeze({ volume: 1 });
+export const AUDIO_MASTER_DEFAULTS = Object.freeze({ volume: 1, background: false });
 // 压限器只兜底极端叠加（暴雨 + 雷 + 连续提示音），平时不应被触发。
 const COMPRESSOR = Object.freeze({ threshold: -10, knee: 6, ratio: 4, attack: 0.003, release: 0.25 });
 const MASTER_TC_S = 0.05;
@@ -32,6 +32,7 @@ export function normalizeAudioMasterSettings(value) {
     const volume = Number(source.volume);
     return {
         volume: source.volume !== null && source.volume !== '' && Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : AUDIO_MASTER_DEFAULTS.volume,
+        background: source.background === true,
     };
 }
 
@@ -138,6 +139,22 @@ function focusTarget(doc) {
     return { win: win && typeof win.addEventListener === 'function' ? win : null, doc };
 }
 
+// 后台播放：开启后离开页面不再静音（iOS 等切后台冻结 JS 的环境仍由系统决定）。
+let backgroundPlay = false;
+const pageWatchers = new Set();
+
+export function audioBackgroundPlay() {
+    return backgroundPlay;
+}
+
+export function setAudioBackgroundPlay(value) {
+    const next = value === true;
+    if (next === backgroundPlay) return next;
+    backgroundPlay = next;
+    for (const recheck of [...pageWatchers]) recheck();
+    return next;
+}
+
 export function isPageAway(doc) {
     if (!doc) return false;
     if (doc.hidden === true) return true;
@@ -150,7 +167,8 @@ export function isPageAway(doc) {
 export function watchPageAway(doc, onChange) {
     if (!doc || typeof doc.addEventListener !== 'function') return null;
     const { win } = focusTarget(doc);
-    let away = isPageAway(doc);
+    const awayNow = () => !backgroundPlay && isPageAway(doc);
+    let away = awayNow();
     let timer = null;
     let stopped = false;
     // 从别的程序直接点回子 iframe 时顶层窗口收不到 focus；离开期间点到页面任意处补一次检查。
@@ -164,7 +182,7 @@ export function watchPageAway(doc, onChange) {
         clearTimeout(timer);
         timer = null;
         if (stopped) return;
-        const next = isPageAway(doc);
+        const next = awayNow();
         if (next === away) return;
         away = next;
         armReturn(away);
@@ -180,11 +198,13 @@ export function watchPageAway(doc, onChange) {
         win.addEventListener('focus', check);
     }
     if (away) armReturn(true);
+    pageWatchers.add(check);
     return {
         away: () => away,
         stop() {
             if (stopped) return;
             stopped = true;
+            pageWatchers.delete(check);
             clearTimeout(timer);
             timer = null;
             armReturn(false);

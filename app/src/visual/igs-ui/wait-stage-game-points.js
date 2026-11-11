@@ -1,4 +1,10 @@
 const STALE = new Set(['request-stale', 'points-round-stale', 'points-floor-missing']);
+const SLOW_MS = 5000;
+const STAGE_TEXT = {
+    'points-lock-busy': '排在卡牌战斗或随身系统的写入之后',
+    'points-floor-saving': '等待酒馆保存聊天',
+    'points-writing': '等待数据库表格写入',
+};
 
 export function beginWaitStagePoints(ctx, rounds) {
     let round;
@@ -22,11 +28,19 @@ export function beginWaitStagePoints(ctx, rounds) {
         if (flight) return flight;
         text.textContent = '积分结算中';
         retry.hidden = true;
+        const started = Date.now();
+        const timer = setInterval(() => {
+            if (!node || !ctx.board.contains(node)) { clearInterval(timer); return; }
+            if (Date.now() - started < SLOW_MS) return;
+            let stage = '';
+            try { stage = typeof round.stage === 'function' ? round.stage() : ''; } catch { stage = ''; }
+            text.textContent = `积分结算中：${STAGE_TEXT[stage] || '等待数据库表格回应'}`;
+        }, 1000);
         flight = Promise.resolve().then(task).then(result => { render(result); return result; }, () => {
             const result = { ok: false, reason: 'points-write-failed' };
             render(result);
             return result;
-        }).finally(() => { flight = null; });
+        }).finally(() => { clearInterval(timer); flight = null; });
         return flight;
     };
     return {

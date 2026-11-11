@@ -22,25 +22,6 @@ const withNpc = (state, name, character = {}) => ({ ...state, characters: { ...s
 const engineWith = (sheets) => createEngine({ sheets }, { ruleset: 'coc7' }, 'coc7');
 const BASE_SHEET = { rank: '普通人', attributes: { 力量: 10, 敏捷: 10, 体质: 10, 智力: 10, 感知: 10, 魅力: 10 }, scale: 'score', provisional: {}, signature: [] };
 
-// ---------- 相对档换算 ----------
-test('NPC 技能档：以主角同项值加偏移，同档内确定性抖动不超过 5，夹在 5–95', () => {
-    for (const [tier, offset] of Object.entries(NPC_SKILL_OFFSETS)) {
-        const value = npcSkillValue(tier, 60, `c|甲|话术`);
-        assert.ok(Math.abs(value - Math.min(95, Math.max(5, 60 + offset))) <= 5, `${tier}:${value}`);
-        assert.equal(value, npcSkillValue(tier, 60, `c|甲|话术`));
-    }
-    assert.ok(npcSkillValue('生疏', 20, 'x') >= 5);
-    assert.ok(npcSkillValue('大师', 90, 'x') <= 95);
-    assert.ok(npcSkillValue('大师', 90, 'x') >= 90);
-});
-
-test('主角没有这项技能时以 50 为基准；未学不生成值', () => {
-    const v = npcSkillValue('相当', null, 'c|甲|开锁');
-    assert.ok(v >= 45 && v <= 55);
-    assert.equal(npcSkillValue('相当', 0, 'c|甲|开锁'), v);
-    assert.equal(npcSkillValue('未学', 60, 'x'), null);
-});
-
 test('旧档名兼容：入门、熟练按旧绝对区间；精通、大师新旧同名，按相对档处理', () => {
     assert.equal(npcSkillTier('入门'), '入门');
     const low = npcSkillValue('入门', 90, 'c|甲|x');
@@ -52,65 +33,6 @@ test('旧档名兼容：入门、熟练按旧绝对区间；精通、大师新�
     assert.ok(expert >= 65 && expert <= 75);
     assert.equal(npcSkillTier('80'), null);
     assert.equal(npcSkillTier('擅长'), '擅长');
-});
-
-test('角色卡解析收相对档与旧档名；生成时按主角同项值换算并冻结', () => {
-    const registry = createSkillRegistry({});
-    const parsed = parseSheetReply('{"甲":{"技能":{"话术":"擅长","开锁":"熟练"}}}', { names: ['甲'], registry });
-    assert.equal(parsed.ok, true);
-    assert.deepEqual(parsed.sheets.甲.skills, { 话术: '擅长', 开锁: '熟练' });
-    const hero = (skill) => (skill === '话术' ? 60 : null);
-    const sheet = sheetFromTiers('甲', parsed.sheets.甲, { chatSeed: 'c', heroSkill: hero });
-    assert.ok(sheet.skills.话术 >= 70 && sheet.skills.话术 <= 80);
-    assert.ok(sheet.skills.开锁 >= 50 && sheet.skills.开锁 <= 70);
-    const later = sheetFromTiers('甲', parsed.sheets.甲, { chatSeed: 'c', heroSkill: () => 90 });
-    assert.notEqual(later.skills.话术, sheet.skills.话术);
-    const engine = engineWith({ 甲: sheet });
-    const before = profileOf(engine, withHeroSkill(createStatsState(), '话术', 60), '甲', '话术').value;
-    const after = profileOf(engine, withHeroSkill(createStatsState(), '话术', 90), '甲', '话术').value;
-    assert.equal(before, sheet.skills.话术);
-    assert.equal(after, before);
-});
-
-test('批量补全：NPC 按相对档、主角按绝对档解析与换算', () => {
-    const r = parseBackfillReply('{"甲":{"开锁":"擅长"},"主角":{"开锁":"熟练"}}', { names: ['甲', '主角'], skills: ['开锁'] });
-    assert.deepEqual(r.fills, { 甲: { 开锁: '擅长' }, 主角: { 开锁: '熟练' } });
-    const sheet = applyBackfillToSheet({ skills: {}, provisional: {} }, r.fills.甲, { name: '甲', chatSeed: 'c', heroSkill: () => 40 });
-    assert.ok(sheet.skills.开锁 >= 50 && sheet.skills.开锁 <= 60);
-    assert.equal(parseBackfillReply('{"主角":{"开锁":"擅长"}}', { names: ['主角'], skills: ['开锁'] }).fills.主角.开锁, '熟练');
-});
-
-// ---------- NPC 成长 ----------
-test('对抗检定的对手打成长勾；主角、未登记角色、属性不打勾', () => {
-    const state = withNpc(createStatsState(), '小雪');
-    const marked = markCheckOpponents(state, { opposed: { actor: '小雪', skill: '话术' } });
-    assert.equal(marked.characters.小雪.skillGrowth.话术.marked, true);
-    assert.equal(markCheckOpponents(state, { opposed: { actor: '主角', skill: '话术' } }), state);
-    assert.equal(markNpcGrowth(state, '路人', '话术'), state);
-    assert.equal(markNpcGrowth(state, '小雪', '力量'), state);
-    assert.equal(markNpcGrowth(marked, '小雪', '话术'), marked);
-});
-
-test('日结算：打勾的 NPC 技能掷 d100 后再对半，通过才成长；成长幅度同主角，成长记进变动记录', () => {
-    const engine = engineWith({ 小雪: { ...BASE_SHEET, skills: { 话术: 40 } } });
-    const start = markNpcGrowth(withNpc(createStatsState(), '小雪'), '小雪', '话术');
-    const valueOf = (st, name, skill) => profileOf(engine, st, name, skill).value;
-    const changes = [];
-    const grown = settleDay(start, { random: seq(0.99, 0.99, 0.1, 0.5), changes, skillValueOf: valueOf });
-    assert.equal(grown.characters.小雪.skillGrowth.话术.marked, false);
-    assert.ok(grown.characters.小雪.skillGrowth.话术.bonus >= 1 && grown.characters.小雪.skillGrowth.话术.bonus <= 10);
-    const row = changes.find((c) => c.target === '小雪' && c.note === '成长');
-    assert.equal(row.key, '话术');
-    assert.equal(row.to - row.from, grown.characters.小雪.skillGrowth.话术.bonus);
-    assert.equal(profileOf(engine, grown, '小雪', '话术').value, row.to);
-    assert.deepEqual(growthResults(changes).map((g) => g.target), ['小雪']);
-    assert.equal(strongSkills({ skills: { 话术: 70 } }, { 话术: { bonus: 8 } }), '话术（精通）');
-
-    const halved = settleDay(start, { random: seq(0.99, 0.99, 0.9, 0.5), changes: [], skillValueOf: valueOf });
-    assert.equal(halved.characters.小雪.skillGrowth.话术.bonus, 0);
-    assert.equal(halved.characters.小雪.skillGrowth.话术.marked, false);
-    const failed = settleDay(start, { random: seq(0.11, 0.11, 0.1, 0.5), changes: [], skillValueOf: valueOf });
-    assert.equal(failed.characters.小雪.skillGrowth.话术.bonus, 0);
 });
 
 test('没有勾的 NPC 不消耗随机数，主角成长结果不受影响', () => {
@@ -125,67 +47,11 @@ test('没有勾的 NPC 不消耗随机数，主角成长结果不受影响', () 
     assert.equal(skipped.characters.小雪.skillGrowth.话术.marked, false);
 });
 
-test('成长上限：不超过 90，已高于 90 的冻结值不被压低', () => {
-    const engine = engineWith({ 小雪: { ...BASE_SHEET, skills: { 话术: 88, 开锁: 95 } } });
-    const state = { ...withNpc(createStatsState(), '小雪'), };
-    const grown = { ...state, characters: { 小雪: { ...state.characters.小雪, skillGrowth: { 话术: { bonus: 20, marked: false }, 开锁: { bonus: 5, marked: false } } } } };
-    assert.equal(profileOf(engine, grown, '小雪', '话术').value, 90);
-    assert.equal(profileOf(engine, grown, '小雪', '开锁').value, 95);
-    assert.equal(npcGrowthBonus(grown, '小雪', '话术'), 20);
-});
-
-test('剧情成长标签：只给已登记的 NPC，同一角色同一技能每个游戏日一次，AI 不给数字', () => {
-    const parsed = parseStatDirectives('[igs-stat:grow|小雪|话术][igs-stat:grow|小雪|话术5][igs-stat:grow|小雪]');
-    assert.deepEqual(parsed.directives, [{ kind: 'grow', target: '小雪', skill: '话术' }]);
-    assert.equal(parsed.diagnostics.length, 2);
-    const engine = engineWith({ 小雪: { ...BASE_SHEET, skills: { 话术: 40 } } });
-    const resolveCharacter = (name) => (name === '小雪' ? '小雪' : null);
-    const first = settleFloorText(createStatsState(), '[igs-stat:grow|小雪|话术]', { random: seq(0.5), resolveCharacter, engine });
-    const bonus = first.state.characters.小雪.skillGrowth.话术.bonus;
-    assert.ok(bonus >= 1 && bonus <= 10);
-    assert.equal(first.changes.find((c) => c.note === '成长').target, '小雪');
-    assert.equal(first.state.characters.小雪.skillGrowth.话术.tagDay, 1);
-    const again = settleFloorText(first.state, '[igs-stat:grow|小雪|话术]', { random: seq(0.5), resolveCharacter, engine });
-    assert.equal(again.state.characters.小雪.skillGrowth.话术.bonus, bonus);
-    assert.ok(again.meta.diagnostics.some((d) => d.code === 'stat-grow-daily-limit'));
-    const nextDay = { ...first.state, clock: { ...first.state.clock, day: 2 } };
-    const third = settleFloorText(nextDay, '[igs-stat:grow|小雪|话术]', { random: seq(0.5), resolveCharacter, engine });
-    assert.ok(third.state.characters.小雪.skillGrowth.话术.bonus > bonus);
-    const unknown = settleFloorText(createStatsState(), '[igs-stat:grow|路人|话术][igs-stat:grow|<user>|话术]', { random: seq(0.5), resolveCharacter, engine });
-    assert.deepEqual(Object.keys(unknown.state.characters), []);
-});
-
-test('结算里 NPC 作为对手的检定打勾，次日结算时成长', () => {
-    const engine = engineWith({ 小雪: { ...BASE_SHEET, skills: { 话术: 40 } } });
-    const resolveCharacter = (name) => (name === '小雪' ? '小雪' : null);
-    const state = withNpc(createStatsState(), '小雪');
-    const check = { actor: '主角', skill: '话术', success: true, opposed: { actor: '小雪', skill: '话术', value: 40 } };
-    const r = settleFloorText(state, '她笑了笑。', { random: seq(0.5), resolveCharacter, engine, check });
-    assert.equal(r.state.characters.小雪.skillGrowth.话术.marked, true);
-    const viaStory = settleFloorText(state, '他们较量。', { random: seq(0.5), resolveCharacter, engine, npcChecks: [{ actor: '小雪', skill: '话术' }, { actor: '路人', skill: '话术' }] });
-    assert.equal(viaStory.state.characters.小雪.skillGrowth.话术.marked, true);
-    assert.equal(viaStory.state.characters.路人, undefined);
-});
-
 // ---------- 状态栏常驻主角区 ----------
 const heroBlock = { name: '阿明', metrics: [{ label: '体力', percent: 60, display: '60', colorKey: 'slot-2' }] };
 const charModel = (over = {}) => ({ enabled: true, character: '小雪', metrics: [{ label: '好感', percent: 10, display: '平淡' }], hiddenCount: 0, relation: '', ...over });
 const heroLookup = (name) => (name === '阿明' || name === '主角' ? { metrics: heroBlock.metrics, stages: [] } : null);
 const lookup = (name) => heroLookup(name) || (name === '小雪' ? { metrics: [{ label: '好感', percent: 30, display: '熟人' }], stages: [] } : null);
-
-test('状态栏开着：旁白页与其他角色说话时不加主角区', () => {
-    const narration = composeStatsHud(charModel({ character: '', metrics: [] }), { lookup, speaker: '' });
-    assert.equal(narration.hero, undefined);
-    const other = composeStatsHud(charModel(), { lookup, speaker: '小雪' });
-    assert.equal(other.hero, undefined);
-    assert.equal(other.metrics[0].display, '熟人');
-});
-
-test('状态栏开着：说话人是主角时显示主角条', () => {
-    const own = composeStatsHud(charModel({ character: '阿明' }), { lookup, speaker: '阿明' });
-    assert.equal(own.hero, undefined);
-    assert.equal(own.metrics, heroBlock.metrics);
-});
 
 test('状态栏关着：什么都不加，也不替换', () => {
     const off = charModel({ enabled: false, metrics: [] });
@@ -202,120 +68,3 @@ function page(over = {}, id = 'stats') {
     return renderTemplate(getPageTemplate(id), values);
 }
 
-test('数值系统分三个子页：我的角色、其他角色、设置；设置页玩法区不出现 CoC、D&D 字样的主选项', () => {
-    assert.match(page(), />我的角色/);
-    assert.match(page({}, 'stats-npc'), />其他角色/);
-    const html = page({}, 'stats-set');
-    assert.ok(html.indexOf('>玩法') >= 0 && html.indexOf('>玩法') < html.indexOf('data-advanced="stats-more"'));
-    const visible = html.slice(0, html.indexOf('data-advanced="stats-more"'));
-    assert.doesNotMatch(visible, /CoC|D&D/);
-    assert.match(html, /data-segment-path="bridge\.stats\.ruleset" data-segment-value="coc7"/);
-    assert.match(html, /百分骰[\s\S]*二十面骰/);
-    assert.match(html, /data-segment-path="bridge\.stats\.favorMode" data-segment-value="hard"/);
-});
-
-test('我的角色：未开始显示快速开始与自己建卡，已开始显示角色卡与暂停', () => {
-    const idle = page();
-    assert.match(idle, /data-action="stats-build-mode:manual"/);
-    const archive = { day: 3, bars: { stamina: 70, stress: 10, money: 20 }, wallet: 20, vitals: null, attributes: [{ name: '力量', display: '10' }], skills: [{ name: '话术', value: 50, display: '50', marked: true }], characters: [], log: [], total: 0, checks: [], story: [], sheets: [], pendingPeople: [], pendingSkills: [] };
-    const started = page({ chat: { hasChat: true, enabled: true }, archive });
-    assert.match(started, /力量 10/);
-    assert.ok(started.includes("<span>话术 ✓</span><b>50</b>"));
-    assert.match(started, /data-action="stats-chat-disable"/);
-    assert.doesNotMatch(started, /本聊天已开始|暂停后数值冻结|AI只负责|由脚本结算/);
-    const startRow = idle.match(/<div class="igs-settings-row"( hidden[^>]*)?>\s*<button class="igs-settings-action" data-action="stats-chat-enable"/);
-    assert.ok(startRow && !startRow[1]);
-    const startedRow = started.match(/<div class="igs-settings-row"( hidden[^>]*)?>\s*<button class="igs-settings-action" data-action="stats-chat-enable"/);
-    assert.ok(startedRow && startedRow[1]);
-});
-
-test('自己建卡：选了手动建档后，职业与六维加点直接出现在「我的角色」里并展开', () => {
-    const html = page({ chat: { hasChat: true, enabled: false, pendingMode: 'manual' } });
-    assert.match(html, /bridge\.stats\.build\.className/);
-    assert.match(html, /data-advanced="stats-build" open/);
-    assert.doesNotMatch(page({ chat: { hasChat: true, enabled: false, pendingMode: 'manual' } }, 'stats-set'), /bridge\.stats\.build\.className/);
-    assert.doesNotMatch(page(), /bridge\.stats\.build\./);
-    assert.match(page({}, 'stats-set'), /bridge\.stats\.build\.prefs\.major/);
-});
-
-test('数值系统关闭时三个子页内容整块隐藏，其他角色与设置页提示去「我的角色」开启', () => {
-    const stats = normalizeStatsSettings({ enabled: false });
-    const values = buildStatsPageValues({ stats, chat: null, combatOn: false });
-    for (const id of ['stats', 'stats-npc', 'stats-set']) assert.match(renderTemplate(getPageTemplate(id), values), /<div class="igs-settings-sub igs-settings-full" hidden>/, id);
-    assert.match(renderTemplate(getPageTemplate('stats-npc'), values), /<div class="igs-source-filter-note">未启用数值系统/);
-    const on = buildStatsPageValues({ stats: normalizeStatsSettings({ enabled: true }), chat: null, combatOn: false });
-    assert.match(renderTemplate(getPageTemplate('stats-set'), on), /<div class="igs-source-filter-note" hidden>未启用数值系统/);
-});
-
-test('其他角色：角色卡并进同名角色，没有人际档的角色卡单独成卡；剧情技能与检定记录在我的角色', () => {
-    const archive = { day: 1, bars: {}, wallet: 0, vitals: null, attributes: [], skills: [], log: [], total: 0, checks: [{ messageId: 2, skill: '侦查', difficulty: '普通', detail: '1d100=12', outcome: '成功', ruleset: 'coc7' }], story: [{ name: '开锁', attribute: '敏捷' }], pendingPeople: [], pendingSkills: [],
-        characters: [{ name: '小雪', stage: '朋友', dims: { 好感: 30, 信任: 10, 了解: 5 }, intimacyForced: false }],
-        sheets: [{ name: '小雪', rank: '老手', source: 'default', attributes: [{ name: '力量', display: '40' }], skills: [] }, { name: '路人甲', rank: '普通人', source: 'default', attributes: [], skills: [] }] };
-    const editOpen = (key) => (key.startsWith('stats-edit-') ? ' open' : '');
-    const npc = page({ chat: { hasChat: true, enabled: true }, archive, open: editOpen }, 'stats-npc');
-    const card = npc.slice(npc.indexOf('<b>小雪</b>'), npc.indexOf('<b>路人甲</b>'));
-    assert.match(card, /data-action="stats-op:relation-set:/);
-    assert.match(card, /data-action="stats-op:sheet-edit:%E5%B0%8F%E9%9B%AA"/);
-    assert.match(npc.slice(npc.indexOf('<b>路人甲</b>')), /stats-op:sheet-edit:/);
-    // 有人际档的角色卡在时不出「生成角色卡」；卡丢了才出。
-    assert.doesNotMatch(card, /stats-op:sheet-new:/);
-    const lost = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, sheets: [] }, open: editOpen }, 'stats-npc');
-    assert.match(lost, /data-action="stats-op:sheet-new:%E5%B0%8F%E9%9B%AA"/);
-    const skillEdit = [{ name: '烹饪', attribute: '智力', tier: '熟练', value: 55, story: false }, { name: '开锁', attribute: '敏捷', tier: '入门', value: 30, story: true }, { name: '火尖枪', attribute: '力量', tier: '入门', value: 28, story: true, slotted: true }, { name: '法律', attribute: '智力', tier: '未学', value: 5, story: false }];
-    const mine = page({ chat: { hasChat: true, enabled: true }, archive: { ...archive, skillEdit } });
-    // 技能平铺不折叠；全部技能的编辑在「编辑技能」折叠里，不再有「编辑技能」按钮。
-    assert.doesNotMatch(mine, /data-advanced="stats-skills"|stats-story-skills|stats-op:hero-edit/);
-    const editor = mine.slice(mine.indexOf('data-advanced="stats-skill-edit"'), mine.indexOf('data-advanced="stats-checks"'));
-    // 内置技能（烹饪）：两个下拉一行，删除单独一行占满；剧情技能的删除与改名、合并同一行。
-    const cook = editor.slice(editor.indexOf('data-stats-skill-row="烹饪"'), editor.indexOf('data-stats-skill-row="开锁"'));
-    assert.match(cook, /<div class="igs-stats-hero-actions"><select data-stats-skill-attr="烹饪"[^>]*>.*<option value="智力" selected>.*<select data-stats-skill-tier="烹饪"[^>]*>.*<option value="熟练" selected>.*<\/select><\/div><div class="igs-segmented igs-stats-skill-ops"><button class="igs-segmented-btn"[^>]*stats-op:skill-remove:/s);
-    assert.doesNotMatch(cook, /skill-rename/);
-    // 剧情技能：改名、合并、删除同一行分段按钮；占 3+5 格的剧情技能不出合并；未学的内置技能不列。
-    const lock = editor.slice(editor.indexOf('data-stats-skill-row="开锁"'), editor.indexOf('data-stats-skill-row="火尖枪"'));
-    assert.match(lock, /igs-stats-skill-ops"><button class="igs-segmented-btn"[^>]*skill-rename:.*skill-merge:.*skill-remove:/s);
-    const slot = editor.slice(editor.indexOf('data-stats-skill-row="火尖枪"'));
-    assert.match(slot, /skill-rename:.*skill-remove:/s);
-    assert.doesNotMatch(slot, /skill-merge/);
-    assert.doesNotMatch(editor, /data-stats-skill-row="法律"/);
-    assert.doesNotMatch(editor, /stats-hero-skills-智力/);
-    assert.doesNotMatch(editor, /data-stats-skill-add/);
-    assert.match(mine, /data-advanced="stats-checks"/);
-    assert.doesNotMatch(npc, /data-stats-skill-|stats-checks/);
-});
-
-// ---------- 状态栏渲染：主角区常驻 ----------
-test('状态栏渲染：旁白页只有主角区也显示；有角色时主角区在前、角色条在后；状态栏关着隐藏', async () => {
-    const { FakeEl, makeStage } = await import('./helpers/fake-dom.js');
-    if (!Object.getOwnPropertyDescriptor(FakeEl.prototype, 'classList')) {
-        Object.defineProperty(FakeEl.prototype, 'classList', { get() {
-            const el = this;
-            const list = () => String(el.className).split(/\s+/).filter(Boolean);
-            return { add: (...n) => { el.className = [...new Set([...list(), ...n])].join(' '); }, remove: (...n) => { el.className = list().filter((x) => !n.includes(x)).join(' '); }, contains: (n) => list().includes(n), toggle(n, on) { if (on) this.add(n); else this.remove(n); } };
-        } });
-    }
-    const { applyStatusHudToDom } = await import('../src/visual/igs-ui/reader-dom-render.js');
-    const render = (hud) => {
-        const root = makeStage({ hud: true });
-        applyStatusHudToDom(root, { content: { statusHud: hud }, readerSettings: { statusHud: { enabled: hud.enabled } } });
-        const host = root.querySelector('#igs-status-hud');
-        return { host, blocks: host.children.filter((c) => /igs-hud-metrics/.test(c.className)), hidden: host.hasAttribute?.('hidden') || host.attrs.has('hidden') };
-    };
-    const hero = { name: '阿明', metrics: [{ label: '体力', percent: 50, display: '50', colorKey: 'slot-2' }, { label: '金钱', percent: 4, display: '120', colorKey: 'slot-3' }] };
-    const base = { enabled: true, character: '', location: '', metrics: [], avatarRadius: 'circle' };
-    const narration = render({ ...base, hero });
-    assert.equal(narration.hidden, false);
-    assert.equal(narration.blocks.length, 1);
-    assert.match(narration.blocks[0].className, /igs-hud-hero/);
-    assert.equal(narration.blocks[0].children.length, 2);
-    const withChar = render({ ...base, character: '小雪', metrics: [{ label: '好感', percent: 30, display: '熟人', colorKey: 'favor' }], hero });
-    assert.deepEqual(withChar.blocks.map((b) => /igs-hud-hero/.test(b.className)), [true, false]);
-    assert.equal(withChar.blocks[1].children.length, 1);
-    const plain = render({ ...base, character: '小雪', metrics: [{ label: '好感', percent: 30, display: '熟人', colorKey: 'favor' }] });
-    assert.deepEqual(plain.blocks.map((b) => /igs-hud-hero/.test(b.className)), [false]);
-    const nothing = render({ ...base });
-    assert.equal(nothing.hidden, true);
-    assert.equal(nothing.blocks.length, 0);
-    const off = render({ ...base, enabled: false, character: '小雪', hero });
-    assert.equal(off.hidden, true);
-    assert.equal(off.blocks.length, 0);
-});

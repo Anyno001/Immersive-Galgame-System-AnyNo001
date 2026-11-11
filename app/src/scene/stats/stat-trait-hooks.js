@@ -17,7 +17,7 @@ const HEAVY = new Set(['大', '极大']);
 const heroDirectives = (directives, kind) => directives.filter((d) => d.kind === kind && !d.target);
 const heroStressUp = (directives) => heroDirectives(directives, 'stress').filter((d) => d.value === '上升');
 const heroBigStress = (directives) => heroStressUp(directives).some((d) => HEAVY.has(d.strength));
-const heroHurt = (directives) => directives.some((d) => (d.kind === 'hurt' && !d.target) || (d.kind === 'stamina' && !d.target && d.value === '受伤'));
+const heroHurtTag = (directives) => directives.some((d) => (d.kind === 'hurt' && !d.target) || (d.kind === 'stamina' && !d.target && d.value === '受伤'));
 
 // 好感上升不越过未解锁的关口。
 function capGate(character, from, to) {
@@ -73,6 +73,8 @@ export function moonlightJealousy(state, directives, ctx) {
 export function settleTraitTags(before, directives, ctx) {
     const cat = ctx.traitCat || traitCatalogOf(ctx.traits, ctx.nsfw);
     const here = hereSet(directives, ctx);
+    // 主角受伤：伤势标签，或本楼战报带来的战斗伤势（flags.battleHurt）。
+    const heroHurt = (list) => heroHurtTag(list) || Boolean(ctx.flags && ctx.flags.battleHurt && ctx.flags.battle && ctx.flags.battle.fromReport === true);
     let state = before;
     const stressUp = heroStressUp(directives).length > 0;
     for (const name of Object.keys(state.characters)) {

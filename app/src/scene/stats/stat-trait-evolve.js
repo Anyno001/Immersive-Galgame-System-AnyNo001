@@ -3,6 +3,7 @@
 const NOTICE_NEED = 3;
 const TRUST_NEED = 80;
 const LIKE_NEED = 26;
+const COMRADE_NEED = 8;
 const num = (v) => Number(v) || 0;
 
 export const EVOLUTIONS = Object.freeze([
@@ -10,6 +11,9 @@ export const EVOLUTIONS = Object.freeze([
     Object.freeze({ from: '冰山', to: '融化的冰山', ok: (c) => num(c.dims && c.dims.信任) >= TRUST_NEED || num(c.noticeCount && c.noticeCount.冰山) >= NOTICE_NEED }),
     // 蛋糕叉：叉子对蛋糕的好感达到「喜欢」（26）后，尝到味道变为守护。
     Object.freeze({ from: '尝到味道', to: '守护', ok: (c) => num(c.dims && c.dims.好感) >= LIKE_NEED }),
+    // 玻璃心：并肩取胜累计 8 次（主角自己挂时为主角取胜 8 次，记在 clock.heroBattleWins）→ 坚韧。
+    // 坚韧与玻璃心所在轴另一侧互斥；身上已有爱哭鬼、破碎感、脆弱（键 fragile）时不进化。
+    Object.freeze({ from: '玻璃心', to: '坚韧', block: Object.freeze(['爱哭鬼', '破碎感', '脆弱', 'fragile']), ok: (c) => num(c.comradeWins) >= COMRADE_NEED }),
 ]);
 
 const isOn = (e) => e === true || Boolean(e && e.on === true);
@@ -19,7 +23,7 @@ export function evolveCandidates(state, traits) {
     const out = [];
     if (!traits || typeof traits !== 'object') return out;
     for (const [name, own] of Object.entries(traits)) {
-        const c = state.characters && state.characters[name];
+        const c = (state.characters && state.characters[name]) || (name === '主角' ? { comradeWins: state.clock && state.clock.heroBattleWins } : null);
         if (!c || !own || typeof own !== 'object') continue;
         const inCombo = new Set();
         for (const [key, e] of Object.entries(own)) if (key.startsWith('combo:') && isOn(e) && e && Array.isArray(e.parts)) e.parts.forEach((p) => inCombo.add(p));
@@ -28,6 +32,7 @@ export function evolveCandidates(state, traits) {
             if (!isOn(e)) continue;
             if (e && e.src === 'bound') continue;
             if (inCombo.has(rule.from) || isOn(own[rule.to])) continue;
+            if (rule.block && rule.block.some((b) => isOn(own[b]))) continue;
             if (rule.ok(c)) out.push({ name, from: rule.from, to: rule.to });
         }
     }

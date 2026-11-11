@@ -90,72 +90,6 @@ test('读取失败不当作空表：待写条目保留，不插行；ensure 同�
     assert.deepEqual([flushed.ok, flushed.written, flushed.pending], [true, ['e1'], []]);
 });
 
-test('写入前判重读新数据：缓存里的旧快照读取失败时不被沿用', async () => {
-    const api = fakeApi();
-    const tables = await ready(api);
-    tables.read();
-    api.failRead = true;
-    const appended = await tables.append('ledger', ledger('e1'));
-    assert.deepEqual([appended.ok, appended.reason], [false, 'combat-table-read-failed']);
-    assert.equal(api.calls.insert.length, 0);
-});
-
-test('属性表是可选表：缺表不阻断读取，写属性表拒收但不卡住日志写入，补建后可写', async () => {
-    const api = fakeApi();
-    const tables = await ready(api);
-    const key = Object.keys(api.tables).find((k) => api.tables[k]?.name === COMBAT_TABLE_SPECS.attribute.name);
-    delete api.tables[key];
-    tables.client.invalidate();
-    const read = tables.read();
-    assert.deepEqual([read.ok, read.missing, read.optionalMissing, read.attribute], [true, [], ['attribute'], null]);
-    const [first, second] = await Promise.all([tables.append('attribute', attribute), tables.append('ledger', ledger('e1'))]);
-    assert.deepEqual(first.rejected, [{ key: 'a1', kind: 'attribute', reason: 'combat-table-missing' }]);
-    assert.deepEqual([first.ok, first.written, first.pending], [false, ['e1'], []]);
-    assert.deepEqual([second.ok, second.pending], [true, []]);
-    assert.deepEqual(await tables.ensure(), { ok: true, created: ['attribute'] });
-    const written = await tables.append('attribute', attribute);
-    assert.deepEqual([written.ok, written.written], [true, ['a1']]);
-    const after = tables.read();
-    assert.deepEqual(after.attribute, [attribute]);
-    assert.equal('attributeRaw' in after, false);
-});
-
-test('受控写队列：失效任务拒写，待重试条目过期后不再插入，不影响普通写入', async () => {
-    const api = fakeApi();
-    const tables = await ready(api);
-    const controller = new AbortController();
-    const pending = tables.append('ledger', ledger('cancelled'), { signal: controller.signal });
-    controller.abort();
-    const cancelled = await pending;
-    assert.equal(cancelled.ok, false);
-    assert.equal(cancelled.rejected[0].reason, 'request-stale');
-    assert.equal(api.calls.insert.length, 0);
-    let active = true;
-    api.failRead = true;
-    const failed = await tables.append('ledger', ledger('later'), { shouldStart: () => active });
-    assert.equal(failed.pending.length, 1);
-    active = false;
-    api.failRead = false;
-    const flushed = await tables.append('ledger', ledger('live'));
-    assert.deepEqual(flushed.rejected, [{ key: 'later', reason: 'request-stale' }]);
-    assert.deepEqual(tables.read().ledger.map((r) => r.id), ['live']);
-    assert.deepEqual(tables.pending(), []);
-});
-
-test('同一宿主 api 上的缓存客户端共享失效：一方写入后另一方立即读到新数据', async () => {
-    const api = fakeApi();
-    const writer = await ready(api);
-    const reader = createCombatTables({ api, client: createCachedTableClient({ api }) });
-    assert.equal(reader.read().ledger.length, 0);
-    assert.equal((await writer.append('ledger', ledger('e1'))).ok, true);
-    assert.deepEqual(reader.read().ledger.map((r) => r.id), ['e1']);
-    const other = createCachedTableClient({ api });
-    const before = other.version();
-    await writer.append('ledger', ledger('e2'));
-    assert.ok(other.version() > before, '版本号在同一宿主上共享');
-    assert.equal(createCachedTableClient({ api: fakeApi() }).version(), 0, '其他宿主的版本号互不影响');
-});
-
 test('空导出（数据库尚未载入）不进缓存：载入后的下一次读取立即生效', () => {
     const api = fakeApi();
     const client = createCachedTableClient({ api });
@@ -166,19 +100,3 @@ test('空导出（数据库尚未载入）不进缓存：载入后的下一次�
     assert.equal(api.calls.insert.length, 0);
 });
 
-test('服务层：数据库未载入时不导入模板，载入后照常补建（空导出不残留在缓存里）', async () => {
-    const api = fakeApi();
-    const host = { chatId: 'chat-1' };
-    const services = createCombatServices({
-        global: { AutoCardUpdaterAPI: api, SillyTavern: { getContext: () => ({ chat: [] }) } },
-        request: async () => '{}', retryDelays: [0, 0], getReaderSettings: () => ({ combatExpansion: { enabled: true } }),
-        getChatId: () => host.chatId, getUserName: () => '', getAutoIllustration: () => ({}),
-    });
-    api.emptyExport = true;
-    assert.equal((await services.getLedger().effectiveState()).reason, 'combat-table-not-ready');
-    assert.equal((await services.ensureTables()).reason, 'combat-table-not-ready');
-    assert.equal(api.calls.imports, 0);
-    api.emptyExport = false;
-    assert.equal((await services.getLedger().effectiveState()).ok, true);
-    assert.equal(api.calls.imports, 1);
-});

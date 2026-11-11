@@ -7,6 +7,7 @@ import { CYCLE_DEFS, STATUS_DEFS, STATUS_GROUPS, STATUS_URGENCY, getStatusDef, s
 import { landmineView } from '../../scene/stats/stat-trait-landmines.js';
 import { softspotView } from '../../scene/stats/stat-trait-softspots.js';
 import { TRAIT_RECIPES } from '../../scene/stats/stat-trait-recipes.js';
+import { traitCombatNote } from '../../scene/stats/stat-trait-combat-notes.js';
 import { esc } from './reader-value-utils.js';
 
 const SRC_TEXT = Object.freeze({ auto: '自动评定', manual: '手动', story: '剧情', achieve: '成就' });
@@ -57,8 +58,8 @@ export const dropButton = (href, label = '摘下') => `<button type="button" cla
 const tag = (text, off = false) => '<span class="igs-mood-review-chip igs-trait-chip is-tag' + (off ? ' is-off' : '') + '"><b>' + esc(text) + '</b></span>';
 
 // 编辑列表的一行：左名字（加粗）与浅色说明，右小号操作按钮。
-export function editRow(title, desc, buttonsHtml = '', off = false) {
-    return '<div class="igs-edit-row' + (off ? ' is-off' : '') + '"><div class="igs-edit-main"><b>' + esc(title) + '</b>' + (desc ? '<span>' + esc(desc) + '</span>' : '') + '</div>' + (buttonsHtml ? '<div class="igs-edit-ops">' + buttonsHtml + '</div>' : '') + '</div>';
+export function editRow(title, desc, buttonsHtml = '', off = false, note = '') {
+    return '<div class="igs-edit-row' + (off ? ' is-off' : '') + '"><div class="igs-edit-main"><b>' + esc(title) + '</b>' + (desc ? '<span>' + esc(desc) + '</span>' : '') + (note ? '<span>' + esc(note) + '</span>' : '') + '</div>' + (buttonsHtml ? '<div class="igs-edit-ops">' + buttonsHtml + '</div>' : '') + '</div>';
 }
 
 // 观赏区：标题行（左标题，右计数）与一排只读小标签；没有项时显示「未设置」。不放任何按钮。
@@ -77,18 +78,24 @@ export function editFold(key, advancedOpen, inner) {
     return '<details class="igs-settings-sub igs-settings-advanced igs-edit-fold" data-advanced="' + esc(key) + '"' + advancedOpen(key) + '><summary>编辑</summary>' + inner + '</details>';
 }
 
+// 开启卡牌战斗时，在说明末尾补一行「卡牌战斗：……」；没有对应效果或未开启时原样返回。
+export const withCombatNote = (desc, name, combatOn) => {
+    const note = combatOn ? traitCombatNote(name) : '';
+    return note ? (desc ? desc + '\n' : '') + note : desc;
+};
+
 const pickChip = (href, label, swap, title) => '<button type="button" class="igs-mood-review-chip igs-trait-chip is-pick" data-action="' + esc(href) + '" title="' + esc(title) + '"><b>' + esc(label) + '</b>' + (swap ? '<small>替换' + esc(swap) + '</small>' : '') + '</button>';
 
 // 「＋ 添加特质」：点开分组面板，顶部一行格位上限；分组默认折叠，标题行右侧计数；NSFW 关时不列 nsfw 项，主角只列主角可用项；
 // 已挂项不再列出，与已挂项互斥的注明「替换」。
-function addPanel(name, hungIds, nsfwOn, usage, level, attrs, advancedOpen = () => '') {
+function addPanel(name, hungIds, nsfwOn, usage, level, attrs, advancedOpen = () => '', combatOn = false) {
     const hero = name === PROTAGONIST_NAME;
     const hung = new Set(hungIds);
     const groups = TRAIT_GROUPS.map((group) => {
         const defs = TRAIT_DEFS.filter((d) => d.group === group && !d.boundOnly && !hung.has(d.id) && (nsfwOn || !d.nsfw) && (!hero || d.protagonist) && traitReqStatus(d, attrs).ok);
         const chips = defs.map((d) => {
             const swap = d.exclusive.filter((id) => hung.has(id)).map((id) => (getTraitDef(id) || {}).name).filter(Boolean);
-            return pickChip(action(name, d.id, true), d.name, swap.join('、'), d.desc || '');
+            return pickChip(action(name, d.id, true), d.name, swap.join('、'), withCombatNote(d.desc || '', d.name, combatOn));
         });
         if (group === APTITUDE_GROUP) {
             for (const x of APTITUDE_DEFS) if (x.level !== level) chips.push(pickChip(aptAction(name, x.level), x.level, level || '', x.desc));
@@ -105,6 +112,7 @@ function addPanel(name, hungIds, nsfwOn, usage, level, attrs, advancedOpen = () 
 
 // 角色当前显示的特质条目：合成整体一条（组成项并入），NSFW 关时不显示 nsfw 项，悟性（出众、天纵）作为一条。
 function shownTraits(name, model) {
+    const combatOn = model.combatCardOn === true;
     const nsfwOn = model.traitNsfw === true;
     const items = ownItems(model, name);
     const usage = usageOf(model, name, items);
@@ -118,7 +126,7 @@ function shownTraits(name, model) {
             const title = t.id.slice(COMBO_PREFIX.length);
             const recipe = TRAIT_RECIPES.find((r) => r.id === title);
             const parts = (t.parts || []).map((id) => getTraitDef(id)).filter(Boolean);
-            shown.push({ id: t.id, title, desc: (recipe ? recipe.effect.text : '') + '（组成：' + parts.map((p) => p.name).join('、') + '）', buttons: parts.map((p) => dropButton(action(name, p.id, false), '摘下' + p.name)).join('') });
+            shown.push({ id: t.id, title, note: combatOn ? traitCombatNote(title) : '', desc: (recipe ? recipe.effect.text : '') + '（组成：' + parts.map((p) => p.name).join('、') + '）', buttons: parts.map((p) => dropButton(action(name, p.id, false), '摘下' + p.name)).join('') });
             continue;
         }
         const def = getTraitDef(t.id);
@@ -128,7 +136,7 @@ function shownTraits(name, model) {
         const note = lack.length ? lack.map((x) => x.属性 + ' ' + x.现值 + ' / 需 ' + x.需).join('、') + '，暂不生效' : '';
         const extra = [bound ? '随' + ((getTraitDef(t.by) || {}).name || t.by) + '附带，不能单独摘下' : '', note].filter(Boolean).join('；');
         const buttons = t.src === 'achieve' ? '<span class="igs-edit-note">成就</span>' : bound ? '' : dropButton(action(name, t.id, false));
-        shown.push({ id: t.id, title: def.name, off: lack.length > 0, desc: extra ? (def.desc ? def.desc + '（' + extra + '）' : extra) : def.desc || '', buttons });
+        shown.push({ id: t.id, title: def.name, note: combatOn ? traitCombatNote(def.name) : '', off: lack.length > 0, desc: extra ? (def.desc ? def.desc + '（' + extra + '）' : extra) : def.desc || '', buttons });
         for (const w of t.waived || []) {
             const wd = getTraitDef(w);
             if (wd) shown.push({ id: 'waived:' + w, title: wd.name, waived: true, desc: '随' + def.name + '附带，因人设已豁免', buttons: '' });
@@ -262,8 +270,8 @@ export function renderNameStatus(name, model) {
 export function renderTraitEdit(name, model, advancedOpen = () => '') {
     const { shown, items, usage, level, nsfwOn, attrs } = shownTraits(name, model);
     const full = usage.slots >= TRAIT_LIMITS.total;
-    const add = full ? '<span class="igs-edit-add is-off" title="已满格，请先摘下一项">＋ 添加特质</span>' : addPanel(name, items.map((t) => t.id), nsfwOn, usage, level, attrs, advancedOpen);
-    return renderStatusEdit(name, model, advancedOpen) + editCard('特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => editRow(x.title, x.desc, x.buttons, x.waived)).join(''), add) + traitNoteField(name, model);
+    const add = full ? '<span class="igs-edit-add is-off" title="已满格，请先摘下一项">＋ 添加特质</span>' : addPanel(name, items.map((t) => t.id), nsfwOn, usage, level, attrs, advancedOpen, model.combatCardOn === true);
+    return renderStatusEdit(name, model, advancedOpen) + editCard('特质', usage.slots + '/' + TRAIT_LIMITS.total, shown.map((x) => editRow(x.title, x.desc, x.buttons, x.waived, x.note)).join(''), add) + traitNoteField(name, model);
 }
 
 // 「评定注意」：用户写给特质评定的说明，失焦即写进聊天存档；只用于特质评定，不进正文提示词。

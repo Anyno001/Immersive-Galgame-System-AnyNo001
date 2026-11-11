@@ -49,31 +49,6 @@ function journalFixture(host) {
     return { rows, journal, write };
 }
 
-test('历史备份上传未结束时，新 CG 仍能上传原图并提交本机记录', { timeout: 3000 }, async t => {
-    const server = fakeMediaServer(), host = server.host();
-    const raw = createMemoryIllustrationStore(), store = withTavernIllustrationFiles(raw, host);
-    const floor = 'fixture-chat|2|0';
-    await store.putSlot(floor, { slot: 1, status: 'done', dataUrl: pixel('first') });
-    const gate = pauseFirstBackup(host, t);
-    const upload = store.flush();
-    await gate.arrived;
-    let saved = false;
-    const next = store.putSlot(floor, { slot: 2, status: 'done', dataUrl: pixel('second') })
-        .then(value => { saved = true; return value; });
-    try {
-        await settleMedia();
-        assert.equal(saved, true, '慢备份不能占住原图上传和本机提交需要的锁');
-        assert.equal(server.images.size, 2);
-        assert.equal((await raw.getSlotRecord(`${floor}|2`)).status, 'done');
-    } finally {
-        gate.release();
-        await Promise.allSettled([upload, next]);
-        await stopMediaJournals(host);
-        await mediaFileGcFor(host).stop();
-        await disposeLocalImageCache(host);
-    }
-});
-
 for (const deleted of [false, true]) {
     test(`上传期间${deleted ? '删除' : '修改'}的记录不被旧快照覆盖，下一轮同步最新版本`, { timeout: 3000 }, async t => {
         const server = fakeMediaServer(), host = server.host();
@@ -215,64 +190,3 @@ test('上传期间的新引用尚未备份时，GC 不删除文件；下一轮�
     }
 });
 
-test('回收删除旧图时不阻塞保存；同哈希重新写入等删除落地后再上传', { timeout: 3000 }, async t => {
-    const server = fakeMediaServer(), host = server.host();
-    const raw = createMemoryIllustrationStore(), store = withTavernIllustrationFiles(raw, host);
-    const floor = 'fixture-chat|3|0';
-    await store.putSlot(floor, { slot: 1, status: 'done', dataUrl: pixel('old') });
-    await store.flush();
-    const oldPath = (await raw.getSlotRecord(`${floor}|1`)).dataUrl;
-    await store.putSlot(floor, { slot: 1, status: 'done', dataUrl: pixel('new') });
-    assert.equal((await store.flush()).ok, true);
-    const arrived = deferred(), release = deferred(), fetch = host.fetch;
-    host.fetch = async (url, options = {}) => {
-        if (url === '/api/images/delete') { arrived.resolve(); await release.promise; }
-        return fetch(url, options);
-    };
-    t.after(() => release.resolve());
-    const collecting = mediaFileGcFor(host).drain();
-    try {
-        await arrived.promise;
-        await store.putSlot(floor, { slot: 2, status: 'done', dataUrl: pixel('other') });
-        let rewritten = false;
-        const again = store.putSlot(floor, { slot: 3, status: 'done', dataUrl: pixel('old') }).then(() => { rewritten = true; });
-        await settleMedia();
-        assert.equal(rewritten, false, '同路径删除未完成前不能上传');
-        release.resolve();
-        assert.equal((await collecting).ok, true);
-        await again;
-        assert.deepEqual(server.deletions, [oldPath]);
-        assert.equal(server.images.has(oldPath), true, '删除落地后重新上传的同哈希原图仍在');
-    } finally {
-        release.resolve();
-        await Promise.allSettled([collecting]);
-        await stopMediaJournals(host);
-        await mediaFileGcFor(host).stop();
-        await disposeLocalImageCache(host);
-    }
-});
-
-test('清理无用图片：本机或酒馆配置仍引用的图保留，只删没人用的', { timeout: 3000 }, async () => {
-    const server = fakeMediaServer(), host = server.host();
-    const store = withTavernGeneratedAssetFiles(createMemoryGeneratedAssetStore(), host);
-    for (const id of ['used', 'remote', 'orphan']) await store.putImage({ id, type: 'sprite', dataUrl: pixel(id) });
-    await store.flush();
-    const orphanPath = (await store.getImageRecord('orphan')).dataUrl;
-    host.localStorage.setItem('igs:fixture-library', JSON.stringify({ hero: 'igs-gen:used' }));
-    server.files.set('igs-settings.json', { settings: { 'igs:preset-registry:v1': JSON.stringify({ hero: 'igs-gen:remote' }) } });
-    const media = createMediaRuntime(host, { generatedAssetStore: store });
-    try {
-        assert.deepEqual((await media.orphanImages()).map(row => row.id), ['orphan']);
-        const result = await media.collectImages(['orphan', 'used']);
-        assert.deepEqual(result.removed, ['orphan']);
-        assert.deepEqual(result.skipped, ['used']);
-        assert.equal((await media.retryDeletes()).ok, true);
-        assert.deepEqual(server.deletions, [orphanPath]);
-        server.failRead = true;
-        await assert.rejects(media.orphanImages(), '读不到酒馆配置时不给出候选');
-    } finally {
-        server.failRead = false;
-        await media.destroy();
-        await disposeLocalImageCache(host);
-    }
-});

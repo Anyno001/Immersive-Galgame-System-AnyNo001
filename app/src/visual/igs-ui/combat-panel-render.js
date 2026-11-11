@@ -646,6 +646,18 @@ function upgradeSheetHtml(v) {
         + `<div class="igs-combat-actions">${skip}${btn('upgrade-close', '关闭', { disabled: pending })}</div></div></div>`;
 }
 
+// 特质来源小字：「幸运儿：本场多一个可选项」等，只列实际生效的来源。
+const TRAIT_SOURCE_TEXT = Object.freeze({
+    choices: '本场多一个可选项', reveal: '可多看一张牌面', reroll: '本次换一组免费',
+    bias: { attack: '攻击牌', block: '格挡牌', draw: '抽牌或能量牌', debuff: '减益牌', buff: '增益或团队牌', random: '随机效果牌', selfharm: '自伤换收益牌', summon: '召唤牌' },
+});
+function traitSourceHtml(f) {
+    const lines = (Array.isArray(f.traitSources) ? f.traitSources : []).map((s) => {
+        const text = s.kind === 'bias' ? (TRAIT_SOURCE_TEXT.bias[s.category] ? `奖励里${TRAIT_SOURCE_TEXT.bias[s.category]}更常出现` : '') : TRAIT_SOURCE_TEXT[s.kind];
+        return text ? `${esc(s.trait)}：${text}` : '';
+    }).filter(Boolean);
+    return lines.length ? `<p class="igs-combat-state">${lines.join('　')}</p>` : '';
+}
 // 结算的战利品区：读取中 / 读取失败只出状态行；读到后出牌，选定后才出重新抽取（积分不足置灰，不能重抽时不出按钮）。没有 offer（status none）时不出。
 function lootHtml(v) {
     const f = v.flip;
@@ -659,13 +671,13 @@ function lootHtml(v) {
     const pause = f.cards.some((c) => struck.has(c.position) && c.slot?.rarity === 'mythic');
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
-        ? btn('reroll', `重新抽取（消耗${r.cost}积分）`, { disabled: pending || !r.available }) : '';
+        ? btn('reroll', r.cost > 0 ? `重新抽取（消耗${r.cost}积分）` : '重新抽取（免费）', { disabled: pending || !r.available }) : '';
     const choices = lootChoicesHtml(f, pending);
     const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
     const tools = `${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
-        + `${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
+        + `${traitSourceHtml(f)}${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
 }
 // 有 offer 时选定战利品前不能发战报：读取中、未选定、三选一卡牌槽还没取牌 / 跳过、删牌机会还没选牌 / 不删时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
 const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true || f.needPurge === true || f.needUpgrade === true)));

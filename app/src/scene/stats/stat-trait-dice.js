@@ -19,6 +19,8 @@ const ARCANE = new Set(['魔法', '魔药', '符咒', '法术']);
 const STREET = new Set(['格斗', '恐吓', '力量', '敏捷', '闪避']);
 const DATING = new Set(['魅惑', '安抚', '穿搭', '化妆', '唱歌']);
 const CHARM = new Set(['魅力', '魅惑']);
+// 共患难关键事件检定可能用到的技能（与 stat-engine 的 KEY_EVENT_SKILLS.共患难 一致；此处不导入 stat-engine）。
+const COMRADE_SKILLS = new Set(['格斗', '剑术', '射击', '体质']);
 // 万事通：任何检定中该技能值不低于此值。
 export const ALL_ROUNDER_FLOOR = 30;
 
@@ -65,6 +67,8 @@ export function traitEdgeOf(state, cat, { actor = '主角', skill = '', toward =
         edge += extra;
         if (social && bondDice(state, toward)) { edge += 1; favorFrom = toward; }
     }
+    // 生死之交（合成：护短 + 讲义气）：主角对在场持有者做共患难相关检定，多一个奖励骰。
+    if (toward && here && COMRADE_SKILLS.has(skill) && hasTrait(state, cat, toward, 'combo:生死之交')) edge += 1;
     // 羁绊加成：恋人或信任满的在场 NPC 擅长该领域，多一个奖励骰（在场名单由调用方传入，没传则不生效）。
     const bond = bondStrengthEdge(state, { present, categories, has: (name, id) => hasTrait(state, cat, name, id), skillOf });
     if (bond) edge += bond.edge;

@@ -1,4 +1,4 @@
-import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, resumeAudioBus, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
+import { audioBusContext, audioMasterVolume, busInput, normalizeAudioMasterSettings, resumeAudioBus, setAudioBackgroundPlay, setAudioBusSpace, setAudioMasterVolume, watchPageAway } from './audio-bus.js';
 import { WEATHER_FLASH_EVENT, resolveWeatherFxPlan, resolveWeatherFxScene, resolveWeatherFxTime, resolveWeatherFxKind } from './weather-fx-runtime.js';
 import { resolvePlaceAmbience } from '../../scene/place-ambience.js';
 import { resolveDateAmbience } from '../../scene/date-ambience.js';
@@ -3115,7 +3115,11 @@ export function applySceneAudio(root, options = {}) {
     const context = plainObject(source.context);
     const active = source.active !== false;
     // 总音量（readerSettings.audioMaster）作用于整条混音总线；未传时保持现值。
-    if (source.master !== undefined) setAudioMasterVolume(normalizeAudioMasterSettings(source.master).volume);
+    if (source.master !== undefined) {
+        const master = normalizeAudioMasterSettings(source.master);
+        setAudioMasterVolume(master.volume);
+        setAudioBackgroundPlay(master.background);
+    }
     const bgm = normalizeBgmSettings(source.bgm);
     const ambient = normalizeAmbientSoundSettings(source.ambient);
     const live = root && typeof root === 'object' ? states.get(root) : null;

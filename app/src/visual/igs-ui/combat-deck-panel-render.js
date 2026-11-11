@@ -302,7 +302,7 @@ function gearHtml(v, d) {
     if (!d.canSell && g.bag.length) {
         parts.push(section('可装备', `<ul class="igs-deck-collection">${g.bag.map((b) => gearRow(b.slotLabel, b, b.rarity, v.readonly ? '' : btn('equip', '装上', { id: b.gearId, disabled: busy }))).join('')}</ul>`));
     }
-    if (g.items.length) parts.push(section('道具', `<ul class="igs-deck-collection">${g.items.map((i) => bagRow('', `<span class="igs-deck-name">${itemArt(i)}${esc(i.name)}</span><span class="igs-deck-count">×${esc(i.count)}</span>`, '')).join('')}</ul>`));
+    if (g.items.length) parts.push(section('道具', `<ul class="igs-deck-collection">${g.items.map((i) => bagRow('', `<span class="igs-deck-name">${itemArt(i)}${esc(i.name)}</span><span class="igs-deck-count is-qty">×${esc(i.count)}</span>`, '')).join('')}</ul>`));
     if (d.canSell) parts.push('<p class="igs-deck-help">背包里的装备在资料菜单「物品」页换装与卖出。</p>');
     return parts.join('');
 }

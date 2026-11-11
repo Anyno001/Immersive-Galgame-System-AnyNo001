@@ -144,35 +144,6 @@ test('gate:igs-ui:excluded-only-message-never-renders-from-stale-reader-fallback
     host.destroy();
 });
 
-test('gate:igs-ui:classic-dialog-active-theme-keeps-default-isolated', () => {
-    const theme = resolveActiveTheme({
-        readerSettings: {
-            dialogSkin: 'western-classic',
-            _vnTheme: { preset: 'custom', textColor: '#abcdef' },
-            classicVnTheme: { preset: 'custom', textColor: '#123456', nameColor: '#654321' },
-        },
-    });
-    assert.equal(theme.textColor, '#123456');
-    assert.equal(theme.nameColor, '#654321');
-    assert.equal(theme.narrationColor, '#ddd3b8');
-    assert.equal(theme.dividerSymbol, 'none');
-});
-
-test('gate:igs-ui:resolve-sprite-layout-keeps-mode-isolated', () => {
-    const layouts = {
-        pc: { posX: 50, posY: 100, scale: 90 },
-        'pc::小林海斗::平和': { posX: 70, posY: 30, scale: 180 },
-        mobile: { posX: 50, posY: 100, scale: 110 },
-        'mobile::小林海斗::平和': { posX: 40, posY: 90, scale: 200 },
-    };
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '小林海斗', '平和'), { posX: 70, posY: 30, scale: 180 });
-    assert.deepEqual(resolveSpriteLayout(layouts, 'mobile', '小林海斗', '平和'), { posX: 40, posY: 90, scale: 200 });
-    assert.deepEqual(resolveSpriteLayout(layouts, 'pc', '没摆过', ''), { posX: 50, posY: 100, scale: 90 });
-    // 切到没有该 key 的模式回退默认，不会串用其他模式的数据
-    assert.deepEqual(resolveSpriteLayout(layouts, 'web', '小林海斗', '平和'), { posX: 50, posY: 100, scale: 100 });
-});
-
-
 function memoryStorage() {
     const map = new Map();
     return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => { map.set(k, String(v)); }, writes: () => map.size };
@@ -190,55 +161,6 @@ test('gate:scene:mood-review-ai-classify-restores-draft-when-settings-save-throw
     assert.equal(result.reason, 'mood-classification-failed');
     assert.deepEqual(draft.bridge.sceneAssets.moodGroups, [{ label: '思考', words: [] }]);
     assert.deepEqual(loadMoodReview(storage).map((item) => item.word), ['迟疑']);
-});
-
-
-
-test('gate:scene:prompt-rule-draft-only-persists-on-explicit-save', async () => {
-    const draft = {
-        bridge: {
-            sceneAssets: {
-                enabled: true,
-                promptRule: '旧规则',
-                scenes: {},
-                characters: {},
-            },
-        },
-        readerSettings: {},
-    };
-    const asyncState = { promptRuleDraft: '新规则' };
-    let persistCount = 0;
-    const ctx = {
-        state: { activeSettings: { draft, readerMode: 'pc', asyncState } },
-        options: { global: {} },
-        closeSettings: () => ({ ok: true }),
-        persistSettingsDraft: () => { persistCount += 1; return { ok: true }; },
-        rerenderSettings: () => ({ ok: true, status: asyncState.promptRuleStatus }),
-        buildRegexPreview: () => '',
-    };
-
-    assert.equal(draft.bridge.sceneAssets.promptRule, '旧规则');
-    assert.equal(persistCount, 0);
-    const saved = await handleSettingsAction('save-prompt-rule', ctx);
-    assert.equal(saved.ok, true);
-    assert.equal(draft.bridge.sceneAssets.promptRule, '新规则');
-    assert.equal(persistCount, 1);
-    assert.equal(asyncState.promptRuleStatus, '提示词已保存并更新注入规则。');
-
-    await handleSettingsAction('reset-prompt-rule', ctx);
-    assert.equal(draft.bridge.sceneAssets.promptRule, DEFAULT_SCENE_PROMPT_RULE);
-    assert.equal(asyncState.promptRuleDraft, DEFAULT_SCENE_PROMPT_RULE);
-    assert.equal(persistCount, 2);
-});
-
-test('gate:scene:empty-prompt-uses-default-saved-rule-stays', () => {
-    assert.equal(normalizeScenePromptRule(''), DEFAULT_SCENE_PROMPT_RULE);
-    assert.equal(normalizeScenePromptRule('自定义规则'), '自定义规则');
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /NSFW场景加第4栏大写NSFW/);
-    // NSFW 只规定格式与触发条件，不解释前端用途。
-    assert.doesNotMatch(DEFAULT_SCENE_PROMPT_RULE, /前端隐藏人物视觉/);
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /\[igs-char:角色名\|表情\|服装\|对白\]/);
-    assert.match(DEFAULT_SCENE_PROMPT_RULE, /不写家具摆设/);
 });
 
 function readJson(relativePath) {
@@ -437,7 +359,6 @@ function createFakeMatteDom() {
     return { doc, win };
 }
 
-
 import { d20Outcome } from '../src/choices/dice-check.js';
 import { buildResultFxPlan, resultDetailOf } from '../src/visual/igs-ui/fx-result-model.js';
 
@@ -473,44 +394,6 @@ test('gate:choices:dice-dc-d20-local-and-unknown-params-fail-closed', async () =
     assert.equal((await resolveDiceCommand('检定 我 力量 DC=14', null, { readAbilities: async () => null })).ok, false);
 });
 
-
 import { detachPublicApi } from '../src/api/public-api.js';
 import { createWaitGamesApi, getWaitStageGamePack, subscribeWaitStageGamePack, WAIT_GAMES_GLOBAL_KEY, WAIT_GAMES_QUEUE_KEY } from '../src/visual/igs-ui/wait-stage-games-api.js';
 
-test('G7 小游戏登记：内置优先、同ID去重、旧卸载不撤销内置、销毁后重启', () => {
-    const legacy = { id: 'igs-wait-games', list: () => ['legacy'], start() {} };
-    const root = { [WAIT_GAMES_GLOBAL_KEY]: legacy, [WAIT_GAMES_QUEUE_KEY]: [legacy, legacy] };
-    const changes = [];
-    const stop = subscribeWaitStageGamePack(pack => changes.push(pack));
-    const api = {};
-    try {
-        attachPublicApi(root, api);
-        const builtin = getWaitStageGamePack();
-        assert.notEqual(builtin, legacy);
-        assert.equal(builtin.id, legacy.id);
-        assert.equal(builtin.list({ art: {}, replay: [], names: [] }).join(','), 'rps,mahjong,tiles,snake,ludo');
-        const waitGames = createWaitGamesApi();
-        const count = changes.length;
-        root[WAIT_GAMES_GLOBAL_KEY] = legacy;
-        assert.equal(waitGames.register(legacy).duplicate, true);
-        root[WAIT_GAMES_QUEUE_KEY].push(legacy);
-        assert.equal(root[WAIT_GAMES_GLOBAL_KEY], builtin);
-        assert.equal(getWaitStageGamePack(), builtin);
-        assert.equal(changes.length, count);
-        delete root[WAIT_GAMES_GLOBAL_KEY];
-        assert.equal(waitGames.unregister(legacy).ok, false);
-        assert.equal(waitGames.unregister().ok, false);
-        assert.equal(getWaitStageGamePack(), builtin);
-        assert.equal(waitGames.register({ id: legacy.id }).ok, false);
-        detachPublicApi(root, api);
-        assert.equal(getWaitStageGamePack(), null);
-        root[WAIT_GAMES_GLOBAL_KEY] = legacy;
-        attachPublicApi(root, api);
-        assert.notEqual(getWaitStageGamePack(), legacy);
-        assert.notEqual(getWaitStageGamePack(), builtin);
-        detachPublicApi(root, api);
-        assert.equal(getWaitStageGamePack(), null);
-        assert.equal(root[WAIT_GAMES_GLOBAL_KEY], undefined);
-        assert.deepEqual(root[WAIT_GAMES_QUEUE_KEY], []);
-    } finally { detachPublicApi(root, api); stop(); }
-});

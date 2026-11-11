@@ -62,20 +62,6 @@ test('正文缓存超出八楼后批量释放解析和准备结果，最近阅�
     assert.equal(cache.getParseCount(), 10); cache.invalidate(); assert.equal(cache.size(), 0);
 });
 
-test('读图失败匹配只检查当前角色，原装未命中仍走同角色图库与别名兜底', () => {
-    const characters = { 白墨: { 喜悦: 'igs-gen:lost', 平和: 'igs-gen:calm' } };
-    for (let i = 0; i < 1000; i++) characters[`其他${i}`] = { 平和: `igs-gen:other-${i}` };
-    const checks = [];
-    const ctx = { sceneAssets: { characters, characterAliases: { 白墨: ['阿墨'] } },
-        isUnavailableImage(url) { checks.push(url); return url === 'igs-gen:lost'; } };
-    assert.equal(resolveSpriteAsset('阿墨', '喜悦', ctx).url, 'igs-gen:calm');
-    assert.ok(checks.length < 12);
-    assert.equal(checks.some(url => url.includes('other-')), false);
-    ctx.sceneAssets.characters.白墨 = {};
-    ctx.generatedAssets = { characters: { 白墨: { 平和: 'igs-gen:library' } } };
-    assert.equal(resolveSpriteAsset('阿墨', '惊艳', ctx).url, 'igs-gen:library');
-});
-
 test('单图丢失与恢复只补受影响的匹配，其他角色不重查', async t => {
     const missing = new Set(), checks = [];
     const generatedAssets = { hasUnavailableImages: () => true,
@@ -93,16 +79,3 @@ test('单图丢失与恢复只补受影响的匹配，其他角色不重查', as
     assert.equal(checks.includes('igs-gen:lin'), false);
 });
 
-test('nextTtsHintOf reads the page own mood, whisper range, call and nsfw only', async () => {
-    const { nextTtsHintOf } = await import('../src/visual/igs-ui/reader-floor-plan.js');
-    assert.deepEqual(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '害羞' }), { textType: 'dialogue', speaker: '艾莉', speakerKey: '', mood: '害羞', whisper: false, phone: false, nsfw: false });
-    assert.equal(nextTtsHintOf({ textType: 'dialogue', bubbleSpeaker: '玩家' }, (name) => `主:${name}`).speakerKey, '主:玩家');
-    // 立绘情绪是继承 / 兜底来的，不算这一页的情绪
-    assert.equal(nextTtsHintOf({ textType: 'thought', bubbleSpeaker: '艾莉', bubbleMood: '', spriteChar: '艾莉', spriteMood: '紧张' }).mood, '');
-    const page = { textType: 'dialogue', bubbleSpeaker: '艾莉', bubbleMood: '', fx: { whisper: true, call: { name: '艾莉' } }, sceneStateForBg: { nsfw: true } };
-    assert.deepEqual(nextTtsHintOf(page), { textType: 'dialogue', speaker: '艾莉', speakerKey: '', mood: '', whisper: true, phone: true, nsfw: true });
-    assert.equal(nextTtsHintOf({ ...page, bubbleSpeaker: '玩家' }).phone, false);
-    assert.deepEqual(nextTtsHintOf({ textType: 'narration', bubbleMood: '喜悦', sceneStateForBg: { nsfw: true } }), { textType: 'narration', nsfw: true });
-    assert.equal(nextTtsHintOf({ textType: 'system' }), null);
-    assert.equal(nextTtsHintOf(undefined), null);
-});

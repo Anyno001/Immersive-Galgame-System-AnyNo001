@@ -106,7 +106,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.39.100';
+const IGS_VERSION = '0.40.0';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -455,6 +455,7 @@ export function bootstrapIGS(options = {}) {
         writeFloor: (id, text, floor, writeOptions) => illustrationMessageHost.writeFloor(id, text, floor, writeOptions),
         buildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function'
             ? { mode: app.statsRuntime.getBuildMode(), choices: app.statsRuntime.getBuildChoices() } : null),
+        traitNamesOf: (name) => (app.statsRuntime && typeof app.statsRuntime.traitNamesOf === 'function' ? app.statsRuntime.traitNamesOf(name) : null),
         npcAbilities: (name) => (app.statsRuntime && typeof app.statsRuntime.npcAbilities === 'function' ? app.statsRuntime.npcAbilities(name) : null),
         getChallengeSnapshot: () => (app.statsRuntime && typeof app.statsRuntime.challengeSnapshot === 'function' ? app.statsRuntime.challengeSnapshot() : null),
     });

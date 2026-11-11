@@ -6,6 +6,8 @@ const REPORT_OPEN = /<igs-combat-report\s+([^>]*)>/;
 const REPORT_ID_PATTERN = /^r[0-9a-z]{1,13}$/;
 const RESULTS = Object.freeze(['win', 'lose', 'escape']);
 const SIDE_LINE = /我方：([^。\n]*)。/;
+const FOE_LINE = /敌方：([^。\n]*)。/;
+const FOE_ENTRY = /^(.*?)\s+(\S+)$/;
 const STATUS_ENTRY = /^(.*?)\s+(无伤|轻伤|重创|濒死|倒下)$/;
 
 // 战报伤势档换算成数值侧伤势档（HURT_TIERS）；无伤不记。
@@ -18,7 +20,10 @@ export function parseBattleReport(text) {
     if (!REPORT_ID_PATTERN.test(attrs.id || '') || !RESULTS.includes(attrs.result)) return null;
     const line = SIDE_LINE.exec(String(text));
     const party = line ? line[1].split('，').map((part) => STATUS_ENTRY.exec(part.trim())).filter(Boolean).map((m) => ({ name: m[1].trim(), status: m[2] })) : [];
-    return { reportId: attrs.id, result: attrs.result, party };
+    // 旧战报没有 weak 与敌方一行时按旧行为：weak=false、foes=[]。
+    const foeLine = FOE_LINE.exec(String(text));
+    const foes = foeLine ? foeLine[1].split('，').map((part) => FOE_ENTRY.exec(part.trim())).filter(Boolean).map((m) => ({ name: m[1].trim(), status: m[2] })) : [];
+    return { reportId: attrs.id, result: attrs.result, party, weak: attrs.weak === '1', foes };
 }
 
 // 合成数值侧的战斗指令；isHero 判断某个名字是不是主角（含用户名、别名）。floor 为战报所在楼。
@@ -27,7 +32,13 @@ export function battleDirectiveOf(report, { isHero = () => false, floor = null }
     const hero = report.party.find((member) => PROTAGONIST_ALIASES.includes(member.name) || isHero(member.name));
     const allies = report.party.filter((member) => member !== hero && member.status !== '倒下').map((member) => member.name);
     const heroStatus = hero ? hero.status : '无伤';
+    // 同伴（不含主角）的伤势与倒下名单、弱小战、敌方名单，供特质读取；allies 仍只含未倒下的同伴。
+    const mates = report.party.filter((member) => member !== hero);
     return {
+        party: mates.map((member) => ({ name: member.name, status: member.status })),
+        fallen: mates.filter((member) => member.status === '倒下').map((member) => member.name),
+        weak: report.weak === true,
+        foes: Array.isArray(report.foes) ? report.foes.map((foe) => ({ name: foe.name, status: foe.status })) : [],
         kind: 'battle', fromReport: true, reportId: report.reportId, result: report.result, floor,
         heroStatus, hurt: REPORT_HURT_TIER[heroStatus] || null, allies, allClean: report.party.length > 0 && report.party.every((member) => member.status === '无伤'),
     };

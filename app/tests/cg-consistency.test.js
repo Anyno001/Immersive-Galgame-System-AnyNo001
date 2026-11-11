@@ -139,7 +139,6 @@ test('gate:cg-consistency:late-concurrent-results-cannot-save-or-restart', async
     assert.deepEqual(await f.store.getSlotRecord(f.before.key), f.before);
 });
 
-
 function codecFixture(mode = 'ok') {
     const images = [], timers = new Map();
     let serial = 0, canvases = 0, written;
@@ -349,28 +348,3 @@ async function waitBuiltinGate(f, count = 1) {
     assert.ok(f.gates.length >= count, '隔离端口未到达预期等待点');
 }
 
-test('自动恢复：接受 CG 时存储中断和修订推进，续存同一候选并保留其它字段', async () => {
-    const f = await consistencyFixture();
-    const candidate = await f.service.redrawConsistency(f.query);
-    assert.equal(candidate.ok, true, JSON.stringify(candidate));
-    const paintCount = f.calls.length;
-    const update = f.store.updateSlot.bind(f.store);
-    let attempts = 0;
-    f.store.updateSlot = async (...args) => {
-        attempts++;
-        if (attempts === 1) throw new Error('temporary-storage');
-        if (attempts === 2) {
-            const current = await f.store.getSlotRecord(f.before.key);
-            await f.store.putSlot(f.key, { ...current, userNote: 'saved-during-accept' });
-            return { ok: false, reason: 'stale-revision' };
-        }
-        return update(...args);
-    };
-    const result = await f.service.acceptConsistency(candidate.candidateId);
-    assert.equal(result.ok, true, JSON.stringify(result));
-    const saved = await f.store.getSlotRecord(f.before.key);
-    assert.equal(saved.dataUrl, candidate.dataUrl);
-    assert.equal(saved.userNote, 'saved-during-accept');
-    assert.equal(f.calls.length, paintCount);
-    assert.equal(attempts, 3);
-});

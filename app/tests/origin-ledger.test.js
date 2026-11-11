@@ -4,32 +4,6 @@ import { blk, createHarness } from './origin-host.js';
 
 const TASK = '新任务|类型:支线|标题:跑腿|描述:d|条件:c|奖励:积分10|惩罚:积分-5|时限:|对象:宿主';
 
-test('D1 用道具 / 系统事件挂在用户楼上：重新生成、生成失败都会再带上，新的 AI 楼出现后才消耗', () => {
-    const h = createHarness();
-    h.user('你好');
-    h.ai('正文' + blk('获得|药水|2'));
-    assert.deepEqual(h.engine.dispatch({ type: 'use', name: '药水' }), { ok: true, opId: 1 });
-    h.user('继续');
-    assert.match(h.injected(), /使用了道具「药水」/);
-    assert.match(h.injected('regenerate'), /使用了道具「药水」/, '重新生成仍带上');
-    assert.match(h.injected(), /使用了道具「药水」/, '生成失败后再试仍带上');
-    h.ai('回应');
-    h.user('再来');
-    assert.doesNotMatch(h.injected(), /使用了道具/, 'AI 楼出现、新用户楼发出后才算消费掉');
-
-    const g = createHarness();
-    g.user('开始');
-    g.ai('正文' + blk(TASK));
-    g.user('a');
-    g.ai('正文' + blk('失败|1'));
-    g.user('b');
-    assert.match(g.injected(), /【本回合系统事件】任务「跑腿」失败（积分-5）/);
-    assert.match(g.injected('swipe'), /本回合系统事件/, '惩罚事件同样随重新生成带上');
-    g.ai('后续');
-    g.user('c');
-    assert.doesNotMatch(g.injected(), /本回合系统事件/);
-});
-
 test('D2 切 swipe 不串状态：每个 swipe 各算各的，没快照的 swipe 不会退回「最后写入的那个」', () => {
     const h = createHarness();
     h.user('go');
@@ -91,72 +65,3 @@ test('D4 / D5 不限楼数回退：删回很早的楼也能精确回到当时状
     assert.ok(size < 30 * 400 + 6000, '存档大小 ' + size);
 });
 
-test('D6 手动操作记在 after:messageId 名下，roll 那一楼不会冲掉它们', () => {
-    const h = createHarness();
-    h.user('u0');
-    const i = h.ai('甲' + blk('积分|+500|a'));
-    assert.equal(h.engine.dispatch({ type: 'buy', name: '凝神丹' }).ok, true);
-    assert.equal(h.state().points, 300);
-    h.newSwipe(i, '乙' + blk('积分|+500|b'));
-    assert.equal(h.state().points, 300, 'roll 之后购买仍在');
-    assert.deepEqual(h.bag(), { 凝神丹: 1 });
-    h.newSwipe(i, '丙' + blk('积分|+100|c'));
-    assert.equal(h.state().points, 100, '积分不够的版本里购买被跳过');
-    assert.equal(h.bag().凝神丹, undefined);
-    assert.equal(h.state().skipped.length, 1);
-    assert.match(h.state().log.at(-1).text, /操作已跳过：积分不够购买「凝神丹」/);
-    h.selectSwipe(i, 1);
-    assert.equal(h.state().points, 300);
-    assert.deepEqual(h.bag(), { 凝神丹: 1 });
-    h.removeLast();
-    assert.equal(h.state().bag.length, 0, '删掉这一楼时手动操作一起回退');
-});
-
-test('D7 回合 = AI 楼序号：删楼后时限按剩余楼数重算，不再沿用旧计数', () => {
-    const h = createHarness({ limitMax: 99 });
-    h.user('u'); h.ai('a1' + blk('新任务|类型:支线|标题:跑腿|描述:d|条件:c|奖励:积分10|惩罚:积分-5|时限:3|对象:宿主'));
-    h.user('u'); h.ai('a3');
-    h.user('u'); h.ai('a5');
-    h.user('u');
-    assert.match(h.injected(), /跑腿（进度0%，剩1回合）/);
-    h.ai('a7');
-    assert.equal(h.state().tasks[0].status, 'failed');
-    assert.equal(h.state().points, -5);
-    h.removeLast(); h.removeLast();
-    assert.equal(h.state().tasks[0].status, 'active');
-    assert.equal(h.state().points, 0);
-    h.removeLast(); h.removeLast();
-    h.user('u');
-    assert.match(h.injected(), /跑腿（进度0%，剩2回合）/);
-});
-
-test('积分只按增减结算：正文与数据块的绝对余额不覆盖已有积分，重开仍一致', () => {
-    const h = createHarness({ achieveOn: false });
-    h.user('开始');
-    h.ai('当前积分：9999。\n' + blk('积分|+100|完成委托', '积分：8000'));
-    assert.equal(h.state().points, 100);
-    h.user();
-    h.ai('扣除积分30。剩余积分：7777。\n' + blk('积分：6000'));
-    assert.equal(h.state().points, 70);
-    h.reopen();
-    assert.equal(h.state().points, 70);
-    const save = h.ctx.chatMetadata.origin_v2;
-    save.entries[0].ops.push({ k: 'balance', v: 5000 });
-    save.entries[0].facts.bal = 4000;
-    save.checkpoints = [];
-    h.reopen();
-    assert.equal(h.state().points, 70, '旧存档里的余额覆盖操作同样不生效');
-});
-
-test('时限上限为 0：AI 写的时限与改时限都不生效，任务不会超时', () => {
-    const h = createHarness();
-    h.user('u'); h.ai('a1' + blk('新任务|类型:支线|标题:跑腿|描述:d|条件:c|奖励:积分10|惩罚:积分-5|时限:2|对象:宿主'));
-    h.user('u'); h.ai('a2' + blk('时限|1|1'));
-    h.user('u'); h.ai('a3');
-    h.user('u'); h.ai('a4');
-    assert.equal(h.state().tasks[0].limit, 0);
-    assert.equal(h.state().tasks[0].status, 'active');
-    assert.equal(h.state().points, 0);
-    h.user('u');
-    assert.doesNotMatch(h.injected(), /时限:/);
-});

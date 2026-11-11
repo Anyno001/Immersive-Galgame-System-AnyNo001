@@ -10,6 +10,7 @@ export const COMBAT_TABLE_REQUIRED_API = Object.freeze([
 
 // 单元格字符数上限，超长 JSON 按「分段 i/n」拆成多行。
 export const DEFAULT_COMBAT_CELL_MAX = 16000;
+const REFRESH_TIMEOUT_MS = 15000;
 const SEGMENT_COLUMN = '分段';
 // 没有插件事件可订阅时，缓存只在这个时间窗内复用（毫秒）。
 export const TABLE_CACHE_TTL_MS = 1500;
@@ -359,8 +360,12 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
         },
         async refresh() {
             if (!api || typeof api.refreshDataAndWorldbook !== 'function') return { ok: false, reason: 'missing-api' };
-            await api.refreshDataAndWorldbook();
-            return { ok: true };
+            // 行已写入并核对过；插件刷新世界书迟迟不回应时不能一直占着写入队列。
+            let timer;
+            const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: true, slow: true }), REFRESH_TIMEOUT_MS); });
+            try {
+                return await Promise.race([Promise.resolve(api.refreshDataAndWorldbook()).then(() => ({ ok: true })), timeout]);
+            } finally { clearTimeout(timer); }
         },
         registerCallback(callback) {
             if (api && typeof api.registerTableUpdateCallback === 'function') api.registerTableUpdateCallback(callback);

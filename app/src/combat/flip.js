@@ -118,12 +118,14 @@ export function pickUpgradeChoice(upgrade, pick, value) {
 }
 
 // 重抽状态：费用、当前点数、是否可用及不可用原因。locked 指已锁定（不可再改）。
-export function rerollState(reward, pick, { points = 0, payer = false, locked = false } = {}) {
+// free 为真（特质免费重抽，见 trait-reward-bias.js）时本次重抽免 REROLL_COST。
+export function rerollState(reward, pick, { points = 0, payer = false, locked = false, free = false } = {}) {
+    const cost = free === true ? 0 : REROLL_COST;
     const reason = locked ? 'combat-flip-locked'
         : pick.set === 'reserve' ? 'combat-reroll-used'
             : !hasReserve(reward) || !payer ? 'combat-reroll-unavailable'
-                : points < REROLL_COST ? 'combat-points-insufficient' : null;
-    return { cost: REROLL_COST, points, available: reason === null, ...(reason ? { reason } : {}) };
+                : points < cost ? 'combat-points-insufficient' : null;
+    return { cost, points, available: reason === null, ...(reason ? { reason } : {}) };
 }
 
 // 执行重抽：切到备选组并清空翻牌。
@@ -140,6 +142,17 @@ export function lootOf(reward, pick) {
     const slot = slotsOf(reward, pick.set)[index];
     if (!slot) return null;
     return hasCardChoices(slot) && pick.card !== undefined ? { set: pick.set, index, slot, pick: pick.card } : { set: pick.set, index, slot };
+}
+
+// 翻牌界面的特质来源（只读 offer 记录的来源，实际生效才有）：[{ trait, kind: 'choices' | 'reveal' | 'reroll' | 'bias', category? }]。
+// 免费重抽只在本次确实免费（rerollOptions.free）时列出；完美主义者无伤未达成时不列。
+export function traitSourcesOf(reward, { free = false } = {}) {
+    const out = [];
+    const flip = reward?.traitFlip;
+    if (flip && (flip.effect !== 'reroll' || free === true)) out.push({ trait: flip.trait, kind: flip.effect });
+    const bias = reward?.traitBias;
+    if (bias) out.push({ trait: bias.trait, kind: 'bias', category: bias.category });
+    return out;
 }
 
 // 翻牌界面视图：每个展示位置是否正面朝上（已选/已翻/透视）。朝上的 slot 深拷贝，避免外部改动共享数据。
@@ -160,5 +173,6 @@ export function flipView(reward, pick, rerollOptions = {}, purge = null, upgrade
     const card = cardChoices ? { needCard: pick.card === undefined, ...(pick.card !== undefined ? { card: pick.card } : {}) } : {};
     const purgeView = purge ? { purge: { ...JSON.parse(JSON.stringify(purge)), ...(pick.purge !== undefined ? { pick: pick.purge } : {}) }, needPurge: purge.available === true && pick.purge === undefined } : {};
     const upgradeView = upgrade ? { upgrade: { ...JSON.parse(JSON.stringify(upgrade)), ...(pick.upgrade !== undefined ? { pick: pick.upgrade } : {}) }, needUpgrade: upgrade.available === true && pick.upgrade === undefined } : {};
-    return { status: 'ready', set: pick.set, flips, done, needChoice: !done && flips > 1 && pick.flipped.length >= flips, ...card, cards, reroll: rerollState(reward, pick, rerollOptions), ...purgeView, ...upgradeView };
+    const sources = traitSourcesOf(reward, rerollOptions);
+    return { status: 'ready', set: pick.set, flips, done, ...(sources.length ? { traitSources: sources } : {}), needChoice: !done && flips > 1 && pick.flipped.length >= flips, ...card, cards, reroll: rerollState(reward, pick, rerollOptions), ...purgeView, ...upgradeView };
 }

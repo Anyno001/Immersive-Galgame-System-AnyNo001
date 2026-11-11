@@ -119,6 +119,7 @@ export function createCombatServices(options = {}) {
     }
     const getChatId = () => String((typeof options.getChatId === 'function' ? options.getChatId() : '') || '');
     const traitSeeds = createCombatTraitSeed(global, getChatId);
+    const traitsOf = (name) => { try { return typeof options.traitNamesOf === 'function' ? options.traitNamesOf(name) : null; } catch { return null; } };
     let traitEpoch = 0;
     const getChat = () => {
         const context = getSillyTavernContext(global);
@@ -268,6 +269,11 @@ export function createCombatServices(options = {}) {
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,
+                // 数值特质名单：主角与同场同伴（福星）；数值系统未启用时 traitsOf 返回 null，奖励照旧。
+                statTraits: ({ hero, allies }) => {
+                    const mine = traitsOf(hero);
+                    return mine ? { hero: mine, allies: allies.flatMap((name) => traitsOf(name) || []) } : null;
+                },
                 onReportSettled: () => { Promise.resolve(refreshGrowth()).catch(() => null); },
                 challenge: {
                     state: () => (typeof options.getChallengeSnapshot === 'function' ? options.getChallengeSnapshot() : null),
@@ -971,7 +977,7 @@ export function createCombatServices(options = {}) {
         for (const pending of [...(scan.pendingGeneration || []), ...signaturePending(state)]) {
             if (wanted && !wanted.has(Number(pending.anchor?.messageId))) continue;
             const character = pending.characterId ? state.characters.get(pending.characterId) : null;
-            const built = growthEntity(pending, character, { classes: state.classes, now: Date.now(), profileMeta: state.profileMeta });
+            const built = growthEntity(pending, character, { classes: state.classes, now: Date.now(), profileMeta: state.profileMeta, traits: traitsOf(character?.name) });
             if (built.entry) entries.push(built.entry);
             else if (built.entity) entities.push(built.entity);
             else skipped += 1;

@@ -48,7 +48,9 @@ export function renderStatsHeroDashboard(model) {
     const moneyIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9z"/></svg>';
     const wallet = `<div class="igs-stats-wallets"><div class="igs-stats-wallet"><span>${pointsIcon}积分</span><b>${number(model.wallet ?? bars.money)}</b></div>`
         + `<div class="igs-stats-wallet"><span>${moneyIcon}${esc(currency?.name || '剧情货币')}</span><b>${currency?.ready ? number(currency.balance) : currency?.name ? '未知' : '未定'}</b></div>${retry}</div>`;
-    return `<div class="igs-stats-dash"><div class="igs-stats-day">${model.day != null ? `第 ${number(model.day)} 天` : ''}</div>`
+    // 天数挂在「当前状态」标题行右端，不单独占一行。
+    const day = model.day != null ? `<span class="igs-stats-day">第 ${number(model.day)} 天</span>` : '';
+    return `<div class="igs-stats-dash">`
         + `<div class="igs-stats-overview"><div class="igs-stats-radar-panel"><h4>六维属性</h4>${radar(model.attributes)}</div>`
-        + `<div class="igs-stats-condition"><div class="igs-stats-resources"><h4>当前状态</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}${wallet}</div></div></div></div>`;
+        + `<div class="igs-stats-condition"><div class="igs-stats-resources"><h4 class="igs-stats-resources-head">当前状态${day}</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}${wallet}</div></div></div></div>`;
 }

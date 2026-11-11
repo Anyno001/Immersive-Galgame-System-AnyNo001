@@ -44,6 +44,7 @@ import { REROLL_COST } from './points.js';
 import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
 import { settleRewardOffer } from './reward-cards.js';
 import { equippedGear } from './gear-slots.js';
+import { allCleanOf, freeRerollOf } from './trait-reward-bias.js';
 
 export const SESSION_VERSION = 1;
 export const sessionKeyFor = (chatId) => `igs-combat:session:${chatId}`;
@@ -400,7 +401,7 @@ export function weakFoesOf(start, enemyAttributes) {
 
 // 本场战斗的奖励计划（主角缺档案时按名字临时造一个角色引用）。规则 v5 的战斗可出刻印槽；已存的 v3 / v4 战斗不出。
 // 规则 v6 的战斗卡牌槽是三选一；v5 及以前的战斗照旧只出一张。
-function planReward(ledgerState, session, userName, difficulty) {
+function planReward(ledgerState, session, userName, difficulty, statTraits = null) {
     const hero = findCharacter(ledgerState, userName);
     const character = hero || { kind: 'deck-character', id: profileIdFor('deck-character', userName), name: userName };
     const enemyTiers = session.start.enemies.flatMap((enemy) => Array(Math.max(1, Number(enemy.count) || 1)).fill(session.start.tier));
@@ -411,7 +412,7 @@ function planReward(ledgerState, session, userName, difficulty) {
     return rewardEntity({
         combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
         encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
-        inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6, weak,
+        inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6, weak, statTraits,
         afterPanel: rulesVersion >= 6 && ledgerState.panelBoundary?.messageId === session.anchor.messageId && ledgerState.panelBoundary?.swipeId === session.anchor.swipeId
             ? ledgerState.panelBoundary.counts[character.id] ?? 0 : undefined,
     });
@@ -708,6 +709,16 @@ export function createCombatSession(options = {}) {
     const getSourceFilter = () => resolveOption(options.sourceFilter);
     const now = typeof options.now === 'function' ? options.now : () => Date.now();
     const difficultyOf = () => resolveOption(options.difficulty) || 'normal';
+    // 数值特质名单（宿主层读取后传入）：主角的，以及同场同伴的（只供福星）；宿主没提供读取函数时为 null，奖励与旧规划一致。
+    const statTraitsFor = (session, userName) => {
+        if (typeof options.statTraits !== 'function') return null;
+        try {
+            const allies = [...new Set((session.start?.allies || []).filter((name) => name && !PROTAGONIST_ALIASES.includes(name) && name !== userName))];
+            return options.statTraits({ hero: userName, allies }) || null;
+        } catch {
+            return null;
+        }
+    };
     const challengeOptions = options.challenge || {};
     const kindsNow = () => ({ combat: resolveOption(options.kinds)?.combat !== false, challenge: resolveOption(options.kinds)?.challenge === true, intimate: resolveOption(options.kinds)?.intimate });
     const locate = (messageId, kinds = kindsNow()) => locateCombatStart(getChat(), messageId, getSourceFilter(), kinds);
@@ -876,7 +887,7 @@ export function createCombatSession(options = {}) {
     const currentResult = () => currentReport()?.result ?? (current.battle?.outcome === 'victory' ? 'win' : null);
     const noLootNow = () => currentReport()?.noLoot === true || current.battle?.noLoot === true;
     const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win' && !noLootNow();
-    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text) }, context.purge, context.upgrade);
+    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text), free: context.freeReroll === true }, context.purge, context.upgrade);
 
     // 规则 v6 删卡：本场普通胜利正好满 5 场时，结算页给主角一次删牌机会（可跳过）。没到场次时不给字段。
     // cards 按卡组副本逐张列出（同名牌不合并）：已升级的副本给升级后的费用与效果并带 upgraded，成长与刻印原样带出。
@@ -969,6 +980,8 @@ export function createCombatSession(options = {}) {
             // 规则 v6 G3c：升级机会同删卡门控（弱敌战不给），与删卡互不占用。
             upgrade: heroId && v6 && current.record?.setup?.weakFoes !== true ? upgradeOfHero(ledgerState.characters.get(heroId), identity.combatId) : null,
             heroName: (heroId && ledgerState.characters.get(heroId)?.name) || getUserName(),
+            // 特质免费重抽（offer 记了来源；完美主义者另需战报全员无伤）。
+            freeReroll: freeRerollOf(offer, allCleanOf(currentReport()?.text)),
         };
         return finishWith(viewOfFlip(context), context);
     }
@@ -1021,7 +1034,7 @@ export function createCombatSession(options = {}) {
     const choose = (index) => updateFlip((context) => chooseCard(context.offer, context.pick, index));
     // 规则 v6 卡牌槽：在候选里取第几张（0 起）或 'skip' 放弃
     const pickCard = (value) => updateFlip((context) => pickCardChoice(context.offer, context.pick, value));
-    const reroll = () => updateFlip((context) => rerollPick(context.offer, context.pick, { points: context.points, payer: context.payer }));
+    const reroll = () => updateFlip((context) => rerollPick(context.offer, context.pick, { points: context.points, payer: context.payer, free: context.freeReroll === true }));
     // 规则 v6 删卡：选一张卡组副本（copyId）或 'skip' 不删；发送前可改选。
     const pickPurge = (value) => updateFlip((context) => pickPurgeChoice(context.purge, context.pick, value));
     // 规则 v6 G3c 升级：选一张可升级的卡组副本（copyId）或 'skip' 不升；发送前可改选，不能与删卡选同一张。
@@ -1037,13 +1050,14 @@ export function createCombatSession(options = {}) {
         const loot = lootOf(flipContext.offer, flipContext.pick);
         if (!loot) return { ok: false, reason: 'combat-flip-required' };
         if (hasCardChoices(loot.slot) && loot.pick === undefined) return { ok: false, reason: 'combat-flip-card-required' };
-        if (loot.set === 'reserve' && flipContext.points < REROLL_COST) return { ok: false, reason: 'combat-points-insufficient' };
+        const rerollCost = flipContext.freeReroll === true ? 0 : REROLL_COST;
+        if (loot.set === 'reserve' && flipContext.points < rerollCost) return { ok: false, reason: 'combat-points-insufficient' };
         const purge = flipContext.purge;
         const purgePick = flipContext.pick.purge;
         if (purge?.available && purgePick === undefined) return { ok: false, reason: 'combat-purge-required' };
         const purgeCard = purge?.available && purgePick !== 'skip' ? (purge.cards || []).find((c) => c.copyId === purgePick) : null;
         if (purge?.available && purgePick !== 'skip' && !purgeCard) return { ok: false, reason: 'combat-purge-copy-missing' };
-        const spend = (loot.set === 'reserve' ? REROLL_COST : 0) + (purgeCard ? purge.cost : 0);
+        const spend = (loot.set === 'reserve' ? rerollCost : 0) + (purgeCard ? purge.cost : 0);
         if (purgeCard && flipContext.points < spend) return { ok: false, reason: 'combat-points-insufficient' };
         const upgrade = flipContext.upgrade;
         const upgradePick = flipContext.pick.upgrade;
@@ -1135,7 +1149,7 @@ export function createCombatSession(options = {}) {
         }
         const filledIds = new Set();
         if (!alreadyPrepared) entities = [...entities, ...skillFillEntities(ledgerState, located.start, userName, filledIds)];
-        const rewardPlan = ledgerState.offers?.has(session.combatId) ? null : planReward(ledgerState, session, userName, difficultyOf());
+        const rewardPlan = ledgerState.offers?.has(session.combatId) ? null : planReward(ledgerState, session, userName, difficultyOf(), statTraitsFor(session, userName));
         const wantsReward = !!rewardPlan?.entity && !alreadyPrepared;
         if (wantsReward) entities = [...entities, rewardPlan.entity];
         // 敌人图集题材：第一次准备时与同批实体一起请求一条；已准备过或留档已有题材的场次不再请求。
@@ -1348,7 +1362,7 @@ export function createCombatSession(options = {}) {
         let ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId, includePanelBoundary: true });
         if (!ledgerState.ok) return applyReward({ ...previous, reason: ledgerState.reason });
         const userName = getUserName();
-        const rewardPlan = ledgerState.offers?.has(session.combatId) ? null : planReward(ledgerState, session, userName, difficultyOf());
+        const rewardPlan = ledgerState.offers?.has(session.combatId) ? null : planReward(ledgerState, session, userName, difficultyOf(), statTraitsFor(session, userName));
         let failure = '';
         if (rewardPlan?.entity) {
             const names = [userName, ...session.start.allies, ...session.start.enemies.map((enemy) => enemy.name)];
@@ -1542,7 +1556,7 @@ export function createCombatSession(options = {}) {
                 const hero = state.characters.get(state.attributes?.heroId);
                 let cost = 0;
                 for (const directive of paid) {
-                    if (directive.kind === 'loot') cost += REROLL_COST;
+                    if (directive.kind === 'loot') cost += freeRerollOf(state.offers?.get(identity.combatId), allCleanOf(report.text)) ? 0 : REROLL_COST;
                     else {
                         const chance = purgeChance(hero, report.reportId);
                         if (!chance.available) return fail(chance.reason);

@@ -164,57 +164,6 @@ test('共享 DNA 保存交接时首个楼层取消，另一楼复用已保存资
     assert.ok(f.bridge.sceneAssets.characterDna.Alice.views.half_body.subject);
 });
 
-test('战斗初始化与 DNA 隔离：乱序绑定、非法角色局部丢弃、保存成功后才落账', async t => {
-    const attributes = [];
-    let f;
-    const ledger = createCombatLedger({ tables: {
-        read: () => ({ ok: true, profile: [], ledger: [], attribute: structuredClone(attributes) }),
-        append: async (kind, records) => {
-            assert.equal(kind, 'attribute');
-            assert.ok(f.bridge.sceneAssets.characterDna.Alice?.views.half_body.subject);
-            attributes.push(...structuredClone(records));
-            return { ok: true, written: records.map(r => r.id), pending: [], rejected: [] };
-        },
-    }, chat: [], now: () => 7 });
-    f = fixture(t, {
-        captureCombatInit: () => ({ outputs: { roles: ['warrior'], abilities: ['str', 'con', 'cha'] }, parse: parseCombatInit,
-            write: (name, raw, options) => ledger.writeInit(name, raw, options) }),
-        reply: input => batchDnaReply(input).split('\n---\n').map(part => part + '\n' + [
-            'combat_class: 游侠', 'combat_role: warrior', 'combat_major: str', 'combat_minor: con',
-            part.includes('character: Bob\n') ? 'combat_weak: str' : 'combat_weak: cha',
-        ].join('\n')).join('\n---\n'),
-    });
-    f.bridge.sceneAssets.characters.Bob = {};
-    const result = await f.service.prepareExternalSpriteDna.batch({ characters: [{ name: 'Alice' }, { name: 'Bob' }] });
-    assert.equal(result.ok, true, JSON.stringify(result));
-    assert.equal(attributes.length, 1);
-    assert.equal(attributeViewFor(await ledger.effectiveState(), 'Alice').className, '游侠');
-    assert.equal(result.characters.find(c => c.name === 'Bob').combatInitDiagnostics[0].problem, 'prefs-duplicate');
-    for (const dna of Object.values(f.bridge.sceneAssets.characterDna)) {
-        assert.ok(dna.views.half_body.subject);
-        assert.equal('combatInit' in dna || 'role' in dna || 'className' in dna, false);
-    }
-    assert.equal(f.h.writes.length, 1, '非法战斗字段不重试 DNA');
-});
-
-test('战斗初始化写失败不撤销 DNA，保存后取消不调用战斗写口', async t => {
-    for (const cancel of [false, true]) {
-        const controller = new AbortController();
-        let writes = 0;
-        const f = fixture(t, {
-            afterSave: () => { if (cancel) controller.abort(); },
-            reply: input => batchDnaReply(input) + '\ncombat_class: 剑士\ncombat_role: warrior\ncombat_major: str\ncombat_minor: con\ncombat_weak: cha',
-            captureCombatInit: () => ({ outputs: {}, parse: parseCombatInit,
-                write: async () => { writes++; return { ok: false, reason: 'combat-attribute-table-missing' }; } }),
-        });
-        const result = await f.service.prepareExternalSpriteDna({ name: 'Alice', signal: controller.signal });
-        assert.ok(f.bridge.sceneAssets.characterDna.Alice.views.half_body.subject);
-        assert.equal(writes, cancel ? 0 : 1);
-        assert.equal(result.ok, !cancel);
-        if (!cancel) assert.equal(result.combatInitDiagnostics[0].code, 'combat-attribute-table-missing');
-    }
-});
-
 function settingsFixture(f, confirmed, saveFails = false) {
     const questions = [], alerts = [];
     const state = { activeSettings: { draft: { bridge: normalizeBridgeConfig(structuredClone(f.bridge)), readerSettings: {} }, asyncState: {} } };

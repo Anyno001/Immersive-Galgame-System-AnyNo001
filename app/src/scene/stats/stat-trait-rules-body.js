@@ -323,7 +323,19 @@ function trackHook(state, api) {
     return next;
 }
 
-export const TAG_HOOKS = [staminaHook, moneyHook, painEnvHook, relationHook, allRounderHook, alluringHook, gamblerHook, trackHook];
+// 并肩取胜计数（玻璃心进化读取）：战斗取胜那一楼，战报里的每位同伴 comradeWins +1；主角自己的取胜数记在 clock.heroBattleWins。
+function comradeHook(state, api) {
+    const battle = api.ctx.flags && api.ctx.flags.battle;
+    if (!battle || battle.fromReport !== true || !battle.outcome || battle.outcome === '败' || battle.outcome === '撤') return state;
+    let next = withClock(state, { heroBattleWins: (Number(state.clock.heroBattleWins) || 0) + 1 });
+    for (const name of new Set([battle.ally, ...(battle.allies || [])].filter(Boolean))) {
+        const cur = next.characters[name];
+        if (cur) next = withCharacter(next, name, { ...cur, comradeWins: (Number(cur.comradeWins) || 0) + 1 });
+    }
+    return next;
+}
+
+export const TAG_HOOKS = [staminaHook, moneyHook, painEnvHook, relationHook, allRounderHook, alluringHook, gamblerHook, trackHook, comradeHook];
 
 // ---- 日结算钩子（rev ≥ 2；时间跳跃不走这里）----
 

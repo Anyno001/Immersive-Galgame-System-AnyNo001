@@ -31,6 +31,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '
 const cellsHtml = cells => cells.length ? `<dl class="igs-record-fields">${cells.map(cell => `<div><dt>${escapeHtml(cell.label)}</dt><dd>${escapeHtml(cell.value)}</dd></div>`).join('')}</dl>` : '';
 const personInitial = value => escapeHtml(String(value ?? '').trim().charAt(0) || '·');
 const INVENTORY_SORTS = Object.freeze([['default', '默认'], ['name', '名称'], ['quantity', '数量']]);
+const FAVOR_SORT_KEYS = Object.freeze(['好感', '了解', '信任', '芥蒂', '名字']);
 // 战斗开启时背包按装配定义分组：装备 / 道具 / 杂物，物品表里没有装配定义的剧情物品归「其他」。
 const HERO_KIND_LABELS = Object.freeze({ gear: '装备', item: '道具', keepsake: '杂物', other: '其他' });
 const HERO_GROUP_ORDER = Object.freeze(Object.values(HERO_KIND_LABELS));
@@ -140,6 +141,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     let invGroup = '';
     let invSort = 'default';
     let invQuery = '';
+    let favorSort = '好感';
+    let favorAsc = false;
+    let favorQuery = '';
     let message = '';
     let heroInv = null;
     let heroMeta = new Map();
@@ -278,6 +282,9 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         invGroup = '';
         invSort = 'default';
         invQuery = '';
+        favorSort = '好感';
+        favorAsc = false;
+        favorQuery = '';
         message = '';
         cancelRecycle();
         setHeroInventory(null);
@@ -462,6 +469,13 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
 
     function onInput(event) {
         const input = event.target;
+        if (root && input?.getAttribute?.('data-record-input') === 'favor-query') {
+            favorQuery = String(input.value ?? '');
+            const list = root.querySelector?.('.igs-record-favor');
+            if (list) list.innerHTML = favorRowsHtml();
+            else render();
+            return;
+        }
         if (!root || input?.getAttribute?.('data-record-input') !== 'query') return;
         invQuery = String(input.value ?? '');
         const grid = root.querySelector?.('.igs-record-slots');
@@ -615,6 +629,12 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         if (action === 'favor-log' && category === 'favor') { if (!favorOpen.delete(id)) favorOpen.add(id); }
         if (action === 'favor-log-all' && category === 'favor') favorAll.add(id);
         if (action === 'favor-desc' && category === 'favor') { if (!favorDesc.delete(id)) favorDesc.add(id); }
+        if (action === 'favor-sort' && category === 'favor') {
+            const keys = favorSortKeys();
+            favorSort = keys[(keys.indexOf(favorSort) + 1) % keys.length];
+            favorAsc = favorSort === '名字';
+        }
+        if (action === 'favor-dir' && category === 'favor') favorAsc = !favorAsc;
         if (action === 'group' && category === 'inventory') invGroup = inventoryGroups().includes(id) ? id : '';
         if (action === 'sort' && category === 'inventory') {
             const index = INVENTORY_SORTS.findIndex(([key]) => key === invSort);
@@ -854,9 +874,59 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         return `${gender === 'male' ? '他' : gender === 'female' ? '她' : 'TA'}对你`;
     }
 
-    function renderFavorLive() {
-        const { people, nsfw } = favorLive;
-        return `<div class="igs-record-favor" role="list" aria-label="全部角色好感度">${people.map(person => {
+    // 数值系统读维度原值；表格模式只有标签含该字的数值条可比，取其百分比。取不到返回 null。
+    function favorDimValue(person, key) {
+        if (favorLive) {
+            const value = Number(person.dims?.[key]);
+            return Number.isFinite(value) ? value : null;
+        }
+        const metric = (person.metrics || []).find(item => String(item.label || '').includes(key)) || (key === '好感' ? person.metrics?.[0] : null);
+        const value = Number(metric?.percent);
+        return metric && Number.isFinite(value) ? value : null;
+    }
+
+    function favorPeople() {
+        return favorLive ? favorLive.people : favorTableOrdered();
+    }
+
+    // 只列出至少一位角色有数值的维度；好感与名字始终可选。
+    function favorSortKeys() {
+        const people = favorPeople();
+        return FAVOR_SORT_KEYS.filter(key => key === '好感' || key === '名字' || people.some(person => favorDimValue(person, key) !== null));
+    }
+
+    // 搜索名字 + 排序；好感从高到低保留底序（表格模式按所选表分组），其余整体重排，缺值的排最后。
+    function favorVisible(list) {
+        const query = favorQuery.trim().toLowerCase();
+        const hit = query ? list.filter(person => String(person.name).toLowerCase().includes(query)) : list.slice();
+        const dir = favorAsc ? 1 : -1;
+        if (favorSort === '名字') return hit.sort((a, b) => dir * String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+        if (favorSort === '好感' && !favorAsc) return hit;
+        return hit.sort((a, b) => {
+            const va = favorDimValue(a, favorSort);
+            const vb = favorDimValue(b, favorSort);
+            if (va === null || vb === null) return (va === null) - (vb === null);
+            return dir * (va - vb);
+        });
+    }
+
+    function favorRowsHtml() {
+        const rows = favorLive ? favorLiveRows() : favorTableRows();
+        return rows || '<p class="igs-record-slots-empty">没有符合条件的角色</p>';
+    }
+
+    function favorToolsHtml(total) {
+        if (total < 2) return '';
+        if (!favorSortKeys().includes(favorSort)) favorSort = '好感';
+        const dirLabel = favorSort === '名字' ? (favorAsc ? '正序' : '倒序') : (favorAsc ? '从低到高' : '从高到低');
+        return `<div class="igs-record-inventory-tools"><div class="igs-record-inventory-actions"><label class="igs-rp-search">${RECORD_ICONS.search}<input type="search" data-record-input="favor-query" value="${escapeHtml(favorQuery)}" placeholder="搜索名字" aria-label="搜索名字" autocomplete="off"></label>`
+            + `<button type="button" class="igs-rp-chip igs-rp-chip-icon" data-record-act="favor-sort" aria-label="排序依据：${favorSort}">${RECORD_ICONS.sort}<span>${favorSort}</span></button>`
+            + `<button type="button" class="igs-rp-chip" data-record-act="favor-dir" aria-label="排序方向：${dirLabel}">${dirLabel}</button></div></div>`;
+    }
+
+    function favorLiveRows() {
+        const { nsfw } = favorLive;
+        return favorVisible(favorLive.people).map(person => {
             const label = relationLabel(person.dims, { nsfw, romance: person.romance, kin: person.kin, hero: person.hero });
             const toward = towardYou(person.name);
             const open = favorOpen.has(person.name);
@@ -871,23 +941,29 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
                     `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b data-tone="${escapeHtml(metric.colorKey || '')}" style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div>` +
                 (favorDesc.has(person.name) ? `<p class="igs-record-favor-desc">${escapeHtml(`${toward}：${label.desc}`)}</p>` : '') +
                 `<div class="igs-record-favor-log"><button type="button" class="igs-record-favor-log-toggle" data-record-act="favor-log" data-record-id="${escapeHtml(person.name)}" aria-expanded="${open ? 'true' : 'false'}">最近变动</button>${logBody}</div></div>`;
-        }).join('')}</div>`;
+        }).join('');
+    }
+
+    function favorTableOrdered() {
+        const people = model?.people || [];
+        return (model?.tables || []).flatMap(source => people.filter(person => person.uid === source.uid)
+            .sort((a, b) => (Number(b.metrics[0]?.percent) || 0) - (Number(a.metrics[0]?.percent) || 0)));
+    }
+
+    function favorTableRows() {
+        const showSource = (model?.tables || []).length > 1;
+        return favorVisible(favorTableOrdered()).map(person =>
+            `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personInitial(person.name)}</span>` +
+            `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong>${showSource ? `<small>${escapeHtml(person.source)}</small>` : ''}</span>` +
+            `<div class="igs-record-favor-bars">${person.metrics.map(metric =>
+                `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div></div>`).join('');
     }
 
     // 好感总览：按状态栏所选表的顺序分组，组内按好感从高到低；数值只来自表格，不推断、不写回。
     function renderFavor() {
-        if (favorLive) return favorLive.people.length ? renderFavorLive() : '';
-        const people = model?.people || [];
-        const sources = model?.tables || [];
-        const ordered = sources.flatMap(source => people.filter(person => person.uid === source.uid)
-            .sort((a, b) => (Number(b.metrics[0]?.percent) || 0) - (Number(a.metrics[0]?.percent) || 0)));
-        if (!ordered.length) return '';
-        const showSource = sources.length > 1;
-        return `<div class="igs-record-favor" role="list" aria-label="全部角色好感度">${ordered.map(person =>
-            `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personInitial(person.name)}</span>` +
-            `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong>${showSource ? `<small>${escapeHtml(person.source)}</small>` : ''}</span>` +
-            `<div class="igs-record-favor-bars">${person.metrics.map(metric =>
-                `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div></div>`).join('')}</div>`;
+        const total = favorPeople().length;
+        if (!total) return '';
+        return favorToolsHtml(total) + `<div class="igs-record-favor" role="list" aria-label="全部角色好感度">${favorRowsHtml()}</div>`;
     }
 
     function render() {
@@ -938,5 +1014,5 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         applyTypewriterEffect(body, { enabled: true, mode: 'classic', speed: typewriter.speed, sound: { enabled: false }, key: `diary:${selectedId}` });
     }
 
-    return { open, close, reload, isOpen: () => Boolean(root), getState: () => ({ category, model, activeUid, selectedId, relationshipPersonId, diaryView, prefs: { ...prefs }, font, invGroup, invSort, invQuery, message }) };
+    return { open, close, reload, isOpen: () => Boolean(root), getState: () => ({ category, model, activeUid, selectedId, relationshipPersonId, diaryView, prefs: { ...prefs }, font, invGroup, invSort, invQuery, favorSort, favorAsc, favorQuery, message }) };
 }

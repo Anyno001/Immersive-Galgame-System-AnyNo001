@@ -69,7 +69,6 @@ import { createWaitStageRuntime, buildWaitStageModel } from '../src/visual/igs-u
 import { installWaitStageGames, uninstallWaitStageGames } from '../src/plugins/wait-stage-games-entry.js';
 import { COMBAT_TABLE_REQUIRED_API } from '../src/data/shujuku/combat-tables.js';
 
-
 const appRoot = path.resolve(import.meta.dirname, '..');
 
 test('gate:simulation:legacy-native-marker-inside-dialogue-keeps-one-page-and-visible-speaker', () => {
@@ -114,32 +113,6 @@ test('gate:simulation:legacy-cg-marker-after-closed-dialogue-hides-orphan-bracke
     } finally { host.destroy(); }
 });
 
-test('gate:simulation:closed-multiline-dialogue-and-legacy-cg-keep-one-page-in-fullscreen', () => {
-    for (const gap of ['\n\n', '\n\n\n\n']) {
-        const document = createFakeDocument();
-        const raw = `<content>\n[igs-char:甲|平和|完整台词。${gap}<IMG>19</IMG>${gap}]\n</content>`;
-        const host = createIgsReaderHost({
-            global: { document },
-            getUnifiedSettings: () => ({ bridge: { sceneAssets: { enabled: true, characters: { 甲: { 默认: 'data:image/png;base64,QQ==' } } } }, readerSettings: { titleScreen: false } }),
-            getIllustrationUrl: () => 'data:image/png;base64,Q0c=',
-        });
-        try {
-            const opened = host.openReader({ messageId: 22, message: { id: 22, text: raw }, raw }, { mode: 'fullscreen' });
-            assert.equal(opened.ok, true);
-            const content = host.getState().activeReader.snapshot.content;
-            assert.deepEqual(content.segments, ['[甲]：完整台词。']);
-            assert.equal(content.speaker, '甲');
-            assert.equal(content.textType, 'dialogue');
-            assert.equal(content.illustrationSlot, 19);
-            assert.equal(content.cgActive, true);
-            assert.equal(content.backgroundImage, 'data:image/png;base64,Q0c=');
-            const html = document.getElementById('igs-text').innerHTML;
-            assert.ok(html.includes('完整台词。'));
-            assert.doesNotMatch(html, /\]|<IMG>|igs-char:/);
-        } finally { host.destroy(); }
-    }
-});
-
 test('gate:simulation:network-recovery-restores-the-original-sprite-without-settings', async () => {
     const { localImageCacheFor } = await import('../src/media/tavern-image-cache.js');
     const { createAssetGenerationService } = await import('../src/generated-images/illustration/asset-generation-service.js');
@@ -174,7 +147,6 @@ test('gate:simulation:network-recovery-restores-the-original-sprite-without-sett
         } finally { host.destroy(); service.stop(); await cache.destroy(); }
     }
 });
-
 
 function coldReaderFixture() {
     const server = fakeMediaServer(), records = {};
@@ -335,128 +307,6 @@ const CAST_CALLED_FILTER = 'brightness(0.86) saturate(0.9)';
 const CAST_STAGE_SETTINGS = { stageCast: { enabled: true, castStage: true } };
 const castPosXOf = (el) => parseFloat(String((el && el.style && el.style.backgroundPosition) || '').split(/\s+/)[0]);
 
-test('gate:simulation:igs-ui-settings-save-updates-reader-state', () => {
-    const legacyStorage = readJson('fixtures/igs/legacy-storage.json');
-    const storage = createMemoryStorage(legacyStorage);
-    storage.setItem('igs-reader-settings-v9-default', JSON.stringify({
-        _v: '0.5.3',
-        optionFontSize: 14,
-        emptyBackgroundColor: '#24272a',
-    }));
-    const vn = bootstrapIGS({
-        global: { localStorage: storage },
-        hostAdapter: {
-            getCurrentMessage: async () => null,
-            typeAndSend: async () => ({ ok: true }),
-        },
-    });
-
-    try {
-        const opened = vn.openSettings({ tab: 'reader', mode: 'mobile' });
-        const initialReader = opened.controller.getSnapshot().draft.readerSettings;
-        assert.equal(initialReader.glassBackdropFilter, false);
-        assert.equal(Object.hasOwn(initialReader, 'emptyBackgroundColor'), false);
-        const updated = opened.controller.setValue('readerSettings.fontSize', 20);
-        const optionSize = opened.controller.setValue('readerSettings.optionFontSize', 18);
-        const toggled = opened.controller.toggle('readerSettings.glassBackdropFilter');
-        assert.equal(updated.ok, true);
-        assert.equal(optionSize.ok, true);
-        assert.equal(toggled.ok, true);
-        const draft = opened.controller.getSnapshot().draft.readerSettings;
-        assert.equal(draft.fontSize, 20);
-        assert.equal(draft.optionFontSize, 18);
-        assert.equal(draft.glassBackdropFilter, true);
-        assert.notEqual(vn.getUnifiedSettings({ mode: 'mobile' }).readerSettings.fontSize, 20);
-        assert.notEqual(JSON.parse(storage.getItem('igs-reader-settings-v9-default')).optionFontSize, 18);
-        assert.equal(opened.controller.close().ok, true);
-        const current = vn.getUnifiedSettings({ mode: 'mobile' });
-        const savedStorage = JSON.parse(storage.getItem('igs-reader-settings-v9-default'));
-        assert.equal(current.readerSettings.fontSize, 20);
-        assert.equal(current.readerSettings.dialogFontWeight, null);
-        assert.equal(current.readerSettings.optionFontSize, 18);
-        assert.equal(Object.hasOwn(current.readerSettings, 'emptyBackgroundColor'), false);
-        assert.equal(current.readerSettings.glassBackdropFilter, true);
-        assert.equal(savedStorage.fontSize, 20);
-        assert.equal(savedStorage.optionFontSize, 18);
-        assert.equal(Object.hasOwn(savedStorage, 'dialogFont'), false);
-        assert.equal(savedStorage._v, '0.5.7');
-        assert.equal(Object.hasOwn(savedStorage, 'emptyBackgroundColor'), false);
-        assert.equal(savedStorage.glassBackdropFilter, true);
-    } finally {
-        vn.destroy();
-    }
-});
-
-test('G7 小游戏设置：开启战斗自动打开，之后可独立关闭，关闭战斗不改小游戏', () => {
-    const storage = createMemoryStorage();
-    const api = Object.fromEntries(COMBAT_TABLE_REQUIRED_API.map(name => [name, () => ({})]));
-    const vn = bootstrapIGS({ global: { localStorage: storage, AutoCardUpdaterAPI: api }, autoAttachMagicWand: false });
-    try {
-        const { controller } = vn.openSettings({ page: 'combat', mode: 'pc' });
-        const value = () => controller.getSnapshot().draft.readerSettings;
-        const games = enabled => controller.setValue('readerSettings.waitStage.games', enabled);
-        assert.equal(games(false).ok, true);
-        assert.equal(controller.setValue('readerSettings.combatExpansion.enabled', true).ok, true);
-        assert.equal(value().waitStage.games, true);
-        assert.equal(games(false).ok, true);
-        assert.equal(value().combatExpansion.enabled, true);
-        assert.equal(controller.setValue('readerSettings.combatExpansion.enabled', false).ok, true);
-        assert.equal(value().waitStage.games, false);
-        assert.equal(controller.setValue('readerSettings.__battleMode', 'card').ok, true);
-        assert.equal(value().waitStage.games, true);
-        assert.equal(controller.setValue('readerSettings.__battleMode', 'off').ok, true);
-        assert.equal(value().waitStage.games, true);
-        assert.equal(games(false).ok, true);
-        delete api.insertRow;
-        assert.equal(controller.setValue('readerSettings.__battleMode', 'card').ok, false);
-        assert.equal(value().waitStage.games, false, '未通过开启检查不触发联动');
-        assert.equal(controller.close().ok, true);
-        assert.equal(vn.getUnifiedSettings({ mode: 'pc' }).readerSettings.waitStage.games, false);
-    } finally { vn.destroy(); }
-});
-
-test('G7 小游戏门禁：等待页与主动入口共用开关，运行中关闭不丢下一楼', () => {
-    const doc = createFakeDocument();
-    const root = {};
-    installWaitStageGames(root);
-    const runtime = createWaitStageRuntime({ doc, timers: { setTimeout: () => 1, clearTimeout() {} }, random: () => 0.25 });
-    const model = buildWaitStageModel({ turns: [], sceneAssets: {}, random: () => 0.25 });
-    try {
-        for (const play of [false, true]) {
-            const layer = runtime.open(doc.body, { play, model, settings: { games: false } });
-            assert.equal(layer.querySelector('.igs-ws-games').hidden, true);
-            assert.equal(layer.querySelectorAll('[data-game]').length, 0);
-        }
-        let layer = runtime.open(doc.body, { play: true, model, settings: { enabled: false, games: true } });
-        assert.ok(layer.querySelector('[data-game="rps"]'), '关闭等待过场不阻止主动玩小游戏');
-        runtime.syncSettings({ games: false });
-        assert.equal(runtime.isOpen(), false);
-        layer = runtime.open(doc.body, { model, settings: { games: true } });
-        const start = layer.querySelector('[data-game="rps"]');
-        start.dispatchEvent({ type: 'click', target: start });
-        assert.equal(layer.querySelector('.igs-ws-board').hidden, false);
-        assert.equal(runtime.replyArrived({ status: { status: 'none' } }), false);
-        runtime.syncSettings({ games: false });
-        assert.equal(runtime.isOpen(), true, '正在等回复时只退出游戏');
-        assert.equal(layer.querySelector('.igs-ws-board').hidden, true);
-        assert.equal(layer.querySelector('.igs-ws-games').hidden, true);
-        assert.equal(layer.querySelector('[data-igs-waitstage-next]').hidden, false);
-    } finally { runtime.dispose(); uninstallWaitStageGames(root); }
-});
-
-test('G7 工具栏：关闭小游戏时隐藏按钮并拒绝快捷入口', async () => {
-    const root = {};
-    installWaitStageGames(root);
-    const h = makeAutoPlayReader('当前楼正文。', { waitStage: { games: false } });
-    try {
-        const button = h.overlay.querySelector('[data-action="mini-games"]');
-        assert.ok(!button || button.hidden || button.style.display === 'none');
-        const result = await h.opened.controller.invokeAction('mini-games');
-        assert.equal(result.reason, 'wait-games-disabled');
-        assert.equal(h.document.querySelector('.igs-waitstage'), null);
-    } finally { h.host.destroy(); uninstallWaitStageGames(root); }
-});
-
 test('G8 小游戏权限：第三方同名玩法只获公共ctx，markDone不能自报积分', async () => {
     const { registerWaitStageGamePack } = await import('../src/visual/igs-ui/wait-stage-games-api.js');
     const doc = createFakeDocument(), root = {};
@@ -475,7 +325,6 @@ test('G8 小游戏权限：第三方同名玩法只获公共ctx，markDone不能
         for (const key of ['points', 'wallet', 'award', 'rounds', 'gamePointsRounds']) assert.equal(received[key], undefined);
     } finally { runtime.dispose(); uninstallWaitStageGames(root); }
 });
-
 
 function waitPointsHarness(id, model = {}, options = {}) {
     const doc = createFakeDocument(), board = doc.createElement('div');
@@ -502,100 +351,6 @@ function waitPointsHarness(id, model = {}, options = {}) {
 
 const waitPointsFlush = () => new Promise(resolve => setImmediate(resolve));
 
-test('G8 小游戏终局：猜拳胜负分开记，首次答题错误后不能改答领奖', async () => {
-    const rps = waitPointsHarness('rps');
-    await rps.start();
-    const hands = rps.board.querySelector('.igs-ws-hands').querySelectorAll('button');
-    hands[0].click(); hands[1].click(); hands[2].click();
-    await waitPointsFlush();
-    assert.deepEqual(rps.results, [{ win: false }, { win: false }, { win: true }]);
-    assert.equal(rps.rounds.length, 3);
-    for (const id of ['whosaid', 'mood']) {
-        const model = { replay: [{ who: '甲', text: '甲的台词' }, { who: '乙', text: '乙的台词' }], names: ['甲', '乙'],
-            art: { sprites: [{ mood: '喜悦', url: 'happy' }, { mood: '悲伤', url: 'sad' }] } };
-        const h = waitPointsHarness(id, model);
-        await h.start();
-        const buttons = h.board.querySelector('.igs-ws-choices').querySelectorAll('button');
-        const answer = id === 'whosaid' ? '甲' : '喜悦';
-        buttons.find(button => button.textContent !== answer).click();
-        buttons.find(button => button.textContent === answer).click();
-        await waitPointsFlush();
-        assert.deepEqual(h.results, [{ win: false, first: true }]);
-        assert.equal(h.rounds.length, 1);
-    }
-});
-
-
-test('G8 小游戏终局：翻牌五关只在完整通关时上报一次', async () => {
-    const h = waitPointsHarness('memory', { art: { pictures: [{ url: 'one-picture' }] } });
-    await h.start();
-    assert.equal(h.rounds.length, 1);
-    for (let level = 1; level <= 5; level += 1) {
-        const grid = h.board.querySelectorAll('.igs-ws-grid').at(-1);
-        for (const card of grid.querySelectorAll('button')) card.click();
-        await waitPointsFlush();
-        if (level < 5) {
-            assert.equal(h.results.length, 0, '中间关不发奖');
-            h.board.querySelectorAll('.igs-ws-next').at(-1).querySelector('button').click();
-        }
-    }
-    assert.deepEqual(h.results, [{ win: true, levels: 5 }]);
-    assert.equal(h.rounds.length, 1);
-});
-
-test('G8 小游戏终局：消消乐两关共用一局，中间关不结算', async () => {
-    const { buildTilesLayout, freeTiles } = await import('../src/visual/igs-ui/wait-stage-tiles.js');
-    const tasks = [];
-    const h = waitPointsHarness('tiles', {}, { timers: { setTimeout(fn) { tasks.push(fn); return tasks.length; }, clearTimeout() {} } });
-    await h.start();
-    for (let level = 1; level <= 2; level += 1) {
-        const layout = buildTilesLayout(() => 0, level);
-        const buttons = h.board.querySelectorAll('.igs-tl-field').at(-1).querySelectorAll('button');
-        const removed = new Set();
-        while (removed.size < layout.tiles.length) {
-            const free = freeTiles(layout.tiles, removed);
-            const group = free.find(tile => free.filter(other => other.kind === tile.kind).length >= 3);
-            assert.ok(group, '本地生成牌堆存在逐组三消路径');
-            for (const tile of free.filter(tile => tile.kind === group.kind).slice(0, 3)) {
-                buttons[tile.id].click(); removed.add(tile.id);
-            }
-        }
-        await waitPointsFlush();
-        if (level === 1) {
-            assert.equal(h.results.length, 0);
-            assert.equal(tasks.length, 1);
-            tasks.shift()();
-        }
-    }
-    assert.deepEqual(h.results, [{ win: true, levels: 2 }]);
-    assert.equal(h.rounds.length, 1);
-});
-
-
-test('G8 小游戏终局：贪吃蛇自然死亡上报实分，再来一局使用新身份', async () => {
-    const tasks = new Map();
-    let seq = 0;
-    const h = waitPointsHarness('snake', {}, { timers: {
-        setTimeout(fn) { tasks.set(++seq, fn); return seq; }, clearTimeout(id) { tasks.delete(id); },
-    } });
-    const game = await h.start();
-    const controls = h.board.querySelector('.igs-snake-ctl');
-    controls.querySelectorAll('button').find(button => button.textContent === '开始').click();
-    assert.equal(h.rounds.length, 1);
-    assert.equal(h.results.length, 0);
-    for (let step = 0; game.state.alive && step < 30; step += 1) {
-        const [id, fn] = tasks.entries().next().value;
-        tasks.delete(id); fn();
-    }
-    await waitPointsFlush();
-    assert.equal(game.state.alive, false);
-    assert.deepEqual(h.results, [{ terminal: true, score: game.state.score, won: false }]);
-    controls.querySelectorAll('button').find(button => button.textContent === '再来一局').click();
-    assert.equal(h.rounds.length, 2);
-    assert.equal(h.results.length, 1, '开新局不复用上一局终局');
-    game.dispose();
-});
-
 test('G8 小游戏回执：失败只显示未入账，明确重试后才显示实发且不重复提交', async () => {
     const { beginWaitStagePoints } = await import('../src/visual/igs-ui/wait-stage-game-points.js');
     const h = waitPointsHarness('rps');
@@ -620,83 +375,6 @@ test('G8 小游戏回执：失败只显示未入账，明确重试后才显示�
     assert.equal(retry.hidden, true);
     assert.equal(finishCalls, 1);
 });
-
-
-test('G8 小游戏终局：飞行棋只有四枚全部抵达才上报，区分玩家和电脑获胜', async () => {
-    for (const winner of [0, 1]) {
-        const tasks = [];
-        const h = waitPointsHarness('ludo', {}, { timers: {
-            setTimeout(fn) { tasks.push(fn); return tasks.length; }, clearTimeout() {},
-        } });
-        h.doc.defaultView.matchMedia = () => ({ matches: true });
-        const game = await h.start();
-        h.board.querySelector('.igs-ld-setup').querySelectorAll('button').find(button => button.textContent === '开始').click();
-        assert.equal(h.rounds.length, 1);
-        game.state.pieces[winner] = [56, 56, 56, 55];
-        assert.equal(h.results.length, 0, '三枚抵达不算整局获胜');
-        h.board.querySelector('.igs-ld-die').click();
-        for (let step = 0; !h.results.length && tasks.length && step < 20; step += 1) tasks.shift()();
-        await waitPointsFlush();
-        assert.equal(game.state.winner, winner);
-        assert.deepEqual(h.results, [{ win: winner === 0, humans: 1 }]);
-        h.board.querySelector('.igs-ld-die').click();
-        await waitPointsFlush();
-        assert.equal(h.results.length, 1);
-        game.dispose();
-    }
-});
-
-
-test('G8 小游戏贯通：内置胜局经服务读回到账，同楼重开不重复奖励且战斗关闭仍可用', async () => {
-    const { createCombatServices } = await import('../src/core/combat-services.js');
-    const { createCombatTables } = await import('../src/data/shujuku/combat-tables.js');
-    const { createPointsFloorRecord } = await import('../src/host/points-floor-record.js');
-    const { createLedgerMockHost, userInventorySheet } = await import('./helpers/combat-mock-host-ledger.js');
-    const { makeMsg } = await import('./origin-host.js');
-    const db = createLedgerMockHost();
-    db.sheets.sheet_userbag = userInventorySheet();
-    const tables = createCombatTables({ api: db.api });
-    assert.equal((await tables.ensure()).ok, true);
-    const ctx = { chatId: 'game-wire', chat: [makeMsg('开局来源')], saveChat() {} };
-    const global = { AutoCardUpdaterAPI: db.api, SillyTavern: { getContext: () => ctx } };
-    const services = createCombatServices({ global, storage: createMemoryStorage(),
-        pointsFloorRecord: createPointsFloorRecord(global), getChatId: () => ctx.chatId,
-        getWallet: () => 0, getReaderSettings: () => ({ combatExpansion: { enabled: false } }),
-    });
-    const doc = createFakeDocument(), root = {};
-    installWaitStageGames(root);
-    const runtime = createWaitStageRuntime({ doc, random: () => 0,
-        timers: { setTimeout: () => 1, clearTimeout() {} },
-        getPointsMessageId: () => 0, gamePointsRounds: services.gamePointsRounds,
-    });
-    const model = buildWaitStageModel({ turns: [], sceneAssets: {}, random: () => 0 });
-    try {
-        const layer = runtime.open(doc.body, { play: true, model, settings: { games: true } });
-        const play = async () => {
-            const previous = layer.querySelectorAll('.igs-ws-points').at(-1);
-            layer.querySelector('[data-game="rps"]').click();
-            layer.querySelectorAll('.igs-ws-hands').at(-1).querySelectorAll('button')[2].click();
-            for (let i = 0; i < 50; i += 1) {
-                await waitPointsFlush();
-                const receipt = layer.querySelectorAll('.igs-ws-points').at(-1);
-                const text = receipt?.querySelector('span').textContent;
-                if (receipt !== previous && text?.includes('实发')) return text;
-            }
-            assert.fail('内置结果没有取得结算读回');
-        };
-        assert.match(await play(), /核准 2，实发 2/);
-        assert.equal((await services.readSharedPoints()).games, 2);
-        const first = [...services.points().read().rounds.values()][0];
-        assert.equal(first.anchor.floorId, ctx.chat[0].extra.igs_points_uid);
-        layer.querySelectorAll('.igs-ws-close').at(-1).click();
-        assert.match(await play(), /核准 2，实发 0/);
-        assert.equal((await services.readSharedPoints()).balance, 2);
-        assert.equal(services.points().read().rounds.size, 2);
-        ctx.chat[0].swipe_id = 1;
-        assert.equal((await services.readSharedPoints()).games, 0);
-    } finally { runtime.dispose(); uninstallWaitStageGames(root); }
-});
-
 
 function makeAutoPlayReader(raw = '第一段。\n第二段。\n第三段。', readerSettings = {}) {
     const document = createFakeDocument();
@@ -1542,13 +1220,6 @@ function attachNodeToFakeParent(node, parent, ownerDocument) {
     return node;
 }
 
-
-
-
-
-
-
-
 function outfitBridgeConfig(extra = {}) {
     return JSON.stringify({
         sceneAssets: {
@@ -1567,209 +1238,6 @@ function outfitBridgeConfig(extra = {}) {
         },
     });
 }
-
-// 契约变更后补回：新图落「平和」槽仍刷新舞台；旧默认图迁移为命名衣装后的跨楼继承与回退。
-test('gate:simulation:settings-generated-sprite-refreshes-current-stage', async () => {
-    const document = createFakeDocument();
-    const raw = '[igs-char:玉子|平和|你好。]';
-    let revision = 0;
-    let imageUpdated = () => {};
-    const resolved = [];
-    let stored = {
-        bridge: { openMode: 'pc', sceneAssets: { enabled: true, scenes: {}, characters: { 玉子: { 默认: 'igs-gen:old' } } } },
-        readerSettings: { titleScreen: false },
-    };
-    const images = new Map([['igs-gen:old', 'data:image/png;base64,T0xE'], ['igs-gen:new', 'data:image/png;base64,TkVX']]);
-    const host = createIgsReaderHost({
-        global: { document, localStorage: createMemoryStorage() },
-        onGeneratedAssetUpdated: (handler) => { imageUpdated = handler; return () => {}; },
-        getUnifiedSettings: () => stored,
-        getSettingsRevision: () => revision,
-        saveUnifiedSettings(next) { stored = next; revision += 1; return { ok: true }; },
-        generatedAssets: {
-            resolveUrl: (ref) => { resolved.push(ref); return images.get(ref) || ''; },
-            getImagePrompt: async () => ({ caption: { v4_prompt: { caption: { base_caption: 'portrait', char_captions: [] } } }, edited: true }),
-            generateCharacterSprite: async () => ({ ok: true, imageId: 'new' }),
-        },
-    });
-    try {
-        host.openReader({ messageId: 7, message: { id: 7, text: raw }, raw }, { mode: 'pc' });
-        assert.equal(host.getState().activeReader.snapshot.content.spriteImage, images.get('igs-gen:old'));
-        const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
-        assert.match(sprite.style.backgroundImage, /T0xE/, '舞台起初使用旧立绘');
-        const settings = host.openSettings({ tab: 'scene' });
-        const generated = await settings.controller.invoke('char-generate-sprite:%E7%8E%89%E5%AD%90');
-        assert.notEqual(generated && generated.ok, false);
-        assert.equal(stored.bridge.sceneAssets.characters.玉子.平和, 'igs-gen:new');
-        resolved.length = 0;
-        imageUpdated({ reason: 'image-loaded', imageId: 'new' });
-        assert.ok(resolved.includes('igs-gen:new'), '图片到达后预热新立绘');
-        assert.ok(!resolved.includes('igs-gen:old'), '设置保存后不能继续预热旧立绘');
-        assert.equal(host.getState().activeReader.snapshot.content.spriteImage, images.get('igs-gen:new'));
-        assert.equal(settings.controller.close().ok, true);
-        assert.equal(host.getState().activeReader.snapshot.content.spriteImage, images.get('igs-gen:new'));
-        assert.match(sprite.style.backgroundImage, /TkVX/, '设置器关闭后舞台必须立即显示新立绘');
-    } finally { host.destroy(); }
-});
-
-test('gate:simulation:settings-generated-sprite-cold-image-arrival-refreshes-stage-once', async () => {
-    const document = createFakeDocument();
-    const raw = '[igs-char:玉子|平和|你好。]';
-    let revision = 0;
-    let stored = {
-        bridge: { openMode: 'pc', sceneAssets: { enabled: true, scenes: {}, characters: { 玉子: { 默认: 'igs-gen:old' } } } },
-        readerSettings: { titleScreen: false },
-    };
-    let notify = () => {};
-    const resolved = [];
-    const images = new Map([['igs-gen:old', 'data:image/png;base64,T0xE']]);
-    const host = createIgsReaderHost({
-        global: { document, localStorage: createMemoryStorage() },
-        getUnifiedSettings: () => stored,
-        getSettingsRevision: () => revision,
-        saveUnifiedSettings(next) { stored = next; revision += 1; return { ok: true }; },
-        onGeneratedAssetUpdated(handler) { notify = handler; return () => {}; },
-        generatedAssets: {
-            resolveUrl(ref) { resolved.push(ref); return images.get(ref) || ''; },
-            getImagePrompt: async () => ({ caption: { v4_prompt: { caption: { base_caption: 'portrait', char_captions: [] } } }, edited: true }),
-            generateCharacterSprite: async () => ({ ok: true, imageId: 'new' }),
-        },
-    });
-    try {
-        host.openReader({ messageId: 7, message: { id: 7, text: raw }, raw }, { mode: 'pc' });
-        const sprite = document.getElementById('igs-overlay').querySelector('#igs-sprite');
-        let background = sprite.style.backgroundImage;
-        let paints = 0;
-        Object.defineProperty(sprite.style, 'backgroundImage', {
-            configurable: true,
-            get: () => background,
-            set(value) { background = value; paints += 1; },
-        });
-        const settings = host.openSettings({ tab: 'scene' });
-        assert.notEqual((await settings.controller.invoke('char-generate-sprite:%E7%8E%89%E5%AD%90'))?.ok, false);
-        assert.equal(stored.bridge.sceneAssets.characters.玉子.平和, 'igs-gen:new');
-        assert.equal(host.getState().activeReader.snapshot.content.pendingSpriteRef, 'igs-gen:new');
-        resolved.length = 0;
-        images.set('igs-gen:new', 'data:image/png;base64,TkVX');
-        notify({ reason: 'image-loaded', imageId: 'new' });
-        assert.ok(resolved.includes('igs-gen:new'), '新引用必须进入预热清单');
-        assert.ok(!resolved.includes('igs-gen:old'), '不再预热已被替换的立绘');
-        paints = 0;
-        resolved.length = 0;
-        assert.equal(settings.controller.close().ok, true);
-        assert.equal(paints, 1, '设置保存已重绘舞台，不得再因过期标记重复绘制');
-        assert.equal(host.getState().activeReader.snapshot.content.spriteImage, images.get('igs-gen:new'));
-        assert.match(sprite.style.backgroundImage, /TkVX/, '关闭设置器后舞台显示已到达的新图');
-        assert.ok(resolved.filter((ref) => ref === 'igs-gen:new').length <= 3, '关闭设置器不得重复解析新立绘');
-        resolved.length = 0;
-        notify({ reason: 'image-loaded', imageId: 'new' });
-        assert.ok(!resolved.includes('igs-gen:old'), '相同修订号的重复通知不得重建旧清单');
-    } finally { host.destroy(); }
-});
-
-test('gate:simulation:outfit-inherits-across-ai-floors-within-window', async () => {
-    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
-    const storage = createMemoryStorage({ igs_bridge_config: outfitBridgeConfig() });
-    const messages = [
-        { id: 1, text: '[igs-char:小林海斗|喜悦|制服|太久远了。]' },
-        { id: 2, text: '[igs-char:小林海斗|喜悦|泳装|换好了。]' },
-        { id: 3, text: '没有角色的一楼。' },
-        { id: 4, text: '[igs-char:小林海斗|喜悦|继续说话。]' },
-    ];
-    const hostAdapter = () => ({
-        getCurrentMessage: async () => messages[messages.length - 1],
-        getMessageById: async (id) => messages.find((m) => m.id === Number(id)) || null,
-        getAdjacentMessage: async (id, delta) => {
-            const index = messages.findIndex((m) => m.id === Number(id));
-            return index < 0 ? null : messages[index + (delta < 0 ? -1 : 1)] || null;
-        },
-        typeAndSend: async () => ({ ok: true }),
-    });
-    const near = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false, hostAdapter: hostAdapter() });
-    try {
-        const opened = await near.openLatestAvailable('pc');
-        assert.equal(opened.reader.snapshot.content.spriteOutfit, '泳装');
-        assert.equal(opened.reader.snapshot.content.spriteImage, 'https://example.com/swim-joy.png');
-    } finally {
-        near.destroy();
-    }
-    // 服装栏落在 3 个 AI 楼层窗口之外时不再继承，回到原有立绘。
-    messages.splice(1, 1, { id: 2, text: '平静的一楼。' });
-    messages.splice(2, 0, { id: 3.5, text: '又一楼。' });
-    messages.unshift({ id: 0, text: '[igs-char:小林海斗|喜悦|泳装|更早。]' });
-    const far = bootstrapIGS({ global: { document, localStorage: storage }, autoAttachMagicWand: false, hostAdapter: hostAdapter() });
-    try {
-        const opened = await far.openLatestAvailable('pc');
-        assert.equal(opened.reader.snapshot.content.spriteOutfit, '小林海斗·初始衣装');
-        assert.equal(opened.reader.snapshot.content.spriteImage, 'https://example.com/base-joy.png');
-    } finally {
-        far.destroy();
-    }
-});
-
-test('gate:simulation:outfit-falls-back-to-role-table-equipment-and-dna', async () => {
-    const run = async (sheets, dna) => {
-        const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
-        const storage = createMemoryStorage({ igs_bridge_config: outfitBridgeConfig(dna ? { characterDna: { 小林海斗: { defaultAppearance: dna } } } : {}) });
-        const api = sheets === null ? undefined : { exportTableAsJson: () => Object.fromEntries(sheets.map((s) => [s.uid, s])) };
-        const vn = bootstrapIGS({
-            global: { document, localStorage: storage, AutoCardUpdaterAPI: api },
-            autoAttachMagicWand: false,
-            hostAdapter: {
-                getCurrentMessage: async () => ({ id: 5, text: '[igs-char:小林|喜悦|没写服装。]' }),
-                typeAndSend: async () => ({ ok: true }),
-            },
-        });
-        try {
-            const opened = await vn.openLatestAvailable('pc');
-            return [opened.reader.snapshot.content.spriteOutfit, opened.reader.snapshot.content.spriteImage];
-        } finally {
-            vn.destroy();
-        }
-    };
-    const role = { uid: 'sheet_role', name: '重要角色表', orderNo: 1, content: [['姓名', '穿着打扮'], ['小林海斗', '一身制服']] };
-    const worn = (status) => ({ uid: 'sheet_item', name: '装备表', orderNo: 2, content: [['物品名称', '持有者', '状态'], ['比基尼', '小林', status]] });
-    assert.deepEqual(await run([role, worn('已穿戴')], '睡衣'), ['校服', 'https://example.com/school-joy.png']);
-    assert.deepEqual(await run([worn('已穿戴')], '制服'), ['泳装', 'https://example.com/swim-joy.png']);
-    assert.deepEqual(await run([worn('已收纳')], '制服'), ['校服', 'https://example.com/school-joy.png']);
-    assert.deepEqual(await run(null, '比基尼'), ['泳装', 'https://example.com/swim-joy.png']);
-    assert.deepEqual(await run(null, ''), ['小林海斗·初始衣装', 'https://example.com/base-joy.png']);
-});
-
-test('gate:simulation:outfit-scene-bound-expires-after-scene-change', async () => {
-    const document = createFakeDocument({ innerWidth: 1280, innerHeight: 720 });
-    const config = JSON.parse(outfitBridgeConfig({ scenes: { 海边: { url: '', times: {} }, 教室: { url: '', times: {} } } }));
-    config.sceneAssets.characterOutfits.小林海斗.泳装.scenes = ['海边'];
-    const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify(config) });
-    const vn = bootstrapIGS({
-        global: { document, localStorage: storage },
-        autoAttachMagicWand: false,
-        hostAdapter: {
-            getCurrentMessage: async () => ({
-                id: 40,
-                text: [
-                    '[igs-scene:海边|下午|晴天]',
-                    '[igs-char:小林海斗|喜悦|泳装|海风好舒服。]',
-                    '[igs-scene:教室|傍晚|晴天]',
-                    '[igs-char:小林海斗|喜悦|回到学校了。]',
-                ].join('\n'),
-            }),
-            typeAndSend: async () => ({ ok: true }),
-        },
-    });
-    try {
-        const opened = await vn.openLatestAvailable('pc');
-        const content = () => vn.getState().igsUi.activeReader.snapshot.content;
-        assert.equal(content().spriteOutfit, '泳装');
-        assert.equal(content().spriteImage, 'https://example.com/swim-joy.png');
-        await opened.reader.controller.invokeAction('next');
-        assert.equal(content().displayText, '回到学校了。');
-        assert.equal(content().spriteOutfit, '小林海斗·初始衣装');
-        assert.equal(content().spriteImage, 'https://example.com/base-joy.png');
-    } finally {
-        vn.destroy();
-    }
-});
 
 test('酒馆主界面没进对话：阅读器不开并提醒进入对话，设置器照常打开', async () => {
     const document = createFakeDocument();

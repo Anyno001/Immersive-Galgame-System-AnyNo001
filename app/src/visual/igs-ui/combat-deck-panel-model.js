@@ -22,11 +22,23 @@ function facePresentation(card) {
     return { cost: card?.cost ?? '', text: textParts.map(part => part.text).join(''), textParts };
 }
 
+// 每个角色只算一次职业归属表与属性策略：逐张卡预览时不再反复展开整个职业卡池（切换角色卡顿的主因）。
+const previewBases = new WeakMap();
+function previewBase(character) {
+    let base = previewBases.get(character);
+    if (base) return base;
+    const cp = character.classProfile;
+    const origins = { ...Object.fromEntries((cp?.classPool || []).map(c => [c.id, c.archetype ?? cp.archetype])), ...character.cardOrigins };
+    const policy = createAttributePolicy(character);
+    base = { shell: { ...character, ...(cp ? { classProfile: { ...cp, classPool: [] } } : {}), cardOrigins: origins }, owner: policy ? { attributePolicy: policy } : {} };
+    previewBases.set(character, base);
+    return base;
+}
+
 function cardPreview(card, character, entry = {}) {
     if (!card) return facePresentation(null);
-    const { catalog, deck } = deckCardLoadout({ ...character, catalog: new Map([[card.id, card]]), deckEntries: [{ cardId: card.id, ...entry }] });
-    const policy = createAttributePolicy(character);
-    const owner = policy ? { attributePolicy: policy } : {};
+    const { shell, owner } = previewBase(character);
+    const { catalog, deck } = deckCardLoadout({ ...shell, catalog: new Map([[card.id, card]]), deckEntries: [{ cardId: card.id, ...entry }] });
     const preview = cardFaceView(catalog[card.id], deck[0], owner, 6);
     const after = card.upgraded ? facePresentation(cardFaceView(catalog[card.id], { ...deck[0], upgraded: true }, owner, 6)) : null;
     return { ...facePresentation(preview), ...(after ? {

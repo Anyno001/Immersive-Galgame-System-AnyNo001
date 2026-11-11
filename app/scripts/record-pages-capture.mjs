@@ -192,7 +192,7 @@ try {
         }
         return evaluate('window.__stageCast.probe()');
     })() : null;
-    const readerSteps = page === 'stage-cast-reader' ? await (async () => {
+    const readerSteps = (page === 'stage-cast-reader' || readerActions) ? await (async () => {
         const evalAsync = async (expression) => {
             const res = (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result;
             if (res?.exceptionDetails) return { error: res.exceptionDetails.exception?.description || res.exceptionDetails.text };

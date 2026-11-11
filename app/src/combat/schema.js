@@ -18,6 +18,7 @@ import { TREASURE_SLOT_MAX } from './gear-slots.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { RELIC_MODELS, isCombatModel, relicById } from './relics/index.js';
 import { winPointsBonus } from './relics/off-combat.js';
+import { BIAS_CATEGORIES, TRAIT_FLIPS, biasCategoryOf, traitFlipIssue } from './trait-reward-bias.js';
 import { CLASS_PASSIVE_VERSION } from './class-passives.js';
 import { CARD_ARCHETYPES } from './attribute-policy.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
@@ -1001,7 +1002,7 @@ function validateLedgerPayload(type, payload, path, state) {
                 reportId: textField(payload.reportId, at('reportId'), state, 40, ''),
             };
         case 'offer': {
-            checkKnownFields(payload, ['combatId', 'tier', 'exp', 'reveal', 'slots', 'reserve', 'flipRelics', 'weak', 'afterPanel'], path, state);
+            checkKnownFields(payload, ['combatId', 'tier', 'exp', 'reveal', 'slots', 'reserve', 'flipRelics', 'traitBias', 'traitFlip', 'traitHeld', 'weak', 'afterPanel'], path, state);
             // 槽位数组：长度 3 或 4，每项的 index 必须等于其下标。
             const slotList = (key) => {
                 const list = arrayField(payload[key], at(key), state, REWARD_SLOT_COUNT, REWARD_SLOT_MAX, validateRewardSlot);
@@ -1026,6 +1027,34 @@ function validateLedgerPayload(type, payload, path, state) {
                 }
             }
             if (payload.weak !== undefined && payload.weak !== true) addIssue(state, at('weak'), 'expected-true');
+            // 特质来源（B/C 类）：只记生效来源，供界面标注与账本累计；弱小战不带翻牌类来源。
+            let traitBias;
+            if (payload.traitBias !== undefined) {
+                if (!objectField(payload.traitBias, at('traitBias'), state)) traitBias = undefined;
+                else {
+                    checkKnownFields(payload.traitBias, ['trait', 'category'], at('traitBias'), state);
+                    const { trait, category } = payload.traitBias;
+                    if (biasCategoryOf(trait) !== category || !BIAS_CATEGORIES.includes(category)) addIssue(state, at('traitBias'), 'invalid-trait-bias');
+                    else traitBias = { trait, category };
+                }
+            }
+            const traitHeld = payload.traitHeld === undefined ? undefined : arrayField(payload.traitHeld, at('traitHeld'), state, 1, TRAIT_FLIPS.length, (name, namePath, st) => {
+                if (!TRAIT_FLIPS.some((spec) => spec.counter === true && spec.trait === name)) return addIssue(st, namePath, 'invalid-trait-held');
+                return name;
+            });
+            let traitFlip;
+            if (payload.traitFlip !== undefined) {
+                if (!objectField(payload.traitFlip, at('traitFlip'), state)) traitFlip = undefined;
+                else {
+                    checkKnownFields(payload.traitFlip, ['trait', 'effect', 'noDamage'], at('traitFlip'), state);
+                    const issue = traitFlipIssue(payload.traitFlip, { held: traitHeld, tier: payload.tier, weak: payload.weak === true });
+                    if (issue) addIssue(state, at('traitFlip'), issue);
+                    else {
+                        const { trait, effect, noDamage } = payload.traitFlip;
+                        traitFlip = { trait, effect, ...(noDamage === true ? { noDamage: true } : {}) };
+                    }
+                }
+            }
             return {
                 combatId: textField(payload.combatId, at('combatId'), state, 120),
                 tier: enumField(payload.tier, at('tier'), state, Object.keys(COMBAT_RULES.tiers)),
@@ -1034,6 +1063,9 @@ function validateLedgerPayload(type, payload, path, state) {
                 slots,
                 ...(reserve === undefined ? {} : { reserve }),
                 ...(flipRelics === undefined ? {} : { flipRelics }),
+                ...(traitBias ? { traitBias } : {}),
+                ...(traitFlip ? { traitFlip } : {}),
+                ...(traitHeld === undefined ? {} : { traitHeld }),
                 ...(payload.weak === true ? { weak: true } : {}),
                 ...(payload.afterPanel === undefined ? {} : { afterPanel: intField(payload.afterPanel, at('afterPanel'), state, 0, Number.MAX_SAFE_INTEGER) }),
             };

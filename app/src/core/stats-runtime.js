@@ -21,7 +21,7 @@ import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState, grudgeOfCharacter, heroDimsOf, isRomance } from '../scene/stats/stat-state.js';
 import { applyEvolutions, evolveCandidates, evolveText } from '../scene/stats/stat-trait-evolve.js';
-import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, listTraits, setTraitAttrReader, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
+import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, isComboKey, listTraits, setTraitAttrReader, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { statsPushActive } from '../data/shujuku/igs-managed.js';
@@ -3319,7 +3319,7 @@ export function createStatsRuntime({
     function archiveModel() {
         ensureLoaded();
         const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot(), isHero, heroName: userName() }) : null;
-        return model ? { ...model, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+        return model ? { ...model, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
     }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;
@@ -3426,6 +3426,12 @@ export function createStatsRuntime({
             const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() }).concat(heroFameMetrics(s));
             return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
         }),
+        // 角色当前挂的特质名（含主角；不含合成占位与成就），供战斗生成按人设偏向模板；没有启用时为 null。
+        traitNamesOf: (name) => {
+            if (!active()) return null;
+            const key = isHero(name) ? '主角' : String(name || '').trim();
+            return listTraits(catalog, key).filter((t) => !isComboKey(t.id) && t.src !== 'achieve').map((t) => t.id);
+        },
         // 好战者名单：主角与在场角色里挂有「战斗狂」的名字；没有启用数值系统或没有人时为 null。
         combatEager: () => {
             if (!active()) return null;

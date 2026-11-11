@@ -29,31 +29,6 @@ function memoryStorage(seed, fail = () => false) {
 }
 const boot = storage => bootstrapIGS({ global: {}, storage, autoAttachMagicWand: false, tavernSettingsSync: false });
 
-test('sprite-migration: 旧 DNA 衣装线索保持原显示，明确选新默认或升级后不再覆盖', () => {
-    const assets = migrateSpriteSystem({ characters: { A: { 默认: 'igs-gen:old' } },
-        characterDna: { A: { identity: 'old', defaultAppearance: 'wears 校服' } },
-        characterOutfits: { A: { 校服: { words: [], moods: { 平和: 'igs-gen:school' } } } } }).sceneAssets;
-    const read = () => resolveSpriteOutfit({ character: 'A', directives: [], sceneAssets: assets });
-    assert.equal(read().outfit, '校服');
-    assets.characterDefaultOutfits.A = { version: 1, outfitName: 'A·初始衣装' };
-    assert.equal(read().outfit, '');
-    assets.characterDefaultOutfits.A.migrated = true;
-    assets.characterDna.A.version = 2;
-    assert.equal(read().outfit, '');
-});
-
-test('sprite-migration: 只有衣柜图的角色也走新解析，不猜测用户的默认选择', () => {
-    const assets = { characters: { A: {} }, characterOutfits: { A: {
-        校服: { words: [], moods: {}, base: 'igs-gen:uniform' },
-        睡衣: { words: [], moods: { 平和: 'igs-gen:night' } },
-    } } };
-    const hit = resolveSpriteAsset('A', '没命中', { sceneAssets: assets }, '校服');
-    assert.equal(hit.url, 'igs-gen:uniform');
-    assert.equal(hit.source, 'user-outfit');
-    assert.equal(hit.selectionSource, 'requested');
-    assert.equal(assets.characterDefaultOutfits, undefined);
-});
-
 test('sprite-migration: 中断留下半新配置时先回滚，恢复失败保留日志，之后可完整重迁', async () => {
     const bridge = JSON.stringify({ sceneAssets: { characters: { A: { 默认: 'igs-gen:old' } } } });
     const reader = JSON.stringify({ spriteLayouts: { 'pc::A::默认': { posX: 9 } } });

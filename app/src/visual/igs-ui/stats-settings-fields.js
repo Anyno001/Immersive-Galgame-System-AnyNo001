@@ -526,7 +526,7 @@ function captureRegexField(path, label, value, placeholder, note) {
 export function renderStatsCodex(model, advancedOpen = () => '') {
     const list = (model && model.traitList) || {};
     const characters = Object.entries(list).map(([charName, own]) => ({ charName, traits: (own.items || []).map((t) => t.id) }));
-    return renderTraitCodex(model && model.traitCodex, { characters, nsfwOn: Boolean(model && model.traitNsfw), advancedOpen });
+    return renderTraitCodex(model && model.traitCodex, { characters, nsfwOn: Boolean(model && model.traitNsfw), combatOn: Boolean(model && model.combatCardOn), advancedOpen });
 }
 
 // 「世界观」：自动由辅助模型读世界书判定；手动多选覆盖（再点已选项取消，全部取消回到自动）。

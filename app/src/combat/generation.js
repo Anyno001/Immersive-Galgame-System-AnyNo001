@@ -13,6 +13,7 @@ import {
 } from './schema.js';
 import { ARCHETYPE_FAMILIES, CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, passiveTemplateWeight, templateCatalogText, templatesFor } from './card-templates.js';
 import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
+import { traitTemplateWeightOf } from './trait-template-bias.js';
 import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtTheme } from './enemy-art.js';
 import {
     CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleInitialGear, assembleItem, assembleReward, assembleSignature,
@@ -358,9 +359,9 @@ function relicShown(ref) {
 // 战斗奖励请求：先规划奖励槽位（plan），再生成 entity；参数缺失返回 error
 // inscribe 为真时（规则 v5 普通战斗）卡组角色可出刻印槽，刻印种类与目标副本由程序定，模型只写来历。
 // candidates 为真时（规则 v6 普通战斗）卡组角色的卡牌槽是三选一，见 rewards.js 的 withCardCandidates。
-export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false, weak = false, afterPanel } = {}) {
+export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false, weak = false, afterPanel, statTraits = null } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
-    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe, candidates, weak });
+    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe, candidates, weak, statTraits });
     const slots = withGearTemplates(plan.slots, plan.seed);
     const reserve = withGearTemplates(plan.reserve, `${plan.seed}|reserve`);
     // 给模型的槽位信息去掉 index 与 count（由程序掌握）；刻印槽只给刻印名与牌名，不给副本与卡牌 ID；
@@ -380,7 +381,7 @@ export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies 
             owner: character.id,
             anchor: { ...anchor },
             input: { characterName: character.name, tier: plan.tier, enemies: enemyNames, ...(encounter ? { encounter: String(encounter).slice(0, 40) } : {}), slots: visibleSlots(slots), reserve: visibleSlots(reserve) },
-            fixed: { combatId, tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots, reserve, ...(plan.flipRelics ? { flipRelics: plan.flipRelics } : {}), ...(plan.weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) },
+            fixed: { combatId, tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots, reserve, ...(plan.flipRelics ? { flipRelics: plan.flipRelics } : {}), ...(plan.traitBias ? { traitBias: plan.traitBias } : {}), ...(plan.traitFlip ? { traitFlip: plan.traitFlip } : {}), ...(plan.traitHeld ? { traitHeld: plan.traitHeld } : {}), ...(plan.weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) },
         },
     };
 }
@@ -394,16 +395,16 @@ function findSignatureCard(character, skillName) {
 }
 
 // 学习卡牌时给模型的模板候选：只留该稀有度下 1 费能解的卡牌模板，再按名字与描述筛候选
-function cardLearnInput(growth, seedKey) {
+function cardLearnInput(growth, seedKey, traits) {
     const rarity = growth.rarity;
     const solvable = Object.keys(CARD_TEMPLATES).filter((key) => nearestTemplateCost(key, 1, rarity) !== null);
-    const templates = templateCandidates(solvable, (key) => CARD_TEMPLATES[key].label, `${growth.skill} ${growth.description || ''}`, seedKey);
+    const templates = templateCandidates(solvable, (key) => CARD_TEMPLATES[key].label, `${growth.skill} ${growth.description || ''}`, seedKey, { weightOf: traitTemplateWeightOf(traits) });
     return { rarity, templates, templateVars: Object.fromEntries(templates.map((key) => [key, CARD_TEMPLATES[key].vars.map((range) => [...range])])) };
 }
 
 // 成长事件（获得装备/道具/职业/技能）-> 直接生成账本条目（entry），或需要模型参与的请求（entity）。
 // 角色缺失返回 error。
-export function growthEntity(growth, character, { classes, now = 0, profileMeta } = {}) {
+export function growthEntity(growth, character, { classes, now = 0, profileMeta, traits } = {}) {
     if (!character) return { error: 'combat-character-missing' };
     const { anchor } = growth;
     const key = `growth:${ledgerEntryId(growth.kind, character.id, anchor)}`;
@@ -457,7 +458,7 @@ export function growthEntity(growth, character, { classes, now = 0, profileMeta 
                 output,
                 ...(output === 'card' ? { archetype: character.classProfile?.archetype } : {}),
                 ...(growth.kind === 'upgrade' ? { candidates } : {}),
-                ...(growth.kind === 'learn' && output === 'card' && growth.rarity ? cardLearnInput(growth, key) : {}),
+                ...(growth.kind === 'learn' && output === 'card' && growth.rarity ? cardLearnInput(growth, key, traits) : {}),
             },
         },
     };
@@ -643,10 +644,10 @@ function settleEntity(entity, value, state) {
 
 // 战斗奖励：装配后做 offer 账本规范化，并检查装备槽被动的伤害上限
 function settleReward(entity, value, state) {
-    const { combatId, tier, exp, reveal, seed, slots, reserve, flipRelics, weak, afterPanel } = entity.fixed;
+    const { combatId, tier, exp, reveal, seed, slots, reserve, flipRelics, traitBias, traitFlip, traitHeld, weak, afterPanel } = entity.fixed;
     const assembled = assembleReward(value, { key: entity.key, input: { seed, slots, reserve } });
     if (assembled.errors) return { ok: false, errors: assembled.errors };
-    const payload = { combatId, tier, exp, reveal, slots: assembled.value.slots, ...(assembled.value.reserve ? { reserve: assembled.value.reserve } : {}), ...(flipRelics ? { flipRelics } : {}), ...(weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) };
+    const payload = { combatId, tier, exp, reveal, slots: assembled.value.slots, ...(assembled.value.reserve ? { reserve: assembled.value.reserve } : {}), ...(flipRelics ? { flipRelics } : {}), ...(traitBias ? { traitBias } : {}), ...(traitFlip ? { traitFlip } : {}), ...(traitHeld ? { traitHeld } : {}), ...(weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) };
     const entry = normalizeLedgerEntry(ledgerEntry(entity, 'offer', payload, state.now));
     if (!entry.ok) return { ok: false, errors: entry.errors.map(stripPayloadPath) };
     for (const field of ['slots', 'reserve']) {

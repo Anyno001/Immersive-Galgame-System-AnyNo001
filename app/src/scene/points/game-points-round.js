@@ -46,5 +46,6 @@ export function createGamePointsRound({ engine, start, valid = () => true }) {
             return run(false);
         },
         retry: () => run(true),
+        stage: () => (typeof engine.stage === 'function' ? engine.stage() : ''),
     });
 }
