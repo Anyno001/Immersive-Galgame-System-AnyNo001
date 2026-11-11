@@ -80,6 +80,8 @@ const REASON_TEXT = Object.freeze({
     'combat-ascend-tier-invalid': '职业阶已变化，请重试',
     'combat-trait-unavailable': '当前无法抽取人物特性',
     'combat-trait-pending': '先决定替换或放弃新特性',
+    'combat-trait-busy': '正在抽取人物特性，请等待本次结果',
+    'combat-trait-stale': '抽取次数已变化，请重试；本次未扣费',
     'combat-trait-generation-failed': '人物特性生成失败',
     'combat-trait-seed-unavailable': '当前无法保存抽取进度，请重新载入聊天后重试',
     'combat-trait-seed-save-failed': '抽取进度保存失败，请重试；尚未扣费',

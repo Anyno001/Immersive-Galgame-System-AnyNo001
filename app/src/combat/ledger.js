@@ -2857,7 +2857,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     // 主角面板操作：先算出记录，再把它加进去试重放，没有被判失效或产生诊断才写入。
-    function heroPanelAction(characterId, action, payload) {
+    function heroPanelAction(characterId, action, payload, { expectedDraws } = {}) {
         return queueAction(async () => {
             if (payload?.cost > 0 && typeof spendingGate === 'function') {
                 const allowed = await spendingGate();
@@ -2867,6 +2867,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
+            if (action === 'trait' && expectedDraws !== undefined && state.characters.get(characterId)?.traitDraws !== expectedDraws) return { ok: false, reason: 'combat-trait-stale' };
             const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet() + (state.originPoints || 0) + (state.gamePoints || 0));
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
@@ -2884,14 +2885,14 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
             ? heroPanelAction(characterId, 'ascend', { classRef, tier, tierName, cards, cost: rule.cost })
             : Promise.resolve({ ok: false, reason: 'combat-ascend-tier-invalid' });
     }
-    function drawTrait(characterId, trait = {}) {
+    function drawTrait(characterId, trait = {}, options = {}) {
         const { traitId, name, origin = '', rarity, kind, passive, skill, link, relic } = trait;
         return heroPanelAction(characterId, 'trait', {
             traitId, name, origin, rarity, ...(kind ? { kind } : {}), passive, ...(skill ? { skill } : {}), ...(link ? { link } : {}),
             ...(COMBAT_RULES.version >= 6 && offCombatModel(relic)?.kind === 'pickup' ? { pickup: true } : {}),
             ...(relic ? { relic: { relicId: relic.relicId, model: relic.model } } : {}), cost: TRAIT_DRAW_COST,
             ...(COMBAT_RULES.version >= 6 && offCombatModel(relic)?.copy > 0 ? { added: true } : {}),
-        });
+        }, options);
     }
     const pickTrait = (characterId, traitId, drop) => heroPanelAction(characterId, 'trait-pick', { traitId, drop });
     // 规则 v6 G5f-4d 御印：为挂起的遗物刻印选定一张卡组副本。

@@ -121,6 +121,7 @@ export function createCombatServices(options = {}) {
     const traitSeeds = createCombatTraitSeed(global, getChatId);
     const traitsOf = (name) => { try { return typeof options.traitNamesOf === 'function' ? options.traitNamesOf(name) : null; } catch { return null; } };
     let traitEpoch = 0;
+    let traitDrawTask = null;
     const getChat = () => {
         const context = getSillyTavernContext(global);
         return context && Array.isArray(context.chat) ? context.chat : [];
@@ -1254,7 +1255,16 @@ export function createCombatServices(options = {}) {
         return written?.ok !== true ? { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, tier, tierName: tierProfile.tierName, cost: tierRule.cost };
     }
 
-    async function drawTrait({ signal, onPlan } = {}) {
+    function drawTrait(options = {}) {
+        const chatId = getChatId();
+        const epoch = traitEpoch;
+        if (traitDrawTask?.chatId === chatId && traitDrawTask.epoch === epoch) return Promise.resolve({ ok: false, reason: 'combat-trait-busy' });
+        const task = { chatId, epoch };
+        traitDrawTask = task;
+        return runDrawTrait(options).finally(() => { if (traitDrawTask === task) traitDrawTask = null; });
+    }
+
+    async function runDrawTrait({ signal, onPlan } = {}) {
         const actionChatId = getChatId();
         const actionEpoch = traitEpoch;
         const context = await heroActionContext('drawTrait', 'trait');
@@ -1288,7 +1298,7 @@ export function createCombatServices(options = {}) {
         if (generated.reason) return generationFailure(generated);
         const trait = (generated.accepted || []).find((item) => item.kind === 'trait')?.trait;
         if (!trait) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-trait-generation-failed' };
-        const written = await ledgerImpl.drawTrait(hero.id, trait);
+        const written = await ledgerImpl.drawTrait(hero.id, trait, { expectedDraws: hero.traitDraws });
         if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
         const pending = trait.kind ? !traitFits(hero, trait.kind) : (hero.traits || []).length >= TRAIT_BASE_SLOTS;
         return { ok: true, id: hero.id, trait, pending, cost: TRAIT_DRAW_COST };

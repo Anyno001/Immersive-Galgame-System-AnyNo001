@@ -64,3 +64,5 @@ node --test tests/reader-floor-preparation.test.js
 可选 `bridge.imageCache.compressDisplay` 缺省 false，旧配置不会自动启用。显示转码/迟到结果拒收、同模式重启复用、原图导出不污染缓存、素材包五类图片字段/默认映射/备注往返及 CRC/回滚由 `display-archive.test.js` 定向覆盖；`tavern-image-cache.test.js` 检查数量/字节超限批量清到 80%、最近访问顺序与后续写入余量。独立无头 Chrome 使用生成的 2000×2400 透明测试图核对实际 WebP、透明度和原图字节，不连接真实图库或 provider。
 
 缓存批量清理补全：`cache-eviction` 为阅读器正文、12 类辅助 Map、音频、解码与图片索引统一 80% 低水位，数量向下取整且至少一项。registry 统计增加 `lowWaterRatio`，不修改业务 schema 或 TTL；`media-cache-governance.test.js` 覆盖本所有者/全局字节批量回收与完整视图，`reader-floor-preparation.test.js` 覆盖 8→6 楼及准备复用，`tts.test.js` 覆盖 60→48 / 300→240 与清理后的迟到任务。全仓检查范围和保留的业务历史见 [容量淘汰核查](CACHE_EVICTION_AUDIT_20261017.md)。
+
+卡牌战斗 v0.39.84：`offer.payload.randomKey` 为可选新增字段，旧记录仍可读取与重放；新续战记录也保留随机键。特性序号 `expectedDraws` 仅作写入前预检，不进入历史载荷。`combat-random-domain.test.js` 覆盖跨聊天隔离及旧奖励/准备/会话兼容，`combat-trait-draw.test.js` 补充生成防重入与过期序号拒收；所有数据均为内存替身。

@@ -210,3 +210,9 @@
 - `generation-materials.js` 负责 JSON 指针、候选路径、角色别称、素材裁剪与 14000 字符预算，纯函数，不访问宿主或写数据。方向上限 1600 字符；失效路径、表消失和超预算明确拒收。
 - `context.generationHint` 指导名称、风格与模板，`context.characterMaterials` 携带 MVU/技能表素材及冲突优先来源；不改变输出协议、费用槽、卡牌数量、强度窗口或记账规则。资料文字不是系统指令，未解锁或归属不明的能力不自动视为已掌握。
 - 初次卡组、重建、AI 转职与升阶走同一素材入口；确认时重读，`materialChatId` 与当前聊天不一致就停止。已有职业直接转职不请求模型和素材。
+
+## v0.39.84 随机域与抽取并发
+
+- `random-domain.js` 保留旧 `combatId` 引用，新增聊天与场次派生的 `randomKey`。会话先复用已存续战、offer 或准备记录的随机键；已有记录无该字段时沿用旧算法。新场次将随机键写入准备记录、offer 及会话记录，奖励主备套、翻牌/透视、敌方后备排序、首次开战、重开与挑战经验牌使用同一随机域。恢复仍按已保存的 `setup + seed + actions` 重放，不重算已有奖励。
+- `offer` 载荷新增可选 `randomKey`（非空文本，最多 120 字）；旧载荷保持可读。`planRewardSlots` / `rewardEntity` / `planChallengeReward` 可选接收该字段，省略时保持旧的确定性结果。
+- `ledger.drawTrait(characterId, trait, { expectedDraws })` 在串行写入前核对规划时的抽取次数，否则拒收 `combat-trait-stale`。预检参数不进入历史载荷，不在重放时重新拒收已获得的特性；早期楼层换分支时后续有效条目仍保留。服务层同聊天同一生命周期只允许一次抽取生成在途，重复调用返回 `combat-trait-busy`。此保护覆盖本机调用与写入前检查，不承诺数据库提供跨设备事务。

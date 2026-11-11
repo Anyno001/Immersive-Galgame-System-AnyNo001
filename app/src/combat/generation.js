@@ -359,9 +359,9 @@ function relicShown(ref) {
 // 战斗奖励请求：先规划奖励槽位（plan），再生成 entity；参数缺失返回 error
 // inscribe 为真时（规则 v5 普通战斗）卡组角色可出刻印槽，刻印种类与目标副本由程序定，模型只写来历。
 // candidates 为真时（规则 v6 普通战斗）卡组角色的卡牌槽是三选一，见 rewards.js 的 withCardCandidates。
-export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false, weak = false, afterPanel, statTraits = null } = {}) {
+export function rewardEntity({ combatId, randomKey, anchor, tier, enemyTiers = [], enemies = [], encounter = '', character, links, difficulty, inscribe = false, candidates = false, weak = false, afterPanel, statTraits = null } = {}) {
     if (!combatId || !anchor || !character?.id) return { error: 'combat-reward-input-missing' };
-    const plan = planRewardSlots({ combatId, tier, enemyTiers, character, links, difficulty, inscribe, candidates, weak, statTraits });
+    const plan = planRewardSlots({ combatId, randomKey, tier, enemyTiers, character, links, difficulty, inscribe, candidates, weak, statTraits });
     const slots = withGearTemplates(plan.slots, plan.seed);
     const reserve = withGearTemplates(plan.reserve, `${plan.seed}|reserve`);
     // 给模型的槽位信息去掉 index 与 count（由程序掌握）；刻印槽只给刻印名与牌名，不给副本与卡牌 ID；
@@ -381,7 +381,7 @@ export function rewardEntity({ combatId, anchor, tier, enemyTiers = [], enemies 
             owner: character.id,
             anchor: { ...anchor },
             input: { characterName: character.name, tier: plan.tier, enemies: enemyNames, ...(encounter ? { encounter: String(encounter).slice(0, 40) } : {}), slots: visibleSlots(slots), reserve: visibleSlots(reserve) },
-            fixed: { combatId, tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots, reserve, ...(plan.flipRelics ? { flipRelics: plan.flipRelics } : {}), ...(plan.traitBias ? { traitBias: plan.traitBias } : {}), ...(plan.traitFlip ? { traitFlip: plan.traitFlip } : {}), ...(plan.traitHeld ? { traitHeld: plan.traitHeld } : {}), ...(plan.weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) },
+            fixed: { combatId, ...(randomKey === undefined ? {} : { randomKey }), tier: plan.tier, exp: plan.exp, reveal: plan.links.reveal, seed: plan.seed, slots, reserve, ...(plan.flipRelics ? { flipRelics: plan.flipRelics } : {}), ...(plan.traitBias ? { traitBias: plan.traitBias } : {}), ...(plan.traitFlip ? { traitFlip: plan.traitFlip } : {}), ...(plan.traitHeld ? { traitHeld: plan.traitHeld } : {}), ...(plan.weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) },
         },
     };
 }
@@ -644,10 +644,10 @@ function settleEntity(entity, value, state) {
 
 // 战斗奖励：装配后做 offer 账本规范化，并检查装备槽被动的伤害上限
 function settleReward(entity, value, state) {
-    const { combatId, tier, exp, reveal, seed, slots, reserve, flipRelics, traitBias, traitFlip, traitHeld, weak, afterPanel } = entity.fixed;
+    const { combatId, randomKey, tier, exp, reveal, seed, slots, reserve, flipRelics, traitBias, traitFlip, traitHeld, weak, afterPanel } = entity.fixed;
     const assembled = assembleReward(value, { key: entity.key, input: { seed, slots, reserve } });
     if (assembled.errors) return { ok: false, errors: assembled.errors };
-    const payload = { combatId, tier, exp, reveal, slots: assembled.value.slots, ...(assembled.value.reserve ? { reserve: assembled.value.reserve } : {}), ...(flipRelics ? { flipRelics } : {}), ...(traitBias ? { traitBias } : {}), ...(traitFlip ? { traitFlip } : {}), ...(traitHeld ? { traitHeld } : {}), ...(weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) };
+    const payload = { combatId, ...(randomKey === undefined ? {} : { randomKey }), tier, exp, reveal, slots: assembled.value.slots, ...(assembled.value.reserve ? { reserve: assembled.value.reserve } : {}), ...(flipRelics ? { flipRelics } : {}), ...(traitBias ? { traitBias } : {}), ...(traitFlip ? { traitFlip } : {}), ...(traitHeld ? { traitHeld } : {}), ...(weak ? { weak: true } : {}), ...(afterPanel === undefined ? {} : { afterPanel }) };
     const entry = normalizeLedgerEntry(ledgerEntry(entity, 'offer', payload, state.now));
     if (!entry.ok) return { ok: false, errors: entry.errors.map(stripPayloadPath) };
     for (const field of ['slots', 'reserve']) {

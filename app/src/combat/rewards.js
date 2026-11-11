@@ -271,11 +271,11 @@ export function planCardDraw(character) {
 // statTraits（可选）：{ hero: 主角数值特质名单, allies: 同场同伴的特质名单（只供福星）}，由宿主层读取后传入；不传时与旧规划逐位一致。
 // 生效来源记在返回值：traitBias { trait, category }（B 类牌类偏向）、traitFlip { trait, effect: 'choices' | 'reveal' | 'reroll', noDamage? }（C 类）、
 // traitHeld（需按胜场计数的 C 类特质，账本据此累计 flipWins 的 trait:<特质名>）。
-export function planRewardSlots({ combatId, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false, weak = false, statTraits = null } = {}) {
+export function planRewardSlots({ combatId, randomKey, tier, enemyTiers = [], character = null, links, difficulty, inscribe = false, candidates = false, weak = false, statTraits = null } = {}) {
     const tierKey = Object.hasOwn(TIER_LOOT, tier) ? tier : 'normal';
     const rule = TIER_LOOT[tierKey];
     let normalLinks = normalizeLinks(links);
-    const seed = `reward|${combatId ?? ''}|${character?.id ?? ''}`;
+    const seed = `reward|${randomKey ?? combatId ?? ''}|${character?.id ?? ''}`;
     const deck = character?.kind === 'deck-character';
     // 只有牌组角色才掉卡牌与刻印；刻印另需调用方开启。
     const kinds = rule.kinds.filter(([kind]) => (kind === 'inscribe' ? deck && inscribe === true : kind !== 'card' || deck));

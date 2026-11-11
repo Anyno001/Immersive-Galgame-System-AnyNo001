@@ -94,7 +94,8 @@ export function manualBuildView(attr, draft, { readonly = false } = {}) {
 // 装备栏、背包与道具：四个部位按固定顺序列出（空部位也列出），背包为已拥有未装备的装备（带稀有度与售价，在背包页列出）。
 // 装备说明：六维加成（带稀有度的装备，D7）在前，被动说明在后；没有被动的装备只显示加成。
 export const gearBonusText = (g) => (g?.bonus ? `${ABILITY_LABELS[g.bonus.ability] || g.bonus.ability} +${g.bonus.amount}` : '');
-const gearText = (g) => [gearBonusText(g), g?.passive?.description || ''].filter(Boolean).join('；');
+const passiveText = (p) => [describeTrigger(p.trigger, p.cardType), describeEffects(p.effects)].filter(Boolean).join('：');
+const gearText = (g) => [gearBonusText(g), g?.passive ? passiveText(g.passive) : ''].filter(Boolean).join('；');
 function gearView(view) {
     const slots = view.gear?.slots || {};
     const itemOf = (g) => (g ? { gearId: g.gearId, name: g.name, text: gearText(g) } : null);
@@ -142,7 +143,6 @@ export function validateDraft(view, draft) {
 
 // 人物特性（P-d）：名称、稀有度、来历、联动与效果说明（被动数值已按稀有度加强）；v4 主动特性（kind: 'active'）另给费用，说明取技能效果。
 // 规则 v6 战斗外遗物特性不带被动，说明取遗物表的用途描述，与普通特性同样呈现。
-const passiveText = (p) => [describeTrigger(p.trigger, p.cardType), describeEffects(p.effects)].filter(Boolean).join('：');
 const traitView = (t) => ({ traitId: t.traitId, name: t.name, rarity: t.rarity, origin: t.origin || '', link: t.link || null,
     ...(t.kind === 'active' && t.skill ? { kind: 'active', cost: t.skill.cost } : {}),
     text: t.passive ? passiveText(t.passive) : t.skill ? describeEffects(t.skill.effects) : relicText(t.relic) });
@@ -278,8 +278,8 @@ export function deckDetailView(view, draft) {
         }),
         // 职业阶（P-c）：classTier 一阶起，tierName 为阶名；expLevel 为按 EXP 推导的等级，升阶门槛按它判断（与账本归并一致）。
         classRef: view.classRef ?? null, classTier: view.classTier || 1, tierName: view.tierName || '', expLevel: view.level ?? 1,
-        classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: describeEffects(view.classProfile.classPassive.effects) } : null,
-        personalPassive: profile.personalPassive ? { name: profile.personalPassive.name, text: describeEffects(profile.personalPassive.effects) } : null,
+        classPassive: view.classProfile?.classPassive ? { name: view.classProfile.classPassive.name, text: passiveText(view.classProfile.classPassive) } : null,
+        personalPassive: profile.personalPassive ? { name: profile.personalPassive.name, text: passiveText(profile.personalPassive) } : null,
         owned, signature, deck: cards, check, dirty: Boolean(draft) && draft.join('|') !== view.deck.join('|'),
         // 规则 v6 卡组即持有：只有旧档案卡组需要调整时才开放加入 / 移出 / 保存。
         deckEditable: view.deckNeedsAdjust === true,

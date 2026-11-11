@@ -45,6 +45,7 @@ import { keptInnateKinds, traitLinks, traitPassives } from './traits.js';
 import { settleRewardOffer } from './reward-cards.js';
 import { equippedGear } from './gear-slots.js';
 import { allCleanOf, freeRerollOf } from './trait-reward-bias.js';
+import { battleRandomFields, resolveBattleRandomKey } from './random-domain.js';
 
 export const SESSION_VERSION = 1;
 export const sessionKeyFor = (chatId) => `igs-combat:session:${chatId}`;
@@ -410,7 +411,7 @@ function planReward(ledgerState, session, userName, difficulty, statTraits = nul
     const weak = rulesVersion >= 6 && (session.record?.setup ? session.record.setup.weakFoes === true
         : session.weakFoes === true);
     return rewardEntity({
-        combatId: session.combatId, anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
+        combatId: session.combatId, ...battleRandomFields(session), anchor: session.anchor, tier: session.start.tier, enemyTiers, enemies: session.start.enemies,
         encounter: session.start.encounter, character, links: traitLinks(hero?.traits, hero?.gear?.slots), difficulty,
         inscribe: rulesVersion >= 5, candidates: rulesVersion >= 6, weak, statTraits,
         afterPanel: rulesVersion >= 6 && ledgerState.panelBoundary?.messageId === session.anchor.messageId && ledgerState.panelBoundary?.swipeId === session.anchor.swipeId
@@ -756,7 +757,7 @@ export function createCombatSession(options = {}) {
     const ok = (extra = {}) => ({ ok: true, ...extra, session: snapshot() });
     const fail = (reason, extra = {}) => ({ ok: false, reason, ...extra, session: snapshot() });
     const sessionKey = () => sessionKeyFor(getChatId());
-    const identityOf = (session) => ({ combatId: session.combatId, anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(typeof session.weakFoes === 'boolean' ? { weakFoes: session.weakFoes } : {}), ...(session.theme ? { theme: session.theme } : {}), ...(isChallenge(session) ? { kind: 'challenge' } : {}) });
+    const identityOf = (session) => ({ combatId: session.combatId, ...battleRandomFields(session), anchor: session.anchor, start: session.start, reportId: session.reportId, chatId: session.chatId, ...(typeof session.weakFoes === 'boolean' ? { weakFoes: session.weakFoes } : {}), ...(session.theme ? { theme: session.theme } : {}), ...(isChallenge(session) ? { kind: 'challenge' } : {}) });
 
     // 会话记录读写：写入走节流，读取先看内存
     const readSession = () => persist.read(sessionKey());
@@ -812,7 +813,7 @@ export function createCombatSession(options = {}) {
         const tier = challengeCostTier(challenge.tier, resolveOption(challengeOptions.stake));
         const outcome = challenge.intimate && end.ending ? INTIMATE_LEGACY_OUTCOME[end.ending] : challengeOutcomeOf(end.result, end.willRatio, { byLimit: end.byLimit });
         const harvest = challenge.intimate ? { prize: null, card: false } : challengeHarvest(challenge.foe, outcome, tier);
-        const reward = harvest.card ? planChallengeReward({ combatId: session.combatId, outcome, tier, foe: challenge.foe, domain: challenge.domain }) : null;
+        const reward = harvest.card ? planChallengeReward({ combatId: session.combatId, ...battleRandomFields(session), outcome, tier, foe: challenge.foe, domain: challenge.domain }) : null;
         const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null, ...(challenge.intimate && end.ending ? { ending: end.ending } : {}) };
         summaryCache.set(session.combatId, { end, value });
         return value;
@@ -1107,6 +1108,10 @@ export function createCombatSession(options = {}) {
         if (findReportFloor(chat, messageId, session.reportId) >= 0) return ok({ session: setState({ ...session, status: 'done' }) });
         const chatRecord = readChatRecord(session);
         if (!chatRecord.ok) return blocked(session, chatRecord.reason);
+        const saved = readSession();
+        const savedRecord = saved.ok && saved.value?.combatId === session.combatId ? saved.value : null;
+        const prepared = chatRecord.value?.prepared ? chatRecord.value : null;
+        session.randomKey = resolveBattleRandomKey({ chatId: session.chatId, combatId: session.combatId, record: savedRecord, prepared });
         // 敌人图集题材留档（encounter-theme）：合法时带进会话；非法值忽略，面板按世界观选图。
         if (isEnemyArtTheme(chatRecord.value?.theme)) session.theme = chatRecord.value.theme;
         if (chatRecord.value?.result) {
@@ -1138,6 +1143,7 @@ export function createCombatSession(options = {}) {
         session.weakFoes = COMBAT_RULES.version >= 6 && (alreadyPrepared
             ? chatRecord.value.prepared.weakFoes === true
             : weakFoesOf(session.start, new Map(session.start.enemies.map(({ name }) => [name, attributeViewFor(ledgerState, name)]))));
+        session.randomKey = resolveBattleRandomKey({ chatId: session.chatId, combatId: session.combatId, record: savedRecord, offer: ledgerState.offers?.get(session.combatId), prepared });
         let entities = neededProfiles(ledgerState, located.start, userName, { heroOnly: alreadyPrepared });
         const initNames = alreadyPrepared ? [userName] : [userName, ...located.start.allies, ...located.start.enemies.map((enemy) => enemy.name)];
         if (ledgerState.attributes?.table === 'ok') {
@@ -1247,7 +1253,7 @@ export function createCombatSession(options = {}) {
         lobby.vitals = lobbyVitals(lobby, difficultyOf());
         const skipped = (generated?.rejected || []).filter((item) => item.fallback?.kind === 'skip').map((item) => item.owner);
         const newTheme = theme && theme !== savedTheme ? { theme } : {};
-        if (!chatRecord.value?.prepared || newTheme.theme) await writeChatRecord(session, { ...(chatRecord.value?.prepared ? {} : { prepared: { at: now(), weakFoes: session.weakFoes } }), ...newTheme });
+        if (!chatRecord.value?.prepared || newTheme.theme) await writeChatRecord(session, { ...(chatRecord.value?.prepared ? {} : { prepared: { at: now(), weakFoes: session.weakFoes }, ...battleRandomFields(session) }), ...newTheme });
         return ok({
             session: setState({
                 ...session, ...(theme ? { theme } : {}), status: 'lobby', lobby, skipped, reward: rewardStatus(ledgerState, session.combatId, rewardPlan?.plan, rewardFailure),
@@ -1381,10 +1387,10 @@ export function createCombatSession(options = {}) {
     // ---- 开战与出牌 ----
     function startChallenge() {
         const setup = { rulesVersion: COMBAT_RULES.version, ...current.challengeSetup };
-        const seed = seedFor(current.combatId);
+        const seed = seedFor(current.randomKey ?? current.combatId);
         const battle = createBattle(setup, seed);
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
-        const record = { v: SESSION_VERSION, combatId: current.combatId, anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [] };
+        const record = { v: SESSION_VERSION, combatId: current.combatId, ...battleRandomFields(current), anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [] };
         if (!writeSession(record)) return fail('combat-session-save-failed');
         const intimateTrace = setup.challenge?.intimate ? foldIntimateTrace(initIntimateTrace(), battle.state, battle.events) : null;
         setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null, ...(intimateTrace ? { intimateTrace } : {}) });
@@ -1395,13 +1401,13 @@ export function createCombatSession(options = {}) {
         if (current.status !== 'lobby') return fail('combat-session-not-ready');
         if (!isCurrent(current)) return floorChanged();
         if (isChallenge(current)) return startChallenge();
-        const built = buildSetup(current.lobby, current.start, { controlledId, difficulty: difficultyOf(), userName: getUserName(), combatId: current.combatId });
+        const built = buildSetup(current.lobby, current.start, { controlledId, difficulty: difficultyOf(), userName: getUserName(), combatId: current.randomKey ?? current.combatId });
         if (!built.ok) return fail(built.reason);
-        const seed = seedFor(current.combatId);
+        const seed = seedFor(current.randomKey ?? current.combatId);
         const battle = createBattle(built.setup, seed);
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
         const record = {
-            v: SESSION_VERSION, combatId: current.combatId, anchor: current.anchor, seed, setup: built.setup, actions: [],
+            v: SESSION_VERSION, combatId: current.combatId, ...battleRandomFields(current), anchor: current.anchor, seed, setup: built.setup, actions: [],
             encounter: current.start.encounter, tiers: built.tiers, expTargets: built.expTargets,
             ...(current.theme ? { theme: current.theme } : {}), ...(built.itemOwner ? { itemOwner: built.itemOwner } : {}),
         };
@@ -1674,7 +1680,7 @@ export function createCombatSession(options = {}) {
         }
         resultsSaved.delete(combatId);
         const restarts = (Number.isInteger(current.record?.restarts) ? current.record.restarts : 0) + 1;
-        const seed = seedFor(`${combatId}#${restarts}`);
+        const seed = seedFor(`${current.randomKey ?? combatId}#${restarts}`);
         const battle = createBattle(current.record.setup, seed);
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
         const { flip: _flip, ...kept } = current.record;
@@ -1738,7 +1744,7 @@ export function createCombatSession(options = {}) {
             return fail('combat-chat-not-ready');
         }
         const session = {
-            combatId: record.combatId, anchor: record.anchor, start: located.start, reportId: reportIdFor(record.combatId), chatId: getChatId(),
+            combatId: record.combatId, ...battleRandomFields(record), anchor: record.anchor, start: located.start, reportId: reportIdFor(record.combatId), chatId: getChatId(),
             ...(isEnemyArtTheme(record.theme) ? { theme: record.theme } : {}), ...(record.setup?.challenge ? { kind: 'challenge' } : {}),
         };
         if (!located.ok || !sameAnchor(located.anchor, record.anchor) || located.combatId !== record.combatId) {
