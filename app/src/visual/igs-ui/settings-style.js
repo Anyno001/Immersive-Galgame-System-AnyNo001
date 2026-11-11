@@ -414,6 +414,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-perf-item-head{display:flex;align-items:center;gap:10px;min-width:0}
 .igs-perf-item-head>.igs-switch{flex:0 1 auto;min-width:0}
 .igs-perf-item-head>.igs-settings-field{flex:1 1 auto;min-width:0}
+@media (max-width:520px){.igs-perf-item-head:has(.igs-settings-range){flex-wrap:wrap}.igs-perf-item-head:has(.igs-settings-range)>.igs-settings-field{flex-basis:100%}}
 .igs-perf-item-head>.igs-perf-item-label{flex:1 1 auto;min-width:0;height:38px;display:flex;align-items:center;padding:0 12px 0 40px;/* 40 = 开关轨道30 + 间距10（演出行内开关无内边距），无开关行的名称与有开关行左对齐 */font-size:13px;color:var(--igs-settings-ink-2)}
 .igs-perf-item-icon{flex:0 0 18px;width:18px;height:18px;margin:0 16px 0 -34px;color:var(--igs-settings-ink-2)}
 .igs-perf-item-hint{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--igs-settings-ink-4)}

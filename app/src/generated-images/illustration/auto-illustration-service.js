@@ -305,7 +305,10 @@ export function createAutoIllustrationService(deps) {
         return Promise.resolve(typeof llm?.runImageTask === 'function' ? llm.runImageTask(input, run) : run(input))
             .finally(() => target.release());
     }
+    // 填了「CG 尺寸」就按填的出图，不跟背景尺寸和画面框走；留空沿用自动规则。
     const cgSize = (s) => {
+        const fixed = parseCgSize(s.assets && s.assets.cgSize);
+        if (fixed) return clampToPixelCap(`${fixed.width}x${fixed.height}`);
         const mode = typeof deps.getReaderMode === 'function' ? deps.getReaderMode() : 'pc';
         const locked = mode === 'fullscreen' ? lockedFullscreenSize(s.assets) : '';
         if (locked) return locked;

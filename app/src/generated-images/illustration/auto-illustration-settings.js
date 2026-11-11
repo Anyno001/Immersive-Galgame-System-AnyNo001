@@ -90,6 +90,7 @@ export function normalizeAutoIllustrationSettings(value) {
             maxPerFloor: clampInt(assets.maxPerFloor, 1, 16, 2),
             spriteSize: str(assets.spriteSize, '832x1216') || '832x1216',
             backgroundSize: str(assets.backgroundSize, '1216x832') || '1216x832',
+            cgSize: str(assets.cgSize, '').trim(),
             anchoredWidth: clampInt(assets.anchoredWidth, 0, 100000, 0),
             anchoredHeight: clampInt(assets.anchoredHeight, 0, 100000, 0),
             templates: normalizeTemplates(assets.templates),

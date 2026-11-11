@@ -158,7 +158,7 @@ export function normalizeSettingsValue(path, value) {
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|backfillOldFloors|assets\.(spriteEnabled|outfitAutoGenerate|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
-    if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|templates\.(background|backgroundNegative|sprite|spriteNegative|nsfwExtra))$/.test(path)) {
+    if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|cgSize|templates\.(background|backgroundNegative|sprite|spriteNegative|nsfwExtra))$/.test(path)) {
         return String(value || '');
     }
     if (/^bridge\.autoIllustration\.assets\.anchored(Width|Height)$/.test(path)) {

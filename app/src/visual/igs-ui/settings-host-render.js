@@ -496,6 +496,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoAssetMaxField: field('bridge.autoIllustration.assets.maxPerFloor', '每层最多素材数', numberInput('bridge.autoIllustration.assets.maxPerFloor', auto.assets.maxPerFloor, 1, 16)),
                 autoAssetSpriteSizeField: field('bridge.autoIllustration.assets.spriteSize', '立绘尺寸', textInput('bridge.autoIllustration.assets.spriteSize', auto.assets.spriteSize, '832x1216')),
                 autoAssetBackgroundSizeField: field('bridge.autoIllustration.assets.backgroundSize', '背景尺寸', textInput('bridge.autoIllustration.assets.backgroundSize', auto.assets.backgroundSize, '1216x832')),
+                autoCgSizeField: field('bridge.autoIllustration.assets.cgSize', 'CG尺寸', textInput('bridge.autoIllustration.assets.cgSize', auto.assets.cgSize, '留空自动适配')),
                 autoAssetBackgroundTemplateField: field('bridge.autoIllustration.assets.templates.background', '场景正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.background', auto.assets.templates.background, '必须包含 {tags}')),
                 autoAssetBackgroundNegativeTemplateField: field('bridge.autoIllustration.assets.templates.backgroundNegative', '场景负面提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.backgroundNegative', auto.assets.templates.backgroundNegative, '不希望场景出现的tag')),
                 autoAssetSpriteTemplateField: field('bridge.autoIllustration.assets.templates.sprite', '人物正向提示词模板', autoTextarea('bridge.autoIllustration.assets.templates.sprite', auto.assets.templates.sprite, '必须包含 {tags}')),
@@ -572,7 +573,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<div class="igs-settings-sub" data-image-feature="asset-options"${imageFields.autoAssetOptionsHidden}>${grid(imageFields.autoAssetMaxField)}</div>`,
                     character: grid(imageFields.autoAssetSpriteField, '<button type="button" class="igs-settings-action" data-action="open-character-dna" title="在「角色」页编辑外貌（DNA）">角色 DNA</button>')
                         + grid(imageFields.autoOutfitField)
-                        + `<div class="igs-settings-sub" data-image-feature="sprite-options"${hiddenAttr(!auto.assets.spriteEnabled)}>${grid(imageFields.autoAssetSpriteSizeField, kindModel('sprite', '立绘模型'))}</div>`,
+                        + `<div class="igs-settings-sub" data-image-feature="sprite-options"${hiddenAttr(!auto.assets.spriteEnabled)}>${grid(imageFields.autoAssetSpriteSizeField, kindModel('sprite', '立绘模型'))}`
+                        + (sourceMode === 'nai' ? grid(imageFields.naiSpriteTransparentField) : sourceMode === 'dbgen' ? grid(imageFields.dbgenSpriteTransparentField) : '')
+                        + '</div>',
                     scene: grid(imageFields.autoAssetBackgroundField)
                         + `<div class="igs-settings-sub" data-image-feature="background-options"${hiddenAttr(!auto.assets.backgroundEnabled)}>${grid(imageFields.autoAssetBackgroundSizeField, kindModel('background', '背景模型'), imageFields.autoAssetDayFirstField)}</div>`
                         + grid(imageFields.itemImageFields)
@@ -580,7 +583,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     cg: anchorViewportField(auto)
                         + imageFields.autoInterludeField
                         + `<div class="igs-settings-sub" data-image-feature="interlude"${imageFields.autoInterludeHidden}>${grid(imageFields.autoInterludeProbabilityField, imageFields.autoInterludeMaxField)}</div>`
-                        + grid(kindModel('cg', '剧情CG模型'))
+                        + grid(imageFields.autoCgSizeField, kindModel('cg', '剧情CG模型'))
                         + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}</div>`,
                     nsfw: imageFields.autoNsfwField
                         + `<div class="igs-settings-sub" data-image-feature="nsfw"${imageFields.autoNsfwHidden}>${grid(imageFields.autoNsfwCountField)}</div>`,

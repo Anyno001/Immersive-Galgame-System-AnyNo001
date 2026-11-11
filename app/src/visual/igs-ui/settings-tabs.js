@@ -88,24 +88,18 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
         {{autoNaiEndpointField}}{{autoNaiKeyField}}
-        {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
-        {{autoNaiTransportField}}
-      </div>
-      {{autoNaiQuotaPanel}}
-      {{modelProfileImageRow}}
-      <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
-        {{naiSpriteTransparentField}}
+        {{autoNaiModelField}}{{autoNaiEffortField}}
       </div>
       <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
+      {{modelProfileImageRow}}
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"{{advancedNaiOpen}}>
-        <summary>采样参数</summary>
+        <summary>高级</summary>
         <div class="igs-source-filter-grid">
+          {{autoNaiSizeField}}{{autoNaiTransportField}}
           {{autoNaiStepsField}}{{autoNaiScaleField}}
           {{autoNaiSamplerField}}
         </div>
-      </details>
-      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai-queue"{{autoNaiQueueOpen}}>
-        <summary>间隔与排队</summary>
+        {{autoNaiQuotaPanel}}
         <div class="igs-settings-sub">{{autoNaiIntervalFields}}</div>
         <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       </details>
@@ -115,9 +109,6 @@ const IMAGE_SOURCE_TEMPLATE = `
         <summary>识别与等待</summary>
         <div class="igs-source-filter-grid">{{adapterField}}{{pollIntervalField}}{{pollAttemptsField}}</div>
       </details>
-    </div>
-    <div class="igs-settings-sub" data-image-source="dbgen"{{sourceDbgenHidden}}>
-      {{dbgenSpriteTransparentField}}
     </div>
     <div class="igs-settings-sub" data-image-feature="consistency"{{sourceConsistencyHidden}}>
       <div class="igs-source-filter-grid">{{consistencyStrengthField}}{{consistencyModelField}}</div>
