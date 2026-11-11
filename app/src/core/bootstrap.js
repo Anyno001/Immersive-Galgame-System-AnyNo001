@@ -106,7 +106,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.1';
+const IGS_VERSION = '0.40.2';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -984,6 +984,13 @@ export function bootstrapIGS(options = {}) {
         originStats: () => (app.originRuntime && typeof app.originRuntime.rawStats === 'function' ? app.originRuntime.rawStats() : null),
         userCharacter: () => String((readImageBridge().sceneAssets || {}).userCharacter || ''),
         characterAliases: () => (readImageBridge().sceneAssets || {}).characterAliases || {},
+        // NSFW 与亲密对决同一判定：开了 NSFW 自动生图或恋爱演出即算开启。
+        isNsfw: () => {
+            const snap = getUnifiedSettingsSnapshot() || {};
+            const auto = (snap.bridge || {}).autoIllustration || {};
+            const romance = (snap.readerSettings || {}).romanceFx || {};
+            return auto.nsfwEnabled === true || romance.enabled === true;
+        },
         moodGroups: () => (readImageBridge().sceneAssets || {}).moodGroups || null,
         worldRoles: statsWorldRoles,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,

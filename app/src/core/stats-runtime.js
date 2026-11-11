@@ -45,8 +45,8 @@ import {
     gateAttributes, isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
 } from '../scene/stats/stat-engine.js';
 import {
-    PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, abilityLine, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
-    buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, skillTierOfValue, strongSkills, SKILL_TIERS, bandValue,
+    PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
+    buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
 import { CURRENCY_ATTEMPTS, CURRENCY_CATEGORY, buildCurrencyRequest, currencyBalanceOf, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement, parseCurrencyReply } from '../scene/stats/stat-currency.js';
@@ -141,17 +141,6 @@ const learnedSkills = (state, engine = null) => {
 };
 
 // 主角技能一行（v2 §8 skills 段），按规则体系分流：D&D写检定修正（力量+2），CoC写百分制档位词；技能只列入门以上，不写数字。
-function skillsLineOf(engine, state) {
-    const coc = IS_COC(engine);
-    const names = attributeNamesOf(engine);
-    const attrs = names.map((name) => {
-        const p = profileOf(engine, state, PROTAGONIST, name);
-        return coc ? `${name}${ATTRIBUTE_WORD(Number(p.value) || 50)}` : `${name}${signed(engine.ruleset.bonusOf(p))}`;
-    });
-    const learned = learnedSkills(state, engine).map(([name, v]) => `${name}${skillTierOfValue(v)}`);
-    return `属性：${attrs.join('、')}${learned.length ? `；技能：${learned.join('、')}` : ''}`;
-}
-
 function perceptionLineOf(engine, state) {
     const skills = state.protagonist.skills;
     const spot = Number(skills.侦查 && skills.侦查.value) > 0;
@@ -591,8 +580,21 @@ export function createStatsRuntime({
     const background = () => { try { return Boolean(isBackground()); } catch (error) { return false; } };
     // 界面开关沿用旧布尔式（键 → true）；新格式只在存档与结算里使用，界面改版后换读 listTraits。
     const traitSwitchModel = (traits) => Object.fromEntries(Object.entries(traits).map(([n, marks]) => [n, Object.fromEntries(Object.entries(marks).filter(([, e]) => e && e.on === true).map(([k]) => [k, true]))]));
+    // 默认在场判定：用户输入与最近两条 AI 回复里点到名字（含场景素材别名）的已建档角色。
+    const PRESENT_SCAN_AI = 2;
+    const mentionedRecently = (state) => {
+        const chat = messages(ctx());
+        const ai = chat.filter((m) => m && !m.is_user && !m.is_system).slice(-PRESENT_SCAN_AI).map((m) => String(m.mes ?? ''));
+        const text = [...ai, lastUserText(ctx())].join(' ');
+        let aliases = {};
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        return Object.keys(state.characters).filter((name) => {
+            const alt = Array.isArray(aliases[name]) ? aliases[name] : [];
+            return [name, ...alt].some((n) => n && text.includes(String(n)));
+        });
+    };
     const present = (state) => {
-        const names = typeof presentOf === 'function' ? presentOf(state) : Object.keys(state.characters).sort((a, b) => (state.characters[b].lastSeenDay || 0) - (state.characters[a].lastSeenDay || 0));
+        const names = typeof presentOf === 'function' ? presentOf(state) : mentionedRecently(state);
         // 随身角色（档案标记或聊天级勾选）正文不点名也在场。
         const companions = Object.keys(state.characters).filter((n) => hasTrait(state, traitCatalogOf(catalog.traits), n, 'companion') && !names.includes(n));
         return [...names, ...companions].filter((n) => state.characters[n] && !isHero(n));
@@ -1278,8 +1280,7 @@ export function createStatsRuntime({
             worlds: worldsNow(), nsfw: isNsfw(), intimacyGate: s.intimacyGate, intimateCost: s.intimateCost, forcedNames: catalog.intimacyForced, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText, stageTextPlatonic: s.stageTextPlatonic, traits: catalog.traits, romanceSeen: catalog.romanceSeen,
             heroNotes: s.heroNotePrompt && !s.heroFeelings ? catalog.heroNotes : null, heroFeelings: s.heroFeelings === true,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
-            skillsLine: skillsLineOf(engine, state), perceptionLine: perceptionLineOf(engine, state),
-            sheetLines: sheetNames.map((n) => ({ name: n, rank: catalog.sheets[n].rank, strong: strongSkills(catalog.sheets[n], state.characters[n] && state.characters[n].skillGrowth), bonus: abilityLine(engine, state, n) })),
+            perceptionLine: perceptionLineOf(engine, state),
             manualRoll: Boolean(g.manual), dice, cocDice: coc ? own : null,
             combatOn: combatOnNow, partyLines: combatOnNow && combat.party ? combatPartyLines(combat.party) : [], combatRule: combatOnNow ? combat.rule || null : null,
         });

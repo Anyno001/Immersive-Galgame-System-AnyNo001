@@ -15,7 +15,8 @@ const STRESS_BURST_FROM = 70;
 const STRESS_FROM_MAX = 6;
 
 export const STRESS_SOURCES = Object.freeze(['被迫', '被支配', '恐惧', '失去', '背叛', '绝境']);
-const SOURCE_HINT = Object.freeze({ 被迫: '沦陷或扭曲', 被支配: '沦陷或扭曲', 恐惧: '崩溃或沦陷', 失去: '崩溃或扭曲', 背叛: '崩溃或扭曲', 绝境: '蜕变或崩溃' });
+// 提示词用的去术语写法：说具体表现，不说「沦陷/崩溃/扭曲/蜕变」这类分类名。
+const SOURCE_HINT = Object.freeze({ 被迫: '自暴自弃、随波逐流，或性格变得偏激', 被支配: '自暴自弃、随波逐流，或性格变得偏激', 恐惧: '精神失控，或自暴自弃', 失去: '精神失控，或性格变得偏激', 背叛: '精神失控，或性格变得偏激', 绝境: '绝地奋起，或精神失控' });
 
 // 四类十个状态名（11-07 定稿）。沦陷只涨不跌、满了二次转换；崩溃慢慢回落、归零恢复；扭曲不自然变化；蜕变用一点少一点、用完恢复。
 export const STRAIN_TYPES = Object.freeze({ 沦陷: ['堕落', '沉溺', '同化'], 崩溃: ['破碎', '疯狂', '麻木'], 扭曲: ['黑化', '执念', '封闭'], 蜕变: ['觉醒'] });
@@ -139,10 +140,10 @@ export const strainDegree = (value) => {
 // 提示词用的状态句（不带句号）：转换后写「已堕落（程度：中）」，极限写「已经撑到极限」并附主要来源；其余为空。
 export function strainSentence(name, bars) {
     if (!bars) return '';
-    if (bars.strain) return bars.strain.final ? `${name}已${bars.strain.name}` : `${name}已${bars.strain.name}（程度：${strainDegree(bars.stress)}）`;
+    if (bars.strain) return bars.strain.final ? `${name}已${bars.strain.name}` : `${name}已${bars.strain.name}，程度${strainDegree(bars.stress)}`;
     if (!stressLimitActive(bars)) return '';
     const source = mainStressSource(bars);
-    return source ? `${name}已经撑到极限，压力主要来自${source}，容易走向${SOURCE_HINT[source]}` : `${name}已经撑到极限`;
+    return source ? `${name}已经撑到极限，压力主要来自${source}，可能${SOURCE_HINT[source]}` : `${name}已经撑到极限`;
 }
 
 // 状态栏压力条：转换后换成状态名与对应颜色（复用现有色板键）。

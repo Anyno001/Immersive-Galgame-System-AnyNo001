@@ -154,7 +154,7 @@ function coolCharactersRev2(characters, day, days, changes, ctx) {
             if (cooled !== current) changes.push({ source: 'daily', target: name, key: '好感', from: current.dims.好感, to: cooled.dims.好感, note: '冷却' });
             current = cooled;
         }
-        // 芥蒂默认不随时间淡化；只有宽容、以德报怨、老好人、一笑泯恩仇四种性格会淡化。宿仇（芥蒂满过 100）与「记仇」等不消退的特质照旧停摆。
+        // 普通芥蒂每天 −1，淡到 25 为止；「结怨」状态（stat-trait-rules-bond.js）只有宽容类才淡去。宿仇（芥蒂满过 100）与「记仇」等不消退的特质照旧停摆。
         const grudge = current.feud || traitFlag(view, cat, name, 'noFade:芥蒂') ? { change: null } : fadeGrudge(current, days, traitScale(view, cat, name, '芥蒂', 'fade'));
         if (grudge.change) { current = grudge.character; changes.push({ source: 'daily', target: name, ...grudge.change }); }
         // 欲望每天 −1：非恋爱对象降到 0，恋爱对象只降到 25（夜夜笙歌、病娇等特质照旧停摆）。

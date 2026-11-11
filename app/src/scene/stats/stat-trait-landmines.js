@@ -1,10 +1,11 @@
 // 特质雷点：主角做了某件事，持有对应特质的角色扣好感。
 // 叶子模块：只从 stat-state、stat-status-defs 导入，不导入 stat-traits 与规则文件（避免循环引用，见 v0.39.79）；特质判定由调用方以 has(名, 特质) 传入。
-import { DIM_MAX, clamp, withCharacter } from './stat-state.js';
+import { DIM_MAX, clamp, isRomance, withCharacter } from './stat-state.js';
+import { OFFENSE_KEYS, habitNoteSuffix, habitRow, showHabit } from './stat-habit.js';
 import { calcRow, withCalc } from './stat-status-defs.js';
 import { cryptoRandom, rollOver } from './stat-rng.js';
 import { FAVOR_NEG_BASE, GRUDGE_DOWN_BASE } from './stat-vocab.js';
-import { HEART_BURST_GAIN, HEART_BURST_NOTE, HEART_FULL, gateCap, posBaseOf } from './stat-favor.js';
+import { GRUDGE_FLOOR_MAX, GRUDGE_UP_DAILY_MAX, GRUDGE_UP_KEY, HEART_BURST_GAIN, HEART_BURST_NOTE, HEART_FULL, JEALOUS_NOTE, gateCap, posBaseOf } from './stat-favor.js';
 import { applyStatusChange, statusesOf } from './stat-status.js';
 
 // 档：轻 = 本楼好感上升作废；雷 = 再 −3；重 = 再 −8、芥蒂 +2。
@@ -34,10 +35,10 @@ const HEART = 51;
 const LIKE = 26;
 const HALF = 50;
 // 引起注意（反弹）：[特质, 触发, 下一楼强制事项]；了解掷骰通过则心意槽 +2，每角色每游戏日最多通过一次。按表序取第一条命中的。
-const TOPPLE = (n) => `${n}被主角顶撞后表面不悦，心里却开始留意对方，本楼表现出来`;
-const SNUB_NEAR = (n) => `${n}被主角冷落后嘴上不说，却忍不住主动靠近，本楼表现出来`;
-const SNUB_MIND = (word) => (n) => `${n}被主角${word}后反而在意起对方，本楼表现出来`;
-const BEATEN = (n) => `${n}输给主角后不服气，却开始正眼看待对方，本楼表现出来`;
+const TOPPLE = (n) => `${n}被主角顶撞后表面不悦，心里却开始留意对方，接下来表现出来`;
+const SNUB_NEAR = (n) => `${n}被主角冷落后嘴上不说，却忍不住主动靠近，接下来表现出来`;
+const SNUB_MIND = (word) => (n) => `${n}被主角${word}后反而在意起对方，接下来表现出来`;
+const BEATEN = (n) => `${n}输给主角后不服气，却开始正眼看待对方，接下来表现出来`;
 export const NOTICE_RULES = Object.freeze([
     ...['强势', '女王', '大小姐', '慕强者', '毒舌', '龙系'].map((t) => [t, 'event:顶撞', TOPPLE]),
     ...['傲娇', '猫系'].map((t) => [t, 'event:冷落', SNUB_NEAR]),
@@ -164,7 +165,7 @@ export function landmineView(holders, known, know) {
 }
 
 // 下一楼强制事项文案；不提特质名。
-export const landmineMandate = (flag) => (flag && flag.text ? flag.text : flag && flag.name && flag.noun ? `${flag.name}对上一楼${flag.noun}心里不快，本楼表现出来` : '');
+export const landmineMandate = (flag) => (flag && flag.text ? flag.text : flag && flag.name && flag.noun ? `${flag.name}对刚才${flag.noun}心里不快，接下来表现出来` : '');
 
 // 本楼标签统计：{ 名: { 约会, 告白, 亲密 } }。
 function actCounts(directives) {
@@ -308,6 +309,18 @@ export function settleLandmines(state, before, directives, ctx, has) {
             if (trait === '强势' && trig === 'event:拒绝' && has(name, 'combo:追妻火葬场') && dimOf(next.characters[name], '芥蒂') >= LIKE) continue;
             if (hit(name, trig)) pick = { trait, trig, tier, opts };
         }
+        // 习惯机制：冒犯型雷点读本楼预扫的习惯条目（ctx.habit，楼首值）；恋人、久别重逢都以楼首为准。
+        const offArg = pick && pick.trig.startsWith('event:') ? pick.trig.slice(6) : '';
+        const offense = OFFENSE_KEYS.includes(offArg);
+        const hb = offense && ctx.habit && typeof ctx.habit.get === 'function' ? ctx.habit.get(name) : null;
+        const h = hb ? hb.by[offArg] || null : null;
+        const loverCalm = offense && isRomance(before.characters[name], name, ctx.romanceSeen);
+        if (pick && offense && hb && hb.reunion) {
+            const f0 = dimOf(next.characters[name], '好感');
+            const rnote = `踩雷·${pick.trait}：${mineLabel(pick.trig)}（久别重逢，不计较）`;
+            ctx.changes.push(withCalc({ source: 'trait', target: name, key: '好感', from: f0, to: f0, note: rnote }, { calc: [calcRow('雷点', `${pick.trait}·${mineLabel(pick.trig)}`), calcRow('久别重逢', '本楼不按冒犯算'), calcRow('结果', 0)], traitTags: [pick.trait] }));
+            pick = null;
+        }
         const cur0 = next.characters[name];
         const rule = NOTICE_RULES.find(([t, trig]) => has(name, t) && hit(name, trig)) || null;
         const know = dimOf(before.characters[name], '了解');
@@ -324,25 +337,39 @@ export function settleLandmines(state, before, directives, ctx, has) {
         const ups = [];
         if (PUBLIC_TRIGS.has(pick.trig) && PUBLIC_TRAITS.some((t) => has(name, t)) && crowded(name)) ups.push(calcRow('当众', '升一档'));
         const lastDay = cur.mineLast && typeof cur.mineLast === 'object' && Object.hasOwn(cur.mineLast, key) ? num(cur.mineLast[key]) : null;
-        if (lastDay !== null && (has(name, '记仇') || day - lastDay <= REPEAT_DAYS)) ups.push(calcRow('屡犯', `距上次${day - lastDay}天，升一档`));
-        const tier = TIER_OF_RANK[Math.min(RANK.重, RANK[pick.tier] + ups.length)];
-        const note = `踩雷·${pick.trait}：${mineLabel(pick.trig)}`;
+        // 冒犯型雷点：只有记仇、偏执狂与强势类前 5 次保留屡犯升档，其余走习惯打折；恋人被冒犯降为轻雷。
+        if (lastDay !== null && (has(name, '记仇') || day - lastDay <= REPEAT_DAYS) && (!offense || !h || h.exempt)) ups.push(calcRow('屡犯', `距上次${day - lastDay}天，升一档`));
+        if (loverCalm) ups.length = 0;
+        const tier = loverCalm ? L : TIER_OF_RANK[Math.min(RANK.重, RANK[pick.tier] + ups.length)];
+        const mult = h && !loverCalm && h.mult < 1 ? h.mult : 1;
+        const hRow = h && !loverCalm && showHabit(h) ? [habitRow(h)] : [];
+        const note = `踩雷·${pick.trait}：${mineLabel(pick.trig)}${loverCalm ? '（恋人，不计较）' : habitNoteSuffix(h)}`;
         known.push({ name, key });
-        if (RANK[tier] >= 2 && RANK[tier] > mandateRank) { mandate = { name, noun: mineNoun(pick.trig) }; mandateRank = RANK[tier]; }
-        const gains = ctx.changes.filter((c) => c.target === name && c.key === '好感' && MOVE_TAGS.has(c.source) && num(c.to) > num(c.from));
+        // 冒犯习惯到 ×0.3 时（刚跨过那一次）改写一句「已经习惯」替代「心里不快」；更低的倍率不再写，保持克制。
+        if (RANK[tier] >= 2 && h && !loverCalm && !h.exempt && h.mult <= 0.3) {
+            if (h.mult === 0.3 && mandateRank < 2) { mandate = { name, text: `${name}对主角的${offArg}已经习惯，不再当回事` }; mandateRank = 1.5; }
+        } else if (RANK[tier] >= 2 && RANK[tier] > mandateRank) { mandate = { name, noun: mineNoun(pick.trig) }; mandateRank = RANK[tier]; }
+        // 恋人的轻雷只作废与冒犯同楼的正文标签上升，不作废关键事件突破与心意满溢。
+        const gains = ctx.changes.filter((c) => c.target === name && c.key === '好感' && MOVE_TAGS.has(c.source) && num(c.to) > num(c.from) && !(loverCalm && /突破|^心意满溢/.test(String(c.note || ''))));
         const undo = gains.reduce((s, c) => s + num(c.to) - num(c.from), 0);
         const falls = ctx.changes.filter((c) => c.target === name && c.key === '好感' && num(c.to) < num(c.from)).reduce((s, c) => s + num(c.from) - num(c.to), 0);
         const used = cur.mineDay && cur.mineDay.day === day ? num(cur.mineDay.lost) : 0;
-        const wanted = PENALTY[tier];
-        const pen = Math.max(0, Math.min(wanted, DAY_CAP - used, FLOOR_DROP_GUARD - falls));
+        // 与同楼正文标签取重：标签已扣的好感、已加的芥蒂不再重复，雷点只补差。
+        const tagSum = (key, up) => ctx.changes.filter((c) => c.target === name && c.key === key && c.source === 'tag' && c.note !== JEALOUS_NOTE && (up ? num(c.to) > num(c.from) : num(c.to) < num(c.from))).reduce((s, c) => s + Math.abs(num(c.to) - num(c.from)), 0);
+        const tagFalls = offense ? tagSum('好感', false) : 0;
+        const wanted = PENALTY[tier] && mult < 1 ? Math.max(1, Math.round(PENALTY[tier] * mult)) : PENALTY[tier];
+        const merged = wanted > 0 && tagFalls >= wanted;
+        const pen = Math.max(0, Math.min(Math.max(0, wanted - tagFalls), DAY_CAP - used, FLOOR_DROP_GUARD - falls));
         const from = dimOf(cur, '好感');
         // 作废上升不低于楼首值：其他钩子已削掉的部分不重复扣。
         const floorStart = dimOf(before.characters[name], '好感');
         const to = clamp(Math.min(from, Math.max(from - undo, floorStart)) - pen, -DIM_MAX, DIM_MAX);
         const dims = { ...cur.dims };
-        const calc = [calcRow('雷点', `${pick.trait}·${mineLabel(pick.trig)}`), ...ups, calcRow('档位', TIER_NAME[tier])];
+        const calc = [calcRow('雷点', `${pick.trait}·${mineLabel(pick.trig)}`), ...ups, calcRow('档位', TIER_NAME[tier]), ...hRow];
+        if (loverCalm) calc.push(calcRow('恋人', '不计较，只作废本楼好感上升'));
         if (noticeRow) calc.push(noticeRow);
         if (undo) calc.push(calcRow('好感上升作废', -undo));
+        if (tagFalls && wanted) calc.push(calcRow('与正文标签取重', `标签已扣${tagFalls}`));
         if (wanted) calc.push(calcRow('固定扣分', -pen), ...(pen < wanted ? [calcRow('每日上限', `${DAY_CAP - used > 0 ? '剩' + (DAY_CAP - used) : '已满'}`)] : []));
         let daily = cur.daily;
         if (to !== from) {
@@ -350,16 +377,28 @@ export function settleLandmines(state, before, directives, ctx, has) {
             calc.push(calcRow('结果', to - from));
             ctx.changes.push(withCalc({ source: 'trait', target: name, key: '好感', from, to, note }, { calc, traitTags: [pick.trait] }));
             if (undo && cur.daily && cur.daily.day === day) daily = { ...cur.daily, gained: { ...cur.daily.gained, 好感: Math.max(0, num(cur.daily.gained && cur.daily.gained.好感) - undo) } };
+        } else if (loverCalm || merged) {
+            // 零增量也记一行：恋人不计较、与标签取重。
+            calc.push(calcRow('结果', 0));
+            ctx.changes.push(withCalc({ source: 'trait', target: name, key: '好感', from, to: from, note }, { calc, capped: merged && !loverCalm ? 'merged' : null, traitTags: [pick.trait] }));
         }
         // 女王、控制狂：被拒绝已加芥蒂，雷点不再重复加；占有狂、纯爱战士、醋坛子的旁观雷不加芥蒂。
         const grudgeSkip = pick.opts.noGrudge || (pick.trig === 'event:拒绝' && (has(name, '女王') || has(name, '控制狂')));
-        const gUp = grudgeSkip ? 0 : GRUDGE_UP[tier];
+        const gBase = grudgeSkip || loverCalm ? 0 : GRUDGE_UP[tier];
+        const gScaled = gBase && mult < 1 ? Math.round(gBase * mult) : gBase;
+        // 取重（标签已加的芥蒂不重复）与单楼 5、每日 10 的上升上限。
+        const gTag = offense ? tagSum('芥蒂', true) : 0;
+        const gFloor = GRUDGE_FLOOR_MAX - num(ctx.floorGained && ctx.floorGained.get(`${name}|芥蒂`));
+        const gDaily = GRUDGE_UP_DAILY_MAX - num(daily && daily.day === day && daily.gained && daily.gained[GRUDGE_UP_KEY]);
+        const gUp = Math.max(0, Math.min(Math.max(0, gScaled - gTag), gFloor, gDaily));
         if (gUp) {
             const g0 = dimOf(cur, '芥蒂');
             const g1 = clamp(g0 + gUp, -DIM_MAX, DIM_MAX);
             if (g1 !== g0) {
                 dims.芥蒂 = g1;
-                ctx.changes.push(withCalc({ source: 'trait', target: name, key: '芥蒂', from: g0, to: g1, note }, { calc: [calcRow('雷点', `${pick.trait}·${mineLabel(pick.trig)}`), ...ups, calcRow('档位', TIER_NAME[tier]), calcRow('结果', g1 - g0)], traitTags: [pick.trait] }));
+                ctx.changes.push(withCalc({ source: 'trait', target: name, key: '芥蒂', from: g0, to: g1, note }, { calc: [calcRow('雷点', `${pick.trait}·${mineLabel(pick.trig)}`), ...ups, calcRow('档位', TIER_NAME[tier]), ...hRow, ...(gTag ? [calcRow('与正文标签取重', `标签已加${gTag}`)] : []), calcRow('结果', g1 - g0)], traitTags: [pick.trait] }));
+                if (daily && daily.gained) daily = { ...daily, gained: { ...daily.gained, [GRUDGE_UP_KEY]: num(daily.gained[GRUDGE_UP_KEY]) + (g1 - g0) } };
+                if (ctx.floorGained) ctx.floorGained.set(`${name}|芥蒂`, num(ctx.floorGained.get(`${name}|芥蒂`)) + (g1 - g0));
             }
         }
         const mineLast = { ...(cur.mineLast && typeof cur.mineLast === 'object' ? cur.mineLast : {}), [key]: day };

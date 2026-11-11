@@ -2,6 +2,7 @@
 // 事件由结算填进 ctx.reviewEvents：[{ type, name, dir }]，来源是本楼 event 标签（每楼）与副模型评定（补漏，去重）。
 // 本文件不得 import stat-traits.js（避免循环）；只改数值，不碰战斗与亲密对决规则。
 import { barsOf, withCharacter } from './stat-state.js';
+import { hookGrudge } from './stat-habit.js';
 import { shiftStress } from './stat-strain.js';
 import { GRUDGE_UP_BIG, TRUST_DROP_BIG, applyEvent, betrayHate } from './stat-trait-rules-bond.js';
 
@@ -40,8 +41,8 @@ function reviewHook(state, api) {
         const has = (id) => api.has(next, name, id);
         if (ev.type === '夸奖' && (has('自卑') || has('自恋'))) next = api.bump(next, name, '好感', Math.max(api.SMALL.好感, gained(ctx, name, '好感')), has('自卑') ? '自卑' : '自恋');
         if (ev.type === '批评' && has('自卑')) next = npcStress(next, name, Math.max(5, gained(ctx, name, 'stress')), '自卑', ctx);
-        if (ev.type === '批评' && has('龙系')) next = api.bump(next, name, '芥蒂', Math.max(1, Math.round(gained(ctx, name, '芥蒂') * 0.5)), '龙系');
-        if (ev.type === '批评' && has('自恋')) next = api.bump(next, name, '芥蒂', Math.max(api.SMALL.好感, gained(ctx, name, '芥蒂')), '自恋');
+        if (ev.type === '批评' && has('龙系')) next = api.bump(next, name, '芥蒂', hookGrudge(ctx, name, '批评', Math.max(1, Math.round(gained(ctx, name, '芥蒂') * 0.5))), '龙系');
+        if (ev.type === '批评' && has('自恋')) next = api.bump(next, name, '芥蒂', hookGrudge(ctx, name, '批评', Math.max(api.SMALL.好感, gained(ctx, name, '芥蒂'))), '自恋');
         // 背叛：被背叛方（主角对 TA）按恩仇「决裂」同档结算（信任大降、芥蒂大升，恩怨两难转回宿仇）；正义使者该楼芥蒂上升加倍。
         if (ev.type === '背叛' && ev.dir !== 'me') {
             next = applyEvent(next, api, { type: '决裂', target: name, dir: 'ta' });

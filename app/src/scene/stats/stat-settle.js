@@ -2,7 +2,7 @@
 // 纯函数，random 由账本按本楼种子提供；检定走 opts.engine（缺省为空注册表的默认规则体系）。
 // 返回 { state, changes, meta }，可直接作为 stat-ledger-settle 的 settle 回调结果。
 import { addressText, parseStatDirectives } from './stat-directives.js';
-import { FAVOR_GATES, FAVOR_TIERS, stageOf, JEALOUS_NOTE, TRUST_FLOOR_MAX, applyDim, applyFavorTier, applyGrudgeTier, applyJealousy, applyTrustTier, downgradeStrength, favorLimits, favorSign, favorStrength, favorTierLimits, favorWeight, gateKey, grudgeStrength, legacyTierOf, trustStrength } from './stat-favor.js';
+import { FAVOR_GATES, FAVOR_TIERS, stageOf, JEALOUS_NOTE, TRUST_FLOOR_MAX, GRUDGE_FLOOR_MAX, applyDim, applyFavorTier, applyGrudgeTier, applyJealousy, applyTrustTier, downgradeStrength, favorLimits, favorSign, favorStrength, favorTierLimits, favorWeight, gateKey, grudgeStrength, legacyTierOf, trustStrength } from './stat-favor.js';
 import { FAVOR_NEG_BASE, FAVOR_POS_BASE_NORMAL, GRUDGE_DOWN_BASE, GRUDGE_UP_BASE, START_DIMS as START_DIMS_TABLE, TRUST_DOWN_BASE, TRUST_UP_BASE, TRAIT_EVENTS, TRAIT_WORD_EVENTS, FAVOR_STRENGTHS, INTIMATE_BASE, INTIMATE_LEVELS, INTIMATE_MULT, START_DIMS, START_FAVOR, START_FIX_VALUE, START_MARKS, startFixOffsets } from './stat-vocab.js';
 import { INSIGHT_COOLDOWN_DAYS, applyGift, applyKeyEvent, liveHurts } from './stat-favor-events.js';
 import { DEFAULT_MONEY_TABLE, STRESS_DELTA, applyBarDirective, applyCurrencyDirective, createCurrencyContext } from './stat-bars.js';
@@ -21,6 +21,7 @@ import { amplifyLimit, clampScale, extraGatesOf, getTraitDef, hasTrait, isComboK
 import { calcRow, withCalc } from './stat-status-defs.js';
 import { attachOpeningRels, clearBond, hasClearableBond, pairPartnersOf } from './stat-trait-rules-bond.js';
 import { moonlightJealousy, settleTraitTags } from './stat-trait-hooks.js';
+import { commitHabit, habitNoteSuffix, habitRow, pickHabit, refreshHabit, scanHabit, showHabit } from './stat-habit.js';
 import { settleLandmines, coldWarOf, coldNames, coldWarShift } from './stat-trait-landmines.js';
 import { settleSoftspots } from './stat-trait-softspots.js';
 import { evolveCandidates } from './stat-trait-evolve.js';
@@ -128,7 +129,7 @@ function settleRomance(state, directives, ctx) {
             if (ctx && ctx.heroSide && (Number(heroDimsOf(cur, { nsfw: ctx.nsfw }).好感) || 0) <= 25) { if (cur.confessed !== true) next = withCharacter(next, d.target, { ...cur, confessed: true }); }
             else next = withCharacter(next, d.target, { ...cur, romance: true });
         }
-        else if (d.kind === 'romance' && cur.romance !== false) next = withCharacter(next, d.target, { ...cur, romance: false });
+        else if (d.kind === 'romance' && cur.romance !== false) next = withCharacter(next, d.target, { ...cur, romance: false, ...(cur.habit ? { habit: refreshHabit(cur.habit, next.clock.day) } : {}) });
     }
     return next;
 }
@@ -346,7 +347,26 @@ function scaleTagsOf(state, ctx, d) {
     return names;
 }
 
+// 习惯倍率：该标签属于冒犯（负向好感、信任下降、芥蒂上升）或正面（送礼、好感与信任上升）时，取本楼预扫的条目；吃醋不打折。
+function habitOf(ctx, d) {
+    if (!ctx.habit || d.value === JEALOUS_NOTE) return null;
+    const hb = ctx.habit.get(d.target);
+    if (!hb) return null;
+    let dir = null;
+    if (d.kind === 'gift') dir = 'pos';
+    else if (d.kind === 'favor') dir = favorSign(d) > 0 ? 'pos' : favorSign(d) < 0 ? 'neg' : null;
+    else if (d.kind === 'dim' && (d.dim === '好感' || d.dim === '信任')) dir = d.value === '上升' ? 'pos' : 'neg';
+    else if (d.kind === 'dim' && d.dim === '芥蒂') dir = d.value === '上升' ? 'neg' : null;
+    return pickHabit(hb, dir);
+}
+
+// 同楼有背叛、谎言揭穿的角色，好感与信任下降不受每日上限约束。
+const dropExempt = (ctx, name) => (ctx.reviewEvents || []).some((e) => e && e.name === name && (e.type === '背叛' || e.type === '谎言揭穿'))
+    || (ctx.bondEvents || []).some((e) => e && e.type === '谎言揭穿' && e.who === '主角' && (Array.isArray(e.by) ? e.by : [e.by]).includes(name));
+
 function applyCharacterDirective(current, d, state, ctx) {
+    const hab = habitOf(ctx, d);
+    const damp = hab && hab.mult < 1 ? hab.mult : 1;
     const bonus = ctx.critTarget && (ctx.critTarget === '*' || ctx.critTarget === d.target) ? 1 : 0;
     // 困难档只管好感的普通加分；送礼自有递减规则，信任等其他维度不受影响。
     const baseLimits = d.kind === 'gift' || (d.dim && d.dim !== '好感') ? favorLimits('normal') : ctx.limits;
@@ -356,8 +376,8 @@ function applyCharacterDirective(current, d, state, ctx) {
     const up = scale ? scale.up : 1;
     const limits = scale && up > 1 ? { ...baseLimits, floor: amplifyLimit(baseLimits.floor, up), daily: amplifyLimit(baseLimits.daily, up) } : baseLimits;
     const room = (dim) => limits.floor + bonus - (ctx.floorGained.get(`${d.target}|${dim}`) || 0);
-    const coef = Number(current.coef) || 1;
-    if (d.kind === 'gift') return applyGift(current, d.value, { random: ctx.random, coef, floorRoom: room('好感'), scale, ...(scale && up > 1 ? { dailyMax: limits.daily } : {}) });
+    const coef = (Number(current.coef) || 1) * (damp < 1 && (d.kind === 'gift' || (d.kind === 'favor' && favorSign(d) > 0) || d.value === '上升') && !(d.dim === '芥蒂') ? damp : 1);
+    if (d.kind === 'gift') return applyGift(current, d.value, { random: ctx.random, coef: Number(current.coef) || 1, damp, floorRoom: room('好感'), scale, ...(scale && up > 1 ? { dailyMax: limits.daily } : {}) });
     if (d.kind === 'event') {
         const skill = keyEventSkill(ctx.engine, state, d.value, ctx.rev);
         // 特质奖惩骰（rev ≥ 2 由运行时传入 traitEdge）。
@@ -379,13 +399,13 @@ function applyCharacterDirective(current, d, state, ctx) {
         return applyJealousy(current, d, { tier: ctx.tier, random: ctx.random, coef, floorRoom: room('好感'), dailyMax: limits.daily, rev: ctx.rev, scale });
     }
     if (d.kind === 'dim' && d.dim === '信任' && FAVOR_TIERS.includes(ctx.tier)) {
-        const r = applyTrustTier(current, d, { coef, scale, floorRoom: amplifyLimit(TRUST_FLOOR_MAX, up) + bonus - (ctx.floorGained.get(`${d.target}|信任`) || 0) });
+        const r = applyTrustTier(current, d, { coef, scale, damp: d.value === '上升' ? 1 : damp, dropExempt: dropExempt(ctx, d.target), floorRoom: amplifyLimit(TRUST_FLOOR_MAX, up) + bonus - (ctx.floorGained.get(`${d.target}|信任`) || 0) });
         return r;
     }
     // 芥蒂分强度只对带 strengthRev 的新楼生效；旧楼走 applyDim。
-    if (d.kind === 'dim' && d.dim === '芥蒂' && ctx.rev >= 1 && FAVOR_TIERS.includes(ctx.tier)) return applyGrudgeTier(current, d, { scale });
+    if (d.kind === 'dim' && d.dim === '芥蒂' && ctx.rev >= 1 && FAVOR_TIERS.includes(ctx.tier)) return applyGrudgeTier(current, d, { scale, damp, floorRoom: GRUDGE_FLOOR_MAX - (ctx.floorGained.get(`${d.target}|芥蒂`) || 0) });
     if (d.kind === 'favor' && FAVOR_TIERS.includes(ctx.tier)) {
-        return applyFavorTier(current, d, { tier: ctx.tier, random: ctx.random, coef, floorRoom: room('好感'), dailyMax: limits.daily, rev: ctx.rev, scale });
+        return applyFavorTier(current, d, { tier: ctx.tier, random: ctx.random, coef, floorRoom: room('好感'), dailyMax: limits.daily, rev: ctx.rev, scale, damp: favorSign(d) < 0 ? damp : 1, dropExempt: dropExempt(ctx, d.target) });
     }
     return applyDim(current, d.dim, d.value, { random: ctx.random, coef, floorRoom: room(d.dim), dailyMax: limits.daily, scale });
 }
@@ -572,6 +592,7 @@ function settleCharacters(before, directives, ctx) {
         const result = applyCharacterDirective(current, d, state, ctx);
         let { character } = result;
         const tags = ctx.rev >= 2 ? scaleTagsOf(state, ctx, d) : [];
+        const hab = habitOf(ctx, d);
         for (const change of result.changes || [result.change]) {
             // 零增量只在带明细时记（心意槽加了、被关口或日上限截住、关键事件失败），其余照旧不记。
             const heartGain = (Number(change && change.heartTo) || 0) > (Number(change && change.heartFrom) || 0) && !String((change && change.value) || '').startsWith('心意满溢');
@@ -580,8 +601,10 @@ function settleCharacters(before, directives, ctx) {
             if (ctx.rev >= 2 && ((change.dim === '信任' && change.to < change.from) || (change.dim === '芥蒂' && change.to > change.from))) {
                 character = { ...character, recentHurts: [...liveHurts(character, state.clock.day), { day: state.clock.day, dim: change.dim, amount: Math.abs(change.to - change.from) }] };
             }
+            const calcOut = hab && showHabit(hab) ? [...(Array.isArray(change.calc) ? change.calc.slice(0, -1) : [calcRow('基础', change.to - change.from)]), habitRow(hab), calcRow('结果', change.to - change.from)] : change.calc;
+            const habitNote = hab ? habitNoteSuffix(hab) : '';
             ctx.changes.push({
-                ...withCalc({ source: 'tag', target: d.target, key: change.dim, from: change.from, to: change.to, note: d.constrained ? `${change.value}（检定失败）` : change.value }, { calc: change.calc, capped: change.capped || (d.dropped ? 'merged' : null), dropped: d.dropped, traitTags: change.dim === '好感' || change.dim === d.dim ? tags : null }),
+                ...withCalc({ source: 'tag', target: d.target, key: change.dim, from: change.from, to: change.to, note: (d.constrained ? `${change.value}（检定失败）` : change.value) + habitNote }, { calc: calcOut, capped: change.capped || (d.dropped ? 'merged' : null), dropped: d.dropped, traitTags: change.dim === '好感' || change.dim === d.dim ? tags : null }),
                 ...(change.heartTo !== undefined ? { heartFrom: change.heartFrom, heartTo: change.heartTo } : {}),
             });
             const gain = Math.max(0, change.to - change.from);
@@ -1007,6 +1030,11 @@ export function settleFloorText(before, text, opts = {}) {
     state = settleStartFix(state, directives, ctx);
     if (rev >= 2) state = unlockKinGates(state, ctx);
     if (rev >= 2) { const moon = moonlightJealousy(state, directives, ctx); state = moon.state; directives.push(...moon.directives); }
+    // 习惯（rev ≥ 2）：settleCharacters 之前预扫本楼各角色的冒犯 / 正面行为与倍率，读楼首值；写回在雷点之后。
+    if (rev >= 2) {
+        const hereSet = new Set(ctx.present || directives.filter((x) => x.target).map((x) => x.target));
+        ctx.habit = scanHabit({ before, directives, reviewEvents: ctx.reviewEvents, has: (name, id) => hasTrait(state, traitCat, name, id), day: state.clock.day, here: hereSet, lastSeen: ctx.lastSeen, romanceSeen: ctx.romanceSeen });
+    }
     state = settleCharacters(state, directives, ctx);
     if (heroSide) state = settleHeroSide(state, before, directives, ctx);
     // 关键事件检定用掉的「欠你人情」与福星重掷。
@@ -1031,7 +1059,7 @@ export function settleFloorText(before, text, opts = {}) {
     if (rev >= 2) {
         ctx.floor = opts.floor;
         mines = settleLandmines(state, before, directives, ctx, (name, id) => hasTrait(state, traitCat, name, id));
-        state = mines.state;
+        state = commitHabit(mines.state, ctx.habit, state.clock.day);
         if (mines.mandate) ctx.flags.landmine = mines.mandate;
         // 软肋：雷点之后；同楼踩雷的角色不结算。进化：只记候选，运行时写回特质并发通知。
         softs = settleSoftspots(state, directives, ctx, (name, id) => hasTrait(state, traitCat, name, id), new Set(mines.known.map((k) => k.name)));

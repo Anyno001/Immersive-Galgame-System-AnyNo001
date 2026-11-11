@@ -161,7 +161,9 @@ export const TAG_HOOKS = [
             if (name === '主角' || !next.characters[name]) continue;
             const seen = api.ctx.lastSeen && api.ctx.lastSeen[name];
             const long = Number.isFinite(seen) && api.here.has(name) && day - seen >= 7;
-            if (long || reunion.includes(name)) next = api.bump(next, name, '好感', api.BIG.好感, '白月光');
+            // 每次重逢只触发一次：同一游戏日已触发过（reunionDay）不再算。
+            if (num(next.characters[name].reunionDay) === day) { if (long) next = putField(next, name, { lastSeenDay: day }); continue; }
+            if (long || reunion.includes(name)) next = putField(api.bump(next, name, '好感', api.BIG.好感, '白月光'), name, { reunionDay: day });
             if (long) next = putField(next, name, { lastSeenDay: day });
         }
         return next;
@@ -175,7 +177,8 @@ export const TAG_HOOKS = [
             if (name === '主角' || !next.characters[name]) continue;
             const seen = api.ctx.lastSeen && api.ctx.lastSeen[name];
             const long = Number.isFinite(seen) && api.here.has(name) && day - seen >= 7;
-            if (long || reunion.includes(name)) next = api.bump(next, name, '好感', FAVOR_STEP, '鸟系');
+            if (num(next.characters[name].reunionDay) === day) continue;
+            if (long || reunion.includes(name)) next = putField(api.bump(next, name, '好感', FAVOR_STEP, '鸟系'), name, { reunionDay: day });
         }
         return next;
     },

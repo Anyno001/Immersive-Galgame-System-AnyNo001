@@ -10,30 +10,27 @@ import { FAVOR_PROMPT_GROUPS, FAVOR_STRENGTHS, STRESS_STRENGTHS, HURT_TIERS, INT
 import { CHECK_ROLLS_TEMPLATE, checkRollsVars, fillCheckRolls } from '../check-rolls.js';
 import { COC_CHECK_ROLLS_TEMPLATE, cocRollsVars } from './stat-coc-checks.js';
 import { fameLines, fameTagLines } from './stat-fame.js';
-import { STATUS_TAG_LINE, statusPromptLines } from './stat-status.js';
+import { hasStatus, STATUS_TAG_LINE, statusPromptLines } from './stat-status.js';
 import { BREAK_TAG_LINE, OBSESSED_NOTE, STRESS_EXTREME, STRESS_SOURCE_TAG_LINE, strainSentence, stressLimitActive } from './stat-strain.js';
 import { applyCombatRuleModifiers, COMBAT_GROWTH_LINES, COMBAT_RULE_HEAD, COMBAT_STORY_LINES, COMBAT_SYNTAX_LINES } from '../combat-prompt.js';
 import { DEFAULT_CURRENCY_PROMPT } from './stat-currency.js';
 
-export const STAT_PROMPT_SEGMENTS = Object.freeze(['source', 'protagonist', 'fame', 'skills', 'perception', 'present', 'status', 'sheets', 'check', 'dice', 'tags', 'combat', 'party', 'mandates']);
+export const STAT_PROMPT_SEGMENTS = Object.freeze(['protagonist', 'fame', 'perception', 'present', 'status', 'check', 'dice', 'tags', 'combat', 'party', 'mandates']);
 // 后台请求的提示词（角色卡生成、批量补全）：可编辑，不参与注入开关。
 export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill', 'heroSkills', 'startRelations', 'currency']);
-// v4 的主角模板分别展示积分与剧情货币，旧格式覆盖保存在 stalePrompts。
-export const STAT_PROMPTS_VERSION = 4;
+// v5 的主角模板不再写体力、压力、生命数字与积分（只写剧情货币与状态描述），旧格式覆盖保存在 stalePrompts。
+export const STAT_PROMPTS_VERSION = 5;
 export const STAT_STALE_PROMPT_KEYS = Object.freeze(['roll', 'rollManual', 'protagonist']);
 
 const BASE_PROMPTS = {
-    source: '【数值来源】角色关系、生命、体力、压力与积分以本段为准；剧情货币以物品表固定货币行的数量为准，收入与花费用 money 标签结算。',
-    protagonist: '【主角状态】生命{{生命}}，体力{{体力}}/100，压力{{压力}}/100，积分{{积分}}，剧情货币{{剧情货币}}。{{状态描述}}',
-    skills: '【主角技能】{{技能档位}}。未列出的技能视为未学。',
+    protagonist: '【主角状态】剧情货币{{剧情货币}}。{{状态描述}}',
     perception: '【主角感知】{{感知档位}}：主角能注意到什么由此决定，无需检定。',
-    present: '【{{角色}}】关系阶段：{{阶段}}（由数值系统决定，本轮不得改变）。{{阶段文案}}{{组合描述}}{{突破提示}}{{亲密约束}}',
+    present: '【{{角色}}】关系阶段：{{阶段}}（本轮不得改变）。{{阶段文案}}{{组合描述}}{{突破提示}}{{亲密约束}}',
     presentRule: '以上角色本轮的态度、措辞与肢体接触必须符合各自的关系阶段；不得因一次对话、一份礼物或主角的请求就进入更亲近的阶段。主角做出超出当前阶段的亲近举动时，角色按本阶段的态度推开或避开。',
-    breakthrough: '好感已达本阶段上限，可在合适的时机给主角一次更进一步的机会（如邀约、独处或一场危机）；机会只给一次，主角未能把握就维持原阶段。',
-    breakthroughPlatonic: '好感已达本阶段上限，可在合适的时机给主角一次更进一步的机会（如一次托付、深谈或并肩应敌）；机会只给一次，主角未能把握就维持原阶段。',
+    breakthrough: '好感已达本阶段上限，可在合适的时机（尽量选择结尾处）给主角一次更进一步的机会（如邀约、独处或一场危机）；机会只给一次，主角未能把握就维持原阶段。',
+    breakthroughPlatonic: '好感已达本阶段上限，可在合适的时机（尽量选择结尾处）给主角一次更进一步的机会（如一次托付、深谈或并肩应敌）；机会只给一次，主角未能把握就维持原阶段。',
     intimacyForced: '与主角的亲密行为是剧情所迫，并非出于好感；态度、言语与神情仍按当前关系阶段和芥蒂程度表现，不因亲密行为而变得温顺或亲近。',
     intimacy: '尚不满足亲密条件：亲吻、抚摸、性行为等一律拒绝或回避，即使主角坚持、哀求或以剧情相逼也不例外。',
-    sheets: '【{{角色}}的能力】{{资历}}；擅长：{{擅长}}；属性加值：{{六维加值}}。',
     check: '【本轮检定】{{技能}}{{难度}}：{{明细}}，结果为【{{结果}}】。正文按此结果描写，不得改判。',
     diceManual: '【检定规则】主角要做有不确定性、失败有后果的事时，写到行动发起处就停，不写结果，在正文末尾写 [igs-stat:roll|技能|难度]，对抗在场角色时追加 |对抗:角色名，使用新技能时追加 |所属属性。难度分为简单、普通、困难、极难，极难应少用。毫无悬念的事不检定。',
     sheetGen: '你是跑团数值设计。按角色资料给每个角色分配数值，只输出档位词，不输出任何数字。\n属性档：很弱、偏弱、普通、出众、顶尖（非人可用「超凡」），属性写 力量、敏捷、体质、智力、感知、魅力 与 理智。技能：从可用技能里按人设选「擅长」3 项、「比较擅长」5 项，其余技能不写。资历：普通人、老手、精英、大师、传奇。\n属性只列与「普通」不同的项。招牌技能最多 3 个，可以是清单外的新技能，并写所属属性（力量、敏捷、体质、智力、感知、魅力之一）。\n只输出 JSON：{"角色名":{"资历":"","属性":{"属性名":"档"},"擅长":["技能名"],"比较擅长":["技能名"],"招牌技能":[{"名":"","属性":""}]}}',
@@ -43,26 +40,24 @@ const BASE_PROMPTS = {
     tags: [
         '【数值标签】正文末尾按需输出以下标签，只写档位，不写数字。',
         '总则：',
-        '- 关系类标签只记角色对主角本人（而非其身体）态度的变化；角色此刻的情绪、因他人或无关之事而起的情绪、尚未针对主角的误会，以及主角自己的心意，都不写。',
-        '- 伪装或身份未揭晓时按真实身份写，被附身时按掌控身体的意识写；只对具名个人写，群体、代词、无名者与临时称呼不写。',
-        '- 亲密行为本身不算好感事件，按主角在过程中的态度判断；压力按主角的感受写，放松为下降，紧张、担心、被迫为上升；伤势只记真实受伤，双方同意的玩法中的疼痛不写。',
-        '- 强度可省略（好感按方向词默认，信任、芥蒂按小，压力按中）：小＝日常小事，中＝用心或较为突出的事，大＝强烈打动或伤害，重大＝约会、告白、共患难、托付、立誓、托付生死或背叛决裂，正向重大需同楼写 event 标签。',
+        '- 关系标签只记角色对主角本人态度的变化；一时的情绪、因他人而起的情绪、主角自己的心意都不写。只对具名角色写，伪装时按真实身份写，被附身时按掌控身体的意识写。',
+        '- 亲密行为本身不算好感事件，看主角在过程中的态度；压力上升指紧张、担心、被迫，下降指放松；伤势只记真实受伤。',
+        '- 强度可省略：小＝日常小事，中＝用心或突出的事，大＝强烈打动或伤害，重大＝约会、告白、共患难、托付、立誓或背叛决裂（正向重大需同时写 event 标签）。',
         '关系：',
-        '[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色首次出场且上文未列出关系阶段时写一次；有猜疑或旧怨时加「+猜忌/戒备/心结/积怨/背叛过」，一直跟在主角身边加「+随身」，没有实体的残魂、器灵、系统加「+无实体」，如 恋人+猜忌）',
+        '[igs-stat:start|角色名|仇视/疏远/陌生/熟人/朋友/亲密/恋人]（角色首次出场且上文没有其关系阶段时写一次；有猜疑或旧怨加「+猜忌/戒备/心结/积怨/背叛过」，常伴主角加「+随身」，残魂、器灵等没有实体的加「+无实体」）',
         '[igs-stat:startfix|角色名|信任/芥蒂|轻/中/重]（开场后才揭示的旧有隔阂，每个角色每项只写一次）',
-        '[igs-stat:favor|角色名|{{好感档位}}|{{强度}}]（尴尬不是害羞；吃醋只在角色因占有欲或在意而真的对主角不满时写，恋人、家人、朋友皆可，玩笑或乐在其中不写，吃醋已含芥蒂，不另写 grudge）',
-        '[igs-stat:trust|角色名|上升/下降|{{强度}}]（上升如守约、出面善后、危难时挺身而出；下降如说谎、爽约、出卖）',
-        '[igs-stat:grudge|角色名|上升/下降|{{强度}}]（芥蒂是对主角的不满与心结，可与好感同时很高；上升如被敷衍、冷落、羞辱，下降如道歉、弥补、释怀、接纳、和解）',
+        '[igs-stat:favor|角色名|{{好感档位}}|{{强度}}]（尴尬不是害羞；吃醋只在角色真的因在意而对主角不满时写，玩笑不算，已含芥蒂，不另写 grudge）',
+        '[igs-stat:trust|角色名|上升/下降|{{强度}}]（上升如守约、挺身而出；下降如说谎、爽约、出卖）',
+        '[igs-stat:grudge|角色名|上升/下降|{{强度}}]（对主角的不满与心结，可与好感同时很高；上升如被敷衍、冷落、羞辱，下降如道歉、弥补、和解）',
         '[igs-stat:know|角色名|上升/下降]（深谈、得知主角的秘密或真实一面时上升，发现此前对主角的看法有误时下降）',
-        '[igs-stat:event|角色名|约会/告白/共患难/交心/托付/立誓]（约会、告白只在角色发起或接受时写，被拒不写；交心用于朋友、家人间的深谈、托付秘密、并肩扛事；托付指托付性命、衣钵、遗物、重大秘密或身后事，如传功、传授法宝、交代后事；立誓指拜师、结拜、结契、歃血为盟等正式誓约）',
-        '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约/顶撞/命令/冷落/炫耀]（仅作记录，事件发生时写一次：被夸奖、被批评、被拒绝、遭背叛、向TA求助、质疑其信仰、耳语、久别重逢、被他人提起；顶撞、命令、冷落、炫耀只记主角对TA做的：主角当面反驳TA或与TA硬碰硬、主角不容商量地对TA下令、主角有意不理睬TA或把TA晾在一旁、主角当面向TA夸耀财富成就或魅力；与上一行的关键事件不同，不影响关系进展）',
-        '[igs-stat:event|角色名|吸血/歌唱/发情]（正文有吸血、歌唱、发情的描写时写一次）',
+        '[igs-stat:event|角色名|约会/告白/共患难/交心/托付/立誓]（约会、告白只在角色发起或接受时写；交心指深谈、托付秘密、并肩扛事；托付指托付性命、衣钵、遗物或身后事；立誓指拜师、结拜、结契等正式誓约）',
+        '[igs-stat:event|角色名|夸奖/批评/拒绝/背叛/求助/信仰质疑/耳语/重逢/提起/守约/失约/顶撞/命令/冷落/炫耀]（只作记录、不影响关系，发生时写一次；顶撞、命令、冷落、炫耀只记主角对TA做的）',
         '[igs-stat:gift|角色名|礼物类别]',
         '[igs-stat:address|角色名|新称呼]（角色真的改口叫主角时写一次，人前的叫法加第四段「人前」）',
         '生活（档位前可加角色名，不写角色名则指主角）：',
         '[igs-stat:stamina|{{体力档位}}]',
         '[igs-stat:money|收入/花费|{{金钱档位}}]（正文写了具体数目就写数字，没有数目才用档位）',
-        '[igs-stat:stress|上升/下降|{{压力强度}}]（上升：小＝琐事烦心，中＝受批评、争吵，大＝重大失败、亲友出事，极大＝创伤性事件，如遭到侵犯、目睹亲友死亡、被至亲背叛；下降：小＝小憩，中＝娱乐、倾诉，大＝心事彻底解决）',
+        '[igs-stat:stress|上升/下降|{{压力强度}}]（上升：小＝琐事烦心，中＝受批评、争吵，大＝重大失败、亲友出事，极大＝遭到侵犯、目睹亲友死亡等创伤；下降：小＝小憩，中＝娱乐、倾诉，大＝心事彻底解决）',
         '[igs-stat:hurt|{{伤势档位}}]',
         '[igs-stat:hero|离体/复归]（主角死亡、昏迷或灵魂离体时写离体，回到身体时写复归）',
         '[igs-stat:sleep]（入睡）；[igs-stat:skip|7天]（时间跳跃）',
@@ -72,14 +67,14 @@ const BASE_PROMPTS = {
     ].join('\n'),
     mandates: '【本轮必须写出】{{事项}}',
     fame: '【声望】以下是各方对相关人物的看法，正文中旁人的反应须与之相符：\n{{声望}}',
-    status: '【角色状态】以下状态由数值系统记录，正文中须与之相符：\n{{状态}}',
+    status: '【角色状态】正文须与以下状态相符：\n{{状态}}',
 };
 
 // dice 段默认就是正文检定模板（骰序、优劣势、在场加值、更正）；combat、party 只在战斗扩展开启时出现。
 export const DEFAULT_STAT_PROMPTS = Object.freeze({
     ...BASE_PROMPTS,
     currency: DEFAULT_CURRENCY_PROMPT,
-    tags: [BASE_PROMPTS.tags, '成长与生命标签（只开数值系统时同样结算）：', ...COMBAT_GROWTH_LINES].join('\n'),
+    tags: [BASE_PROMPTS.tags, '成长与生命：', ...COMBAT_GROWTH_LINES].join('\n'),
     dice: CHECK_ROLLS_TEMPLATE,
     combat: [COMBAT_RULE_HEAD, ...COMBAT_STORY_LINES, '', '语法要求：', ...COMBAT_SYNTAX_LINES].join('\n'),
     party: '【主角团状态】以下是主角与最近一场并肩作战的同伴当前的状态，战斗留下的伤势会带到下一场。正文对伤势与体力的描写须与之相符，不写具体数值：\n{{同伴}}',
@@ -102,9 +97,9 @@ export const DEFAULT_STAGE_TEXT = Object.freeze({
     厌烦排斥: '对主角不耐烦，敷衍应付，不会主动搭话；主角靠近时会拉开距离。',
     淡淡不喜: '对主角疏远，礼貌但冷淡；只谈必要的事，不聊私事，不接受邀约。',
     无感: '把主角当普通人，没有特别的好恶；不会主动关心主角，也不会为主角破例。',
-    初步好感: '对主角有好印象，愿意闲聊；仍是普通朋友，不暧昧、不单独约会、不牵手。',
-    明确喜欢: '在意主角，会主动关心和邀约；不会表白，不接受亲吻或更亲密的接触。',
-    强烈在意: '把主角放在心上，会吃醋、会依赖，可以接受牵手和拥抱；亲吻要有足够铺垫的关键时刻。',
+    初步好感: '与主角有恋爱往来，感情尚浅、仍在试探；可以约会、牵手，更亲密的接触要看气氛。',
+    明确喜欢: '喜欢主角，乐意约会、牵手、拥抱；亲吻要有合适的时机。',
+    强烈在意: '深深在意主角，会吃醋、会依赖，拥抱和亲吻自然；更进一步的亲密要有铺垫。',
     深爱: '深爱主角，愿意托付真心，亲密行为自然；仍保有自己的性格与底线，不会无条件顺从。',
 });
 
@@ -138,8 +133,8 @@ export function describeProtagonist(bars, { shortfall = false, vitals = null, da
     const strain = strainSentence('主角', bars);
     if (strain) notes.push(strain);
     else if (bars.stress > STRESS_HIGH) notes.push('主角压力很大，容易烦躁');
-    if (shortfall) notes.push('主角钱不够，买不起刚才想买的东西，正文需写出这一点');
-    return notes.length ? `${notes.join('；')}。` : '';
+    const out = notes.length ? `当前${notes.join('；')}，正文需写出这一点。` : '';
+    return out + (shortfall ? '当前主角钱不够，买不起刚才想买的东西，正文需写出这一点。' : '');
 }
 
 // 维度组合描述：小表，不穷举（§5.1）。
@@ -153,7 +148,7 @@ export function describeCombination(dims) {
     const grudge = grudgeTier(dims.芥蒂);
     if (grudge) notes.push(`对主角心存芥蒂（${grudge}）`);
     if (know < 0) notes.push('对主角有误解');
-    else if (know > 50) notes.push('很了解主角');
+    else if (know > 50) notes.push('很了解主角，但未必知道主角的近况和已掌握的情报');
     return notes.length ? `（${notes.join('，')}）` : '';
 }
 
@@ -173,15 +168,27 @@ export function intimacyAllowed(dims, { romance = true, kin = false } = {}) {
 }
 
 // forced：该角色已开「亲密门槛豁免」，门槛未达时不再要求拒绝，改用 intimacyForced。
-function intimacyNote(character, { nsfw, intimacyGate, forced, role }, text, forcedText) {
-    if (!nsfw || !intimacyGate || intimacyAllowed(character.dims, role)) return '';
-    return forced ? forcedText : text;
+// drunk：该角色挂着「醉酒」状态时不拦，改写醉后亲密的态度约束（酒醒后由正文按好感、芥蒂标签结算）。
+export const INTIMACY_DRUNK = '醉酒中可能发生亲密行为，但并非出于好感；酒醒后按当前关系阶段与芥蒂程度反应，可能后悔、尴尬或生气。';
+// 相爱相杀：好感为负却已过亲密门槛（欲望够高）时，补一句覆盖负向阶段文案里的「拒绝接触」。
+export const INTIMACY_LOVE_HATE = '虽然敌视主角，却抵挡不住对主角的欲望，可能在对峙或争执中发生亲密接触；事后敌意不减。';
+// 好感为负且未过门槛时，阶段文案已写明排斥，不再重复拒绝句。
+function intimacyNote(character, { nsfw, intimacyGate, forced, role, drunk }, text, forcedText) {
+    if (!nsfw || !intimacyGate) return '';
+    const hostile = (Number(character.dims.好感) || 0) < 0;
+    if (intimacyAllowed(character.dims, role)) return hostile ? INTIMACY_LOVE_HATE : '';
+    if (forced) return forcedText;
+    if (drunk) return INTIMACY_DRUNK;
+    return hostile ? '' : text;
 }
 
 export const INTIMATE_TAG_LINE = `[igs-stat:intimate|角色名|${INTIMATE_LEVELS.join('/')}]（发生亲密行为时写：轻＝亲吻、爱抚，中、重按激烈程度区分；对象是无名者或多人时，角色名写群体）`;
 export const DESIRE_TAG_LINE = '[igs-stat:desire|角色名|上升/下降]（欲望是对主角的身体吸引；只在正文明确写出角色对主角本人动了心思时上升，被冒犯、兴致被打断、遭冷落时下降；不因穿着、外貌或意外接触而写，尴尬、回避不写）';
 // 低频标签按需出现：有恋爱对象时才给「恋爱结束」，有近期可退的信任下降、芥蒂上升时才给「误会解除」。
 export const ROMANCE_END_TAG_LINE = '[igs-stat:romance|角色名|结束]（恋爱关系真正结束、角色已放下这段感情时写一次，如分手后释怀、和平离婚、约定做回朋友；吵架、冷战、暂时分开、赌气说分手、仍在挽回或仍有留恋时不写）';
+// 吸血、歌唱、发情只对持有相关特质的人有结算，有人持有时才给。
+export const TRAIT_WORD_TAG_LINE = '[igs-stat:event|角色名|吸血/歌唱/发情]（正文有吸血、歌唱、发情的描写时写一次）';
+const TRAIT_WORD_HOLDERS = Object.freeze(['吸血鬼', '血仆', '人鱼之歌', '兽人']);
 export const CLEAR_TAG_LINE = '[igs-stat:clear|角色名]（误会澄清、真相大白时写；误会仍在、只是道歉或暂时和好时不写）';
 
 function conditionalTagLines(state, opts) {
@@ -189,6 +196,8 @@ function conditionalTagLines(state, opts) {
     const lines = [];
     if (entries.some(([name, c]) => isRomance(c, name, opts.romanceSeen))) lines.push(ROMANCE_END_TAG_LINE);
     if (entries.some(([, c]) => Array.isArray(c && c.recentHurts) && c.recentHurts.length)) lines.push(CLEAR_TAG_LINE);
+    const cat = traitCatalogOf(opts.traits, opts.nsfw);
+    if (['主角', ...entries.map(([n]) => n)].some((n) => TRAIT_WORD_HOLDERS.some((id) => hasTrait(state, cat, n, id)))) lines.push(TRAIT_WORD_TAG_LINE);
     return lines;
 }
 
@@ -202,25 +211,25 @@ function strainTagLines(state) {
 // NPC 的体力与压力（第五点六节定稿措辞）：数值正常时不写；压力转换后或撑到极限时改写状态句；痴迷的角色另写念念不忘。
 export const NPC_TIRED = '很疲惫，动作变慢，容易走神';
 export const NPC_EXHAUSTED = '体力耗尽，撑不住了，需要立刻休息';
-export const NPC_STRESSED = '有心事，睡不好，容易烦躁';
-export const NPC_STRESS_EXTREME = '神经紧绷到了极限，一点小事就可能失态';
+export const NPC_STRESSED = '有心事，可能睡不好、容易烦躁';
+export const NPC_STRESS_EXTREME = '精神极度紧张，一点小事就可能失态';
 // 称呼：在场角色目前怎么叫主角；旁人在场且记了人前叫法时用人前的。没有记录返回空串。
 export function addressNote(character, crowd) {
     const a = character && character.address && typeof character.address === 'object' ? character.address : null;
     const word = a ? ((crowd && a.public) || a.private || '') : '';
-    return word ? `目前叫主角「${word}」。` : '';
+    return word ? `目前叫主角「${word}」${crowd ? '，人前视场合与性格决定是否加敬称' : ''}。` : '';
 }
 function staminaNote(character, name) {
     const own = character.bars && typeof character.bars === 'object' ? character.bars : null;
     const notes = [];
     const stamina = Number(own && own.stamina);
-    if (Number.isFinite(stamina) && stamina <= 0) notes.push(`${name}${NPC_EXHAUSTED}。`);
-    else if (Number.isFinite(stamina) && stamina < STAMINA_LOW) notes.push(`${name}${NPC_TIRED}。`);
+    if (Number.isFinite(stamina) && stamina <= 0) notes.push(`当前${name}${NPC_EXHAUSTED}。`);
+    else if (Number.isFinite(stamina) && stamina < STAMINA_LOW) notes.push(`当前${name}${NPC_TIRED}。`);
     const strain = strainSentence(name, own);
     const stress = Number(own && own.stress) || 0;
-    if (strain) notes.push(`${strain}。`);
-    else if (stress >= STRESS_EXTREME) notes.push(`${name}${NPC_STRESS_EXTREME}。`);
-    else if (stress > STRESS_HIGH) notes.push(`${name}${NPC_STRESSED}。`);
+    if (strain) notes.push(`当前${strain}。`);
+    else if (stress >= STRESS_EXTREME) notes.push(`当前${name}${NPC_STRESS_EXTREME}。`);
+    else if (stress > STRESS_HIGH) notes.push(`当前${name}${NPC_STRESSED}。`);
     if (character.obsessed) notes.push(`${name}${OBSESSED_NOTE}。`);
     return notes.join('');
 }
@@ -231,8 +240,8 @@ function heroNoteText(name, notes, prefix = true) {
     return text ? `${prefix ? '主角对其：' : ''}${text}。` : '';
 }
 
-export const HERO_TAG_LINE = '[igs-stat:my|角色名|好感/信任/了解/芥蒂/欲望|上升/下降|强度]（主角对该角色态度的变化；只在正文写出了主角的心理、选择或用户输入表明了态度时写，角色单方面的举动不写）';
-export const HERO_PRESENT_RULE = '主角的心理与主动举动须符合上面写的主角态度，不得替主角改变态度；用户输入中主角的言行与此不符时，以用户输入为准。';
+export const HERO_TAG_LINE = '[igs-stat:my|角色名|好感/信任/了解/芥蒂/欲望|上升/下降|强度]（记主角自己对该角色的感情变化，只在正文写出主角的想法或选择时写）';
+export const HERO_PRESENT_RULE = '主角的心理与主动举动须符合上面写的主角态度；用户输入中主角的言行与此不符时，以用户输入为准。';
 
 // 主角视角的组合描述，写法同 describeCombination。
 function describeHeroCombination(dims) {
@@ -268,7 +277,7 @@ function combatSegmentText(prompts, opts, diagnostics) {
 }
 
 // opts：{ prompts, disabled, stageText, present, check, mandates, shortfall, nsfw, intimacyGate, vitals,
-//         walletExtra（战斗侧积分净流水）, currency（物品表货币快照）, skillsLine, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
+//         walletExtra（战斗侧积分净流水）, currency（物品表货币快照）, perceptionLine, sheetLines: [{ name, rank, strong, bonus }], manualRoll,
 //         dice: D&D 正文检定输入（check-rolls 的 checkRollsVars 入参），cocDice: CoC 正文检定输入（cocRollsVars 入参）,
 //         combatOn, partyLines, dateRegex（日期正则原文，空或非法则不算日期模式）, heroNotes（「我对TA」备注，未开启注入时不传） }
 export function buildStatsPrompt(state, opts = {}) {
@@ -280,9 +289,8 @@ export function buildStatsPrompt(state, opts = {}) {
     const bars = state.protagonist.bars;
     const parts = [];
     const push = (id, text) => { if (!disabled.has(id) && text) parts.push({ id, text }); };
-    push('source', fillTemplate(prompts.source, {}, diagnostics));
     push('protagonist', fillTemplate(prompts.protagonist, {
-        生命: vitalsText(opts.vitals), 体力: bars.stamina, 压力: bars.stress, 积分: walletBalance(bars, opts.walletExtra),
+        积分: walletBalance(bars, opts.walletExtra),
         金钱: opts.currency?.ready ? opts.currency.balance : '未知',
         剧情货币: opts.currency?.ready ? `${opts.currency.balance}${opts.currency.name}` : opts.currency?.name ? `未知（${opts.currency.name}）` : '未定',
         状态描述: describeProtagonist(bars, { shortfall: opts.shortfall, vitals: opts.vitals, dateMode: Boolean(compileCaptureRegex(opts.dateRegex).regex && state.clock && state.clock.lastDate) }),
@@ -290,7 +298,6 @@ export function buildStatsPrompt(state, opts = {}) {
     // 声望：本聊天开了声望条才注入（fameBars 由调用方从聊天级目录传入）。
     const fame = fameLines(state, opts.fameBars, { present: opts.present || [] });
     if (fame.length) push('fame', fillTemplate(prompts.fame, { 声望: fame.join('\n') }, diagnostics));
-    if (opts.skillsLine) push('skills', fillTemplate(prompts.skills, { 技能档位: opts.skillsLine }, diagnostics));
     if (opts.perceptionLine) push('perception', fillTemplate(prompts.perception, { 感知档位: opts.perceptionLine }, diagnostics));
     const present = (opts.present || []).filter((name) => state.characters[name]);
     const heroLineOf = (name, c) => {
@@ -308,17 +315,13 @@ export function buildStatsPrompt(state, opts = {}) {
             const stage = !romance && rawStage === '深爱' ? (role.kin ? '至亲' : '至交') : rawStage;
             return fillTemplate(prompts.present, {
                 角色: name, 阶段: stage, 阶段文案: text || '', 组合描述: describeCombination(c.dims),
-                突破提示: breakthroughHint(c, romance ? prompts.breakthrough : prompts.breakthroughPlatonic), 亲密约束: intimacyNote(c, { ...opts, role, forced: (opts.forcedNames || []).includes(name) }, prompts.intimacy, prompts.intimacyForced),
+                突破提示: breakthroughHint(c, romance ? prompts.breakthrough : prompts.breakthroughPlatonic), 亲密约束: intimacyNote(c, { ...opts, role, forced: (opts.forcedNames || []).includes(name), drunk: hasStatus(state, opts.statusCat, name, '醉酒') }, prompts.intimacy, prompts.intimacyForced),
             }, diagnostics) + staminaNote(c, name) + heroLineOf(name, c) + addressNote(c, present.length > 1);
         }).concat(prompts.presentRule ? [fillTemplate(prompts.presentRule, {}, diagnostics)] : []).concat(opts.heroFeelings ? [HERO_PRESENT_RULE] : []).join('\n'));
     }
     // 状态（B 批）：只给在场角色；来源与单条开关由 statusPromptLines 把关，旧特质注入五项并入此段。opts.statusCat 为 { statuses }，特质读 opts.traits。
     const statusLines = statusPromptLines(state, { ...(opts.statusCat || {}), traits: opts.traits, nsfw: opts.nsfw }, present);
     if (statusLines.length) push('status', fillTemplate(prompts.status, { 状态: statusLines.join('\n') }, diagnostics));
-    const sheets = (opts.sheetLines || []).filter((s) => s && s.name && present.includes(s.name));
-    if (sheets.length) {
-        push('sheets', sheets.map((s) => fillTemplate(prompts.sheets, { 角色: s.name, 资历: s.rank || '普通人', 擅长: s.strong || '无特别擅长', 六维加值: s.bonus || '由数值系统按其实力估算' }, diagnostics)).join('\n'));
-    }
     if (opts.check) {
         const ck = opts.check;
         const threshold = ck.threshold ?? ck.target;
@@ -338,11 +341,11 @@ export function buildStatsPrompt(state, opts = {}) {
     const heroTags = (text) => {
         if (!opts.heroFeelings) return text;
         const line = opts.nsfw ? HERO_TAG_LINE : HERO_TAG_LINE.replace('/欲望', '');
-        const rule = text.replace('尚未针对主角的误会，以及主角自己的心意，都不写。', '尚未针对主角的误会都不写，主角自己的心意用my标签写，不写进角色的标签。');
+        const rule = text.replace('尚未针对主角的误会，以及主角自己的心意，都不写。', '尚未针对主角的误会都不写；主角自己的心意用 my 标签记。');
         return rule.includes('\n生活（') ? rule.replace('\n生活（', `\n${line}\n生活（`) : `${rule}\n${line}`;
     };
     push('tags', heroTags(fillTemplate(prompts.tags, {
-        好感档位: FAVOR_PROMPT_GROUPS.map((g) => `${g.label}：${g.words.join('/')}`).join('；'), 压力强度: STRESS_STRENGTHS.slice(0, 3).join('/'), 强度: FAVOR_STRENGTHS.join('/'), 好感强度: FAVOR_STRENGTHS.join('/'), 体力档位: STAMINA_EVENTS.join('/'), 金钱档位: MONEY_TIERS.join('/'), 伤势档位: HURT_TIERS.join('/'),
+        好感档位: FAVOR_PROMPT_GROUPS.map((g) => `${g.label}：${g.words.join('/')}`).join('；'), 压力强度: STRESS_STRENGTHS.join('/'), 强度: FAVOR_STRENGTHS.join('/'), 好感强度: FAVOR_STRENGTHS.join('/'), 体力档位: STAMINA_EVENTS.join('/'), 金钱档位: MONEY_TIERS.join('/'), 伤势档位: HURT_TIERS.join('/'),
     }, diagnostics)) + [...conditionalTagLines(state, opts), ...fameTagLines(opts.fameBars), ...strainTagLines(state), STATUS_TAG_LINE(opts.worlds)].map((line) => `\n${line}`).join('') + (opts.nsfw ? `\n${DESIRE_TAG_LINE}` : '') + (opts.nsfw && opts.intimateCost && opts.intimateCost !== 'off' ? `\n${INTIMATE_TAG_LINE}` : ''));
     if (opts.combatOn) push('combat', combatSegmentText(prompts, opts, diagnostics));
     const party = (opts.partyLines || []).filter(Boolean);
@@ -357,11 +360,11 @@ export function buildStatsPrompt(state, opts = {}) {
 export function mandatesFromFlags(flags = {}, vitals = null, { fame = false } = {}) {
     const out = [];
     if (fame && Array.isArray(flags.fame)) out.push(...flags.fame.filter((t) => typeof t === 'string' && t));
-    if (flags.battle) out.push(`上一楼的战斗结果为【${flags.battle.outcome}】，按此写出战斗结局，不得改判`);
-    if (flags.work) out.push(`上一楼的打工结果为【${flags.work.tier}】${flags.work.income ? `，收入档位${flags.work.income}` : '，没有收入'}`);
+    if (flags.battle) out.push(`刚才的战斗结果为【${flags.battle.outcome}】，按此写出战斗结局，不得改判`);
+    if (flags.work) out.push(`刚才的打工结果为【${flags.work.tier}】${flags.work.income ? `，收入档位${flags.work.income}` : '，没有收入'}`);
     if (flags.forcedRest) out.push('主角体力耗尽，写出主角昏睡或休息');
     // 关键事件大失败：只在紧接着的下一楼出现一次（flags 来自上一楼）。
-    if (flags.keyFumble && flags.keyFumble.event) out.push(`上一楼的${flags.keyFumble.event}出了岔子，本楼正文需体现`);
+    if (flags.keyFumble && flags.keyFumble.event) out.push(`刚才的${flags.keyFumble.event}出了岔子，接下来的正文需体现`);
     if (Array.isArray(flags.stageUp) && flags.stageUp.length) out.push(`${flags.stageUp.join('、')}与主角的关系近了一档，合适时可以改口`);
     if (flags.coldWar) {
         for (const n of flags.coldWar.start || []) out.push(`${n}与主角开始冷战，可以改回生分的叫法`);
