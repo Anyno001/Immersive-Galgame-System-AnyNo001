@@ -2,11 +2,12 @@
 // 按主角等级 × 相对档 × 遭遇档位 × 难度统计胜率与胜利时主角损失生命。只读调用战斗模块，不进 bundle、不进测试门禁；
 // 种子确定，同参数重跑结果一致。结果只反映托管策略的强度，真人操作通常更好。满血开战。
 // 用法：node scripts/combat-balance.mjs [--runs 20] [--levels 1,5,10] [--count 1] [--tiers normal,elite,boss]
-//       [--rels even,stronger,formidable] [--diffs easy,normal,hard,brutal,nightmare] [--hero-skill] [--out 路径.md|路径.json]
+//       [--rels weaker,even,stronger,formidable] [--diffs easy,normal,hard,brutal,nightmare] [--hero-skill] [--out 路径.md|路径.json]
 //       [--try normal=1.2x1.5,gap=0.05x0.1x3,lv=0.08]（试调，不改规则表：在 setup 上把该档位敌人生命 × 前值、伤害倍率 × 后值；
 //       gap 把规则表的 levelGap 换成生命 / 伤害每级系数（第三项为等级差上限）；lv 把 tierScalePerLevel 换成该值；
 //       affix=精英去掉数x首领去掉数，从末尾去掉难度表给的常驻效果）
 //       [--archetypes all|warrior,mage] [--deck-seeds 1,2,3,4] [--inspect-decks]
+//       [--wins 0] [--trace --trace-run 0 --trace-from 0 --trace-steps 40]
 // 个人牌使用本地模板夹具；职业牌由 assembleDeck 的固定池抽取。不同 deck-seed 使用独立角色 ID，不读写用户数据。
 import { writeFileSync } from 'node:fs';
 import { applyAction, createBattle, legalActions } from '../src/combat/engine.js';
@@ -15,7 +16,7 @@ import { COMBAT_RULES, expToNextLevel } from '../src/combat/rules.js';
 import { deckProfileEntities, generateEntities, generationWrites, skillProfileEntity, templateEnemy } from '../src/combat/generation.js';
 import { enemyFillSkills } from '../src/combat/enemy-loadout.js';
 import { attributeViewFor, buildAllocEntries, createCombatLedger, normalizeSnapshot } from '../src/combat/ledger.js';
-import { ABILITY_KEYS } from '../src/combat/abilities.js';
+import { ABILITY_KEYS, REL_TIERS } from '../src/combat/abilities.js';
 import { cardView, weakestId } from '../src/combat/battle-state.js';
 import { buildSetup } from '../src/combat/session.js';
 import { hash32 } from '../src/combat/random.js';
@@ -31,7 +32,10 @@ const DECK_SEEDS = [...new Set(String(arg('--deck-seeds', '')).split(',').map(se
 const INSPECT_DECKS = process.argv.includes('--inspect-decks');
 const TRACE = process.argv.includes('--trace');
 const TRACE_STEPS = Math.min(100, Math.max(1, Number(arg('--trace-steps', 40)) || 40));
+const TRACE_RUN = Math.max(0, Math.floor(Number(arg('--trace-run', 0)) || 0));
+const TRACE_FROM = Math.max(0, Math.floor(Number(arg('--trace-from', 0)) || 0));
 const COUNT = Math.min(COMBAT_RULES.maxEnemies, Math.max(1, Number(arg('--count', 1)) || 1));
+const WINS = Math.max(0, Math.floor(Number(arg('--wins', 0)) || 0));
 const HERO_SKILL = process.argv.includes('--hero-skill');
 // --generated：敌人换成「生成敌人」近似形状（技能全部按模板在档位伤害上限求解、数量取 skillTarget，generated 不为 false），
 // 用来核对按模板敌人校准的倍率套到副 LLM 生成的敌人上是否偏强。
@@ -50,10 +54,10 @@ const HERO = '主角';
 // 敌人轮换名字：常驻效果、补技能、相对档偏移、六维与速度都按名字或档案 ID 取种子，轮换才能覆盖不同抽取结果。
 const ENEMIES = Array.from({ length: 8 }, (_, i) => `试炼之敌${i + 1}`);
 const TIERS = only('--tiers', ['normal', 'elite', 'boss']);
-const RELS = only('--rels', [['even', '相当'], ['stronger', '稍强'], ['formidable', '强敌']], (r) => r[0]);
+const RELS = only('--rels', ['weaker', 'even', 'stronger', 'formidable'].map(key => [key, REL_TIERS[key].label]), (r) => r[0]);
 const DIFFS = only('--diffs', Object.keys(COMBAT_RULES.difficulty));
-// 计划 5.6 的标准档校准目标：[胜率下限, 上限, 胜利时损失生命下限, 上限]（%）。
-const TARGET = { 'normal|even': [85, 95, 25, 45], 'elite|even': [70, 85, 45, 65], 'boss|even': [55, 70, 60, 85], 'normal|stronger': [65, 80, 45, 70], 'normal|formidable': [50, 65, 45, 70] };
+// 前五场标准档：普通按人数给胜率下限；精英约五成暂按职业均值 40%–60% 对照，逐种子保留诊断。
+const WIN_TARGETS = { normal: [COUNT === 1 ? 0.9 : COUNT === 2 ? 0.8 : 0.6, 1], elite: [0.4, 0.6] };
 
 // 本地生成回复夹具；当前 assembleClass 忽略旧职业牌字段，职业牌来自 v6 固定池。
 const CLASS_VALUE = { className: '剑士', archetype: 'warrior', passive: ['锋锐', 'opening-strength'],
@@ -206,7 +210,7 @@ function runBattle(setup, seed, trace = false) {
     for (let n = 0; n < MAX_ACTIONS && !s.outcome; n += 1) {
         let action = nextAction(s);
         let r = applyAction(s, action);
-        if (trace && n < TRACE_STEPS) {
+        if (trace && n >= TRACE_FROM && n < TRACE_FROM + TRACE_STEPS) {
             const card = action.inst ? cardView(s, action.inst) : null;
             console.log(JSON.stringify({ step: n, turn: s.turn, action: { ...action, ...(card ? { cardId: card.id, name: card.name } : {}) },
                 units: s.order.map(id => { const u = s.units[id]; return { id, hp: u.hp, block: u.block, energy: u.energy, statuses: u.statuses, res: u.res }; }),
@@ -222,7 +226,10 @@ function runBattle(setup, seed, trace = false) {
         s = r.state;
     }
     const hero = s.units[s.controlledId];
-    return { outcome: s.outcome || 'timeout', turn: s.turn, rejects, lost: (hero.maxHp - Math.max(0, hero.hp)) / hero.maxHp };
+    return { outcome: s.outcome || 'timeout', turn: s.turn, rejects, lost: (hero.maxHp - Math.max(0, hero.hp)) / hero.maxHp,
+        ...(!s.outcome ? { diagnostic: { turn: s.turn, units: s.order.map(id => {
+            const u = s.units[id]; return { id, hp: u.hp, block: u.block, statuses: u.statuses, res: u.res };
+        }), hand: (s.piles[s.controlledId]?.hand || []).map(inst => cardView(s, inst)?.id) } } : {}) };
 }
 
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -261,45 +268,56 @@ function enemyProfile(name, tier, level) {
 }
 
 function simulateCell(world, level, rel, relLabel, tier, diff) {
-    const cell = { level, rel, relLabel, tier, diff, runs: 0, win: 0, defeat: 0, timeout: 0, error: 0, lost: [], turns: [], rejects: 0, heroHp: null, enemyHp: [], enemyLevel: [], errors: {} };
+    const cell = { level, rel, relLabel, tier, diff, count: COUNT, battleWins: WINS, generated: GENERATED, runs: 0, win: 0, defeat: 0, timeout: 0, error: 0, lost: [], turns: [], samples: [], rejects: 0, heroHp: null, enemyHp: [], enemyLevel: [], crowd: null, reserveCount: null, errors: {} };
     const fail = (reason) => { cell.error += 1; cell.errors[reason] = (cell.errors[reason] || 0) + 1; };
     for (let run = 0; run < RUNS; run += 1) {
         const name = ENEMIES[run % ENEMIES.length];
         const attr = attributeViewFor(world.state, name);
-        const lobby = { heroId: world.hero.id, allies: world.ally ? [world.hero, world.ally] : [world.hero], controllable: [world.hero.id],
+        const lobby = { heroId: world.hero.id, battleWins: WINS, allies: world.ally ? [world.hero, world.ally] : [world.hero], controllable: [world.hero.id],
             enemies: new Map([[name, enemyProfile(name, tier, attr?.level ?? world.hero.level)]]), enemyAttributes: attr ? new Map([[name, attr]]) : new Map() };
         const built = buildSetup(lobby, { tier, allies: ALLY ? [ALLY] : [], enemies: [{ name, count: COUNT }] }, { difficulty: diff, userName: HERO });
         if (built.ok && ALLY_SINGLE) for (const u of built.setup.units) delete u.actions;
         cell.runs += 1;
         if (!built.ok) { fail(built.reason); continue; }
+        cell.crowd = built.setup.crowd;
+        cell.reserveCount = built.setup.reserve?.length || 0;
         const g = attr ? Math.max(0, attr.level - world.hero.level) : 0;
         for (const u of built.setup.units) if (u.side === 'enemy') tweak(u, tier, g, attr?.level ?? world.hero.level);
         cell.heroHp = built.setup.units.find((u) => u.id === world.hero.id).maxHp;
         cell.enemyHp.push(mean(built.setup.units.filter((u) => u.side === 'enemy').map((u) => u.maxHp)));
         if (attr) cell.enemyLevel.push(attr.level);
-        const r = runBattle(built.setup, hash32(`balance|${level}|${rel}|${tier}|${diff}|${run}`), TRACE && run === 0);
+        const r = runBattle(built.setup, hash32(`balance|${level}|${rel}|${tier}|${diff}|${run}`), TRACE && run === TRACE_RUN);
+        cell.samples.push({ run, enemy: name, outcome: r.outcome, remaining: Number.isFinite(r.lost) ? 1 - r.lost : null, turn: r.turn, rejects: r.rejects || 0 });
         cell.rejects += r.rejects || 0;
         if (r.outcome === 'victory') { cell.win += 1; cell.lost.push(r.lost); cell.turns.push(r.turn); }
         else if (r.outcome === 'defeat') { cell.defeat += 1; cell.turns.push(r.turn); }
-        else if (r.outcome === 'timeout') cell.timeout += 1;
+        else if (r.outcome === 'timeout') {
+            cell.timeout += 1;
+            cell.timeouts ??= [];
+            cell.timeouts.push({ run, ...r.diagnostic });
+        }
         else fail(r.reason);
     }
+    const remaining = cell.lost.map(value => 1 - value).sort((a, b) => a - b);
+    const quantile = q => remaining.length ? remaining[Math.floor((remaining.length - 1) * q)] : null;
+    cell.health = { mean: mean(remaining), min: quantile(0), p10: quantile(0.1), median: quantile(0.5), p90: quantile(0.9), max: quantile(1) };
+    const applies = WINS < 5 && diff === 'normal' && (rel === 'even' || (tier === 'normal' && rel === 'weaker')) && (tier === 'normal' || COUNT === 1);
+    const range = applies ? WIN_TARGETS[tier] : null;
+    const rate = cell.win / cell.runs;
+    cell.target = range ? { min: range[0], max: range[1], scope: tier === 'elite' ? 'archetype' : 'cell', passed: tier === 'elite' ? null : rate >= range[0] && rate <= range[1] } : null;
     return cell;
 }
 
 function verdict(c) {
-    const t = c.diff === 'normal' ? TARGET[`${c.tier}|${c.rel}`] : null;
-    if (!t) return '';
-    const rate = (c.win / c.runs) * 100;
-    const lost = mean(c.lost);
-    const a = rate < t[0] ? '胜率偏低' : rate > t[1] ? '胜率偏高' : '胜率达标';
-    const b = lost === null ? '无胜场' : lost * 100 < t[2] ? '损失偏低' : lost * 100 > t[3] ? '损失偏高' : '损失达标';
-    return `${a}、${b}（${t[0]}–${t[1]}% / ${t[2]}–${t[3]}%）`;
+    if (!c.target) return '';
+    const range = `${pct(c.target.min)}–${pct(c.target.max)}`;
+    if (c.target.scope === 'archetype') return `职业均值对照（${range}，单种子仅诊断）`;
+    return `${c.target.passed ? '达标' : '未达标'}（${range}）`;
 }
 
 function report(cells) {
-    // --brief：每格一行（等级 相对档 档位 难度 胜率 胜利损失 平均回合），供校准时多组对比。
-    if (process.argv.includes('--brief')) return cells.map((c) => `L${c.level} ${c.relLabel}${TIER_LABEL[c.tier]}${DIFF_LABEL[c.diff] || c.diff} ${pct(c.win / c.runs)} ${pct(mean(c.lost))} ${fixed(mean(c.turns))}`).join('\n');
+    // --brief：逐职业、种子保留胜率、余血分布与错误／超时／动作拒收。
+    if (process.argv.includes('--brief')) return cells.map(c => `L${c.level} N${c.count} W${c.battleWins} ${c.relLabel}${TIER_LABEL[c.tier]}${DIFF_LABEL[c.diff] || c.diff} 胜${pct(c.win / c.runs)} ${verdict(c)} 余血${pct(c.health.mean)} ${fixed(mean(c.turns))}回合 异常${c.error}/${c.timeout}/${c.rejects}`).join('\n');
     const tried = Object.keys(TRY).length ? `；试调 ${arg('--try', '')}` : '';
     const out = ['# 战斗平衡模拟', '', `每格 ${RUNS} 场；敌人 ${COUNT} 只（${GENERATED ? '生成敌人近似形状' : '模板敌人'}，名字轮换 ${ENEMIES.length} 个）；主角${HERO_SKILL ? '使用' : '不使用'}人物技能；托管策略；满血开战${tried}。`, ''];
     for (const level of LEVELS) {

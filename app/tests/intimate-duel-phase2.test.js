@@ -1931,9 +1931,9 @@ test('法师模板（M01–M08）：可反解、归 orb 族只给法师；牌面
 // ---------- 规则 v5 P3 召唤「随从与灾厄」（S01–S08；随从按 D5 依附主人） ----------
 const sumOp = (amount) => ({ op: 'summon', amount });
 const minionHit = (amount, extra = {}) => ({ op: 'minion-strike', amount, target: 'enemy', ...extra });
-const vsAttacker = (catalog, ids, amount, rv, foeExtra = {}) => {
+const vsAttacker = (catalog, ids, amount, rv, foeExtra = {}, setupExtra = {}) => {
     const deck = [...ids, ...Array(Math.max(0, 10 - ids.length)).fill('k')];
-    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog: { ...catalog, k: GUARD } }), foe(amount ? foeAttack(amount) : {}, foeExtra)], ...(rv ? { rulesVersion: rv } : {}) };
+    const setup = { controlledId: 'hero', canEscape: true, units: [hero({}, { deck, catalog: { ...catalog, k: GUARD } }), foe(amount ? foeAttack(amount) : {}, foeExtra)], ...(rv ? { rulesVersion: rv } : {}), ...setupExtra };
     const created = createBattle(setup, 7);
     assert.equal(created.ok, true, JSON.stringify(created.error));
     return created.state;
@@ -1960,6 +1960,25 @@ test('随从（S01）：召唤时不在则以 N 生命召出、在则最大与�
     const h = deckOf({ h: hurt }, ['h']);
     const after = playIn(h, instOf(h, 'h')).state;
     assert.deepEqual([after.units.hero.hp, after.units.hero.res.minion.hp], [27, 5]);
+    const fragile = free('s', 'skill', [sumOp(5), { op: 'self-damage', amount: 29 }]);
+    for (const [marker, expectedHp, expectedPet] of [[{}, 1, 4], [{ hpLossRules: 1 }, 0, undefined]]) {
+        const initial = vsAttacker({ s: fragile }, ['s'], 8, 6, {}, marker);
+        const ready = playIn(initial, instOf(initial, 's')).state;
+        assert.equal(ready.units.hero.hp, 1);
+        const hit = endTurn(ready);
+        assert.equal(hit.state.units.hero.hp, expectedHp);
+        assert.equal(hit.state.units.hero.res?.minion?.hp, expectedPet);
+        assert.equal(hit.state.outcome, expectedHp ? null : 'defeat');
+    }
+    const safe = free('s', 'skill', [sumOp(20), { op: 'self-damage', amount: 29 }]);
+    const covered = vsAttacker({ s: safe }, ['s'], 8, 6, {}, { hpLossRules: 1 });
+    const shielded = endTurn(playIn(covered, instOf(covered, 's')).state);
+    assert.deepEqual([shielded.state.units.hero.hp, shielded.state.units.hero.res.minion.hp], [1, 12]);
+    const base = { rulesVersion: 6, controlledId: 'hero', units: [hero({ effects: [] }), foe(foeAttack(8))] };
+    for (const hpLossRules of [0, 2, true, '1', null]) assert.equal(createBattle({ ...base, hpLossRules }, 7).error?.reason, 'invalid-hp-loss-rules');
+    for (const rulesVersion of [undefined, 3, 4, 5]) assert.equal(createBattle({ ...base, rulesVersion, hpLossRules: 1 }, 7).error?.reason, 'invalid-hp-loss-rules');
+    assert.deepEqual(replayBattle({ ...base, hpLossRules: 1 }, 7, [{ type: 'end-turn' }]).state,
+        applyAction(createBattle({ ...base, hpLossRules: 1 }, 7).state, { type: 'end-turn' }).state);
 });
 
 test('随从攻击与转化（S02、S03）：随从不在时无效；不吃主人攻击力，只加骨甲；可追加随从生命；牺牲换格挡或群伤；魂契使随从失去生命时敌人同步失去', async () => {
@@ -3252,6 +3271,8 @@ test('v6 起始卡组（G2）：本职业固定池普通 / 罕见先选种类再
             const fixed = [...counts.keys()].filter((id) => fixedCard(id));
             assert.equal(fixed.length, 7, archetype);
             assert.ok(fixed.every((id) => fixedCard(id).id.startsWith(`fx-${archetype}-`) && ['common', 'uncommon'].includes(fixedCard(id).rarity)), archetype);
+            assert.ok(fixed.every(id => !fixedCard(id).effects.some(effect => effect.op === 'exhaust-other'
+                || (effect.op === 'grant-flag' && effect.flag === 'ethereal'))), `${archetype} ${i} 起始卡不得耗空其他牌`);
             assert.ok(fixed.filter((id) => fixedCard(id).type === 'attack').length >= 3 && fixed.filter((id) => fixedCard(id).type === 'skill').length >= 3, archetype);
             for (const [type, op] of [['attack', 'damage'], ['skill', 'block']]) {
                 const core = fixed.filter((id) => counts.get(id) === 3 && fixedCard(id).type === type).map(fixedCard);
@@ -3259,7 +3280,7 @@ test('v6 起始卡组（G2）：本职业固定池普通 / 罕见先选种类再
                 assert.ok(core[0].cost <= 1, `${archetype} ${i} ${type} 低费核心`);
                 for (const card of core) {
                     assert.ok(Number.isInteger(card.cost) && card.cost <= 2 && !card.ethereal, card.id);
-                    assert.ok(!card.effects.some((e) => ['exhaust-self', 'end-turn', 'requires', 'transmute', 'morph-hand', 'discard-hand'].includes(e.op)
+                    assert.ok(!card.effects.some((e) => ['exhaust-self', 'exhaust-other', 'end-turn', 'requires', 'transmute', 'morph-hand', 'discard-hand'].includes(e.op)
                         || (['status', 'apply-status'].includes(e.op) && e.status === 'no-draw')
                         || (e.op === 'create' && /^(status-|curse-)/.test(e.card))), card.id);
                     if (archetype === 'mage' && card === core[1]) {

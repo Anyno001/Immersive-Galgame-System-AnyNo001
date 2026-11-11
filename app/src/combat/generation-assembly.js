@@ -293,7 +293,7 @@ function pickDistinct(rng, cards, count, weightOf) {
 
 function starterDirectValue(card, op) {
     if (!Number.isInteger(card.cost) || card.cost > 2 || card.radiance != null || card.ethereal) return 0;
-    if (card.effects.some((effect) => ['exhaust-self', 'end-turn', 'requires', 'transmute', 'morph-hand', 'discard-hand'].includes(effect.op)
+    if (card.effects.some((effect) => ['exhaust-self', 'exhaust-other', 'end-turn', 'requires', 'transmute', 'morph-hand', 'discard-hand'].includes(effect.op)
         || (['status', 'apply-status'].includes(effect.op) && effect.status === 'no-draw')
         || (effect.op === 'create' && /^(status-|curse-)/.test(effect.card)))) return 0;
     const amount = card.effects.reduce((sum, effect) => {
@@ -333,7 +333,7 @@ function pickStarterTypes(rng, cards, count, op, weightOf, engine) {
     const first = new Set(core.map((card) => card.id));
     if (engine && core.length < coreCount) {
         core.push(...pickDistinct(rng, cards.filter((card) => !first.has(card.id) && Number.isInteger(card.cost) && card.cost <= 2
-            && !card.ethereal && !card.effects.some((effect) => effect.op === 'exhaust-self') && engine(card)), 1, weightOf));
+            && !card.ethereal && !card.effects.some((effect) => ['exhaust-self', 'exhaust-other'].includes(effect.op)) && engine(card)), 1, weightOf));
     }
     const reserved = new Set(core.map((card) => card.id));
     core.push(...pickDistinct(rng, ranked.filter((item) => item.value >= threshold && !reserved.has(item.card.id))
@@ -349,7 +349,9 @@ function buildFixedStarterDeck(fixedPool, personalPool, seed, archetype) {
     const rng = { state: hash32(`starter-v6:${seed}`) };
     const costWeight = (card) => STARTER_COST_WEIGHT[card.cost] ?? 1;
     const fixedWeight = (card) => costWeight(card) * STARTER_RARITY_WEIGHT[card.rarity];
-    const usable = (Array.isArray(fixedPool) ? fixedPool : []).filter((card) => Object.hasOwn(STARTER_RARITY_WEIGHT, card.rarity) && !card.unplayable);
+    const usable = (Array.isArray(fixedPool) ? fixedPool : []).filter((card) => Object.hasOwn(STARTER_RARITY_WEIGHT, card.rarity) && !card.unplayable
+        && !card.effects.some((effect) => effect.op === 'exhaust-other'
+            || (effect.op === 'grant-flag' && effect.flag === 'ethereal')));
     const engine = STARTER_ENGINES[archetype];
     const attacks = pickStarterTypes(rng, usable.filter((card) => card.type === 'attack'), shape.attack.length, 'damage', fixedWeight, engine?.attack);
     const skills = pickStarterTypes(rng, usable.filter((card) => card.type === 'skill'), shape.skill.length, 'block', fixedWeight, engine?.skill);

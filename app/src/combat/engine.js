@@ -231,6 +231,7 @@ function validateSetup(setup) {
     if (!setup || typeof setup !== 'object' || !Array.isArray(setup.units)) return { reason: 'invalid-setup' };
     if (setup.rulesVersion !== undefined && !isCompatibleRulesVersion(setup.rulesVersion)) return { reason: 'rules-version-mismatch', detail: { expected: COMBAT_RULES.version, actual: setup.rulesVersion } };
     if (setup.attributeRules !== undefined && (setup.attributeRules !== ATTRIBUTE_POLICY_VERSION || setup.rulesVersion !== 6)) return { reason: 'invalid-attribute-rules' };
+    if (setup.hpLossRules !== undefined && (setup.hpLossRules !== 1 || setup.rulesVersion !== 6)) return { reason: 'invalid-hp-loss-rules' };
     if (setup.awaken !== undefined && awakenInvalid(setup.awaken)) return { reason: 'invalid-awaken' };
     if (setup.items !== undefined && itemsInvalid(setup.items)) return { reason: 'invalid-items' };
     if (setup.overkill !== undefined && typeof setup.overkill !== 'boolean') return { reason: 'invalid-setup' };
@@ -600,7 +601,8 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
     target.block -= blocked;
     // 规则 v5 G20：本次伤害把格挡打空。
     const broke = v5 && blocked > 0 && target.block === 0;
-    let hpLoss = Math.min(target.hp, amount - blocked);
+    // 新局先分摊完整未格挡金额，实际扣血再封顶；旧快照保留提前封顶的重放语义。
+    let hpLoss = ctx.state.hpLossRules === 1 ? amount - blocked : Math.min(target.hp, amount - blocked);
     if (hpLoss > 0 && ctx.state.rulesVersion >= 5) {
         const pre = { target, hpLoss, source, kind };
         runHooks(ctx, 'hp-loss-before', pre);
@@ -1863,6 +1865,7 @@ export function createBattle(setup, seed) {
         ...(setup.randomTargets === true ? { randomTargets: true } : {}),
         ...(setup.foeCap !== undefined || setup.rulesVersion >= 6 ? { foeCap: setup.foeCap ?? COMBAT_RULES.maxFoesOnField } : {}),
         ...(setup.crowd !== undefined ? { crowd: setup.crowd } : {}),
+        ...(setup.hpLossRules === 1 ? { hpLossRules: 1 } : {}),
         ...(setup.trackHpLoss === true ? { hpLost: {}, ...(setup.rewardOwner ? { rewardOwner: setup.rewardOwner } : {}) } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),

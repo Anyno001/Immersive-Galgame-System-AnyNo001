@@ -51,13 +51,20 @@ export const COMBAT_RULES = Object.freeze({
     }),
     tierScalePerLevel: 0.05,
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
-    // 规则 v6 多敌折算：按开战前普通胜场取档，仅新建 setup 使用；旧战斗的单位数值不重算。
+    // 剧情战斗每五个有效胜场恢复一档；scale 依次为单敌、双敌、三敌、四敌以上。
     crowd: Object.freeze([
-        Object.freeze({ wins: 0, scale: 0.65 }),
-        Object.freeze({ wins: 10, scale: 0.75 }),
-        Object.freeze({ wins: 15, scale: 0.85 }),
-        Object.freeze({ wins: 20, scale: 1 }),
+        Object.freeze({ wins: 0, scale: Object.freeze([0.8, 0.4, 0.28, 0.22]) }),
+        Object.freeze({ wins: 5, scale: Object.freeze([0.85, 0.55, 0.46, 0.42]) }),
+        Object.freeze({ wins: 10, scale: Object.freeze([0.9, 0.7, 0.64, 0.61]) }),
+        Object.freeze({ wins: 15, scale: Object.freeze([0.95, 0.85, 0.82, 0.81]) }),
+        Object.freeze({ wins: 20, scale: Object.freeze([1, 1, 1, 1]) }),
     ]),
+    // 仅用于剧情建局，避免改变共用 scaleEnemyStats 的日常挑战调用方。
+    encounterScale: Object.freeze({ elite: 1.4 }),
+    openingEliteScale: Object.freeze({
+        warrior: 1.25, guardian: 1.06, ranger: 1.11, assassin: 1.27,
+        mage: 1.33, priest: 1.1, summoner: 1.16, bard: 1.15,
+    }),
     // 生成敌人档位校准：副 LLM 生成的敌人（generated 不为 false）生命与伤害再 × 该值，模板敌人不变；首领按 scripts/combat-balance.mjs --generated 校准。
     generatedScale: Object.freeze({ boss: 0.9 }),
     difficulty: Object.freeze({
@@ -392,12 +399,24 @@ export function scaleEnemyStats(template, level = 1, difficulty = 'normal', { ga
     return { hp, damageScale: Math.min(5, Math.round(damage * 100) / 100) };
 }
 
-// 新建战斗的多敌折算：1 名不削弱；2、3 名普通敌人使用同一胜场档位，后备不增加削弱。
+// 新建战斗按人数与胜场取档，最多计入第一名后备；旧 setup 不重算。
 export function crowdScaleFor(total, battleWins = 0) {
-    const n = Math.min(COMBAT_RULES.maxFoesOnField, Math.max(1, Math.floor(Number(total) || 1)));
-    if (n <= 1) return 1;
+    const n = Math.min(COMBAT_RULES.maxFoesOnField + 1, Math.max(1, Math.floor(Number(total) || 1)));
     const wins = Number.isSafeInteger(battleWins) && battleWins >= 0 ? battleWins : 0;
-    return COMBAT_RULES.crowd.filter((tier) => wins >= tier.wins).at(-1).scale;
+    return COMBAT_RULES.crowd.filter((tier) => wins >= tier.wins).at(-1).scale[n - 1];
+}
+
+// 精英以职业初期强度逐档恢复，叠加相同的相对人数折算。
+export function encounterScaleFor(tier, battleWins = 0, archetype) {
+    if (tier !== 'elite') return 1;
+    const wins = Number.isSafeInteger(battleWins) && battleWins >= 0 ? battleWins : 0;
+    const stages = COMBAT_RULES.crowd;
+    const index = stages.findLastIndex(stage => wins >= stage.wins);
+    const restored = index / (stages.length - 1);
+    const full = COMBAT_RULES.encounterScale[tier];
+    const opening = Object.hasOwn(COMBAT_RULES.openingEliteScale, archetype)
+        ? COMBAT_RULES.openingEliteScale[archetype] : full;
+    return (opening + (full - opening) * restored) / stages[index].scale[0];
 }
 
 // 一组敌人的战斗经验合计。

@@ -4,7 +4,7 @@
 // 键名与内容格式与 v0.39 完全一致，刷新页面后 resume 可按种子+动作序列重放出同一局。
 // 写盘优化：会话记录每次出牌都整条重写，这里改为内存里始终保存最新值，实际 setItem 合并延后（默认 300ms）；
 // 页面隐藏、卸载、会话结束、发件箱写入前立即落盘；读取时先看内存里尚未落盘的值。存储格式不变。
-import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, crowdScaleFor, difficultyRule, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
+import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, crowdScaleFor, difficultyRule, encounterScaleFor, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
 import { applyAction, createBattle, legalActions, replayBattle, seedFor } from './engine.js';
 import {
     deckProfileEntities, enemyEntities, enemyIdFor, generationWrites, rewardEntity, skillFillEntity, skillProfileEntity,
@@ -268,7 +268,7 @@ function bossPhases(template, difficulty) {
 }
 
 // 敌方单位：按名字取模板，缩放数值，同名多只加编号后缀
-function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map(), crowd = 1) {
+function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map(), crowd = 1, battleWins = 0, archetype) {
     const units = [];
     const tiers = [];
     for (const { name, count } of start.enemies) {
@@ -280,10 +280,10 @@ function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = 
         const skills = loadout.skills.length ? [...template.skills, ...loadout.skills] : template.skills;
         const passives = loadout.passives.length ? [...(template.passives || []), ...loadout.passives] : template.passives;
         const vitals = applyAbilities(scaled.hp, template.base?.speed ?? combatSpeedFor({ tier: template.tier, id: template.id }), attributes);
-        // 生成敌人档位校准：生成敌人再乘 generatedScale，模板敌人（generated:false）不乘；乘积为 1 时字段不变。
-        const factor = crowd * (template.generated !== false ? (COMBAT_RULES.generatedScale[template.tier] ?? 1) : 1);
-        const maxHp = factor < 1 ? Math.max(1, Math.round(vitals.hp * factor)) : vitals.hp;
-        const damageScale = factor < 1 ? Math.min(5, Math.round(scaled.damageScale * factor * 100) / 100) : scaled.damageScale;
+        const factor = crowd * encounterScaleFor(template.tier, battleWins, archetype)
+            * (template.generated !== false ? (COMBAT_RULES.generatedScale[template.tier] ?? 1) : 1);
+        const maxHp = Math.max(1, Math.min(9999, Math.round(vitals.hp * factor)));
+        const damageScale = Math.min(5, Math.round(scaled.damageScale * factor * 100) / 100);
         for (let index = 0; index < count; index += 1) {
             units.push({
                 id: count > 1 ? `${template.id}-${index + 1}` : template.id,
@@ -518,7 +518,8 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     const battleWins = lobby.battleWins ?? lobby.allies.find((ally) => ally.id === lobby.heroId)?.purge?.battle ?? 0;
     const totalFoes = start.enemies.reduce((sum, enemy) => sum + (Number(enemy.count) || 0), 0);
     const crowd = crowdScaleFor(totalFoes, battleWins);
-    const { units: enemies, tiers } = enemyUnits(start, lobby.enemies, partyLevel, difficulty, lobby.enemyAttributes, crowd);
+    const archetype = lobby.allies.find(ally => ally.id === lobby.heroId)?.classProfile?.archetype;
+    const { units: enemies, tiers } = enemyUnits(start, lobby.enemies, partyLevel, difficulty, lobby.enemyAttributes, crowd, battleWins, archetype);
     const allies = allyUnits(lobby, difficulty);
     const curse = difficultyRule(difficulty).curse;
     const hero = curse > 0 ? allies.find((unit) => unit.id === lobby.heroId && unit.kind === 'deck') : null;
@@ -530,7 +531,7 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     // randomTargets（v0.39.2）：敌人在存活的我方单位中按种子随机选攻击对象。两者都只写进新建 setup，旧战斗按已存 setup 重放。
     // foeCap（规则 v6 敌方编制）：场上普通敌人最多 maxFoesOnField，空出的总位置只给爪牙；只写进新建 setup。
     const setup = {
-        rulesVersion: COMBAT_RULES.version, attributeRules: ATTRIBUTE_POLICY_VERSION, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
+        rulesVersion: COMBAT_RULES.version, attributeRules: ATTRIBUTE_POLICY_VERSION, hpLossRules: 1, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
         openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, crowd, trackHpLoss: true, rewardOwner: lobby.heroId, units: [...allies, ...enemies],
     };
     // 规则 v6 G3d：弱敌战标记只在为真时写进新建 setup，战报、奖励与账本重放只认已存值。

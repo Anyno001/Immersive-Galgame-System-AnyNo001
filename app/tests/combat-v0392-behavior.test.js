@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyAction, createBattle, legalActions, replayBattle, seedFor, upcomingActors } from '../src/combat/engine.js';
 import { chooseSkillIntent } from '../src/combat/policy.js';
-import { BASIC_CARDS, COMBAT_RULES, crowdScaleFor, expProgress, signatureCardAt, signatureSlotOf, signatureUnlockLevel } from '../src/combat/rules.js';
+import { BASIC_CARDS, COMBAT_RULES, crowdScaleFor, encounterScaleFor, expProgress, signatureCardAt, signatureSlotOf, signatureUnlockLevel } from '../src/combat/rules.js';
 import { createCombatLedger, signaturePending } from '../src/combat/ledger.js';
 import { generateEntities, generationWrites, growthEntity, profileGearEntity } from '../src/combat/generation.js';
 import { buildSetup } from '../src/combat/session.js';
@@ -535,13 +535,19 @@ test('敌人随机选攻击对象（setup.randomTargets）：开启时按种子�
     assert.equal(createBattle({ controlledId: 'hero', randomTargets: 'yes', units: units() }, SEED).error?.reason, 'invalid-setup');
 });
 
-test('多敌折算（规则 v6 G3b）：2、3 名普通敌人共用胜场阶梯，单敌不削弱，后备不增加削弱', () => {
+test('初期折算（规则 v6）：单敌到四敌按人数取档，每五个有效胜场恢复，超过第一名后备不再打折', () => {
     assert.equal(COMBAT_RULES.maxFoesOnField, 3);
-    for (const [wins, scale] of [[0, 0.65], [9, 0.65], [10, 0.75], [14, 0.75], [15, 0.85], [19, 0.85], [20, 1], [50, 1]]) {
-        assert.equal(crowdScaleFor(1, wins), 1);
-        for (const n of [2, 3, 5, 8, 50]) assert.equal(crowdScaleFor(n, wins), scale, `n=${n}, wins=${wins}`);
+    for (const [wins, scales] of [[0, [0.8, 0.4, 0.28, 0.22]], [4, [0.8, 0.4, 0.28, 0.22]],
+        [5, [0.85, 0.55, 0.46, 0.42]], [9, [0.85, 0.55, 0.46, 0.42]],
+        [10, [0.9, 0.7, 0.64, 0.61]], [14, [0.9, 0.7, 0.64, 0.61]],
+        [15, [0.95, 0.85, 0.82, 0.81]], [19, [0.95, 0.85, 0.82, 0.81]], [20, [1, 1, 1, 1]], [50, [1, 1, 1, 1]]]) {
+        for (const n of [1, 2, 3, 4, 5, 8, 50]) assert.equal(crowdScaleFor(n, wins), scales[Math.min(n, 4) - 1], `n=${n}, wins=${wins}`);
     }
-    assert.equal(crowdScaleFor(2), 0.65, '零胜时使用初始档');
+    assert.equal(crowdScaleFor(1), 0.8, '单敌也受初期保护');
+    assert.equal(crowdScaleFor(2), 0.4, '零胜时使用初始档');
+    for (const invalid of [-1, NaN, '10', 1.5]) assert.equal(crowdScaleFor(3, invalid), 0.28);
+    assert.equal(crowdScaleFor(3), 0.28);
+    assert.equal(crowdScaleFor(4), 0.22);
 });
 
 test('敌方编制（规则 v6）：新建 setup 写 foeCap 3；场上普通敌人超过 foeCap 时 too-many-enemies；爪牙占剩余 2 位，普通敌人位与爪牙位互不挤占', () => {
@@ -1013,7 +1019,7 @@ test('场外排位（v6 G3b，场上普通敌人 3 名）：首领 → 精英 �
     assert.equal(built.ok, true, JSON.stringify(built));
     const tierOf = (id) => (built.setup.units.find((u) => u.id === id)?.name.startsWith('头狼') ? 'elite' : 'normal');
     assert.equal(built.setup.foeCap, 3);
-    assert.equal(built.setup.crowd, 0.65);
+    assert.equal(built.setup.crowd, 0.22);
     assert.equal(built.setup.reserve.length, 5);
     assert.deepEqual(built.setup.reserve.map(tierOf), ['normal', 'normal', 'normal', 'normal', 'normal']);
     assert.deepEqual(buildSetup(lobby, start, { combatId: 'c-elite' }).setup.reserve, built.setup.reserve);
@@ -1025,10 +1031,14 @@ test('多敌建局（v6 G3b）：胜场阶梯烘焙生命与伤害并保存 crow
     const me = heroOf(await ledger.effectiveState());
     const lobby = { heroId: me.id, controllable: [me.id], allies: [me], enemies: new Map([['狼', templateEnemy('狼', 'normal')]]) };
     const make = (count, wins) => buildSetup({ ...lobby, battleWins: wins }, { enemies: [{ name: '狼', count }], tier: 'normal' }, { combatId: 'g3b-scale' }).setup;
-    const single = make(1, 0).units.find(unit => unit.side === 'enemy');
-    for (const [wins, scale] of [[0, 0.65], [9, 0.65], [10, 0.75], [14, 0.75], [15, 0.85], [19, 0.85], [20, 1]]) {
-        for (const count of [2, 3, 8]) {
+    const single = make(1, 20).units.find(unit => unit.side === 'enemy');
+    for (const [wins, scales] of [[0, [0.8, 0.4, 0.28, 0.22]], [4, [0.8, 0.4, 0.28, 0.22]],
+        [5, [0.85, 0.55, 0.46, 0.42]], [9, [0.85, 0.55, 0.46, 0.42]],
+        [10, [0.9, 0.7, 0.64, 0.61]], [14, [0.9, 0.7, 0.64, 0.61]],
+        [15, [0.95, 0.85, 0.82, 0.81]], [19, [0.95, 0.85, 0.82, 0.81]], [20, [1, 1, 1, 1]]]) {
+        for (const count of [1, 2, 3, 4, 8]) {
             const setup = make(count, wins);
+            const scale = scales[Math.min(count, 4) - 1];
             assert.equal(setup.crowd, scale);
             for (const enemy of setup.units.filter(unit => unit.side === 'enemy')) {
                 assert.equal(enemy.maxHp, Math.max(1, Math.round(single.maxHp * scale)));
@@ -1039,11 +1049,11 @@ test('多敌建局（v6 G3b）：胜场阶梯烘焙生命与伤害并保存 crow
             assert.equal(created.state.crowd, scale);
             assert.deepEqual(replayBattle(setup, 1, []).state, created.state);
         }
-        assert.equal(make(1, wins).crowd, 1);
     }
     for (const rulesVersion of [3, 4, 5, 6]) {
         const saved = { ...make(2, 10), rulesVersion };
         delete saved.attributeRules;
+        delete saved.hpLossRules;
         delete saved.crowd;
         delete saved.foeCap;
         delete saved.trackHpLoss;
@@ -1057,6 +1067,53 @@ test('多敌建局（v6 G3b）：胜场阶梯烘焙生命与伤害并保存 crow
         }
     }
 });
+
+test('剧情精英校准：职业初期数值每五胜恢复，生成标记、混合编制与保存重放一致', async () => {
+    const { templateEnemy } = await import('../src/combat/generation.js');
+    const { scaleEnemyStats } = await import('../src/combat/rules.js');
+    const { ledger } = ledgerSetup([row(classDef('cls-blade'), 1), row(heroDef(), 2)], [user('出发')]);
+    const me = heroOf(await ledger.effectiveState());
+    const template = templateEnemy('头狼', 'elite');
+    const base = scaleEnemyStats(template);
+    const make = (role, wins, generated = false, count = 1) => buildSetup({
+        heroId: me.id, controllable: [me.id], battleWins: wins,
+        allies: [{ ...me, classProfile: { ...me.classProfile, archetype: role } }],
+        enemies: new Map([['头狼', { ...template, generated }]]),
+    }, { tier: 'elite', enemies: [{ name: '头狼', count }] }).setup;
+    for (const role of Object.keys(COMBAT_RULES.archetypes)) {
+        const opening = COMBAT_RULES.openingEliteScale[role];
+        let previous = 0;
+        for (const wins of [0, 4, 5, 9, 10, 14, 15, 19, 20, 50]) {
+            const expected = opening + (1.4 - opening) * Math.min(4, Math.floor(wins / 5)) / 4;
+            const factor = crowdScaleFor(1, wins) * encounterScaleFor('elite', wins, role);
+            assert.ok(Math.abs(factor - expected) < 1e-12);
+            assert.ok(factor >= previous);
+            previous = factor;
+            for (const generated of [false, true]) {
+                const setup = make(role, wins, generated);
+                const enemy = setup.units.find(unit => unit.side === 'enemy');
+                assert.equal(enemy.maxHp, Math.round(base.hp * expected));
+                assert.equal(enemy.damageScale, Math.round(base.damageScale * expected * 100) / 100);
+                const created = createBattle(setup, 7);
+                assert.equal(created.ok, true, JSON.stringify(created.error));
+                assert.deepEqual(replayBattle(setup, 7, []).state, created.state);
+            }
+        }
+    }
+    for (const wins of [0, 5, 10, 15, 20]) {
+        assert.equal(encounterScaleFor('normal', wins, 'warrior'), 1);
+        assert.equal(encounterScaleFor('boss', wins, 'warrior'), 1);
+        assert.equal(encounterScaleFor('elite', wins, 'unknown'), 1.4 / crowdScaleFor(1, wins));
+    }
+    const setup = make('guardian', 0, false, 4);
+    assert.equal(setup.reserve.length, 1);
+    const expected = crowdScaleFor(4) * encounterScaleFor('elite', 0, 'guardian');
+    for (const enemy of setup.units.filter(unit => unit.side === 'enemy')) assert.equal(enemy.maxHp, Math.round(base.hp * expected));
+    const saved = clone(setup);
+    make('mage', 20);
+    assert.deepEqual(replayBattle(saved, 7, []).state, createBattle(setup, 7).state);
+});
+
 
 test('多敌会话（v6 G3b）：按开战楼冻结普通胜场，保存后重放不漂移，弱敌不推进阶梯，回退后新局降档', async t => {
     const { createCombatSession, sessionKeyFor } = await import('../src/combat/session.js');
@@ -1098,11 +1155,11 @@ test('多敌会话（v6 G3b）：按开战楼冻结普通胜场，保存后重�
     assert.equal(session.start().ok, true);
     session.flushPersist();
     const saved = JSON.parse(storage.data.get(sessionKeyFor('g3b-count')));
-    assert.equal(saved.setup.crowd, 0.65);
+    assert.equal(saved.setup.crowd, 0.42);
     const firstUnits = clone(saved.setup.units);
     session.reset();
     assert.equal(session.resume().ok, true);
-    assert.equal(session.state().record.setup.crowd, 0.65, '全账本已十胜，恢复仍沿用本场保存档位');
+    assert.equal(session.state().record.setup.crowd, 0.42, '全账本已十胜，恢复仍沿用本场保存档位');
     assert.deepEqual(session.state().record.setup.units, firstUnits);
     session.reset();
     chat.push(victory('weak', true));
@@ -1113,7 +1170,7 @@ test('多敌会话（v6 G3b）：按开战楼冻结普通胜场，保存后重�
     assert.equal((await session.prepare(next)).ok, true);
     assert.equal(session.state().lobby.battleWins, 10);
     assert.equal(session.start().ok, true);
-    assert.equal(session.state().record.setup.crowd, 0.75, '第十胜后的下一场提升一档');
+    assert.equal(session.state().record.setup.crowd, 0.61, '第十胜后的下一场提升一档');
     session.reset();
     chat.splice(anchor);
     chat.push(ai('[igs-combat:start|回退后交战|狼*4]'));
@@ -1121,7 +1178,7 @@ test('多敌会话（v6 G3b）：按开战楼冻结普通胜场，保存后重�
     assert.equal((await session.prepare(anchor)).ok, true);
     assert.equal(session.state().lobby.battleWins, 9);
     assert.equal(session.start().ok, true);
-    assert.equal(session.state().record.setup.crowd, 0.65, '回退后新建战斗按九胜降档');
+    assert.equal(session.state().record.setup.crowd, 0.42, '回退后新建战斗按九胜降档');
 });
 
 test('统一失去物：数量省略为1、全角数量、全部与角色默认值；非法标签只记诊断，获得与失去锚点不相撞', () => {
