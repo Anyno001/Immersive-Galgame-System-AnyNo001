@@ -314,3 +314,73 @@ test('固定支出：目录清洗丢弃不合法条目并截断名称', () => {
     assert.deepEqual(c.expenses, [{ name: '房租a', amount: 30, every: 7 }, { name: '一二三四五六七八九十十一', amount: 9, every: 365 }]);
     assert.equal(sanitizeCatalog({ expenses: Array.from({ length: 20 }, () => ({ name: 'a', amount: 1, every: 1 })) }).expenses.length, 12);
 });
+
+const storyCoin = (balance, ready = true) => ({ ready, balance, table: { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 } });
+
+test('剧情货币具体金额：收入与花费按金额结算，旧楼不接受数字，积分不变', () => {
+    for (const [flow, amount, balance] of [['收入', '1,234.9', 1335], ['花费', '23.9', 76]]) {
+        const r = settle(`[igs-stat:money|${flow}|${amount}]`, expOpts([], { currency: storyCoin(100) }), stateWith({ money: 500 }));
+        assert.deepEqual(r.meta.currency, { delta: balance - 100, balance });
+        assert.equal(r.state.protagonist.bars.money, 500);
+        assert.equal(moneyRows(r).length, 1);
+    }
+    const old = settle('[igs-stat:money|收入|1234]', expOpts([], { strengthRev: 2, currency: storyCoin(100) }), stateWith({ money: 500 }));
+    assert.deepEqual(old.meta.currency, { delta: 0, balance: 100 });
+    assert.equal(moneyRows(old).length, 0);
+});
+
+test('剧情货币具体金额：不足不扣，未就绪不落账也不按零余额挂状态', () => {
+    const short = settle('[igs-stat:money|花费|8]', expOpts([], { currency: storyCoin(5) }), stateWith({ money: 500 }));
+    assert.deepEqual(short.meta.currency, { delta: 0, balance: 5 });
+    assert.equal(short.meta.flags.shortfall, true);
+    assert.equal(moneyRows(short).length, 0);
+    const unready = settle('[igs-stat:money|收入|123]', expOpts([], { currency: storyCoin(0, false) }), stateWith({ money: 500 }));
+    assert.equal(unready.meta.currency, undefined);
+    assert.ok(unready.meta.diagnostics.some((d) => d.code === 'stats-currency-unready'));
+    assert.equal(unready.meta.statuses?.主角?.囊中羞涩, undefined);
+    assert.equal(unready.state.protagonist.bars.money, 500);
+});
+
+
+test('剧情货币固定支出：睡眠与跳日合并到本楼增量，不扣积分，旧版本不扣', () => {
+    for (const [text, expenses, delta] of [
+        ['她睡下了。[igs-stat:sleep]', [{ name: '房租', amount: 30, every: 1 }], -30],
+        ['[igs-stat:skip|10天]', [{ name: '会费', amount: 15, every: 3 }], -45],
+    ]) {
+        const r = settle(text, expOpts(expenses, { currency: storyCoin(100) }), stateWith({ money: 500 }, { day: 1 }));
+        assert.deepEqual(r.meta.currency, { delta, balance: 100 + delta });
+        assert.equal(r.state.protagonist.bars.money, 500);
+        assert.equal(moneyRows(r).length, 1);
+    }
+    const old = settle('[igs-stat:sleep]', expOpts([{ name: '房租', amount: 30, every: 1 }], { strengthRev: 2, currency: storyCoin(100) }), stateWith({ money: 500 }, { day: 1 }));
+    assert.deepEqual(old.meta.currency, { delta: 0, balance: 100 });
+});
+
+test('剧情货币固定支出：不足只扣可支付期数，未就绪不扣也不挂羞涩', () => {
+    const expenses = [{ name: '房租', amount: 20, every: 1 }];
+    const short = settle('[igs-stat:skip|2天]', expOpts(expenses, { currency: storyCoin(35) }), stateWith({ money: 500 }, { day: 1 }));
+    assert.deepEqual(short.meta.currency, { delta: -20, balance: 15 });
+    assert.deepEqual(short.meta.flags.expenseShort, ['房租']);
+    assert.ok(short.meta.statuses.主角.囊中羞涩);
+    const unready = settle('[igs-stat:sleep]', expOpts(expenses, { currency: storyCoin(0, false) }), stateWith({ money: 500 }, { day: 1 }));
+    assert.equal(unready.meta.currency, undefined);
+    assert.equal(unready.meta.flags.expenseShort, undefined);
+    assert.equal(unready.meta.statuses?.主角?.囊中羞涩, undefined);
+    assert.ok(unready.meta.diagnostics.some((d) => d.code === 'stats-currency-unready' && d.note === '固定支出'));
+    assert.equal(unready.state.protagonist.bars.money, 500);
+});
+
+test('新楼羞涩按本聊天货币界线挂摘，未就绪不摘，旧楼仍用原钱包', () => {
+    const run = (balance, extra = {}) => settle('平常的一楼', expOpts([], { currency: storyCoin(balance), ...extra }), stateWith({ money: 500 }));
+    const low = run(6);
+    assert.ok(low.meta.statuses.主角.囊中羞涩);
+    assert.equal(run(7).meta.statuses?.主角?.囊中羞涩, undefined);
+    const catalog = { statuses: low.meta.statuses };
+    assert.equal(run(29, { catalog }).meta.statuses, undefined);
+    const clear = run(30, { catalog });
+    assert.notEqual(clear.meta.statuses, undefined);
+    assert.equal(clear.meta.statuses?.主角?.囊中羞涩, undefined);
+    assert.equal(run(0, { catalog, currency: storyCoin(0, false) }).meta.statuses, undefined);
+    assert.ok(catalog.statuses.主角.囊中羞涩);
+    assert.equal(run(0, { strengthRev: 2 }).meta.statuses?.主角?.囊中羞涩, undefined);
+});

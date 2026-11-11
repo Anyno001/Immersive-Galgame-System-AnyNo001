@@ -2868,6 +2868,8 @@ export function createStatsRuntime({
         return queueCurrency(async () => {
             if (!alive()) return { ok: false, reason: 'stats-chat-not-enabled' };
             if (!currency) return { ok: false, reason: 'stats-currency-unset' };
+            // 未落账的楼层写入与积分兑换按改动前的配置核对，先补完再改价格。
+            if (currency.seeded) { const recovered = await recoverCurrencyWrites(alive); if (!recovered.ok) return recovered; }
             const prev = currency;
             const next = normalizeCurrencyRecord({ ...prev, table });
             if (!next) return { ok: false, reason: 'stats-relation-invalid' };

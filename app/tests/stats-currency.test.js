@@ -295,3 +295,123 @@ for (const boundary of ['chat', 'swipe', 'delete', 'detach']) {
         assert.equal(h.host.calls.updateRow, updates);
     });
 }
+
+
+test('固定支出保存到聊天记录，重入还原；具体金额与支出共用差额且重复结算不重扣', async (t) => {
+    const h = await setup();
+    t.after(() => h.rt.destroy());
+    const expenses = [{ name: '房租', amount: 30, every: 1 }];
+    assert.equal((await h.rt.relationOp('expenses-set', '', { expenses })).ok, true);
+    await h.rt.whenSaved();
+    const restored = mergeStatLog(h.raw.read({ kinds: ['stats'] }).stats, { chatId: h.ctx.chatId, chat: h.ctx.chat });
+    assert.deepEqual(restored.catalog.expenses, expenses);
+    await h.source.emit('chat');
+    await h.rt.whenSaved();
+    assert.deepEqual(h.rt.relationOp('expenses-read').expenses, expenses);
+    const id = await h.generate('[igs-stat:money|收入|13][igs-stat:sleep]');
+    assert.equal(h.balance(), 83);
+    assert.equal(h.rt.walletMoney(), 500);
+    h.ctx.chat[id].mes = '[igs-stat:money|收入|23][igs-stat:sleep]';
+    await h.source.emit('upd', id);
+    await h.rt.whenSaved();
+    assert.equal(h.balance(), 93);
+    const count = h.host.calls.updateRow;
+    await h.source.emit('upd', id);
+    await h.rt.whenSaved();
+    assert.equal(h.balance(), 93);
+    assert.equal(h.host.calls.updateRow, count);
+});
+
+test('主角手改余额直接写物品表，重入与删楼不回退，也不改积分', async (t) => {
+    const h = await setup();
+    t.after(() => h.rt.destroy());
+    await h.generate('平常的一楼');
+    assert.equal((await h.rt.relationOp('money-set', '主角', { value: 321 })).ok, true);
+    await h.rt.whenSaved();
+    assert.equal(h.balance(), 321);
+    assert.equal(h.rt.walletMoney(), 500);
+    const count = h.host.calls.updateRow;
+    assert.equal((await h.rt.relationOp('money-set', '主角', { value: 321 })).cancelled, true);
+    assert.equal(h.host.calls.updateRow, count);
+    h.ctx.chat.pop();
+    await h.source.emit('del');
+    await h.rt.whenSaved();
+    await h.source.emit('chat');
+    await h.rt.whenSaved();
+    assert.equal(h.balance(), 321);
+    assert.equal(h.rt.walletMoney(), 500);
+    for (const value of [-1, 1.5, null, '12']) assert.equal((await h.rt.relationOp('money-set', '主角', { value })).ok, false);
+});
+
+test('货币设置整表校验并保存四档价格，保持货币名与兑换比例，重入后还原', async (t) => {
+    const h = await setup();
+    t.after(() => h.rt.destroy());
+    for (const table of [{ 少量: 7 }, { ...prices, 普通: 7 }, { ...prices, 少量: 0 }, { ...prices, 昂贵: 90.5 }]) {
+        assert.equal((await h.rt.relationOp('money-config', '', { table })).ok, false);
+        assert.deepEqual(h.config().table, prices);
+    }
+    const table = { 少量: 10, 普通: 40, 昂贵: 100, 巨额: 400 };
+    assert.equal((await h.rt.relationOp('money-config', '', { table, name: '金币', rate: 9 })).ok, true);
+    await h.rt.whenSaved();
+    assert.deepEqual(h.config().table, table);
+    assert.equal(h.config().name, '铜钱');
+    assert.equal(h.config().rate, 0.25);
+    assert.equal(h.balance(), 100);
+    await h.source.emit('chat');
+    await h.rt.whenSaved();
+    assert.deepEqual(h.rt.relationOp('money-config-read').config, { name: '铜钱', table });
+    await h.generate('[igs-stat:money|花费|普通]');
+    assert.equal(h.balance(), 60);
+    assert.equal(h.rt.walletMoney(), 500);
+});
+
+test('货币配置保存失败保持原配置，恢复后可重新提交并回读', async (t) => {
+    const h = await setup();
+    t.after(() => h.rt.destroy());
+    const append = h.raw.append.bind(h.raw);
+    let reject = true;
+    h.raw.append = (kind, rows, opts) => reject && rows.some((row) => row.payload?.key === 'chat:currency')
+        ? Promise.resolve({ ok: false, reason: 'fixture-save-failed' }) : append(kind, rows, opts);
+    const table = { 少量: 10, 普通: 40, 昂贵: 100, 巨额: 400 };
+    assert.equal((await h.rt.relationOp('money-config', '', { table })).ok, false);
+    assert.deepEqual(h.rt.relationOp('money-config-read').config.table, prices);
+    assert.deepEqual(h.config().table, prices);
+    assert.equal(h.balance(), 100);
+    reject = false;
+    assert.equal((await h.rt.relationOp('money-config', '', { table })).ok, true);
+    await h.rt.whenSaved();
+    assert.deepEqual(h.config().table, table);
+    assert.equal(h.rt.walletMoney(), 500);
+});
+
+
+for (const op of ['money-config', 'money-set']) {
+    test(`${op}先恢复待落账楼层，恢复失败不改配置或余额，重试不重复入账`, async (t) => {
+        const h = await setup();
+        t.after(() => h.rt.destroy());
+        const update = h.host.api.updateRow;
+        let reject = true;
+        h.host.api.updateRow = (...args) => reject && args[0]?.tableName === '背包物品表' ? false : update(...args);
+        await h.generate('[igs-stat:money|花费|普通]');
+        assert.equal(h.balance(), 100);
+        const table = { 少量: 10, 普通: 40, 昂贵: 100, 巨额: 400 };
+        const payload = op === 'money-config' ? { table } : { value: 321 };
+        assert.equal((await h.rt.relationOp(op, '主角', payload)).ok, false);
+        assert.equal(h.balance(), 100);
+        assert.deepEqual(h.config().table, prices);
+        reject = false;
+        assert.equal((await h.rt.relationOp(op, '主角', payload)).ok, true);
+        await h.rt.whenSaved();
+        const balance = op === 'money-config' ? 70 : 321;
+        assert.equal(h.balance(), balance);
+        assert.deepEqual(h.config().table, op === 'money-config' ? table : prices);
+        const restored = mergeStatLog(h.raw.read({ kinds: ['stats'] }).stats, { chatId: h.ctx.chatId, chat: h.ctx.chat });
+        assert.ok([...restored.ledger.entries.values()].every((entry) => entry.meta.currency.applied));
+        const count = h.host.calls.updateRow;
+        assert.equal((await h.rt.relationOp(op, '主角', payload)).cancelled, true);
+        assert.equal(h.host.calls.updateRow, count);
+        await h.generate('[igs-stat:money|收入|13]');
+        assert.equal(h.balance(), balance + 13);
+        assert.equal(h.rt.walletMoney(), 500);
+    });
+}

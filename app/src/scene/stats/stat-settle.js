@@ -341,7 +341,7 @@ function scaleTagsOf(state, ctx, d) {
     for (const t of listTraits(ctx.traitCat, d.target)) {
         if (isComboKey(t.id) || !own) continue;
         const one = { ...ctx.traitCat, traits: { [d.target]: { [t.id]: own[t.id] } } };
-        if (traitScale(state, one, d.target, dimKey, dir) !== 1 || (d.value === '吃醋' && traitScale(state, one, d.target, '芥蒂', 'jealous') !== 1)) names.push((getTraitDef(t.id) || {}).name || t.id);
+        if (traitScale(state, one, d.target, dimKey, dir, ctx) !== 1 || (d.value === '吃醋' && traitScale(state, one, d.target, '芥蒂', 'jealous', ctx) !== 1)) names.push((getTraitDef(t.id) || {}).name || t.id);
     }
     return names;
 }

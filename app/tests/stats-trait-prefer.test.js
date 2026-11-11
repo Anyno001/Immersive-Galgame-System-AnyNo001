@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createCharacter, createStatsState } from '../src/scene/stats/stat-state.js';
 import { settleTraitTags } from '../src/scene/stats/stat-trait-hooks.js';
 import { AXIS_SKIPPED, TRAIT_DEFS, getTraitByName, setTraitAttrReader, traitCatalogOf, traitScale } from '../src/scene/stats/stat-traits.js';
+import { settleFloorText } from '../src/scene/stats/stat-settle.js';
 
 const on = { on: true, src: 'manual' };
 const catOf = (...names) => traitCatalogOf({ 林夏: Object.fromEntries(names.map((n) => [getTraitByName(n).id, on])) }, true);
@@ -83,4 +84,48 @@ test('互斥轴：配方组成项落在两侧时不加互斥', () => {
     assert.ok(Array.isArray(AXIS_SKIPPED));
     for (const [a, b] of AXIS_SKIPPED) assert.ok(!excl(a, b), `${a}/${b} 应被豁免`);
     assert.ok(TRAIT_DEFS.length > 0);
+});
+
+test('拜金新楼按剧情货币与本聊天价格判断，未就绪不调整，旧楼保持钱包口径', () => {
+    const table = { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 };
+    const scale = (balance, { ready = true, rev = 3, money = 500 } = {}) => traitScale(world({ money }), catOf('拜金'), '林夏', '好感', 'up', { rev, currency: { ready, balance, table } });
+    assert.equal(scale(300), 1.5);
+    assert.equal(scale(299), 1);
+    assert.equal(scale(30), 1);
+    assert.equal(scale(29), 0.6);
+    assert.equal(scale(0, { money: 3000 }), 0.6);
+    assert.equal(scale(300, { ready: false, money: 0 }), 1);
+    assert.equal(scale(0, { ready: false, money: 3000 }), 1);
+    assert.equal(scale(0, { rev: 2, money: 3000 }), 1.5);
+    assert.equal(scale(300, { rev: 2, money: 50 }), 0.6);
+});
+
+test('清高具体金额礼物采用本聊天昂贵档界线，不误用积分与默认价格', () => {
+    const gift = { kind: 'gift', target: '林夏', value: '项链' };
+    const currency = { ready: true, balance: 1000, table: { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 } };
+    const run = (amount, ctx = {}) => favor(tags(world({ money: 5000 }), [gift, { kind: 'money', flow: '花费', value: String(amount), amount }], catOf('清高'), { rev: 3, currency, ...ctx }));
+    assert.equal(run(89), 10);
+    assert.equal(run(90), 9);
+    assert.equal(run(500, { currency: { ...currency, table: { 少量: 10, 普通: 100, 昂贵: 900, 巨额: 3000 } } }), 10);
+    assert.equal(run(900, { currency: { ...currency, table: { 少量: 10, 普通: 100, 昂贵: 900, 巨额: 3000 } } }), 9);
+});
+
+test('完整结算的拜金倍率与流水标记共用剧情货币上下文', () => {
+    const table = { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 };
+    for (const [money, balance, ready] of [[0, 300, true], [3000, 100, true], [3000, 0, false], [3000, 29, true]]) {
+        const state = world({ money });
+        const currency = { ready, balance, table };
+        const catalog = catOf('拜金');
+        const opts = { strengthRev: 3, nsfw: true, favorTier: 'normal', random: () => 0.99, resolveCharacter: (name) => name === '林夏' ? name : null, traits: catalog.traits, currency };
+        const result = settleFloorText(state, '[igs-stat:favor|林夏|感动]', opts);
+        const row = result.changes.find((change) => change.target === '林夏' && change.key === '好感' && change.source === 'tag');
+        assert.ok(row);
+        const factor = traitScale(state, catalog, '林夏', '好感', 'up', { rev: 3, currency });
+        assert.equal(Boolean(row.traitTags?.includes('拜金')), factor !== 1);
+        assert.equal(result.state.protagonist.bars.money, money);
+        if (factor === 1) {
+            const control = settleFloorText(state, '[igs-stat:favor|林夏|感动]', { ...opts, traits: {} });
+            assert.equal(result.state.characters.林夏.dims.好感, control.state.characters.林夏.dims.好感);
+        }
+    }
 });
