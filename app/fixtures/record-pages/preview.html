@@ -200,7 +200,7 @@ const record = createRecordPanelController(document, globalShim, async () => ({ 
 const map = createMapPanelController(document, globalShim, async () => ({ ok: true }), { getChatId: () => 'preview-chat' });
 const SIZES = {
   desktop: [1440, 900], ref: [1672, 941], mid: [1024, 768],
-  tall: [900, 1700], mobile: [390, 844], short: [390, 500], tiny: [320, 568],
+  tall: [900, 1700], mobile: [390, 844], long: [390, 2600], short: [390, 500], tiny: [320, 568],
 };
 let current = null;
 // 设置器素材页截图入口：真实设置器 + 内存存储（不写浏览器 localStorage）+ 示例素材与本地文件夹归类。
@@ -208,7 +208,7 @@ let current = null;
 let settingsVn = null;
 function openSettingsScene() {
   const q = new URLSearchParams(location.search);
-  const statsPreview = q.get('page') === 'stats' ? createStatsPreview({ retry: q.get('currency') === 'retry' }) : null;
+  const statsPreview = (q.get('page') || '').startsWith('stats') ? createStatsPreview({ retry: q.get('currency') === 'retry' }) : null;
   const img = new URL('./assets/scene-demo-clean-night.png', location.href).href;
   const mem = createMemoryStorage();
   // ?card=卡名：模拟打开了一张角色卡，小雪和睡衣提示词放在这张卡里，其余在全局。
@@ -271,7 +271,7 @@ function openSettingsScene() {
     autoAttachMagicWand: false,
     hostAdapter: { getCurrentMessage: async () => ({ id: 1, text: '素材设置预览。' }), typeAndSend: async () => ({ ok: true }) },
   });
-  const mode = (q.get('size') || 'desktop').match(/^(mobile|short|tiny)$/) ? 'mobile' : 'pc';
+  const mode = (q.get('size') || 'desktop').match(/^(mobile|long|short|tiny)$/) ? 'mobile' : 'pc';
   // ?page=<设置页 id> 直接打开某页（dash style text ui perf-text perf-stage perf-story perf-special perf-rhythm sound chars wardrobe review scenes eventcg cglib source kinds llm rules parse data logs）；
   // ?page=settings-scene 或 ?tab=<分类或旧 tab id> 仍可用（旧 tab：basic reader scene image，默认 scene）；?readersub= 切旧的阅读器子页。
   const wanted = q.get('page');
@@ -303,10 +303,15 @@ function openSettingsScene() {
   const focus = q.get('focus');
   if (focus) setTimeout(() => { const el = document.querySelector(focus); if (el) { el.style.scrollMarginTop = '96px'; el.scrollIntoView({ block: 'start' }); } }, 0);
   // ?open=折叠区键,… 展开对应的 data-advanced 折叠区。
-  for (const key of (q.get('open') || '').split(',').filter(Boolean)) {
-    const node = document.querySelector(`[data-advanced="${CSS.escape(key)}"]`);
-    if (node) node.open = true;
-  }
+  // 数值页的内容是异步补出来的，折叠区晚到：隔一会儿再补开几次。
+  const openFolds = () => {
+    for (const key of (q.get('open') || '').split(',').filter(Boolean)) {
+      const node = document.querySelector(`[data-advanced="${CSS.escape(key)}"]`);
+      if (node && !node.open) node.open = true;
+    }
+  };
+  openFolds();
+  if (q.get('open')) for (const ms of [400, 900, 1500]) setTimeout(openFolds, ms);
   // ?nav=open：窄屏下把分类抽屉展开再截图。
   if (q.get('nav') === 'open') document.getElementById('igs-unified-settings')?.setAttribute('data-igs-nav', 'open');
   return { close: () => opened.controller?.close?.() };

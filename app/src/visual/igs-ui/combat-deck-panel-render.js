@@ -174,7 +174,7 @@ function cardRow(c, readonly, editable = !readonly) {
     // 一张卡一块：费用、卡面、名称与效果在左；数量与操作收在右侧一栏（窄屏整栏移到下方）。
     const count = `<span class="igs-deck-count" aria-label="卡组中 / 拥有">${c.owned ? `${c.inDeck}/${c.owned}${up}` : '未拥有'}</span>`;
     const acts = artAction(c, readonly) + (readonly || !editable ? '' : `${btn('remove', '移出', { id: c.cardId, disabled: c.inDeck === 0 })}${btn('add', '加入', { id: c.cardId, disabled: !c.canAdd })}`);
-    return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost">${esc(c.cost)}</span>${artThumb(c.art)}`
+    return `<li class="igs-deck-card${c.errors.length ? ' is-error' : ''}" data-card-type="${esc(c.type)}"${c.rarity ? ` data-rarity="${esc(c.rarity)}"` : ''}><span class="igs-deck-cost"><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12.5"/></svg>${esc(c.cost)}</span>${artThumb(c.art)}`
         + `<div class="igs-deck-card-info"><div class="igs-deck-card-title"><span class="igs-deck-name">${esc(c.name)}</span><span class="igs-deck-tag">${esc(c.source)}</span></div><p class="igs-deck-effect">${effectHtml(c)}</p>${variants}${upgraded}${err}</div>`
         + `<div class="igs-deck-card-side"><div class="igs-deck-card-stats">${count}</div>${acts ? `<div class="igs-deck-card-acts">${acts}</div>` : ''}</div>`
         + '</li>';
@@ -345,6 +345,8 @@ const bagRow = (rarity, head, acts) => `<li class="igs-deck-keepsake"${rarity ? 
 const traitTags = (t) => [t.innate ? '固有' : '', t.kind === 'active' ? `主动 · ${t.cost}费` : ''].filter(Boolean);
 const traitHead = (t) => `<span class="igs-deck-name"${t.origin ? ` title="${esc(t.origin)}"` : ''}>${esc(t.name)}</span>`
     + `<span class="igs-deck-count">${esc([...traitTags(t), t.text, t.link ? TRAIT_LINK_LABELS[t.link] : ''].filter(Boolean).join(' · '))}</span>`;
+// 特性行：前面一个圆形首字头像（同角色名单的头像圆），名称与说明上下排在右侧。
+const traitRow = (rarity, mark, head, acts) => bagRow(rarity, `<span class="igs-deck-avatar" aria-hidden="true">${mark}</span><span class="igs-deck-trait-body">${head}</span>`, acts);
 const ownTraits = (d) => [...(d.traitSlots?.innate || []), ...(d.traits || [])];
 const replaceableOf = (d, own) => new Set(d.traitSlots ? d.traitSlots.replaceable : own.map((t) => t.traitId));
 function traitsHtml(v, d) {
@@ -355,17 +357,17 @@ function traitsHtml(v, d) {
     const busy = v.readonly || Boolean(v.pending);
     const canPick = Boolean(fresh) && !v.readonly && v.canPickTrait;
     const ok = replaceableOf(slots ? d : {}, list);
-    const rows = list.map((t) => bagRow(t.rarity, traitHead(t), canPick ? btn('trait-drop', '替换', { id: t.traitId, disabled: busy || !ok.has(t.traitId) }) : ''));
+    const rows = list.map((t) => traitRow(t.rarity, initial(t.name), traitHead(t), canPick ? btn('trait-drop', '替换', { id: t.traitId, disabled: busy || !ok.has(t.traitId) }) : ''));
     if (slots) {
-        for (let i = list.length; i < slots.slots; i += 1) rows.push(bagRow('', '<span class="igs-deck-name is-empty">空槽</span>', ''));
+        for (let i = list.length; i < slots.slots; i += 1) rows.push(traitRow('', '＋', '<span class="igs-deck-name is-empty">空槽</span>', ''));
         slots.locked.forEach((s, i) => {
             const unlock = i === 0 && !v.readonly && v.canUnlockSlot ? btn('trait-slot', `解锁 · ${s.cost} 积分`, { id: String(s.slot), disabled: busy || (d.points || 0) < s.cost }) : '';
-            rows.push(bagRow('', `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 积分`)}</span>`, unlock));
+            rows.push(traitRow('', esc(s.slot), `<span class="igs-deck-name is-locked">第 ${s.slot} 槽</span><span class="igs-deck-count">${esc(`未解锁 · ${s.cost} 积分`)}</span>`, unlock));
         });
     }
     const parts = [];
     if (rows.length) parts.push(section(slots ? `人物特性 · ${list.length}/${slots.slots}` : '人物特性', `<ul class="igs-deck-collection">${rows.join('')}</ul>`));
-    if (fresh) parts.push(section('新特性', `<ul class="igs-deck-collection">${bagRow(fresh.rarity, traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
+    if (fresh) parts.push(section('新特性', `<ul class="igs-deck-collection">${traitRow(fresh.rarity, initial(fresh.name), traitHead(fresh), canPick ? btn('trait-drop', '放弃', { id: fresh.traitId, disabled: busy }) : '')}</ul>`));
     if (hero && !fresh && !v.readonly && v.canDrawTrait) {
         const inner = v.trait
             ? btn('trait-confirm', v.pending === 'trait' ? '生成中' : `确认抽取 · ${TRAIT_DRAW_COST} 积分`, { primary: true, disabled: busy }) + btn('trait-cancel', '取消', { disabled: busy })
@@ -442,11 +444,19 @@ function revealHtml(v) {
 function statusPage(v, d) {
     const a = d.attributes;
     const parts = [];
-    if (a && !a.protagonist && d.relLabel) parts.push(row('相对', chip(d.relLabel)));
+    // 概览一行：相对档、生命、速度、熟练并排成等宽几栏的纯文字（小字名称在上、数值在下），不各自套底色块。
+    const fact = (label, value) => `<div class="igs-deck-fact"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
+    const facts = [];
+    if (a && !a.protagonist && d.relLabel) facts.push(fact('相对', d.relLabel));
     // 生命：当前 / 上限（持续伤势已计入）与伤势词；满血时只写上限。
-    const hp = d.combat && (d.combat.current ?? d.combat.hp) < d.combat.hp ? `生命 ${d.combat.current}/${d.combat.hp}` : `生命 ${d.combat?.hp}`;
-    if (d.combat) parts.push(row('开战', chip(hp) + (d.combat.injury && d.combat.injury !== '无伤' ? chip(d.combat.injury) : '') + chip(`速度 ${d.combat.speed}`)));
-    if (a && Number.isFinite(a.proficiency)) parts.push(row('熟练', chip(`+${a.proficiency}`)));
+    if (d.combat) {
+        const hurt = (d.combat.current ?? d.combat.hp) < d.combat.hp;
+        facts.push(fact('生命', hurt ? `${d.combat.current}/${d.combat.hp}` : `${d.combat.hp}`));
+        if (d.combat.injury && d.combat.injury !== '无伤') facts.push(fact('伤势', d.combat.injury));
+        facts.push(fact('速度', `${d.combat.speed}`));
+    }
+    if (a && Number.isFinite(a.proficiency)) facts.push(fact('熟练', `+${a.proficiency}`));
+    if (facts.length) parts.push(`<dl class="igs-deck-facts">${facts.join('')}</dl>`);
     // 没有属性表时六维是按定位推算的默认值，照常用于战斗；说明写在属性格上方，不与数值并列成「未创建」。
     const abilities = `${a?.table === 'missing' ? '<p class="igs-deck-help">属性表未创建，以下为按定位推算的默认值。</p>' : ''}${abilityGrid(d.abilities, false)}`;
     if (d.abilities?.length) parts.push(section('六维', abilities));

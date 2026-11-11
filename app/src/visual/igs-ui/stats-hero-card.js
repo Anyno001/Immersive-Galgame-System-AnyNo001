@@ -43,11 +43,12 @@ export function renderStatsHeroDashboard(model) {
         ? meter('生命', model.vitals.down ? 0 : model.vitals.hp, number(model.vitals.maxHp), 'life') : '';
     const retry = currency && !currency.ready
         ? `<button class="igs-settings-action" data-action="stats-op:currency-retry" type="button"${currency.pending ? ' disabled' : ''}>${currency.pending ? '处理中' : '重试货币判定'}</button>` : '';
+    // 积分与剧情货币并进「当前状态」同一块，和生命、体力、压力同一块：两项各占半行，数字紧跟在名称后面，不用左右对着找。
     const pointsIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 9-8 9-8-9Z"/><path d="m8 12 4-5 4 5-4 5Z"/></svg>';
-    const moneyIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 8h6v8H9zM12 3v3m0 12v3"/></svg>';
-    const wallet = `<div class="igs-stats-wallets"><div class="igs-stats-wallet">${pointsIcon}<div><span>积分</span><strong>${number(model.wallet ?? bars.money)}</strong></div></div>`
-        + `<div class="igs-stats-wallet">${moneyIcon}<div><span>${esc(currency?.name || '剧情货币')}</span><strong>${currency?.ready ? number(currency.balance) : currency?.name ? '未知' : '未定'}</strong></div>${retry}</div></div>`;
+    const moneyIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9z"/></svg>';
+    const wallet = `<div class="igs-stats-wallets"><div class="igs-stats-wallet"><span>${pointsIcon}积分</span><b>${number(model.wallet ?? bars.money)}</b></div>`
+        + `<div class="igs-stats-wallet"><span>${moneyIcon}${esc(currency?.name || '剧情货币')}</span><b>${currency?.ready ? number(currency.balance) : currency?.name ? '未知' : '未定'}</b></div>${retry}</div>`;
     return `<div class="igs-stats-dash"><div class="igs-stats-day">${model.day != null ? `第 ${number(model.day)} 天` : ''}</div>`
         + `<div class="igs-stats-overview"><div class="igs-stats-radar-panel"><h4>六维属性</h4>${radar(model.attributes)}</div>`
-        + `<div class="igs-stats-condition"><div class="igs-stats-resources"><h4>当前状态</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}</div>${wallet}</div></div></div>`;
+        + `<div class="igs-stats-condition"><div class="igs-stats-resources"><h4>当前状态</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}${wallet}</div></div></div></div>`;
 }

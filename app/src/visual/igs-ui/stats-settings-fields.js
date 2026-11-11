@@ -295,12 +295,13 @@ export function renderStatsHeroTail(model, advancedOpen = () => '') {
     const currency = model.currency;
     const moneyEdit = `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:money-set:${esc(encodeURIComponent(PROTAGONIST_KEY))}|${esc(String(currency && currency.ready ? currency.balance : ''))}" type="button"${currency && currency.ready ? '' : ' disabled'}>修改${esc((currency && currency.name) || '剧情货币')}</button>`
         + `<button class="igs-settings-action" data-action="stats-op:money-config:" type="button"${currency && currency.name ? '' : ' disabled'}>货币设置</button>`
-        + `<button class="igs-settings-action" data-action="stats-op:expenses-toggle:" type="button">固定支出</button></div>`
+        // 四个按钮同在一个两列等宽网格里；没有「修改属性」时「固定支出」独占一行。
+        + `<button class="igs-settings-action${model.heroAttrs ? '' : ' is-wide'}" data-action="stats-op:expenses-toggle:" type="button">固定支出</button>`
+        + (model.heroAttrs ? '<button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button>' : '') + '</div>'
         + (advancedOpen('stats-expenses') ? renderExpenses(model) : '');
-    const attrEdit = model.heroAttrs ? '<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button></div>' : '';
     return renderTraitView(PROTAGONIST_KEY, model)
         + viewBlock('data-stats-fame', '声望', `${fame.length}/${FAME_BAR_MAX}`, fame.map((r) => `<span class="igs-mood-review-chip igs-trait-chip is-tag" data-stats-fame-row="${esc(r.name)}"><b>${esc(r.owner && r.owner !== '主角' ? `${r.owner}·${r.name}` : r.name)} · ${esc(r.tier || r.kind)}</b></span>`).join(''))
-        + editFold('stats-hero-edit', advancedOpen, advancedOpen('stats-hero-edit') ? renderTraitEdit(PROTAGONIST_KEY, model, advancedOpen) + renderFameEdit(fame) + moneyEdit + attrEdit : '');
+        + editFold('stats-hero-edit', advancedOpen, advancedOpen('stats-hero-edit') ? renderTraitEdit(PROTAGONIST_KEY, model, advancedOpen) + renderFameEdit(fame) + moneyEdit : '');
 }
 
 // 固定支出：数值页内可展开的列表，每行名称、金额、每隔几天与删除，下方「＋ 添加」；输入框失焦即写聊天存档。

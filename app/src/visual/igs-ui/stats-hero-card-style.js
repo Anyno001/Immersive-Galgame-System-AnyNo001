@@ -23,13 +23,12 @@ export const STATS_HERO_CARD_STYLE_TEXT = `
 #igs-unified-settings .igs-stats-meter.is-life i{background:var(--igs-settings-danger)}
 #igs-unified-settings .igs-stats-meter.is-stamina i{background:var(--igs-settings-stamina)}
 #igs-unified-settings .igs-stats-meter.is-stress i{background:var(--igs-settings-stress)}
-#igs-unified-settings .igs-stats-wallets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-#igs-unified-settings .igs-stats-wallet{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);min-width:0}
-#igs-unified-settings .igs-stats-wallet>svg{width:24px;height:24px;flex:none;fill:none;stroke:var(--igs-settings-accent);stroke-width:1.5;stroke-linejoin:round}
-#igs-unified-settings .igs-stats-wallet>div{display:grid;gap:4px;min-width:0}
-#igs-unified-settings .igs-stats-wallet span{font-size:11px;color:var(--igs-settings-ink-2);overflow-wrap:anywhere}
-#igs-unified-settings .igs-stats-wallet strong{font-size:22px;font-weight:600;line-height:1.2;color:var(--igs-settings-ink);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-#igs-unified-settings .igs-stats-wallet>.igs-settings-action{flex-basis:100%;font-size:11px;min-height:30px;height:auto;padding:6px}
+#igs-unified-settings .igs-stats-wallets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}
+#igs-unified-settings .igs-stats-wallet{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:2px 8px;min-width:0;font-size:13px;font-weight:500;color:var(--igs-settings-ink-2)}
+#igs-unified-settings .igs-stats-wallet>span{display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}
+#igs-unified-settings .igs-stats-wallet>span>svg{width:16px;height:16px;flex:none;fill:none;stroke:var(--igs-settings-accent);stroke-width:1.8;stroke-linejoin:round}
+#igs-unified-settings .igs-stats-wallet>b{min-width:0;overflow-wrap:anywhere;color:var(--igs-settings-ink);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+#igs-unified-settings .igs-stats-wallets>.igs-settings-action{grid-column:1/-1;font-size:12px;background:var(--igs-settings-raised)}
 #igs-unified-settings .igs-stats-skills{margin-top:10px;padding:10px 12px;border:0;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field)}
 #igs-unified-settings .igs-stats-skills>summary{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--igs-settings-ink);cursor:pointer;list-style:none}
 #igs-unified-settings .igs-stats-skills>summary::after{content:'＋';width:auto;height:auto;border:0;margin-left:auto;color:var(--igs-settings-ink-3);transform:none;transition:none}
@@ -53,6 +52,10 @@ export const STATS_HERO_CARD_STYLE_TEXT = `
 #igs-unified-settings .igs-stats-condition{grid-row:1}
 #igs-unified-settings .igs-stats-radar{max-width:260px}
 #igs-unified-settings .igs-stats-resources{gap:12px}
+#igs-unified-settings .igs-stats-meter-head{margin-bottom:5px}
+#igs-unified-settings .igs-stats-meter-head b{font-size:13px}
+#igs-unified-settings .igs-stats-wallet>b{font-size:16px}
+#igs-unified-settings .igs-stats-meter-track{height:4px}
 #igs-unified-settings .igs-stats-skill-list{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 `.trim();

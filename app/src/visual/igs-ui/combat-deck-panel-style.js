@@ -35,10 +35,10 @@ ${P} .igs-deck-side{position:sticky;top:0;min-width:0;}
 ${P} .igs-deck-roster{display:flex;flex-direction:column;gap:2px;}
 ${P} .igs-deck-person{display:flex;align-items:center;gap:12px;width:100%;padding:8px 10px;border:0;border-radius:var(--igs-rp-radius-l);background:transparent;text-align:left;transition:background .18s var(--igs-rp-ease);}
 ${P} .igs-deck-person:hover{background:var(--igs-rp-fill);}
-${P} .igs-deck-person[aria-pressed="true"]{background:var(--igs-rp-fill-active);}
-${P} .igs-deck-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;box-sizing:border-box;border-radius:50%;box-shadow:inset 0 0 0 1px var(--igs-rp-text-ghost);color:var(--igs-rp-text-soft);font-size:15px;font-weight:500;line-height:1;}
-${P} .igs-deck-person[aria-pressed="true"] .igs-deck-avatar{box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent);color:var(--igs-rp-accent);}
-${P} .igs-deck-avatar.is-large{width:52px;height:52px;font-size:21px;box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent);color:var(--igs-rp-accent);}
+${P} .igs-deck-person[aria-pressed="true"] .igs-deck-person-meta>span{color:var(--igs-rp-text);font-weight:600;}
+${P} .igs-deck-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;box-sizing:border-box;border-radius:50%;background-color:var(--igs-rp-fill-active);color:var(--igs-rp-text-soft);font-family:var(--igs-rp-font-body);font-size:15px;line-height:1;}
+${P} .igs-deck-person[aria-pressed="true"] .igs-deck-avatar{box-shadow:0 0 0 2px var(--igs-rp-accent,var(--igs-rp-text-soft));}
+${P} .igs-deck-avatar.is-large{width:52px;height:52px;font-size:21px;}
 ${P} .igs-deck-person-meta{display:flex;flex-direction:column;min-width:0;}
 ${P} .igs-deck-person-meta>span{font-size:14px;font-weight:500;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 ${P} .igs-deck-person-meta>small{color:var(--igs-rp-text-faint);font-size:11px;line-height:1.4;font-variant-numeric:tabular-nums;white-space:nowrap;}
@@ -47,8 +47,9 @@ ${P} .igs-deck-detail{display:flex;flex-direction:column;gap:16px;min-width:0;bo
 ${P} .igs-deck-detail-head{display:flex;align-items:center;gap:16px;min-width:0;}
 ${P} .igs-deck-detail-title{display:flex;flex-direction:column;gap:6px;min-width:0;}
 ${P} .igs-deck-detail-title h3{margin:0;font-size:20px;font-weight:600;line-height:1.3;letter-spacing:.04em;overflow-wrap:anywhere;}
-${P} .igs-deck-tags{display:flex;flex-wrap:wrap;gap:6px;}
-${P} .igs-deck-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:11px;font-weight:500;line-height:18px;letter-spacing:.04em;white-space:nowrap;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-tags{display:flex;flex-wrap:wrap;gap:2px 0;}
+${P} .igs-deck-tags>.igs-deck-tag + .igs-deck-tag::before{content:"·";margin:0 7px;color:var(--igs-rp-text-faint);}
+${P} .igs-deck-tag{display:inline-flex;align-items:center;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;line-height:18px;letter-spacing:.04em;white-space:nowrap;font-variant-numeric:tabular-nums;}
 ${P} .igs-deck-tabs{display:inline-flex;align-self:flex-start;gap:2px;max-width:100%;padding:2px;overflow-x:auto;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
 ${P} .igs-deck-tab{flex:none;min-height:30px;padding:6px 16px;border:0;border-radius:calc(var(--igs-rp-radius-m) - 2px);background:transparent;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.12em;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease);}
 ${P} .igs-deck-tab:hover{background:var(--igs-rp-fill-hover);color:var(--igs-rp-text);}
@@ -62,9 +63,15 @@ ${P} .igs-deck-row{display:grid;grid-template-columns:4.5em minmax(0,1fr);align-
 ${P} .igs-deck-label{padding-top:7px;color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.12em;}
 ${P} .igs-deck-row-body,${P} .igs-deck-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
 ${P} .igs-deck-row-body{min-height:30px;}
+/* 概览栏：几项等宽并排，名称小字在上、数值在下，不套底色，下缘一道细线（同目录页回想页头）。 */
+${P} .igs-deck-facts{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;margin:0;padding:2px 0 14px;box-sizing:border-box;border-bottom:1px solid var(--igs-rp-text-ghost);}
+${P} .igs-deck-fact{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;}
+${P} .igs-deck-fact dt{color:var(--igs-rp-text-faint);font-size:11px;font-weight:500;letter-spacing:.12em;}
+${P} .igs-deck-fact dd{margin:0;color:var(--igs-rp-text);font-size:14px;font-weight:600;line-height:1.4;font-variant-numeric:tabular-nums;text-align:center;overflow-wrap:anywhere;}
 ${P} .igs-deck-actions{justify-content:flex-end;}
-${P} .igs-deck-chip{display:inline-flex;align-items:center;min-height:30px;padding:4px 10px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-chip{display:inline-flex;align-items:center;min-height:30px;box-sizing:border-box;color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
 ${P} .igs-deck-chip.is-locked{color:var(--igs-rp-text-faint);}
+${P} .igs-deck-chip + .igs-deck-chip::before{content:"·";margin:0 8px 0 0;color:var(--igs-rp-text-faint);}
 ${P} .igs-deck-chip-art{flex:none;width:20px;height:20px;margin-right:6px;padding:0;border:0;background:none;cursor:zoom-in;vertical-align:middle;}
 ${P} .igs-deck-chip-art img{display:block;width:100%;height:100%;object-fit:contain;border-radius:4px;pointer-events:none;}
 ${P} .igs-deck-btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:6px 12px;border:0;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);color:var(--igs-rp-text-soft);font-size:13px;font-weight:500;letter-spacing:.04em;white-space:nowrap;transition:background .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),opacity .18s var(--igs-rp-ease),transform .12s var(--igs-rp-ease);}
@@ -84,17 +91,18 @@ ${P} .igs-deck-size.is-error,${P} .igs-deck-err{color:var(--igs-deck-danger);}
 ${P} .igs-deck-err{display:block;font-size:12px;overflow-wrap:anywhere;}
 ${P} .igs-deck-help{margin:0;color:var(--igs-rp-text-faint);font-size:12px;line-height:1.7;overflow-wrap:anywhere;}
 /* 六维：属性名在上、数值与调整值在下，格子不随面板拉宽。 */
-${P} .igs-deck-abilities{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin:0;padding:0;list-style:none;}
+/* 六格纯文字排开，不套底色；左侧一道竖线，同设置器数值页的子项缩进线。 */
+${P} .igs-deck-abilities{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:0 28px;margin:0 0 0 6px;padding:2px 0 2px 14px;list-style:none;border-left:2px solid var(--igs-rp-accent,var(--igs-rp-text-soft));}
 ${P} .igs-deck-abilities.is-alloc{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
-${P} .igs-deck-ability{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+${P} .igs-deck-ability{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 0;box-sizing:border-box;}
 ${P} .igs-deck-ability-name{flex:1;color:var(--igs-rp-text-faint);font-size:12px;font-weight:500;letter-spacing:.12em;}
 ${P} .igs-deck-ability-score{min-width:1.6em;color:var(--igs-rp-text);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;text-align:center;}
 ${P} .igs-deck-ability.is-added .igs-deck-ability-score{color:var(--igs-rp-accent);}
 ${P} .igs-deck-ability-mod{min-width:2em;color:var(--igs-rp-text-soft);font-size:12px;font-variant-numeric:tabular-nums;text-align:right;}
 /* 列表行（被动、特性、装备、道具）：部位 / 名称 / 说明 / 操作四列对齐，稀有度在左侧标一道实色细条。 */
-${P} .igs-deck-collection{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;}
-${P} .igs-deck-keepsake{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;min-height:42px;padding:8px 12px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
-${P} .igs-deck-keepsake[data-rarity]::before,${P} .igs-deck-card[data-rarity]:not([data-rarity="basic"])::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--rar);}
+${P} .igs-deck-collection{display:flex;flex-direction:column;gap:0;margin:0;padding:0;list-style:none;}
+${P} .igs-deck-keepsake{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;min-height:40px;padding:9px 2px 9px 12px;box-sizing:border-box;}
+${P} .igs-deck-keepsake[data-rarity]::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--rar);}
 ${P} .igs-deck-slot{flex:none;width:3em;color:var(--igs-rp-text-faint);font-size:12px;letter-spacing:.08em;}
 ${P} .igs-deck-name{display:inline-flex;align-items:center;flex:0 1 9em;min-width:5em;font-weight:500;letter-spacing:.04em;overflow-wrap:anywhere;}
 ${P} .igs-deck-name.is-empty,${P} .igs-deck-name.is-locked{color:var(--igs-rp-text-faint);font-weight:400;}
@@ -105,14 +113,19 @@ ${P} .igs-deck-seal{display:flex;flex-direction:column;gap:8px;padding:8px 12px 
 ${P} .igs-deck-seal-picks{display:flex;flex-wrap:wrap;gap:6px;}
 ${P} .igs-deck-seal-detail{display:flex;flex-direction:column;gap:2px;}
 /* 卡牌行：费用、卡面、名称与效果在左，来源 / 数量 / 操作收在右栏；窄屏右栏整体移到下方。 */
-${P} .igs-deck-cards{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;}
-${P} .igs-deck-card{--igs-card-tint:var(--igs-cb-skill);position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px 10px 14px;box-sizing:border-box;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+${P} .igs-deck-cards{display:flex;flex-direction:column;gap:0;margin:0;padding:0;list-style:none;}
+${P} .igs-deck-card{--igs-card-tint:var(--igs-cb-skill);position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:14px 2px;box-sizing:border-box;}
+${P} :is(.igs-deck-card,.igs-deck-keepsake) + :is(.igs-deck-card,.igs-deck-keepsake){border-top:1px dashed var(--igs-rp-text-ghost);}
 ${P} .igs-deck-card[data-card-type="attack"]{--igs-card-tint:var(--igs-cb-attack);}
 ${P} .igs-deck-card[data-card-type="power"]{--igs-card-tint:var(--igs-cb-power);}
 ${P} .igs-deck-card.is-error{box-shadow:inset 0 0 0 1px var(--igs-deck-danger);}
-${P} .igs-deck-cost{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--igs-card-tint);color:rgb(${IGS_UI_NIGHT_RGB});font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
-${P} .igs-deck-art{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:var(--igs-rp-radius-m);overflow:hidden;background:var(--igs-rp-fill-hover);color:var(--igs-card-tint);}
-${P} .igs-deck-art svg{width:22px;height:22px;stroke-width:1.4;}
+${P} .igs-deck-cost{flex:none;display:grid;place-items:center;position:relative;width:28px;height:28px;color:var(--igs-rp-text);font-family:var(--igs-rp-font-body);font-size:14px;font-weight:500;font-variant-numeric:tabular-nums;}
+${P} .igs-deck-cost>svg{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:var(--igs-card-tint);stroke-width:1.5;}
+${P} .igs-deck-trait-body{display:flex;flex-direction:column;gap:2px;flex:1 1 0;min-width:0;overflow-wrap:anywhere;}
+${P} .igs-deck-keepsake .igs-deck-trait-body :is(.igs-deck-name,.igs-deck-count){flex:none;}
+${P} .igs-deck-keepsake .igs-deck-avatar{width:32px;height:32px;font-size:14px;}
+${P} .igs-deck-art{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:var(--igs-rp-radius-m);overflow:hidden;color:var(--igs-card-tint);}
+${P} .igs-deck-art svg{width:26px;height:26px;stroke-width:1.4;}
 ${P} .igs-deck-art img{display:block;width:100%;height:100%;object-fit:cover;}
 ${P} .igs-deck-card-info{flex:1 1 220px;min-width:0;overflow-wrap:anywhere;}
 ${P} .igs-deck-card-title{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;}
@@ -224,9 +237,18 @@ ${P}.igs-rp-narrow .igs-deck-row{grid-template-columns:4em minmax(0,1fr);gap:8px
 ${P}.igs-rp-narrow .igs-deck-abilities{grid-template-columns:repeat(2,minmax(0,1fr));}
 ${P}.igs-rp-narrow .igs-deck-abilities.is-alloc{grid-template-columns:minmax(0,1fr);}
 ${P}.igs-rp-narrow .igs-deck-card-info{flex:1 1 0;}
-${P}.igs-rp-narrow .igs-deck-card-side{flex-basis:100%;justify-content:space-between;margin-left:0;}
+${P}.igs-rp-narrow .igs-deck-card-side:has(.igs-deck-card-acts){flex-basis:100%;justify-content:space-between;margin-left:0;}
 ${P}.igs-rp-narrow .igs-deck-card-stats{flex-direction:row;align-items:center;gap:10px;}
 ${P}.igs-rp-narrow .igs-deck-tab{padding:6px 14px;}
+/* 窄屏列表行：说明另起一行占满整宽，不挤在名称右边的窄栏里。 */
+${P}.igs-rp-narrow .igs-deck-keepsake .igs-deck-count{flex:1 1 100%;}
+${P}.igs-rp-narrow .igs-deck-keepsake .igs-deck-trait-body .igs-deck-count{flex:none;}
+/* 窄屏按钮：分页签、操作按钮一律等宽铺满、文字居中。 */
+${P}.igs-rp-narrow .igs-deck-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);align-self:stretch;}
+${P}.igs-rp-narrow .igs-deck-tab{padding:6px 0;text-align:center;}
+${P}.igs-rp-narrow .igs-deck-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));align-items:stretch;}
+${P}.igs-rp-narrow .igs-deck-bag-acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));flex:1 1 100%;margin-left:0;}
+${P}.igs-rp-narrow :is(.igs-deck-actions,.igs-deck-bag-acts)>.igs-deck-btn{min-width:0;padding-left:8px;padding-right:8px;white-space:normal;text-align:center;line-height:1.35;}
 @media (prefers-reduced-motion:reduce){${P} :is(.igs-deck-btn,.igs-deck-tab,.igs-deck-person){transition:none;}}
 @keyframes igs-deck-reveal-spin{to{transform:rotate(1turn);}}
 @keyframes igs-deck-reveal-mote{0%{opacity:0;transform:rotate(calc(var(--i) * 30deg)) translateY(-96px) scale(.6);}25%{opacity:1;}100%{opacity:0;transform:rotate(calc(var(--i) * 30deg)) translateY(-12px) scale(1.1);}}
