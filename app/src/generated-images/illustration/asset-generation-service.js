@@ -1868,6 +1868,36 @@ export function createAssetGenerationService(deps) {
         for (let i = 0; i < next.length; i += 1) data[i * 4 + 3] = next[i];
     }
 
+    // 清白底残影：导演工具挪了手臂等部位后，原轮廓里空出来的地方是白底，按原透明度会留成白色剪影。
+    // 从原图透明处出发，沿新图里连成片的近白像素往里清，碰到线稿或有颜色的像素就停；清掉区域边上的浅色像素做 1 像素过渡。
+    function clearDirectorWhiteGhost(raw, data, alpha, width, height) {
+        const nearWhite = (i) => {
+            const o = i * 4, r = raw[o], g = raw[o + 1], b = raw[o + 2];
+            return Math.min(r, g, b) >= 236 && Math.max(r, g, b) - Math.min(r, g, b) <= 14;
+        };
+        const cleared = new Uint8Array(alpha.length);
+        const queue = new Int32Array(alpha.length);
+        let head = 0, tail = 0;
+        for (let i = 0; i < alpha.length; i += 1) if (alpha[i] === 0) { cleared[i] = 1; queue[tail++] = i; }
+        while (head < tail) {
+            const i = queue[head++], x = i % width;
+            const near = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, i - width, i + width];
+            for (const j of near) {
+                if (j < 0 || j >= alpha.length || cleared[j] || !nearWhite(j)) continue;
+                cleared[j] = 1; data[j * 4 + 3] = 0; queue[tail++] = j;
+            }
+        }
+        for (let i = 0; i < alpha.length; i += 1) {
+            if (cleared[i] || data[i * 4 + 3] === 0) continue;
+            const x = i % width;
+            const touches = (x > 0 && cleared[i - 1]) || (x < width - 1 && cleared[i + 1])
+                || (i >= width && cleared[i - width]) || (i + width < alpha.length && cleared[i + width]);
+            if (!touches) continue;
+            const o = i * 4, own = Math.min(raw[o], raw[o + 1], raw[o + 2]);
+            if (own > 200) data[o + 3] = Math.round(data[o + 3] * Math.max(0, Math.min(1, (255 - own) / 55)));
+        }
+    }
+
     // 按原图透明度还原并裁掉透明留白：不依赖自动抠图开关，尺寸与默认立绘一致。
     // 半透明边缘按铺白底的比例去掉白色；接近纯白的边缘像素视为底色直接去掉，避免错位时漏出白边。
     async function restoreDirectorAlpha(dataUrl, flat) {
@@ -1883,7 +1913,9 @@ export function createAssetGenerationService(deps) {
         ctx.drawImage(img, 0, 0, width, height);
         const frame = ctx.getImageData(0, 0, width, height);
         const data = frame.data;
+        const raw = new Uint8ClampedArray(data);
         refineDirectorEdge(data, alpha, width, height);
+        clearDirectorWhiteGhost(raw, data, alpha, width, height);
         ctx.putImageData(frame, 0, 0);
         const bounds = findOpaqueBounds(frame);
         if (!bounds) return canvas.toDataURL('image/png');

@@ -120,11 +120,12 @@ ${L} .igs-combat-loot>.igs-combat-state{margin-top:0;}
 ${L} .igs-combat-loot-cap,${L} .igs-combat-loot>.igs-combat-state{grid-row:2;}
 ${L} .igs-combat-loot-row{grid-row:3;height:76px;}
 /* 三选一候选牌是完整卡面：下方网格上移，牌行改自适应高度 */
-${P} .mr-low:has(.igs-combat-loot-choices){top:440px;}
 ${P} .mr-low:has(.igs-combat-loot-choices) .mr-rows{display:none;}
 ${P} .mr-low:has(.igs-combat-loot-choices) .igs-combat-loot-row.igs-combat-loot-choices{grid-row:4;height:auto;display:block;}
+${L} .mr-low:has(.igs-combat-loot-choices){top:362px;}
+${L} .mr-low:has(.igs-combat-loot-choices) .mr-rows{display:none;}
+${L} .mr-low:has(.igs-combat-loot-choices) :is(.igs-combat-loot-cap,.igs-combat-loot-row.igs-combat-loot-choices){grid-column:1 / -1;margin-left:0;}
 ${L} .mr-low:has(.igs-combat-loot-choices) .igs-combat-loot-row.igs-combat-loot-choices{grid-row:3;height:auto;display:block;}
-${L} .mr-low:has(.igs-combat-loot-choices){top:380px;}
 ${S} .igs-combat-loot-card{--rar:var(--faint);flex:1;width:auto;min-width:0;aspect-ratio:auto;height:100%;background:#1c1c1e;border:2px solid #34343e;border-radius:2px;box-shadow:none;transform:none;opacity:1;}
 ${S} .igs-combat-loot-card[data-rarity="epic"]{--rar:var(--violet);}
 ${S} .igs-combat-loot-card[data-rarity="rare"]{--rar:var(--blue);}
