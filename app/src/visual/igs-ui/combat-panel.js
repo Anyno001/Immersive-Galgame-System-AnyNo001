@@ -2347,8 +2347,9 @@ export function createCombatPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         const s = session();
         if (!s) return { ok: false, reason: 'combat-session-unavailable' };
-        const cur0 = s.state();
         messageId = Number.isInteger(openOptions.messageId) ? openOptions.messageId : null;
+        if (messageId !== null && typeof s.dropSuperseded === 'function') s.dropSuperseded(messageId);
+        const cur0 = s.state();
         followUp = ['auto', 'abandon'].includes(openOptions.then) ? openOptions.then : '';
         preview = openOptions.preview && typeof openOptions.preview === 'object' ? openOptions.preview : null;
         historyOpen = openOptions.history === true;

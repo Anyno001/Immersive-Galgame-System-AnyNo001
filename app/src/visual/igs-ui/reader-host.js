@@ -5894,8 +5894,10 @@ ${row.key}`;
             && !floorEntry && !panelOpen && pageIsIntimateRise(pageNow);
         syncIntimateLaunch(overlay, launchable ? { skin, onLaunch: () => launchIntimate(current, snapshot, floor, Number(messageId)) } : null);
         // 悬浮「返回战斗」：有未打完的战斗、没有面板开着、原位置没有小标签时显示（小标签与它指向同一件事，不重复）。
-        const unfinished = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
+        // 本楼有更晚的开战标签时，旧的未发送战斗会被新战斗顶替，不再提示返回。
+        const unfinishedRaw = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
             ? unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null) : null;
+        const unfinished = unfinishedRaw && floorEntry && Number(floorEntry.messageId) > Number(unfinishedRaw.anchor.messageId) ? null : unfinishedRaw;
         syncCombatResume(overlay, unfinished ? { kind: unfinished.kind, skin, onResume: () => resumeCombatFromReader() } : null);
         // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
         // 设置页「返回战斗」：同一开战楼有未结束会话时，不论是否自动打开过、在哪一页，都直接续打（2 分钟内有效）。
