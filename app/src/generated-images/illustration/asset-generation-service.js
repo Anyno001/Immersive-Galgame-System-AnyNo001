@@ -4,6 +4,7 @@ import { createAssetRecordCache } from '../../media/asset-record-cache.js';
 import { IMAGE_FIELDS, isImageData } from '../../media/image-identity.js';
 import { imageBackendMethod } from '../backend-methods.js';
 import { moodPresetTags, resolvePresetGroup } from '../../scene/mood-groups.js';
+import { findOpaqueBounds } from '../../media/alpha-matte.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
 import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/generation-seeds.js';
 
@@ -1824,27 +1825,36 @@ export function createAssetGenerationService(deps) {
             alpha: transparent ? alpha : null };
     }
 
-    // 按原图透明度还原：半透明边缘按铺白底的比例把白色减掉，避免白边。
+    // 按原图透明度还原并裁掉透明留白：不依赖自动抠图开关，尺寸与默认立绘一致。
+    // 半透明边缘按铺白底的比例去掉白色；接近纯白的边缘像素视为底色直接去掉，避免错位时漏出白边。
     async function restoreDirectorAlpha(dataUrl, flat) {
         const doc = deps.global?.document || globalThis.document;
         const img = await loadImageElement(dataUrl);
         const { width, height, alpha } = flat;
+        const returnedWidth = img.naturalWidth || img.width, returnedHeight = img.naturalHeight || img.height;
+        if (returnedWidth !== width || returnedHeight !== height)
+            report('info', `导演工具返回尺寸 ${returnedWidth}x${returnedHeight}，原图 ${width}x${height}，已缩放对齐`);
         const canvas = doc.createElement('canvas');
         canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(img, 0, 0, width, height);
         const frame = ctx.getImageData(0, 0, width, height);
         const data = frame.data;
         for (let i = 0; i < alpha.length; i += 1) {
             const a = alpha[i], o = i * 4;
             if (a === 255) continue;
-            if (a === 0) { data[o + 3] = 0; continue; }
+            if (a === 0 || (data[o] > 235 && data[o + 1] > 235 && data[o + 2] > 235)) { data[o + 3] = 0; continue; }
             const k = a / 255;
             for (let c = 0; c < 3; c += 1) data[o + c] = (data[o + c] - 255 * (1 - k)) / k;
             data[o + 3] = a;
         }
         ctx.putImageData(frame, 0, 0);
-        return canvas.toDataURL('image/png');
+        const bounds = findOpaqueBounds(frame);
+        if (!bounds) return canvas.toDataURL('image/png');
+        const out = doc.createElement('canvas');
+        out.width = bounds.width; out.height = bounds.height;
+        out.getContext('2d').drawImage(canvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+        return out.toDataURL('image/png');
     }
 
     // 返回本次能否走导演工具；不能时带上原因，供生成前提示。
