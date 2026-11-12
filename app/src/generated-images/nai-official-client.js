@@ -19,6 +19,7 @@ const MAX_BACKOFF_MS = 30000;
 
 // 与 DBG 的最终 wire 保持一致；领域开关仍是布尔值，不改写调用方请求。
 function toNaiWireBody(body) {
+    if (!body.parameters) return body;
     const parameters = { ...body.parameters };
     for (const key of ['tag_hint_qt', 'tag_hint_uc_preset']) {
         if (typeof parameters[key] === 'boolean') {
@@ -28,7 +29,7 @@ function toNaiWireBody(body) {
     return { ...body, parameters };
 }
 
-function isOfficialNaiEndpoint(endpoint) {
+export function isOfficialNaiEndpoint(endpoint) {
     const trimmed = String(endpoint || '').trim();
     if (!trimmed) return true;
     try { return /(^|\.)novelai\.net$/i.test(new URL(trimmed).hostname); } catch { return false; }
@@ -143,8 +144,9 @@ export function createNaiOfficialClient(deps = {}) {
         let timer;
         // 分段计时写进生图排查日志：排队（同 Key 串行锁）、等服务器响应、下载解析。
         const p = body?.parameters || {};
+        const director = body?.req_type ? `导演工具 ${body.req_type} ${body.width}x${body.height}` : '';
         const wire = foldCharsForRelay(body, inputSettings);
-        const timing = { queuedAt: Date.now(), params: `${body?.model || '?'} ${p.width}x${p.height} ${p.steps}步 采样${p.sampler}`
+        const timing = { queuedAt: Date.now(), params: director || `${body?.model || '?'} ${p.width}x${p.height} ${p.steps}步 采样${p.sampler}`
             + `${p.straight_alpha ? ' 透明底' : ''} 角色段${p.v4_prompt?.caption?.char_captions?.length || 0}`
             + ` ${inputSettings.endpoint && !isOfficialNaiEndpoint(inputSettings.endpoint) ? '中转' : '官网'}·${transport === 'st-proxy' ? '酒馆代理' : '直连'}`
             + `${wire !== body ? ` 并词正${wire.input.length}字/负${wire.parameters.negative_prompt?.length || 0}字` : ''}` };
@@ -197,7 +199,7 @@ export function createNaiOfficialClient(deps = {}) {
 
     async function send(body, settings) {
         const direct = settings.transport !== 'st-proxy';
-        const target = resolveNaiEndpoint(settings.endpoint);
+        const target = settings.url || resolveNaiEndpoint(settings.endpoint);
         const url = direct ? target : tavernProxyUrl(target);
         if (!allowed(settings)) return null;
         settings.cloudSent = true;
@@ -334,5 +336,22 @@ export function createNaiOfficialClient(deps = {}) {
         return sent?.ok ? { ...sent, seed: built.body.parameters.seed, ...(snapshot && { sentPrompt: snapshot }) } : sent;
     }
 
-    return { generate, edit, supportsEdit };
+    async function emotion(request = {}, naiSettings = {}) {
+        const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
+        const supportsEmotion = isOfficialNaiEndpoint(settings.endpoint);
+        if (!supportsEmotion) return { ok: false, reason: 'director-unsupported', supportsEmotion, error: '导演工具仅支持官方NAI地址' };
+        const blocked = precheck(settings);
+        if (blocked) return { ...blocked, supportsEmotion };
+        if (request.signal?.aborted || (typeof request.shouldStart === 'function' && !request.shouldStart()))
+            return { ok: false, reason: 'request-stale', supportsEmotion, error: '任务已取消或目标失效，停止发送' };
+        const body = { req_type: 'emotion', prompt: String(request.prompt || ''), defry: 0,
+            width: request.width, height: request.height,
+            image: String(request.imageBase64 || '').replace(/^data:[^,]*,/, '') };
+        const sent = await dispatch(body, { ...settings, url: 'https://image.novelai.net/ai/augment-image',
+            ...(request.signal && { signal: request.signal }),
+            ...(request.shouldStart && { shouldStart: request.shouldStart }) });
+        return sent ? { ...sent, supportsEmotion } : sent;
+    }
+
+    return { generate, edit, emotion, supportsEdit };
 }

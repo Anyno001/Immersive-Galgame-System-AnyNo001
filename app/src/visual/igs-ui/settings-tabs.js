@@ -84,6 +84,7 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
       {{autoMatteField}}
       {{spriteMatteColorField}}
+      {{directorEmotionField}}
     </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">

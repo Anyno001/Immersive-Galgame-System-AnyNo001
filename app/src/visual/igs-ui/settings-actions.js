@@ -2133,9 +2133,22 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
         };
         try {
-            const paintOnly = !retry && !writeLabels.length;
-            result = resume || paintOnly
-                ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, nsfw, onProgress,
+            const directMoods = service.supportsDirectorExpressions?.() === true && defaultId && !(retry && mood === '默认')
+                ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels) : [];
+            const directed = directMoods.length && typeof service.paintDirectorExpressions === 'function'
+                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: defaultId, nsfw, onProgress,
+                    signal: stopControl.signal, shouldStart: targetUnchanged })
+                : null;
+            if (directed && !directed.ok) throw new Error(directed.error || '导演工具表情失败');
+            const unmapped = directed ? new Set(directed.unmapped || []) : null;
+            const rItems = unmapped ? resumeItems.filter((item) => unmapped.has(item.mood)) : resumeItems;
+            const pItems = unmapped ? paintItems.filter((item) => unmapped.has(item.mood)) : paintItems;
+            const wLabels = unmapped ? writeLabels.filter((label) => unmapped.has(label)) : writeLabels;
+            const needLegacy = !unmapped || (retry ? unmapped.size > 0 : resume ? rItems.length > 0 : pItems.length + wLabels.length > 0);
+            const paintOnly = !retry && !wLabels.length;
+            const legacy = !needLegacy || (directed && (directed.stopped || stopControl.signal.aborted)) ? null
+                : resume || paintOnly
+                ? await service.paintExpressionCaptions({ name, items: rItems, basePrompt, dna, outfit, nsfw, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged,
                     ...(onOutfitDna && { onOutfitDna }) })
                 : retry && savedCaption && typeof service.generateExpressionImage === 'function'
@@ -2147,9 +2160,15 @@ export async function handleSettingsAction(action, ctx) {
                     ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal,
                         shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }) })
                     : await paintThenWriteExpressions({
-                        service, name, paintItems, writeLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
+                        service, name, paintItems: pItems, writeLabels: wLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
                         shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }),
                     });
+            result = directed
+                ? { ok: directed.items.some((item) => item.ok) || !legacy || legacy.ok === true,
+                    stopped: Boolean(directed.stopped || legacy?.stopped),
+                    items: directed.items.concat(legacy?.items || []),
+                    error: legacy && !legacy.ok ? legacy.error : '' }
+                : legacy;
         } catch (error) {
             stopControl.done();
             return failed(error);

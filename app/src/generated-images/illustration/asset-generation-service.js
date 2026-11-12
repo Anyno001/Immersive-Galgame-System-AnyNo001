@@ -3,6 +3,7 @@ import { requireMediaCache } from '../../media/media-cache-owner.js';
 import { createAssetRecordCache } from '../../media/asset-record-cache.js';
 import { IMAGE_FIELDS, isImageData } from '../../media/image-identity.js';
 import { imageBackendMethod } from '../backend-methods.js';
+import { moodPresetTags, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
 import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/generation-seeds.js';
 
@@ -101,6 +102,7 @@ export function createAssetGenerationService(deps) {
     const { messageHost, llm, nai, store, getSettings, getPromptScheme, events } = deps;
     const writePrompt = imageBackendMethod(nai, 'writePrompt');
     const generateCaption = imageBackendMethod(nai, 'generateCaption');
+    const emotionPaint = imageBackendMethod(nai, 'emotion');
     const describeTask = signal => nai?.describe?.(imageTaskState({ signal })?.config, { signal }) || { via: 'nai', ready: { ok: true } };
     const taskBackend = signal => ({ describe: () => describeTask(signal) });
     const externalSource = signal => ['dbgen', 'extension', 'baibai'].includes(describeTask(signal).mode);
@@ -1773,6 +1775,104 @@ export function createAssetGenerationService(deps) {
             ...(image.identityContext && { identityContext: structuredClone(image.identityContext) }) };
     }
 
+    const DIRECTOR_EMOTIONS = { 平和: 'neutral', 喜悦: 'happy', 愤怒: 'angry', 悲伤: 'sad', 惊讶: 'surprised', 害羞: 'shy',
+        紧张: 'nervous', 思考: 'thinking', 爱恋: 'love', 嫌弃: 'disgusted', 得意: 'smug', 冷淡: 'bored', 大笑: 'laughing',
+        哭泣: 'sad', 不满: 'irritated', 无奈: 'tired', 心虚: 'embarrassed', 委屈: 'hurt', 怀疑: 'confused' };
+
+    function directorEmotionOf(mood, nsfw) {
+        const label = String(mood || '').trim();
+        if (!label || label === '默认' || label === '裸体') return null;
+        const group = resolvePresetGroup(label) || label;
+        if (group === '默认' || group === '裸体') return null;
+        const emotion = group === '动情' ? (nsfw ? 'aroused' : 'love') : DIRECTOR_EMOTIONS[group];
+        if (!emotion) return null;
+        const extra = [group === '哭泣' ? 'tears, crying' : '', moodPresetTags(group, { nsfw })].filter(Boolean).join(', ');
+        return { emotion, extra };
+    }
+
+    // 带透明通道的原图先铺白底，再转 PNG；返回不带前缀的 base64 与像素尺寸。
+    async function flattenForDirector(dataUrl) {
+        const doc = deps.global?.document || globalThis.document;
+        if (!doc?.createElement) throw new Error('当前环境无法处理图片');
+        const img = await new Promise((resolve, reject) => {
+            const el = new (deps.global?.Image || globalThis.Image)();
+            el.onload = () => resolve(el);
+            el.onerror = () => reject(new Error('原图读取失败'));
+            el.src = dataUrl;
+        });
+        const width = img.naturalWidth || img.width, height = img.naturalHeight || img.height;
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0);
+        return { base64: canvas.toDataURL('image/png').replace(/^data:[^,]*,/, ''), width, height };
+    }
+
+    function supportsDirectorExpressions() {
+        try {
+            return readSettings().auto.nai.directorEmotion === true && typeof emotionPaint === 'function'
+                && nai?.describeEmotion?.()?.supported === true;
+        } catch { return false; }
+    }
+
+    async function paintDirectorExpressions({ name, moods, baseImageId, nsfw = false, onProgress, signal, shouldStart } = {}) {
+        const labels = (Array.isArray(moods) ? moods : []).map(item => String(item || '').trim()).filter(Boolean);
+        const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
+        const unmapped = [], plan = [];
+        for (const mood of labels) {
+            const hit = directorEmotionOf(mood, nsfw === true);
+            if (hit) plan.push({ mood, ...hit }); else unmapped.push(mood);
+        }
+        if (!plan.length) return { ok: true, items: [], unmapped, stopped: false };
+        if (typeof emotionPaint !== 'function') return { ok: false, error: '当前图像来源不能使用导演工具' };
+        const record = normalizeGeneratedImageRecord(await store.getImage(baseImageId, { fields: '*' }));
+        const source = record?.originalDataUrl || record?.dataUrl;
+        if (!source) return { ok: false, error: '找不到默认立绘原图' };
+        let flat;
+        try { flat = await flattenForDirector(source); }
+        catch (error) { return { ok: false, error: (error && error.message) || '原图处理失败' }; }
+        const items = [];
+        let halted = false;
+        for (let i = 0; i < plan.length; i += 1) {
+            const { mood, emotion, extra } = plan[i];
+            if (halted || stopped()) { items.push({ mood, ok: false, error: '已停止' }); continue; }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: plan.length, mood });
+            let painted;
+            try {
+                painted = await emotionPaint({ prompt: extra ? `${emotion};;${extra}` : emotion,
+                    width: flat.width, height: flat.height, imageBase64: flat.base64,
+                    ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
+            } catch (error) { painted = { ok: false, error: (error && error.message) || '导演工具表情失败' }; }
+            if (stopped()) painted = { ok: false, reason: 'stale-target', error: '目标已变化，未接收迟到图片' };
+            if (!painted?.ok || !painted.dataUrl) {
+                if (painted?.stopGeneration) halted = true;
+                items.push({ mood, ok: false, error: painted?.error || '导演工具表情失败',
+                    ...(painted?.reason && { reason: painted.reason }), ...(painted?.stopGeneration && { stopGeneration: true }) });
+                continue;
+            }
+            const imageId = newId();
+            // 导演工具只回白底图，无论透明底开关如何都要抠图。
+            const image = await buildSpriteImageRecord(imageId, painted.dataUrl, false, now());
+            image.directorSource = baseImageId;
+            let saved;
+            try { saved = await persistGeneratedImage(image); }
+            catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+            if (saved?.ok === false) {
+                const failure = saved.saveError ? { ...saved, error: saved.error || saved.saveError } : saved;
+                const quota = isQuotaError(saved.saveError) || /quota|存储.*满|空间不足/i.test(recoveryFailureText(failure));
+                halted = true;
+                items.push({ mood, ok: false, reason: saved.cancelled === true ? 'cancelled' : 'image-save-failed', stopGeneration: true,
+                    error: saved.cancelled === true ? '已停止' : quota ? IMAGE_STORAGE_FULL_MESSAGE : `图片没存上：${recoveryFailureText(failure)}` });
+                continue;
+            }
+            rememberImage(imageId, image.dataUrl);
+            items.push({ mood, ok: true, imageId, name });
+        }
+        return { ok: true, items, unmapped, stopped: halted || stopped() };
+    }
+
     function reportExpressionProgress(onProgress, event) {
         if (typeof onProgress === 'function') onProgress(event);
     }
@@ -2616,6 +2716,7 @@ export function createAssetGenerationService(deps) {
         prepareExternalSpriteDna,
         generateExpressionSet: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionSet),
         generateExpressionImage: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionImage),
+        paintDirectorExpressions, supportsDirectorExpressions,
         paintExpressionCaptions: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, paintExpressionCaptions),
         generateCharacterSprite: request => withExternalSpriteDna(request, generateCharacterSprite),
         generateCharacterAvatar: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateCharacterAvatar),
@@ -2651,11 +2752,11 @@ export function createAssetGenerationService(deps) {
             pendingFloors.clear();
         },
     };
-    for (const method of ['generateExpressionSet', 'generateExpressionImage', 'paintExpressionCaptions',
+    for (const method of ['generateExpressionSet', 'generateExpressionImage', 'paintExpressionCaptions', 'paintDirectorExpressions',
         'generateCharacterSprite', 'generateCharacterAvatar', 'generateSceneVariants', 'writeWardrobePrompt',
         'paintWardrobeReference', 'importAssetImage', 'readStoredImage', 'readStoredImageRecord', 'getImagePrompt', 'writeStoredImage']) {
         const execute = service[method];
-        const generation = method.startsWith('generate') || ['paintExpressionCaptions', 'paintWardrobeReference', 'writeWardrobePrompt'].includes(method);
+        const generation = method.startsWith('generate') || ['paintExpressionCaptions', 'paintDirectorExpressions', 'paintWardrobeReference', 'writeWardrobePrompt'].includes(method);
         service[method] = (...args) => {
             const objectInput = args[0] && typeof args[0] === 'object';
             const linked = linkRecoverySignals([objectInput && args[0].signal, recoveryController.signal]);

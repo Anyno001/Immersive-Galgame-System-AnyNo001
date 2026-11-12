@@ -268,7 +268,7 @@ export async function recoverOperation(execute, { signal, isActive = () => true,
 
 // 服务成功结果跨保存重试复用；读取不缓存，始终取最新状态。
 const GENERATED_STEPS = new Set(['generateCharacterSprite', 'generateCharacterAvatar', 'generateExpressionSet',
-    'generateExpressionImage', 'paintExpressionCaptions', 'generateSceneVariants', 'writeWardrobePrompt',
+    'generateExpressionImage', 'paintExpressionCaptions', 'paintDirectorExpressions', 'generateSceneVariants', 'writeWardrobePrompt',
     'paintWardrobeReference', 'importAssetImage', 'upload', 'importFile', 'generate', 'regenerate']);
 export function checkpointService(service, checkpoint, prefix = '') {
     if (!service) return service;
