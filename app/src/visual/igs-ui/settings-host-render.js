@@ -878,7 +878,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             };
         });
         // 阅读器打开方式：「界面 › 阅读器」和仪表盘共用这一段，同一个存储路径 bridge.openMode。
-        const openModeHtml = () => `<div class="igs-segmented-field igs-key-block">${field(
+        const openModeHtml = () => `<div class="igs-segmented-field igs-open-mode-field igs-key-block">${field(
             'bridge.openMode',
             '打开方式',
             segmentedInput(
