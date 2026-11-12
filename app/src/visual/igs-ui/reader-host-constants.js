@@ -419,6 +419,9 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'image-log-refresh',
             'image-log-copy',
             'image-log-clear',
+            'image-prompt-capture-copy-last',
+            'image-prompt-capture-copy-all',
+            'image-prompt-capture-clear',
         ]),
     }),
 });

@@ -456,6 +456,10 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-image-log-item.is-warn .igs-image-log-level{color:#c08a1e}
 .igs-image-log-item.is-error{background:rgba(214,69,69,.08)}
 .igs-image-log-item.is-error .igs-image-log-level{color:#d64545}
+.igs-prompt-capture-list{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.igs-prompt-capture-item{padding:4px 6px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);color:var(--igs-settings-ink)}
+.igs-prompt-capture-item summary{cursor:pointer;overflow-wrap:anywhere}
+.igs-prompt-capture-text{margin:6px 0 0;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,Consolas,monospace;line-height:1.5;user-select:text}
 .igs-image-log-empty{padding:10px 4px;opacity:.6}
 .igs-body-format textarea[data-path="bridge.virtualRegex.replacement"]{min-height:132px}
 .igs-settings-row{display:flex;gap:10px;align-items:center;min-width:0}

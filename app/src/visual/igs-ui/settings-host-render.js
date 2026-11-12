@@ -1,3 +1,4 @@
+import { formatCaptureTime, formatPromptCapture, listPromptCaptures, promptCaptureKindLabel } from '../../generated-images/image-prompt-capture.js';
 import { renderNaiQuota } from './settings-nai-quota.js';
 import { renderTtsVoiceLibrary } from './tts-voice-library-view.js';
 import { renderTtsVoicePoolGroups, ttsVoiceSelectInput } from './tts-voice-options.js';
@@ -447,6 +448,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 advancedImageLogOpen: advancedOpen('image-log-retain'),
                 imageLogStatus: esc(asyncState.imageLogStatus || ''),
                 imageLogList: page === 'logs' && !idx ? renderImageJobLogList() : '',
+                imagePromptCaptureStatus: esc(asyncState.imagePromptCaptureStatus || ''),
+                imagePromptCaptureList: page === 'logs' && !idx ? renderPromptCaptureList() : '',
                 imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
                 imageCompressionField: checkbox('bridge.imageCache.compressDisplay', bridge.imageCache?.compressDisplay !== false, '压缩显示图片（WebP）'),
                 ttsCacheField: field('readerSettings.tts.cacheMax', '朗读缓存保留条数', numberInput('readerSettings.tts.cacheMax', normalizeTtsSettings(reader && reader.tts).cacheMax, 0, TTS_CACHE_LIMIT)),
@@ -1194,6 +1197,16 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 recent: idx ? [] : loadSettingsRecent(storage),
             });
         }
+    }
+
+    function renderPromptCaptureList() {
+        const list = listPromptCaptures();
+        if (!list.length) return '<div class="igs-image-log-empty">暂无记录。内置通道发出生图请求后，完整请求会记录在这里。</div>';
+        return list.map((e) => {
+            const head = String(e.body?.input ?? e.body?.prompt ?? '').replace(/\s+/g, ' ').slice(0, 40);
+            const summary = [formatCaptureTime(e.at), promptCaptureKindLabel(e.kind), e.model || '未知', head].join(' · ');
+            return `<details class="igs-prompt-capture-item"><summary>${esc(summary)}</summary><pre class="igs-prompt-capture-text">${esc(formatPromptCapture(e))}</pre></details>`;
+        }).join('');
     }
 
     function renderImageJobLogList() {

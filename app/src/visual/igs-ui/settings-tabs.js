@@ -178,6 +178,17 @@ const IMAGE_LOGS_TEMPLATE = `
       <div class="igs-source-filter-grid">{{imageLogRetainDaysField}}{{imageLogMaxEntriesField}}</div>
     </details>
   </div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">提示词捕获</div>
+    <div class="igs-source-filter-note">记录每次发给NAI的完整请求，保留最近8条；数据库生图由插件发送，不在此记录。</div>
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="image-prompt-capture-copy-last" type="button">复制最近一条</button>
+      <button class="igs-settings-action" data-action="image-prompt-capture-copy-all" type="button">复制全部</button>
+      <button class="igs-settings-action" data-action="image-prompt-capture-clear" type="button">清空</button>
+    </div>
+    <div class="igs-settings-result" data-result="image-prompt-capture">{{imagePromptCaptureStatus}}</div>
+    <div class="igs-prompt-capture-list" data-image-prompt-capture-list>{{imagePromptCaptureList}}</div>
+  </div>
 </div>
 `.trim();
 

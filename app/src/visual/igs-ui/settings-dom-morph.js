@@ -81,10 +81,11 @@ function patchNode(cur, next, active) {
         if (cur !== active && cur.value !== next.textContent) cur.value = next.textContent;
         return;
     }
+    // 选中项要在合并前算：合并会把 next 的节点搬进页面，之后再数会少项错位。
+    const picked = tag === 'SELECT'
+        ? Array.from(next.querySelectorAll('option')).findIndex((option) => option.hasAttribute('selected')) : -1;
     patchChildren(cur, next, active);
     if (tag === 'SELECT') {
-        const options = Array.from(next.querySelectorAll('option'));
-        const picked = options.findIndex((option) => option.hasAttribute('selected'));
         const index = picked >= 0 ? picked : 0;
         if (cur.selectedIndex !== index) cur.selectedIndex = index;
     }

@@ -73,6 +73,7 @@ import { BGM_ACTION_RE, handleBgmSettingsAction } from './bgm-settings-actions.j
 import { deleteTavernFont, loadCustomFonts, pickFontFile, saveCustomFonts, uploadFontFile } from '../../media/custom-fonts.js';
 import { recoverMediaOperation } from '../../media/tavern-media-http.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
+import { clearPromptCaptures, formatAllPromptCaptures, formatPromptCapture, listPromptCaptures } from '../../generated-images/image-prompt-capture.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote } from '../../scene/asset-match.js';
 import { resolveCharacterDna, normalizeCharacterDna, normalizeCharacterDnaMap, readCharacterDnaView, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
@@ -929,6 +930,7 @@ const RISKY_ACTIONS = [
     ['live-platform-prompt-reset', () => '直播平台栏的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
+    ['image-prompt-capture-clear', () => '清空提示词捕获记录？'],
     ['purge-asset-cache', () => '清素材缓存？浏览器里缓存的图片与设置页缩略图都会清空；酒馆上的原图还在，下次查看会重新读取。'],
     ['image-cache-clear', () => '清空浏览器里缓存的图片？酒馆上的原图还在，下次查看会重新下载。'],
     ['mood-review-clear', () => '清空待确认的情绪词？'],
@@ -3489,6 +3491,32 @@ export async function handleSettingsAction(action, ctx) {
         settingsState.asyncState.imageModelsMessage = String(result.message || `已拉取${settingsState.draft.bridge.imageApi.availableModels.length}个模型。`);
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'image-prompt-capture-copy-last' || normalizedAction === 'image-prompt-capture-copy-all' || normalizedAction === 'image-prompt-capture-clear') {
+        const st = settingsState.asyncState;
+        if (normalizedAction === 'image-prompt-capture-clear') {
+            st.imagePromptCaptureStatus = `已清空${clearPromptCaptures().removed}条记录。`;
+        } else {
+            const list = listPromptCaptures();
+            const last = normalizedAction === 'image-prompt-capture-copy-last';
+            const text = !list.length ? '' : last ? formatPromptCapture(list[0]) : formatAllPromptCaptures(list);
+            const root = options.global || globalThis;
+            const clipboard = root && root.navigator && root.navigator.clipboard;
+            if (!text) {
+                st.imagePromptCaptureStatus = '暂无记录可复制。';
+            } else if (clipboard && typeof clipboard.writeText === 'function') {
+                try {
+                    await clipboard.writeText(text);
+                    st.imagePromptCaptureStatus = last ? '已复制最近一条到剪贴板。' : '已复制全部记录到剪贴板。';
+                } catch (error) {
+                    st.imagePromptCaptureStatus = '复制失败：浏览器拒绝访问剪贴板，可展开记录后手动选中复制。';
+                }
+            } else {
+                st.imagePromptCaptureStatus = '当前环境不支持剪贴板，可展开记录后手动选中复制。';
+            }
+        }
         return rerenderSettings();
     }
 

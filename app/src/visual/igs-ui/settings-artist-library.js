@@ -19,7 +19,7 @@ export function renderArtistSelector(nai, target = 'global', sourceMode = 'nai')
     const label = target === 'global' ? '全局画师串' : `${new Map(PROMPT_KINDS).get(target)}画师串`;
     const emptyLabel = target === 'global' ? (sourceMode === 'dbgen' ? '使用插件默认画师' : '不使用画师串') : '使用全局画师';
     return `<label class="igs-settings-field"><span>${esc(label)}</span><select data-artist-selection="${esc(target)}" aria-label="${esc(label)}">
-${custom ? '<option value="" selected disabled>当前已保存的画师串</option>' : ''}
+${custom ? '<option value="" selected disabled>不在库中的画师串</option>' : ''}
 ${options([['', emptyLabel], ...entries.map(entry => [entry.id, entry.name])], selected?.id || (custom ? null : ''))}
 </select></label>`;
 }
@@ -54,6 +54,33 @@ export function renderGlobalArtistRow(nai, sourceMode = 'nai', state = {}) {
         + `<div class="igs-settings-result" role="status" data-result="artist-library">${esc(library.ok ? (state.status || '') : library.reason)}</div>`;
 }
 
+function syncEditedArtist(nai, entry, values) {
+    const oldPos = entry.positivePrompt || '';
+    const oldNeg = entry.negativePrompt || '';
+    const extra = {};
+    let count = 0;
+    if (!oldPos && !oldNeg) return { extra, count };
+    const newPos = values.positivePrompt || '';
+    const newNeg = values.negativePrompt || '';
+    if (nai.artistPrefix === oldPos && (nai.artistNegativePrefix || '') === oldNeg) {
+        extra.artistPrefix = newPos;
+        extra.artistNegativePrefix = newNeg;
+        count += 1;
+    }
+    const artistByKind = normalizeArtistByKind(nai.artistByKind);
+    let kindChanged = false;
+    for (const kind of Object.keys(artistByKind.kinds)) {
+        const slot = artistByKind.kinds[kind];
+        if (slot.positive === oldPos && slot.negative === oldNeg) {
+            artistByKind.kinds[kind] = { positive: newPos, negative: newNeg };
+            kindChanged = true;
+            count += 1;
+        }
+    }
+    if (kindChanged) extra.artistByKind = artistByKind;
+    return { extra, count };
+}
+
 export async function handleArtistLibraryAction(action, ctx) {
     const { panel, dialogs, isCurrent, persistSettingsDraft } = ctx;
     const state = panel.asyncState.artistLibrary ||= {};
@@ -63,8 +90,8 @@ export async function handleArtistLibraryAction(action, ctx) {
     const verb = action.slice('artist-library:'.length);
     if (!current()) return stale();
     // 改完即保存，界面上不再单独放「保存」。
-    const commit = (value, status) => {
-        panel.draft.bridge.autoIllustration.nai = { ...nai, artistLibrary: value };
+    const commit = (value, status, extra = {}) => {
+        panel.draft.bridge.autoIllustration.nai = { ...nai, ...extra, artistLibrary: value };
         const saved = typeof persistSettingsDraft === 'function' ? persistSettingsDraft() : { ok: true };
         state.status = saved && saved.ok === false ? '正在自动恢复保存。' : status;
         return { ok: true };
@@ -102,7 +129,9 @@ export async function handleArtistLibraryAction(action, ctx) {
         }
         const saved = saveArtistEntry(nai.artistLibrary, { id: entryId, ...values }, { create: verb === 'create' });
         if (!saved.ok) return saved;
-        return commit(saved.value, verb === 'create' ? '已新建，可在各画师串下拉中选用。' : '已更新。');
+        if (verb === 'create') return commit(saved.value, '已新建，可在各画师串下拉中选用。');
+        const synced = syncEditedArtist(nai, entry, values);
+        return commit(saved.value, synced.count ? '已更新，正在使用这条的画师串已同步。' : '已更新。', synced.extra);
     }
     if (verb === 'import' || verb === 'import-text') {
         const file = verb === 'import-text'
