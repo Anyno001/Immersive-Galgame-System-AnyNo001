@@ -2077,8 +2077,9 @@ export function createAssetGenerationService(deps) {
         // 显式带「重绘模型」：否则发送时按 imageKind 取立绘分类模型，与能力检查用的全局模型不一致。
         const editModel = normalizeConsistencyModel(readSettings(signal).auto.consistencyModel);
         if (!isConsistencyModelValid(editModel)) return { ok: false, error: '重绘模型无效，请在「局部重绘」里重新选择' };
-        const seed = characterGenerationSeed(readSettings(signal).sceneAssets, name);
+        // 框外原图已锁长相，每档随机种子；DNA 只取触发词与身份，不带性格。
         const dnaParts = dna ? buildCharacterDnaPromptParts(dna) : { positive: '', negative: '' };
+        const dnaFace = dna ? (({ triggerWords, identity }) => mergePromptTags([triggerWords, identity]))(normalizeCharacterDna(dna)) : '';
         const items = [];
         let halted = false;
         for (let i = 0; i < plan.length; i += 1) {
@@ -2087,10 +2088,17 @@ export function createAssetGenerationService(deps) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: plan.length, mood });
             let painted;
             try {
-                const prompt = mergePromptTags(dnaParts.positive, `${emotion} expression`, extra, String(note || '').trim(), FACE_PRESERVE_TAGS);
+                const face = mergePromptTags(`${emotion} expression`, extra);
+                const rest = mergePromptTags(dnaFace, String(note || '').trim(), FACE_PRESERVE_TAGS);
+                const prompt = [`1.3::${face}::`, rest].filter(Boolean).join(', ');
+                const sentTitle = `脸部重绘发出去（${name}·${mood}）：模型 ${editModel}，强度 ${strength}`;
+                const sentParts = Math.max(1, Math.ceil(prompt.length / 520));
+                for (let k = 0; k < sentParts; k += 1) {
+                    report('info', `${sentParts === 1 ? sentTitle : `${sentTitle} ${k + 1}/${sentParts}`}
+${prompt.slice(k * 520, (k + 1) * 520)}`);
+                }
                 painted = await faceEditPaint({ sourceDataUrl, maskDataUrl, prompt, negative: dnaParts.negative, width: work, height: work,
                     strength, model: editModel, slotArtist: true, promptKind: 'expression', imageKind: 'sprite',
-                    ...(isImageSeed(seed) && { seed }),
                     ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
             } catch (error) { painted = { ok: false, error: (error && error.message) || '脸部重绘失败' }; }
             if (stopped()) painted = { ok: false, reason: 'stale-target', error: '目标已变化，未接收迟到图片' };
