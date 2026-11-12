@@ -49,7 +49,7 @@ import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
 import { createGenerationStrip } from './generation-strip.js';
 import { createMissedHint, detectMissedAssets } from './missed-assets.js';
 import { createStatsChip } from './stats-chip.js';
-import { cancelFxEffects, playStatsFeedbackWithHud } from './fx-runtime.js';
+import { cancelFxEffects, playExternalNotify, playStatsFeedbackWithHud } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
@@ -167,7 +167,7 @@ import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './l
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
-import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame, watchTitleEmbeddedFrame } from './reader-dom-render.js';
+import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame, applyFrameRadius, watchTitleEmbeddedFrame } from './reader-dom-render.js';
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 // 窄屏阅读模式一批里逐行推进：出字完等朗读起声（最多 LOG_TTS_START_MS）、念完（最多 LOG_TTS_MAX_MS），行间停 LOG_ROW_GAP_MS。
@@ -742,6 +742,15 @@ export function createIgsReaderHost(options = {}) {
             if (!overlay || !readerSettings) return false;
             const hud = snapshot.content && snapshot.content.statusHud;
             return playStatsFeedbackWithHud(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
+        },
+        // 对外通知卡（IGS.api.notify.show）：阅读器没开直接返回，不排队、不补播。
+        playExternalNotify(message) {
+            const current = state.activeReader;
+            const snapshot = current && current.snapshot;
+            const overlay = current && current.dom && current.dom.overlay;
+            const readerSettings = snapshot && snapshot.readerSettings;
+            if (!overlay || !readerSettings) return { played: 0, reason: 'reader-closed' };
+            return playExternalNotify(overlay, message, { readerSettings, reducedMotion: prefersReducedMotion() });
         },
         getReaderSnapshotContract() {
             return {
@@ -1886,6 +1895,7 @@ export function createIgsReaderHost(options = {}) {
         } else if (current.snapshot) {
             const reader = current.snapshot.readerSettings || {};
             pinEmbeddedHostFrame(current.dom.overlay, reader._cgBackgroundSize, current.snapshot.mode, reader.embeddedHeight);
+            applyFrameRadius(current.dom.overlay, reader.frameRadius);
         }
     }
 
@@ -5219,6 +5229,8 @@ ${row.key}`;
         });
         const keydownHandler = (event) => {
             // 全屏阅读器里的 Esc 归 IGS：酒馆在 document 上把 Esc 当「中止生成」，不能让它冒泡过去。
+            // 全屏留输入框：焦点在酒馆输入区时，按键全部归酒馆。
+            if (state.activeReader && state.activeReader.mode === 'dock' && event.target?.closest?.('#form_sheld')) return;
             if (event.key === 'Escape' && state.activeReader && !isEmbeddedReaderMode(state.activeReader.mode)) {
                 claimReaderEscape(event);
             }
@@ -6058,6 +6070,7 @@ ${row.key}`;
         // 主界面盖着时不走正文渲染，原地切到内嵌的 overlay 拿不到内嵌类名，钉框会直接跳过。
         if (isEmbeddedReaderMode(snapshot.mode) && overlay.classList) overlay.classList.add('igs-mode-embedded');
         pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
+        applyFrameRadius(overlay, snapshot.readerSettings && snapshot.readerSettings.frameRadius);
         if (!current.stopTitleFrameWatch && isEmbeddedReaderMode(snapshot.mode)) {
             current.stopTitleFrameWatch = watchTitleEmbeddedFrame(overlay, () => {
                 const live = current.snapshot;

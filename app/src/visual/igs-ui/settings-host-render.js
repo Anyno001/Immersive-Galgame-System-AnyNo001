@@ -38,7 +38,7 @@ import { renderModelProfileRow } from './settings-model-profiles.js';
 import { normalizeSettingsTheme, renderSettingsThemeSwitch } from './settings-theme.js';
 import { fontOptionsWith, loadCustomFonts, registerCustomFonts } from '../../media/custom-fonts.js';
 import { DIALOG_FONT_OPTIONS, PROMPT_RULE_OFF_HINT, PROMPT_RULE_PRESET_HINT, scenePromptRuleOutfitHint, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT } from './reader-host-constants.js';
-import { PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
+import { FRAME_RADIUS_CHOICES, PUBLIC_READER_MODES, getReaderModeLabel } from '../../schemas/reader-mode.js';
 import { esc, toHex } from './reader-value-utils.js';
 
 import { normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale } from './settings-normalize.js';
@@ -887,7 +887,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 PUBLIC_READER_MODES.map((id) => [id, getReaderModeLabel(id), getReaderModeIcon(id)]),
                 '打开方式',
             ),
-        )}</div>${bridge.openMode === 'embedded' ? field('readerSettings.embeddedHeight', '内嵌高度', selectInput('readerSettings.embeddedHeight', reader.embeddedHeight ?? 1, [[0.8, '矮'], [1, '标准'], [1.25, '高'], [1.5, '更高']])) : ''}`;
+        )}</div>${bridge.openMode === 'embedded' ? field('readerSettings.embeddedHeight', '内嵌高度', selectInput('readerSettings.embeddedHeight', reader.embeddedHeight ?? 1, [[0.8, '矮'], [1, '标准'], [1.25, '高'], [1.5, '更高']])) : ''}${['pc', 'mobile', 'embedded'].includes(bridge.openMode) ? field('readerSettings.frameRadius', '外框圆角', selectInput('readerSettings.frameRadius', reader.frameRadius ?? 'null', [['null', '默认'], ...FRAME_RADIUS_CHOICES.map((n) => [n, n ? `${n}px` : '直角'])])) : ''}`;
         const getReaderValues = memo(() => {
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
         const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;

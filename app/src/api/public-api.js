@@ -56,6 +56,15 @@ export function createPublicApi(app) {
         },
     };
     groupedApi.stats = statsApi;
+    // 对外播手机通知卡：只播演出，不写正文与聊天数据；阅读器没开不播；同步返回，异常吞掉。
+    groupedApi.notify = {
+        show(message) {
+            try {
+                const result = app.notifyPlayer && typeof app.notifyPlayer.show === 'function' ? app.notifyPlayer.show({ sender: message && message.sender, text: message && message.text }) : null;
+                return result && Number(result.played) > 0 ? { played: Number(result.played) } : { played: 0, ...(result && result.reason ? { reason: String(result.reason) } : {}) };
+            } catch (error) { return { played: 0 }; }
+        },
+    };
     groupedApi.version = DLC_API_VERSION;
     const igsCompatApi = createIgsCompatApi(app);
 

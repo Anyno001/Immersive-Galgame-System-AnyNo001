@@ -4,7 +4,7 @@ export function getResponsiveLayout(viewport, settings = {}) {
     const isLandscape = width > height;
     const mode = settings.mode || 'pc';
 
-    if ((mode === 'web' || mode === 'fullscreen') && settings.isMobile && isLandscape) {
+    if ((mode === 'web' || mode === 'dock' || mode === 'fullscreen') && settings.isMobile && isLandscape) {
         return 'mobile-landscape';
     }
 

@@ -143,3 +143,15 @@ test('返回对象是新对象：修改结果不影响下一次调用', () => {
     assert.equal(second[0].messages.length, 2);
     assert.equal(second[0].messages[1].text, '你好');
 });
+
+test('IGS.api.notify.show：阅读器关闭不播，回调抛错与空注入返回 played 0，正常转发', () => {
+    assert.deepEqual(createPublicApi({ version: 'test' }).api.notify.show({ sender: 'a', text: 'b' }), { played: 0 });
+    const closed = createPublicApi({ version: 'test', notifyPlayer: { show: () => ({ played: 0, reason: 'reader-closed' }) } }).api;
+    assert.deepEqual(closed.notify.show({ sender: 'a', text: 'b' }), { played: 0, reason: 'reader-closed' });
+    const bad = createPublicApi({ version: 'test', notifyPlayer: { show: () => { throw new Error('x'); } } }).api;
+    assert.deepEqual(bad.notify.show({ text: 'b' }), { played: 0 });
+    const seen = [];
+    const ok = createPublicApi({ version: 'test', notifyPlayer: { show: (m) => { seen.push(m); return { played: 1 }; } } }).api;
+    assert.deepEqual(ok.notify.show({ sender: 'a', text: 'b', extra: 1 }), { played: 1 });
+    assert.deepEqual(seen, [{ sender: 'a', text: 'b' }]);
+});

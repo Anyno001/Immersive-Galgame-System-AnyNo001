@@ -7,7 +7,7 @@ import { composeStatsHud, dropUserFavor, protagonistStatMetrics, overlayStatsMet
 import { buildStatsPrompt } from '../src/scene/stats/stat-prompt.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
-import { applyFxToDom, cancelFxEffects, playStatsFeedback, playStatsFeedbackWithHud } from '../src/visual/igs-ui/fx-runtime.js';
+import { applyFxToDom, cancelFxEffects, playStatsFeedback, playStatsFeedbackWithHud, playExternalNotify } from '../src/visual/igs-ui/fx-runtime.js';
 import { createStatsLedger, currentStatsState, deleteFloorsFrom } from '../src/scene/stats/stat-ledger.js';
 import { settleFloor } from '../src/scene/stats/stat-ledger-settle.js';
 import { FakeEl, makeStage, makeTimers } from './helpers/fake-dom.js';
@@ -445,3 +445,17 @@ async function segmentedExchange(h) {
         lock: task => h.services.withPointsLock(task), wallet: () => h.services.readSharedPoints() });
 }
 
+
+// ---------- 对外通知卡 ----------
+test('外部通知卡：空文本不播，正常播出带发件人与截断文本', () => {
+    const root = makeStage();
+    const timers = makeTimers();
+    const opts = { readerSettings: { fxTags: { enabled: true, notify: true } }, schedule: timers.schedule, clear: timers.clear, reducedMotion: false };
+    assert.deepEqual(playExternalNotify(root, { sender: '小雪', text: '  ' }, opts), { played: 0 });
+    assert.deepEqual(playExternalNotify(root, { sender: '小雪', text: '到楼下了'.repeat(40) }, opts), { played: 1 });
+    const card = root.querySelector('.igs-fx-notify');
+    assert.ok(card);
+    assert.equal(card.querySelector('.igs-fx-notify-sender').textContent, '小雪');
+    assert.equal(Array.from(card.querySelector('.igs-fx-notify-text').textContent).length, 80);
+    cancelFxEffects(root);
+});

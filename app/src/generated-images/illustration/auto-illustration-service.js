@@ -171,9 +171,9 @@ export function readCgViewport(globalObject, mode) {
             ...(mode === 'embedded' && { frame: { width: hostWidth, height: hostHeight } }) };
     }
     const view = windowViewport(globalObject, portrait);
-    // 电脑、手机悬浮窗可以拖四角改尺寸，画面框量的是悬浮窗本身。
-    const stage = (mode === 'pc' || mode === 'mobile') && doc && typeof doc.querySelector === 'function'
-        ? doc.querySelector('.igs-stage.igs-floating') : null;
+    // 电脑、手机悬浮窗可以拖四角改尺寸，全屏留输入框要扣掉输入区，画面框都量阅读器本身。
+    const stageSelector = mode === 'pc' || mode === 'mobile' ? '.igs-stage.igs-floating' : mode === 'dock' ? '.igs-stage.igs-mode-dock' : '';
+    const stage = stageSelector && doc && typeof doc.querySelector === 'function' ? doc.querySelector(stageSelector) : null;
     const stageRect = stage && typeof stage.getBoundingClientRect === 'function' ? stage.getBoundingClientRect() : null;
     const stageW = stageRect ? Number(stageRect.width) : 0;
     const stageH = stageRect ? Number(stageRect.height) : 0;

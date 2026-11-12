@@ -127,7 +127,8 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;height:100dvh;z-index:900;background:var(--igs-empty-bg,#16181a);overflow:hidden;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:#d8d5cf;--igs-empty-bg:#16181a;--igs-glass-fill-alpha:.62;--igs-glass-density:.62;--igs-glass-opacity:.62;--igs-transparent-glass-bg:rgba(31,34,37,.62);--igs-glass-bg:var(--igs-transparent-glass-bg);--igs-glass-border:rgba(207,204,198,.08);--igs-glass-blur:none;--igs-glass-radius:8px;--igs-glass-shadow:none;--igs-choice-soft-shadow:none;--igs-dialog-bg:var(--igs-glass-bg);--igs-dialog-border:transparent;--igs-dialog-blur:var(--igs-glass-blur);--igs-dialog-radius:8px;--igs-dialog-shadow:none;--igs-toolbar-bg:var(--igs-glass-bg);--igs-toolbar-border:var(--igs-glass-border);--igs-toolbar-blur:var(--igs-glass-blur);--igs-toolbar-radius:8px;--igs-toolbar-shadow:none;--igs-choice-bg:var(--igs-glass-bg);--igs-choice-border:rgba(207,204,198,.08);--igs-choice-blur:var(--igs-glass-blur);--igs-choice-radius:6px;--igs-choice-shadow:none;--igs-db-bg:var(--igs-glass-bg);--igs-db-border:var(--igs-glass-border);--igs-db-blur:var(--igs-glass-blur);--igs-db-head-bg:var(--igs-db-bg);--igs-db-head-blur:var(--igs-db-blur);--igs-db-radius:var(--igs-glass-radius);--igs-db-shadow:none;--igs-toolbar-h:50px;}
 #igs-overlay,#igs-overlay *{scrollbar-width:none;-ms-overflow-style:none;}
 #igs-overlay ::-webkit-scrollbar{display:none;width:0;height:0;}
-#igs-overlay.igs-floating,#igs-overlay.igs-mode-web,#igs-overlay.igs-mode-fullscreen{z-index:2147483000;}
+#igs-overlay.igs-floating,#igs-overlay.igs-mode-web,#igs-overlay.igs-mode-dock,#igs-overlay.igs-mode-fullscreen{z-index:2147483000;}
+#igs-overlay.igs-mode-dock{bottom:auto;}
 #igs-overlay.igs-fading{opacity:0;transition:opacity .25s;}
 #igs-overlay.igs-cinema-bars #igs-stage-motion::before,#igs-overlay.igs-cinema-bars #igs-stage-motion::after{content:"";position:absolute;left:0;right:0;height:var(--igs-cinema-bar,10%);background:#000;z-index:1;pointer-events:none;}
 #igs-overlay.igs-cinema-bars #igs-stage-motion::before{top:0;}
@@ -262,9 +263,9 @@ const ORIGINAL_READER_STYLE_TEXT = `
 #igs-overlay.igs-floating .igs-dialog.igs-hidden{transform:translateY(20px);}
 #igs-overlay.igs-floating-mobile .igs-dialog{left:10px;right:10px;bottom:12px;max-height:none;padding:6px 14px 12px;}
 #igs-overlay.igs-floating-mobile .igs-dialog[data-igs-narration="1"]{padding-top:11px;}
-#igs-overlay.igs-mode-web .igs-dialog,#igs-overlay.igs-mode-fullscreen .igs-dialog{box-sizing:border-box;display:flex;flex-direction:column;max-height:none;overflow:hidden;}
-#igs-overlay.igs-mode-web .igs-text,#igs-overlay.igs-mode-fullscreen .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
-#igs-overlay.igs-mode-web .igs-progress,#igs-overlay.igs-mode-web .igs-speaker,#igs-overlay.igs-mode-web .igs-divider,#igs-overlay.igs-mode-web .igs-controls,#igs-overlay.igs-mode-fullscreen .igs-progress,#igs-overlay.igs-mode-fullscreen .igs-speaker,#igs-overlay.igs-mode-fullscreen .igs-divider,#igs-overlay.igs-mode-fullscreen .igs-controls{flex-shrink:0;}
+#igs-overlay.igs-mode-web .igs-dialog,#igs-overlay.igs-mode-dock .igs-dialog,#igs-overlay.igs-mode-fullscreen .igs-dialog{box-sizing:border-box;display:flex;flex-direction:column;max-height:none;overflow:hidden;}
+#igs-overlay.igs-mode-web .igs-text,#igs-overlay.igs-mode-dock .igs-text,#igs-overlay.igs-mode-fullscreen .igs-text{min-height:0;overflow-y:auto;flex:1 1 auto;}
+#igs-overlay.igs-mode-dock .igs-progress,#igs-overlay.igs-mode-dock .igs-speaker,#igs-overlay.igs-mode-dock .igs-divider,#igs-overlay.igs-mode-web .igs-progress,#igs-overlay.igs-mode-web .igs-speaker,#igs-overlay.igs-mode-web .igs-divider,#igs-overlay.igs-mode-web .igs-controls,#igs-overlay.igs-mode-fullscreen .igs-progress,#igs-overlay.igs-mode-fullscreen .igs-speaker,#igs-overlay.igs-mode-fullscreen .igs-divider,#igs-overlay.igs-mode-fullscreen .igs-controls{flex-shrink:0;}
 #igs-overlay.igs-floating #igs-toolbar-layer{left:12px;right:12px;bottom:14px;width:auto;transform:none;}
 #igs-overlay.igs-floating-mobile #igs-toolbar-layer{left:10px;right:10px;bottom:12px;}
 .igs-ctrl-bar{position:absolute;top:-50px;right:0;display:flex;align-items:flex-start;gap:6px;z-index:5;padding:6px;background:var(--igs-toolbar-bg,var(--igs-glass-bg,rgba(20,20,22,.62)));border:1px solid var(--igs-toolbar-border,rgba(255,255,255,.14));-webkit-backdrop-filter:var(--igs-toolbar-blur,none);backdrop-filter:var(--igs-toolbar-blur,none);border-radius:var(--igs-toolbar-radius,18px);box-shadow:var(--igs-toolbar-shadow,0 4px 24px rgba(0,0,0,.20));pointer-events:auto;transition:opacity .3s;}
@@ -348,11 +349,11 @@ ${TOAST_THEME_STYLE_TEXT}
 /* 触屏（手机、平板）：工具栏图标外观不变，可点范围上下撑到 44px，手指不用对准那 32px。 */
 @media (pointer:coarse){#igs-overlay .igs-ctrl-bar .igs-icon-btn{position:relative;}#igs-overlay .igs-ctrl-bar .igs-icon-btn::after{content:"";position:absolute;left:0;right:0;top:50%;height:max(100%,44px);transform:translateY(-50%);}}
 /* 楼层内嵌：容器固定高度、不可拖动、不锁页面滚动，全部层约束在容器内。 */
-.igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:8px;overflow:hidden;isolation:isolate;background:#16181a;overscroll-behavior:auto;touch-action:pan-y;}
+.igs-embedded-host{position:relative;display:block;width:100%;margin:8px 0;border-radius:var(--igs-frame-radius,8px);overflow:hidden;isolation:isolate;background:#16181a;overscroll-behavior:auto;touch-action:pan-y;}
 .igs-parallel-blocks{display:block;width:100%;margin:8px 0 0;position:relative;}
 .igs-embedded-root{position:relative;width:100%;height:100%;overflow:hidden;}
 .igs-embedded-host[data-igs-embedded-loading="1"]{display:flex;align-items:center;justify-content:center;}
-#igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:6px;overscroll-behavior:auto;touch-action:pan-y;}
+#igs-overlay.igs-mode-embedded{position:relative;inset:auto;width:100%;height:100%;z-index:1;border-radius:var(--igs-frame-radius,6px);overscroll-behavior:auto;touch-action:pan-y;}
 .igs-mode-embedded .igs-dialog{box-sizing:border-box;left:12px;right:12px;bottom:14px;width:auto;height:auto;min-height:0;max-height:calc(100% - 28px);transform:none;display:flex;flex-direction:column;overflow:hidden;padding:9px 18px 14px;}
 .igs-mode-embedded .igs-dialog[data-igs-narration="1"]{padding-top:14px;}
 .igs-mode-embedded .igs-text{min-height:0;overflow-y:auto;margin-bottom:12px;flex:1 1 auto;}

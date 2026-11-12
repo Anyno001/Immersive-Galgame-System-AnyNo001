@@ -40,6 +40,10 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
         applyWebReaderRuntime(root, runtime);
         return;
     }
+    if (snapshot.mode === 'dock') {
+        applyDockReaderRuntime(root, runtime);
+        return;
+    }
     if (snapshot.mode === 'fullscreen') {
         applyFullscreenReaderRuntime(root, current, runtime, ctx);
     }
@@ -124,7 +128,7 @@ function applyInlineReaderRuntime(root, mode, runtime, current) {
     root.style.zIndex = '2147483000';
     root.style.width = mode === 'pc' ? 'min(900px,calc(100vw - 32px))' : 'min(480px,calc(100vw - 32px))';
     root.style.height = mode === 'pc' ? 'min(540px,calc(100dvh - 32px))' : 'min(680px,calc(100dvh - 32px))';
-    root.style.borderRadius = mode === 'pc' ? '18px' : '22px';
+    root.style.borderRadius = mode === 'pc' ? 'var(--igs-frame-radius,18px)' : 'var(--igs-frame-radius,22px)';
     root.style.boxShadow = '0 20px 64px rgba(0,0,0,0.42)';
     root.style.overflow = 'hidden';
 
@@ -508,6 +512,39 @@ function applyWebReaderRuntime(root, runtime) {
         doc.body.style.top = savedBody.top;
         doc.documentElement.style.overflow = savedHtmlOverflow;
         if (typeof win.scrollTo === 'function') win.scrollTo(0, savedScrollY);
+    });
+}
+
+// 全屏留输入框：阅读器从页顶铺到酒馆输入区（#form_sheld，含 QR 栏）上沿，下方露出酒馆自己的输入框。
+// 键盘弹起、QR 栏换行时跟着输入区上沿重新量。
+function applyDockReaderRuntime(root, runtime) {
+    const win = runtime.win || {};
+    const doc = runtime.doc;
+    if (!doc || !root || !root.style) return;
+    const form = typeof doc.getElementById === 'function' ? doc.getElementById('form_sheld') : null;
+    const sync = () => {
+        const viewH = Number(win.visualViewport && win.visualViewport.height) || Number(win.innerHeight) || 0;
+        const rect = form && typeof form.getBoundingClientRect === 'function' ? form.getBoundingClientRect() : null;
+        const formTop = rect && rect.height > 0 && rect.top > 0 ? rect.top : viewH;
+        const height = Math.max(0, Math.round(Math.min(formTop, viewH || formTop)));
+        if (height > 0) root.style.height = `${height}px`;
+        syncOrientationClass(root, win);
+    };
+    sync();
+    if (win.visualViewport) {
+        addEventListenerWithCleanup(win.visualViewport, 'resize', sync, runtime);
+        addEventListenerWithCleanup(win.visualViewport, 'scroll', sync, runtime);
+    }
+    addEventListenerWithCleanup(win, 'resize', sync, runtime);
+    addEventListenerWithCleanup(win, 'orientationchange', sync, runtime);
+    const Observer = win.ResizeObserver;
+    if (form && typeof Observer === 'function') {
+        const observer = new Observer(sync);
+        observer.observe(form);
+        addRuntimeCleanup(runtime, () => observer.disconnect());
+    }
+    addRuntimeCleanup(runtime, () => {
+        root.style.height = '';
     });
 }
 
