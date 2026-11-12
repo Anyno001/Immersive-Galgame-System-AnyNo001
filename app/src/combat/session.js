@@ -1573,7 +1573,10 @@ export function createCombatSession(options = {}) {
             }
             return deliverReportOnce(report);
         };
-        return paid.length && typeof ledger?.withPointsLock === 'function' ? ledger.withPointsLock(deliver) : deliver();
+        if (!paid.length || typeof ledger?.withPointsLock !== 'function') return deliver();
+        // 上次积分写入没落完会留待补记录，花积分前先补完；必须在积分锁外调用，补写自己也要拿这把锁。
+        const recover = typeof options.pointsRecover === 'function' ? Promise.resolve(options.pointsRecover()).catch(() => null) : Promise.resolve();
+        return recover.then(() => ledger.withPointsLock(deliver));
     }
     async function deliverReportOnce(report) {
         const existing = findReportFloor(getChat(), current.anchor.messageId, report.reportId);

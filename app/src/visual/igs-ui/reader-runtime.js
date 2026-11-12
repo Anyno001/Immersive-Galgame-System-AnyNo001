@@ -6,11 +6,13 @@ import { installReaderFullscreen, exitDocumentFullscreen } from './reader-fullsc
 export { exitDocumentFullscreen } from './reader-fullscreen.js';
 
 export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
-    if (current.runtime && current.runtime.mode === snapshot.mode && current.runtime.root === root) {
+    const cover = snapshot.mode === 'dock' && Boolean(snapshot.readerSettings && snapshot.readerSettings.dockCoverStatusBar);
+    if (current.runtime && current.runtime.mode === snapshot.mode && current.runtime.root === root && Boolean(current.runtime.cover) === cover) {
         return;
     }
     const prevMode = current.runtime && current.runtime.mode;
-    if (prevMode === 'fullscreen' && snapshot.mode !== 'fullscreen') {
+    const prevNative = prevMode === 'fullscreen' || Boolean(current.runtime && current.runtime.cover);
+    if (prevNative && snapshot.mode !== 'fullscreen' && !cover) {
         exitDocumentFullscreen(current.runtime.doc);
     }
     clearReaderModeRuntime(current);
@@ -22,6 +24,7 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     const runtime = {
         cleanup: [],
         mode: snapshot.mode,
+        cover,
         win,
         doc,
         root,
@@ -516,7 +519,7 @@ function applyWebReaderRuntime(root, runtime) {
 }
 
 // 全屏留输入框：阅读器从页顶铺到酒馆输入区（#form_sheld，含 QR 栏）上沿，下方露出酒馆自己的输入框。
-// 键盘弹起、QR 栏换行时跟着输入区上沿重新量。
+// 键盘弹起、QR 栏换行时跟着输入区上沿重新量。勾选「盖住手机状态栏」时整页进浏览器全屏，输入区仍留在底部。
 function applyDockReaderRuntime(root, runtime) {
     const win = runtime.win || {};
     const doc = runtime.doc;
@@ -546,6 +549,7 @@ function applyDockReaderRuntime(root, runtime) {
     addRuntimeCleanup(runtime, () => {
         root.style.height = '';
     });
+    if (runtime.cover) addRuntimeCleanup(runtime, installReaderFullscreen(runtime, sync));
 }
 
 // iPad / 安卓平板点输入框时，系统把布局视口往上卷来露出输入框，贴在 top:0 的整层阅读器就被顶出屏幕。

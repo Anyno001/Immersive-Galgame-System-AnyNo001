@@ -887,7 +887,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 PUBLIC_READER_MODES.map((id) => [id, getReaderModeLabel(id), getReaderModeIcon(id)]),
                 '打开方式',
             ),
-        )}</div>${bridge.openMode === 'embedded' ? field('readerSettings.embeddedHeight', '内嵌高度', selectInput('readerSettings.embeddedHeight', reader.embeddedHeight ?? 1, [[0.8, '矮'], [1, '标准'], [1.25, '高'], [1.5, '更高']])) : ''}${['pc', 'mobile', 'embedded'].includes(bridge.openMode) ? field('readerSettings.frameRadius', '外框圆角', selectInput('readerSettings.frameRadius', reader.frameRadius ?? 'null', [['null', '默认'], ...FRAME_RADIUS_CHOICES.map((n) => [n, n ? `${n}px` : '直角'])])) : ''}`;
+        )}</div>${bridge.openMode === 'embedded' ? field('readerSettings.embeddedHeight', '内嵌高度', selectInput('readerSettings.embeddedHeight', reader.embeddedHeight ?? 1, [[0.8, '矮'], [1, '标准'], [1.25, '高'], [1.5, '更高']])) : ''}${bridge.openMode === 'dock' ? checkbox('readerSettings.dockCoverStatusBar', reader.dockCoverStatusBar, '盖住手机状态栏') : ''}${['pc', 'mobile', 'embedded'].includes(bridge.openMode) ? field('readerSettings.frameRadius', '外框圆角', selectInput('readerSettings.frameRadius', reader.frameRadius ?? 'null', [['null', '默认'], ...FRAME_RADIUS_CHOICES.map((n) => [n, n ? `${n}px` : '直角'])])) : ''}`;
         const getReaderValues = memo(() => {
         const sceneEnabled = !!(bridge.sceneAssets && bridge.sceneAssets.enabled);
         const classicDialog = reader.dialogSkin === DIALOG_SKIN_WESTERN_CLASSIC;

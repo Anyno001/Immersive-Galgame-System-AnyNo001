@@ -112,6 +112,8 @@ const REASON_TEXT = Object.freeze({
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
     'combat-points-insufficient': '积分不足',
+    'points-intent-pending': '上一笔积分还没记完，请稍后重新发送',
+    'points-settlement-pending': '有积分操作尚未确认，请稍后重新发送',
     'combat-card-upgrade-none': '卡组里没有可升级的牌',
     'combat-card-upgrade-used': '本场已升级',
     'combat-card-upgrade-expired': '升级机会已过期',

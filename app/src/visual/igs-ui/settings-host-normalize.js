@@ -290,6 +290,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         spriteDisplayScale: 100,
         showStatusLine: false,
         dblclickCgOnly: false,
+        dockCoverStatusBar: false,
         titleScreen: true,
         resumePrompt: 'title',
         dialogAutoHeight: false,
@@ -368,6 +369,7 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
     normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
     normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
+    normalized.dockCoverStatusBar = normalizeBoolean(normalized.dockCoverStatusBar, false);
     normalized.titleScreen = normalizeBoolean(normalized.titleScreen, true);
     normalized.resumePrompt = normalized.resumePrompt === 'simple' ? 'simple' : 'title';
     normalized.dialogAutoHeight = normalizeBoolean(normalized.dialogAutoHeight, false);
