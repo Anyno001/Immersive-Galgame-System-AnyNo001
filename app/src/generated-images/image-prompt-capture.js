@@ -74,6 +74,40 @@ export function capturePrompt(wire, meta = {}) {
     return entry;
 }
 
+// 从 NAI 返回的 PNG（data URL）里读 tEXt「Source」，如「NovelAI Diffusion V5 DB276663」；末尾哈希就是服务端实际模型版本。
+export function readNaiSourceTag(dataUrl) {
+    try {
+        const m = /^data:image\/png;base64,(.*)$/s.exec(String(dataUrl || ''));
+        if (!m) return '';
+        const bin = atob(m[1].slice(0, 400000));
+        let pos = 8;
+        while (pos + 8 <= bin.length) {
+            const len = ((bin.charCodeAt(pos) << 24) | (bin.charCodeAt(pos + 1) << 16) | (bin.charCodeAt(pos + 2) << 8) | bin.charCodeAt(pos + 3)) >>> 0;
+            const type = bin.slice(pos + 4, pos + 8);
+            if (type === 'IDAT' || type === 'IEND') break;
+            if (type === 'tEXt') {
+                const data = bin.slice(pos + 8, pos + 8 + len);
+                const sep = data.indexOf('\0');
+                if (sep > 0 && data.slice(0, sep) === 'Source') return data.slice(sep + 1).trim();
+            }
+            pos += 12 + len;
+        }
+    } catch { /* 读不到就留空。 */ }
+    return '';
+}
+
+// 出图返回后补记服务端模型版本；找不到对应记录就忽略。
+export function attachPromptCaptureResult(entry, dataUrl) {
+    if (!entry || !dataUrl) return;
+    const source = readNaiSourceTag(dataUrl);
+    if (!source) return;
+    const target = load().find((e) => e.id === entry.id);
+    if (!target) return;
+    target.serverModel = source;
+    persist();
+    notify();
+}
+
 export function listPromptCaptures() {
     return [...load()].reverse();
 }
@@ -104,7 +138,8 @@ export function formatCaptureTime(at) {
 export function formatPromptCapture(entry) {
     const body = entry?.body || {};
     const p = body.parameters || {};
-    const lines = [`时间：${formatCaptureTime(entry.at)}`, `类型：${promptCaptureKindLabel(entry.kind)}`, `模型：${entry.model || '未知'}`];
+    const lines = [`时间：${formatCaptureTime(entry.at)}`, `类型：${promptCaptureKindLabel(entry.kind)}`, `模型：${entry.model || '未知'}`,
+        `服务端模型版本：${entry.serverModel || '未读到（出图失败、尚未返回或中转去掉了图片信息）'}`];
     const width = p.width ?? body.width;
     const height = p.height ?? body.height;
     if (width && height) lines.push(`尺寸：${width}x${height}`);

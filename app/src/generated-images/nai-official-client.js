@@ -1,4 +1,4 @@
-import { capturePrompt } from './image-prompt-capture.js';
+import { attachPromptCaptureResult, capturePrompt } from './image-prompt-capture.js';
 import { parseImageResponse } from './image-api-client.js';
 import { buildNaiV4Request, validateNaiV4Request, NAI_DEFAULT_SETTINGS, NAI_OFFICIAL_ENDPOINT } from './request-builders/nai-v4-builder.js';
 import { promptFromNaiBody } from './generation-prompt.js';
@@ -168,8 +168,9 @@ export function createNaiOfficialClient(deps = {}) {
         const p = body?.parameters || {};
         const director = body?.req_type ? `导演工具 ${body.req_type} ${body.width}x${body.height}` : '';
         const wire = foldCharsForRelay(body, inputSettings);
+        let captured = null;
         try {
-            capturePrompt(wire, { endpointKind: inputSettings.endpoint && !isOfficialNaiEndpoint(inputSettings.endpoint) ? '中转' : '官网', transport });
+            captured = capturePrompt(wire, { endpointKind: inputSettings.endpoint && !isOfficialNaiEndpoint(inputSettings.endpoint) ? '中转' : '官网', transport });
         } catch { /* 捕获失败不影响出图。 */ }
         const timing = { queuedAt: Date.now(), params: director || `${body?.model || '?'} ${p.width}x${p.height} ${p.steps}步 采样${p.sampler}`
             + `${p.straight_alpha ? ' 透明底' : ''} 角色段${p.v4_prompt?.caption?.char_captions?.length || 0}`
@@ -201,6 +202,9 @@ export function createNaiOfficialClient(deps = {}) {
             }, { ...settings, wasSent: () => settings.cloudSent === true, priority: inputSettings.priority });
             timing.doneAt = Date.now();
             if (result && typeof result === 'object') result.timing = timing;
+            if (result?.ok && result.dataUrl) {
+                try { attachPromptCaptureResult(captured, result.dataUrl); } catch { /* 读版本失败不影响出图。 */ }
+            }
             return allowed(settings) ? result : stale();
         } finally {
             clearTimeout(timer);

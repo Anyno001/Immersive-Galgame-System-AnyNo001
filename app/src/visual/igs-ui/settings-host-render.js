@@ -1204,7 +1204,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         if (!list.length) return '<div class="igs-image-log-empty">暂无记录。内置通道发出生图请求后，完整请求会记录在这里。</div>';
         return list.map((e) => {
             const head = String(e.body?.input ?? e.body?.prompt ?? '').replace(/\s+/g, ' ').slice(0, 40);
-            const summary = [formatCaptureTime(e.at), promptCaptureKindLabel(e.kind), e.model || '未知', head].join(' · ');
+            const version = String(e.serverModel || '').replace(/^NovelAI Diffusion\s*/i, '');
+            const summary = [formatCaptureTime(e.at), promptCaptureKindLabel(e.kind), e.model || '未知', version, head].filter(Boolean).join(' · ');
             return `<details class="igs-prompt-capture-item"><summary>${esc(summary)}</summary><pre class="igs-prompt-capture-text">${esc(formatPromptCapture(e))}</pre></details>`;
         }).join('');
     }
