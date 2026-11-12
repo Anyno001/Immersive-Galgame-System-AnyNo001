@@ -422,6 +422,7 @@ async function paintThenWriteExpressions({ service, name, paintItems, writeLabel
         : null;
     if (paint && !paint.ok) return paint;
     if (paint && (paint.stopped || (signal && signal.aborted))) return paint;
+    if (!writeLabels.length) return paint || { ok: true, items: [] };
     const written = await service.generateExpressionSet({ name, basePrompt, moods: writeLabels, dna, outfit, note, nsfw, onProgress, signal,
         ...(shouldStart && { shouldStart }), ...(onOutfitDna && { onOutfitDna }) });
     if (!paint) return written;
@@ -2070,12 +2071,15 @@ export async function handleSettingsAction(action, ctx) {
         // 导演工具的底图：先取「默认」，没有再取「平和」；底图自己重画时不能拿它改它。
         const directorBaseMood = ['默认', '平和'].find((label) => generatedAssetIdOf(String(slots[label] || ''))) || '';
         const directorBaseId = directorBaseMood ? generatedAssetIdOf(String(slots[directorBaseMood])) : '';
+        // 还没有底图、但这批要画「平和」：先整张画「平和」，再拿它当底图走导演工具。
+        const bootstrapBase = Boolean(directorStatus && directorStatus.ok && !directorBaseId && !retry
+            && (resume ? resumeItems.some((item) => item.mood === '平和') : missingLabels.includes('平和')));
         const directorReason = !directorStatus || !directorStatus.ok ? (directorStatus && directorStatus.reason) || ''
             : retry && ['默认', '平和'].includes(mood) ? `「${mood}」是表情差分的底图，需要整张生成`
-            : !directorBaseId ? '这套服装还没有「默认」或「平和」立绘' : '';
+            : !directorBaseId && !bootstrapBase ? '这套服装还没有「默认」或「平和」立绘' : '';
         const useDirector = Boolean(directorStatus && directorStatus.ok && !directorReason);
         const routeText = useDirector
-            ? '本次使用NAI导演工具，在默认立绘上修改表情。'
+            ? (bootstrapBase ? '本次先整张生成「平和」作为底图，其余表情使用NAI导演工具。' : '本次使用NAI导演工具，在默认立绘上修改表情。')
             : directorStatus && directorReason !== '未开启「使用NAI导演工具」' ? `本次整张生成：${directorReason}。` : '';
         if ((retry || resume) && routeText) showGeneratedNotice(globalObj, routeText, 'info');
         if (!retry && !resume) {
@@ -2147,21 +2151,37 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
         };
         try {
-            const wantedMoods = useDirector ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels) : [];
-            const isBaseMood = (label) => label === '默认' || label === directorBaseMood;
+            let baseMood = directorBaseMood, baseId = directorBaseId, baseResult = null;
+            if (useDirector && bootstrapBase) {
+                const onlyBase = (label) => label === '平和';
+                baseResult = resume
+                    ? await service.paintExpressionCaptions({ name, items: resumeItems.filter((item) => onlyBase(item.mood)), basePrompt, dna, outfit, nsfw, onProgress,
+                        signal: stopControl.signal, shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }) })
+                    : await paintThenWriteExpressions({ service, name, paintItems: paintItems.filter((item) => onlyBase(item.mood)),
+                        writeLabels: writeLabels.filter(onlyBase), basePrompt, dna, outfit, note: moodNote, nsfw, onProgress,
+                        signal: stopControl.signal, shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }) });
+                const baseItem = baseResult?.items?.find((item) => item.ok && item.mood === '平和' && item.imageId);
+                if (baseItem) { baseMood = '平和'; baseId = baseItem.imageId; }
+            }
+            const done = new Set(bootstrapBase ? ['平和'] : []);
+            const baseHalted = Boolean(baseResult && (baseResult.stopped || stopControl.signal.aborted));
+            const directorOn = useDirector && Boolean(baseId) && !baseHalted;
+            const wantedMoods = directorOn ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels)
+                .filter((label) => !done.has(label)) : [];
+            const isBaseMood = (label) => label === '默认' || label === baseMood;
             const directMoods = wantedMoods.filter((label) => !isBaseMood(label));
             const directed = directMoods.length && typeof service.paintDirectorExpressions === 'function'
-                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: directorBaseId, nsfw, note: moodNote, onProgress,
+                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: baseId, nsfw, note: moodNote, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged })
                 : null;
             if (directed && !directed.ok) throw new Error(directed.error || '导演工具表情失败');
             const unmapped = directed ? new Set([...(directed.unmapped || []), ...wantedMoods.filter(isBaseMood)]) : null;
-            const rItems = unmapped ? resumeItems.filter((item) => unmapped.has(item.mood)) : resumeItems;
-            const pItems = unmapped ? paintItems.filter((item) => unmapped.has(item.mood)) : paintItems;
-            const wLabels = unmapped ? writeLabels.filter((label) => unmapped.has(label)) : writeLabels;
-            const needLegacy = !unmapped || (retry ? unmapped.size > 0 : resume ? rItems.length > 0 : pItems.length + wLabels.length > 0);
+            const rItems = (unmapped ? resumeItems.filter((item) => unmapped.has(item.mood)) : resumeItems).filter((item) => !done.has(item.mood));
+            const pItems = (unmapped ? paintItems.filter((item) => unmapped.has(item.mood)) : paintItems).filter((item) => !done.has(item.mood));
+            const wLabels = (unmapped ? writeLabels.filter((label) => unmapped.has(label)) : writeLabels).filter((label) => !done.has(label));
+            const needLegacy = retry ? (!unmapped || unmapped.size > 0) : resume ? rItems.length > 0 : pItems.length + wLabels.length > 0;
             const paintOnly = !retry && !wLabels.length;
-            const legacy = !needLegacy || (directed && (directed.stopped || stopControl.signal.aborted)) ? null
+            const legacy = !needLegacy || baseHalted || (directed && (directed.stopped || stopControl.signal.aborted)) ? null
                 : resume || paintOnly
                 ? await service.paintExpressionCaptions({ name, items: rItems, basePrompt, dna, outfit, nsfw, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged,
@@ -2178,12 +2198,12 @@ export async function handleSettingsAction(action, ctx) {
                         service, name, paintItems: pItems, writeLabels: wLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
                         shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }),
                     });
-            result = directed
-                ? { ok: directed.items.some((item) => item.ok) || !legacy || legacy.ok === true,
-                    stopped: Boolean(directed.stopped || legacy?.stopped),
-                    items: directed.items.concat(legacy?.items || []),
-                    error: legacy && !legacy.ok ? legacy.error : '' }
-                : legacy;
+            const parts = [baseResult, directed, legacy].filter(Boolean);
+            result = parts.length === 1 ? parts[0] : {
+                ok: parts.some((part) => (part.items || []).some((item) => item.ok)) || parts.every((part) => part.ok),
+                stopped: parts.some((part) => part.stopped),
+                items: parts.flatMap((part) => part.items || []),
+                error: (parts.find((part) => !part.ok) || {}).error || '' };
         } catch (error) {
             stopControl.done();
             return failed(error);
