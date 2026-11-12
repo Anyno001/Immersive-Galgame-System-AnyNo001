@@ -1016,9 +1016,16 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const [emotionName, ...rest] = String(request.prompt || '').split(';;');
         const tags = [artist, rest.join(';;')].map(part => String(part || '').trim()).filter(Boolean).join(', ');
         const sent = { ...request, prompt: tags ? `${emotionName};;${tags}` : emotionName };
-        if (artist) report?.('info', '导演工具：已附加画师串');
+        if (artist) report?.('info', `导演工具：已附加画师串（提示词共${sent.prompt.length}字）`);
         try {
-            const result = await sendNai('emotion', sent, settings, sent);
+            let result = await sendNai('emotion', sent, settings, sent);
+            // 带画师串时服务端报错：去掉画师串重发一次，确认是不是画师串导致。
+            const failedStatus = Number(result?.status) || Number((/HTTP (\d{3})/.exec(String(result?.error || '')) || [])[1]);
+            if (artist && !result?.ok && !result?.stopGeneration && failedStatus >= 500) {
+                report?.('error', `导演工具带画师串返回 HTTP ${failedStatus}，已去掉画师串重试`);
+                const plain = { ...request, prompt: String(request.prompt || '') };
+                result = await sendNai('emotion', plain, settings, plain);
+            }
             return result && result.ok && result.dataUrl
                 ? { ok: true, dataUrl: result.dataUrl }
                 : { ok: false, reason: result?.reason || 'emotion-failed',
