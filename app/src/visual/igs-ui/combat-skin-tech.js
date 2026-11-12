@@ -445,4 +445,4 @@ export const STYLE_TEXT = `${COMBAT_SKIN_TECH_CONCEPT_CSS}${WIRING_CSS}`;
 // 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布。
 const REWARD_SIZE = { port: { w: 124, h: 184 }, land: { w: 149, h: 221 } };
 export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('tech', orient, views.map((view, index) => rewardCardMarkup(
-    cardHtml(view, 0, [{ left: 0, z: 1, ty: '0', r: '0', sx: '0', zz: 1 }], { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient], `--cw:${CFG.hand[orient].cw}px;--sw:${REWARD_SIZE[orient].w}px;--sh:${REWARD_SIZE[orient].h}px;`);
+    cardHtml(view, 0, [{ left: 0, z: 1, ty: '0', r: '0', sx: '0', zz: 1 }], { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, `--cw:${CFG.hand[orient].cw}px;--sw:${REWARD_SIZE[orient].w}px;--sh:${REWARD_SIZE[orient].h}px;`, views.map((v) => v.fxText));

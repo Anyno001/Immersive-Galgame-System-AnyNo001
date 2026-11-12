@@ -44,6 +44,7 @@ export function normalizeSettingsValue(path, value) {
     }
     if (path === 'bridge.autoIllustration.nai.effort') return normalizeNaiEffort(value);
     if (path === 'bridge.autoIllustration.nai.directorEmotion') return value === true || value === 'true';
+    if (path === 'bridge.autoIllustration.nai.expressionRoute') return ['full', 'face', 'director'].includes(value) ? value : 'full';
     if (path === 'bridge.autoIllustration.nai.minIntervalEnabled') return value === true || value === 'true';
     if (path === 'bridge.autoIllustration.nai.minIntervalMs') {
         const n = value === '' || value == null ? NaN : Number(value);

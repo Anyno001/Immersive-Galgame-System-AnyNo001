@@ -76,5 +76,6 @@ export function renderPromptKindsPanel({ nai, sourceMode, checkbox, advancedOpen
         + (artistSelectionAvailable ? renderGlobalArtistRow(nai, sourceMode, artistLibraryState) : '')
         + (slots.common || ''))
         + GROUPS.map(([title, ids, slot]) => group(slot, title, (slot && slots[slot] || '') + ids.map((id) => (SLOT_BEFORE[id] && slots[SLOT_BEFORE[id]] || '') + card(id)).join('')
-            + (slot === 'character' ? perfItem(more, 'prompt-kind-form', rowName('变身'), { detail: builtinBlock(FORM_VIEW) }) : ''))).join('');
+            + (slot === 'character' ? perfItem(more, 'prompt-kind-form', rowName('变身'), { detail: builtinBlock(FORM_VIEW) }) : ''))).join('')
+        + (slots.inpaint ? group('inpaint', '局部重绘', slots.inpaint) : '');
 }

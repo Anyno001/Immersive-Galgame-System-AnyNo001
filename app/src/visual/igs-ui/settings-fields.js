@@ -517,6 +517,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             ]);
             const slotMenu = renderRowMenu([
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
+                imageId && (mood === '默认' || mood === '平和') ? menuItem(`char-face-box:${c}:${m}`, '调整脸部位置') : '',
                 menuItem(`char-mood-url-ask:${c}:${m}`, rawUrl && !imageId ? '修改网址' : '填写网址'),
                 menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),

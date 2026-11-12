@@ -436,4 +436,4 @@ export const STYLE_TEXT = `${concept}${VEIL_WIRING_CSS}`;
 // 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布。
 const REWARD_SIZE = { port: { w: 114, h: 186 }, land: { w: 142, h: 224 }, avail: { port: 362, land: 560 } };
 export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('veil', orient, views.map((view, index) => rewardCardMarkup(
-    cardHtml(view, 0, [{ left: 0, z: 1, ty: 0, rot: '0' }], { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient], `--cw:${CFG.hand[orient].cw}px;--ch:${CFG.hand[orient].ch}px;--sw:${CFG.hand[orient].sw}px;--sh:${CFG.hand[orient].sh}px;`);
+    cardHtml(view, 0, [{ left: 0, z: 1, ty: 0, rot: '0' }], { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, `--cw:${CFG.hand[orient].cw}px;--ch:${CFG.hand[orient].ch}px;--sw:${CFG.hand[orient].sw}px;--sh:${CFG.hand[orient].sh}px;`, views.map((v) => v.fxText));

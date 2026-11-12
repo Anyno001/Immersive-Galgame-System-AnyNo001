@@ -39,6 +39,8 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { collectPromptContext } from '../../host/prompt-context.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
+import { pickFaceBox } from './face-box-picker.js';
+import { normalizeFaceBox } from '../../generated-images/illustration/face-edit-plan.js';
 import { fxPromptsCopyText } from './fx-settings-fields.js';
 import { defaultPromptEntryMode, isPromptEntryKey, normalizePromptEntry } from '../../scene/prompt-entries.js';
 import { getLastPromptReport } from '../../scene/prompt-triggers.js';
@@ -124,6 +126,21 @@ function decodeSeg(value) {
     catch (error) { return String(value == null ? '' : value); }
 }
 
+// 脸框按底图 imageId 存在素材库根的 spriteFaceBoxes；相对原图宽高。
+async function askFaceBox({ settingsState, service, imageId, initial, persistSettingsDraft, editTarget }) {
+    const host = settingsState.dom && settingsState.dom.root;
+    let url = '';
+    try { url = typeof service.getImageDataUrl === 'function' ? await service.getImageDataUrl(imageId) : ''; } catch { url = ''; }
+    const box = await pickFaceBox({ host, imageUrl: url, initial });
+    if (!box) return null;
+    const lib = draftAssetLibrary(settingsState, editTarget);
+    const previous = lib.spriteFaceBoxes;
+    lib.spriteFaceBoxes = { ...(previous && typeof previous === 'object' ? previous : {}), [imageId]: box };
+    const persisted = persistGeneratedLibrary(persistSettingsDraft);
+    if (operationFailed(persisted)) { lib.spriteFaceBoxes = previous; return null; }
+    return box;
+}
+
 function operationFailed(result) {
     return result === false || Boolean(result && typeof result === 'object' && result.ok === false);
 }
@@ -197,7 +214,7 @@ async function readSpriteAdoptionRecord(service, imageId, record, { waitMs = 200
 }
 
 const SCENE_ACTION = /^scene-(?:(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)|variant-(?:set|retry))$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char|outfit-mood)|status-avatar-(?:pick|clear|set-url|generate)|scene-set-user-char|char-(?:generate|redraw)-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char|outfit-mood)|status-avatar-(?:pick|clear|set-url|generate)|scene-set-user-char|char-(?:generate|redraw)-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume)|char-face-box|outfit-face-box)$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -2067,7 +2084,11 @@ export async function handleSettingsAction(action, ctx) {
             showGeneratedNotice(globalObj, '没有已写好提示词但尚未出图的表情。');
             return rerenderSettings();
         }
-        const directorStatus = typeof service.directorExpressionStatus === 'function' ? service.directorExpressionStatus({ enabled: settingsState.draft.bridge?.autoIllustration?.nai?.directorEmotion === true }) : null;
+        const naiDraft = settingsState.draft.bridge?.autoIllustration?.nai || {};
+        const expressionRoute = ['full', 'face', 'director'].includes(naiDraft.expressionRoute) ? naiDraft.expressionRoute : naiDraft.directorEmotion === true ? 'director' : 'full';
+        const faceRoute = expressionRoute === 'face';
+        const directorStatus = faceRoute ? (typeof service.faceExpressionStatus === 'function' ? service.faceExpressionStatus() : { ok: false, reason: '当前图像来源不支持局部重绘' })
+            : typeof service.directorExpressionStatus === 'function' ? service.directorExpressionStatus({ enabled: expressionRoute === 'director' }) : null;
         // 导演工具的底图：先取「默认」，没有再取「平和」；底图自己重画时不能拿它改它。
         const directorBaseMood = ['默认', '平和'].find((label) => generatedAssetIdOf(String(slots[label] || ''))) || '';
         const directorBaseId = directorBaseMood ? generatedAssetIdOf(String(slots[directorBaseMood])) : '';
@@ -2076,11 +2097,13 @@ export async function handleSettingsAction(action, ctx) {
             && (resume ? resumeItems.some((item) => item.mood === '平和') : missingLabels.includes('平和')));
         const directorReason = !directorStatus || !directorStatus.ok ? (directorStatus && directorStatus.reason) || ''
             : retry && ['默认', '平和'].includes(mood) ? `「${mood}」是表情差分的底图，需要整张生成`
-            : !directorBaseId && !bootstrapBase ? '这套服装还没有「默认」或「平和」立绘' : '';
+            : !directorBaseId && !bootstrapBase ? '这套服装还没有「默认」或「平和」立绘'
+            : faceRoute && typeof service.paintFaceExpressions !== 'function' ? '当前图像来源不支持局部重绘' : '';
         const useDirector = Boolean(directorStatus && directorStatus.ok && !directorReason);
         const routeText = useDirector
-            ? (bootstrapBase ? '本次先整张生成「平和」作为底图，其余表情使用NAI导演工具。' : '本次使用NAI导演工具，在默认立绘上修改表情。')
-            : directorStatus && directorReason !== '未开启「使用NAI导演工具」' ? `本次整张生成：${directorReason}。` : '';
+            ? (faceRoute ? (bootstrapBase ? '本次先整张生成「平和」作为底图，其余表情只重绘脸部。' : '本次只重绘脸部，其余部分与底图一致。')
+                : bootstrapBase ? '本次先整张生成「平和」作为底图，其余表情使用NAI导演工具。' : '本次使用NAI导演工具，在默认立绘上修改表情。')
+            : directorStatus && (faceRoute || directorReason !== '未开启「使用NAI导演工具」') ? `本次整张生成：${directorReason}。` : '';
         if ((retry || resume) && routeText) showGeneratedNotice(globalObj, routeText, 'info');
         if (!retry && !resume) {
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
@@ -2170,10 +2193,27 @@ export async function handleSettingsAction(action, ctx) {
                 .filter((label) => !done.has(label)) : [];
             const isBaseMood = (label) => label === '默认' || label === baseMood;
             const directMoods = wantedMoods.filter((label) => !isBaseMood(label));
-            const directed = directMoods.length && typeof service.paintDirectorExpressions === 'function'
-                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: baseId, nsfw, note: moodNote, onProgress,
-                    signal: stopControl.signal, shouldStart: targetUnchanged })
-                : null;
+            let faceBox = null, faceCancelled = false;
+            if (faceRoute && directMoods.length) {
+                const boxes = sceneAssets.spriteFaceBoxes || draftEffectiveAssets(settingsState).spriteFaceBoxes || {};
+                faceBox = normalizeFaceBox(boxes[baseId]);
+                if (!faceBox) {
+                    faceBox = await askFaceBox({ settingsState, service, imageId: baseId, initial: null, persistSettingsDraft, editTarget });
+                    faceCancelled = !faceBox;
+                }
+                if (faceCancelled && !(baseResult && baseResult.items?.some((item) => item.ok && item.imageId))) {
+                    stopControl.done(); progress.end(); restoreBusy();
+                    showGeneratedNotice(globalObj, '已取消选择脸部位置，未生成。', 'info');
+                    return rerenderSettings();
+                }
+            }
+            const directRequest = { name, moods: directMoods, baseImageId: baseId, nsfw, note: moodNote, onProgress,
+                signal: stopControl.signal, shouldStart: targetUnchanged };
+            const directed = !directMoods.length ? null
+                : faceCancelled ? { ok: true, items: [], unmapped: [], stopped: true }
+                : faceRoute ? (typeof service.paintFaceExpressions === 'function'
+                    ? await service.paintFaceExpressions({ ...directRequest, faceBox, dna }) : null)
+                : typeof service.paintDirectorExpressions === 'function' ? await service.paintDirectorExpressions(directRequest) : null;
             // 导演工具整体失败（读不到底图等）不抛出：已画好的底图照样入库，失败原因随结果带回。
             const directedFailed = Boolean(directed && !directed.ok);
             const unmapped = directed ? new Set([...(directed.unmapped || []), ...wantedMoods.filter(isBaseMood)]) : null;
@@ -4434,6 +4474,24 @@ export async function handleSettingsAction(action, ctx) {
         }
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (/^(?:char|outfit)-face-box:/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-');
+        const segs = normalizedAction.slice(`${outfitMode ? 'outfit' : 'char'}-face-box:`.length).split(':');
+        const charName = decodeSeg(segs[0] || '');
+        const outfitName = outfitMode ? decodeSeg(segs[1] || '') : '';
+        const mood = decodeSeg(segs[outfitMode ? 2 : 1] || '');
+        const assets = draftAssetLibrary(settingsState, editTarget);
+        const slotUrl = outfitMode ? outfitSpriteSlots(assets.characterOutfits?.[charName]?.[outfitName])[mood] : assets.characters?.[charName]?.[mood];
+        const imageId = generatedAssetIdOf(String(slotUrl || ''));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!imageId || !service) return rerenderSettings();
+        const saved = normalizeFaceBox((assets.spriteFaceBoxes || {})[imageId]);
+        const box = await askFaceBox({ settingsState, service, imageId, initial: saved, persistSettingsDraft, editTarget });
+        if (box) showGeneratedNotice(globalObj, '脸部位置已保存。', 'info');
         return rerenderSettings();
     }
 

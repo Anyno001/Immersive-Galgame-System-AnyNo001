@@ -462,4 +462,4 @@ export const battleHtml = inkBattleHtml;
 const REWARD_SIZE = { port: { w: 100, h: 164 }, land: { w: 138, h: 205 } };
 const REWARD_POS = [{ left: 0, z: 1, ty: '0', rot: '0' }];
 export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('ink', orient, views.map((view, index) => rewardCardMarkup(
-    cardHtml(view, 0, REWARD_POS, { selected: view.inst }, [], 99, orient === 'land'), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient]);
+    cardHtml(view, 0, REWARD_POS, { selected: view.inst }, [], 99, orient === 'land'), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, '', views.map((v) => v.fxText));

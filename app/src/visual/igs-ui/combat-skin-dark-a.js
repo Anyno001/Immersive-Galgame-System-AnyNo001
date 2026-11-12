@@ -561,5 +561,5 @@ export const STYLE_TEXT = darkStyleText('dark-a', COMBAT_SKIN_DARK_A_CONCEPT_CSS
 // 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布（dark-b 共用，key 区分样式作用域）。
 const REWARD_SIZE = { port: { w: 140, h: 250 }, land: { w: 168, h: 270 }, avail: { port: 350, land: 440 } };
 export const darkRewardRowHtml = (views, { orient, chosen, dim, pending }, key) => rewardRowMarkup(key, orient, views.map((view, index) => rewardCardMarkup(
-    cardHtml(view, { left: 0, z: 1, rest: 'none' }, { selected: view.inst }, [], 99, false), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient]);
+    cardHtml(view, { left: 0, z: 1, rest: 'none' }, { selected: view.inst }, [], 99, false), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, '', views.map((v) => v.fxText));
 export const rewardRowHtml = (views, o) => darkRewardRowHtml(views, o, 'dark-a');

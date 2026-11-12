@@ -126,6 +126,7 @@ export function normalizeAutoIllustrationSettings(value) {
             timeoutMs: clampInt(nai.timeoutMs, 10000, 300000, NAI_DEFAULT_SETTINGS.timeoutMs),
             minIntervalEnabled: nai.minIntervalEnabled === true || nai.minIntervalEnabled === 'true',
             directorEmotion: nai.directorEmotion === true || nai.directorEmotion === 'true',
+            expressionRoute: ['full', 'face', 'director'].includes(nai.expressionRoute) ? nai.expressionRoute : (nai.directorEmotion === true || nai.directorEmotion === 'true' ? 'director' : 'full'),
             minIntervalMs: clampInt(nai.minIntervalMs, 0, 60000, NAI_DEFAULT_SETTINGS.minIntervalMs),
             cloudQueue: normalizeNaiCloudQueue(nai.cloudQueue),
             // 草稿首次归档会追加此标记；归一化保持相同顺序，避免无修改关闭重写存储。

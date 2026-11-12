@@ -231,6 +231,8 @@ export const COMBAT_SKIN_SOFT_C_CONCEPT_CSS = `
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .pile-d{left: var(--HX);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .pile-x{left: calc(var(--HX) + 84px);}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]){--page: #1c1d21; --surf: #262a31; --card: #323844; --cream: #f7efe4; --dim: #aab2c0; --txt: #38333a; --pink: #8fb0d8; --pink-d: #4f74a8; --red: #e5586d; --butter: #f6dcc0; --mint: #b8a6e0; --green: #8fb0d8; --lilac: #b8a6e0; --c-atk: #5b84bd; --c-def: #86b4cf; --c-skl: #d9a578; --c-pow: #8d78c9; --ring: #ffffff; --ring-trk: #b9cbe8; --tray-ac: #8fb0d8; --aim: #8fb0d8; --pile: #f7efe4; --pile-2: #8a93a3; --cardbg: #323844; --dupbg: #3d4452; --rare: #f6dcc0; --epic: #f6dcc0; --myth: #8fb0d8; --tmp: #aab2c0; --boost: #f6dcc0; --crown: #d9a441; --fc-bg: #1c1d21; --fc-blk: #a9c8ee; --fc-vul: #f2a1ac; --chg: #8fb0d8; --chg-trk: #3d4452; --charge: .7; background: var(--page);}
+/* 结算三选一奖励牌（ghost）只需类型色，其余变量保持原样（牌底沿用结算页奶色） */
+#igs-overlay .igs-cx-ghost[data-cx="soft-c"]{--c-atk: #5b84bd; --c-def: #86b4cf; --c-skl: #d9a578; --c-pow: #8d78c9;}
 #igs-overlay #igs-cx-canvas:where([data-cx="soft-c"]) .stage::after{content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(28,29,33,.6) 0, rgba(28,29,33,0) 12%, rgba(28,29,33,0) 52%, rgba(28,29,33,.85) 76%, #1c1d21 90%);}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).port .topbar{top: 8px;}
 #igs-overlay :where(.igs-cx-canvas[data-cx="soft-c"],.igs-cx-ghost[data-cx="soft-c"]).land .topbar{top: 12px;}

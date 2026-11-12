@@ -455,4 +455,4 @@ export const STYLE_TEXT = `${COMBAT_SKIN_MYSTIC_CONCEPT_CSS.replace(/@font-face\
 // 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布。
 const REWARD_SIZE = { port: { w: 128, h: 200 }, land: { w: 160, h: 232 }, avail: { port: 318, land: 560 } };
 export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('mystic', orient, views.map((view, index) => rewardCardMarkup(
-    cardHtml(view, 0, '', { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient], '');
+    cardHtml(view, 0, '', { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, '', views.map((v) => v.fxText));

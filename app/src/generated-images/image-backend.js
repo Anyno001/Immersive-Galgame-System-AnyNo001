@@ -320,6 +320,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             frozen.seed = resolveImageSeed(frozen.seed);
             let prepared = input;
             if (slotArtist) ({ slot: prepared, naiSettings: frozen } = withSlotArtist(input, frozen, meta, base ? frozen : undefined));
+            // 局部重绘读 prompt / negative：分区画师串拼进 scene / sceneUc 后写回。
+            if (slotArtist && method === 'edit') prepared = inheritImageTaskLease(prepared, { ...prepared, prompt: prepared.scene, negative: prepared.sceneUc });
             if (input?.captionMode === 'final') {
                 const selected = artistFor(meta, base ? frozen : undefined);
                 const artist = meta.artist !== undefined ? meta.artist : selected
@@ -988,7 +990,11 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const settings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
         if (Object.hasOwn(request, 'model')) settings.model = request.model;
         try {
-            const result = await sendNai('edit', final ? { ...request, caption: prepared.caption, captionMode: 'final' } : request, settings, request);
+            // 表情差分「只改脸部」：request.slotArtist 为真时套分区画师串（CG 一致性重绘不传，行为不变）。
+            const slotArtist = !final && request.slotArtist === true;
+            const result = await sendNai('edit', final ? { ...request, caption: prepared.caption, captionMode: 'final' }
+                : slotArtist ? inheritImageTaskLease(request, { ...request, scene: request.prompt || '', sceneUc: request.negative || '' }) : request,
+            settings, request, slotArtist);
             if (result?.ok && final && !result.sentPrompt)
                 return { ok: false, reason: 'PROMPT_MODE_CONFLICT', error: '定稿重绘缺少实际发送快照' };
             return result && result.ok && result.dataUrl

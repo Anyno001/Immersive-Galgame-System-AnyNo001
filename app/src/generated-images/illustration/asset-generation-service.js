@@ -6,6 +6,9 @@ import { imageBackendMethod } from '../backend-methods.js';
 import { moodPresetTags, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { findOpaqueBounds } from '../../media/alpha-matte.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
+import { FACE_PRESERVE_TAGS, blendFaceInto, buildFaceMask, planFaceCrop } from './face-edit-plan.js';
+import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
+import { isConsistencyStrengthValid, normalizeConsistencyStrength } from './auto-illustration-settings.js';
 import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/generation-seeds.js';
 
 import { numberParagraphs } from './marker-placer.js';
@@ -104,6 +107,7 @@ export function createAssetGenerationService(deps) {
     const writePrompt = imageBackendMethod(nai, 'writePrompt');
     const generateCaption = imageBackendMethod(nai, 'generateCaption');
     const emotionPaint = imageBackendMethod(nai, 'emotion');
+    const faceEditPaint = imageBackendMethod(nai, 'edit');
     const describeTask = signal => nai?.describe?.(imageTaskState({ signal })?.config, { signal }) || { via: 'nai', ready: { ok: true } };
     const taskBackend = signal => ({ describe: () => describeTask(signal) });
     const externalSource = signal => ['dbgen', 'extension', 'baibai'].includes(describeTask(signal).mode);
@@ -1928,7 +1932,7 @@ export function createAssetGenerationService(deps) {
     // 返回本次能否走导演工具；不能时带上原因，供生成前提示。
     function directorExpressionStatus({ enabled } = {}) {
         try {
-            if ((typeof enabled === 'boolean' ? enabled : readSettings().auto.nai.directorEmotion === true) !== true) return { ok: false, reason: '未开启「使用NAI导演工具」' };
+            if ((typeof enabled === 'boolean' ? enabled : readSettings().auto.nai.expressionRoute === 'director') !== true) return { ok: false, reason: '未开启「使用NAI导演工具」' };
             if (typeof emotionPaint !== 'function') return { ok: false, reason: '当前图像来源不支持导演工具' };
             const capability = nai?.describeEmotion?.();
             if (capability?.supported !== true) return { ok: false, reason: capability?.message || '当前图像来源不支持导演工具' };
@@ -1992,6 +1996,123 @@ export function createAssetGenerationService(deps) {
             }
             const image = await buildSpriteImageRecord(imageId, output, Boolean(flat.alpha) && output !== painted.dataUrl, now());
             image.directorSource = baseImageId;
+            let saved;
+            try { saved = await persistGeneratedImage(image); }
+            catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+            if (saved?.ok === false) {
+                const failure = saved.saveError ? { ...saved, error: saved.error || saved.saveError } : saved;
+                const quota = isQuotaError(saved.saveError) || /quota|存储.*满|空间不足/i.test(recoveryFailureText(failure));
+                halted = true;
+                items.push({ mood, ok: false, reason: saved.cancelled === true ? 'cancelled' : 'image-save-failed', stopGeneration: true,
+                    error: saved.cancelled === true ? '已停止' : quota ? IMAGE_STORAGE_FULL_MESSAGE : `图片没存上：${recoveryFailureText(failure)}` });
+                continue;
+            }
+            rememberImage(imageId, image.dataUrl);
+            items.push({ mood, ok: true, imageId, name });
+        }
+        return { ok: true, items, unmapped, stopped: halted || stopped() };
+    }
+
+    function faceExpressionStatus() {
+        try {
+            if (typeof faceEditPaint !== 'function') return { ok: false, reason: '当前图像来源不支持局部重绘' };
+            const capability = nai?.describeEdit?.();
+            if (capability?.supported !== true) return { ok: false, reason: capability?.message || '当前图像来源不支持局部重绘' };
+            return { ok: true, reason: '' };
+        } catch (error) { return { ok: false, reason: (error && error.message) || '无法读取局部重绘设置' }; }
+    }
+
+    function drawRegion(img, width, height, sx, sy, sw, sh, white) {
+        const doc = deps.global?.document || globalThis.document;
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (white) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, width, height);
+        return { canvas, ctx };
+    }
+
+    function pngFromRgba(data, width, height) {
+        const doc = deps.global?.document || globalThis.document;
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        const frame = ctx.createImageData(width, height);
+        frame.data.set(data);
+        ctx.putImageData(frame, 0, 0);
+        return canvas.toDataURL('image/png');
+    }
+
+    // 只改脸部：脸框内局部重绘，椭圆外逐像素保持底图；透明度沿用底图，不跑抠图。
+    async function paintFaceExpressions({ name, moods, baseImageId, faceBox, dna, nsfw = false, note = '', onProgress, signal, shouldStart } = {}) {
+        const labels = (Array.isArray(moods) ? moods : []).map(item => String(item || '').trim()).filter(Boolean);
+        const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
+        const unmapped = [], plan = [];
+        for (const mood of labels) {
+            const hit = directorEmotionOf(mood, nsfw === true);
+            if (hit) plan.push({ mood, ...hit }); else unmapped.push(mood);
+        }
+        if (!plan.length) return { ok: true, items: [], unmapped, stopped: false };
+        if (typeof faceEditPaint !== 'function') return { ok: false, error: '当前图像来源不能局部重绘' };
+        // 读当前显示的那张（与选脸窗口同一张）：脸框坐标按它算，抠过/裁过边的原图尺寸不同会错位。
+        let source = '';
+        try { source = (await store.getImage(baseImageId, { fields: ['dataUrl'], original: true }))?.dataUrl || ''; } catch { source = ''; }
+        if (!source) {
+            try { source = (await store.getImage(baseImageId, { fields: ['originalDataUrl'], original: true }))?.originalDataUrl || ''; } catch { source = ''; }
+        }
+        if (!source) return { ok: false, error: '找不到默认立绘' };
+        let img, fullData, width, height, crop;
+        try {
+            img = await loadImageElement(source);
+            width = img.naturalWidth || img.width; height = img.naturalHeight || img.height;
+            fullData = drawRegion(img, width, height, 0, 0, width, height, false).ctx.getImageData(0, 0, width, height).data;
+            crop = planFaceCrop(width, height, faceBox);
+        } catch (error) { return { ok: false, error: (error && error.message) || '原图处理失败' }; }
+        if (!crop) return { ok: false, error: '脸部位置无效' };
+        const work = crop.work;
+        const sourceDataUrl = drawRegion(img, work, work, crop.x, crop.y, crop.side, crop.side, true).canvas.toDataURL('image/png');
+        const maskDataUrl = pngFromRgba(buildFaceMask(crop), work, work);
+        const strength = normalizeConsistencyStrength(readSettings(signal).auto.consistencyStrength);
+        if (!isConsistencyStrengthValid(strength)) return { ok: false, error: '重绘强度需在0.1到1之间' };
+        const seed = characterGenerationSeed(readSettings(signal).sceneAssets, name);
+        const dnaParts = dna ? buildCharacterDnaPromptParts(dna) : { positive: '', negative: '' };
+        const items = [];
+        let halted = false;
+        for (let i = 0; i < plan.length; i += 1) {
+            const { mood, emotion, extra } = plan[i];
+            if (halted || stopped()) { items.push({ mood, ok: false, error: '已停止' }); continue; }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: plan.length, mood });
+            let painted;
+            try {
+                const prompt = mergePromptTags(dnaParts.positive, `${emotion} expression`, extra, String(note || '').trim(), FACE_PRESERVE_TAGS);
+                painted = await faceEditPaint({ sourceDataUrl, maskDataUrl, prompt, negative: dnaParts.negative, width: work, height: work,
+                    strength, slotArtist: true, promptKind: 'expression', imageKind: 'sprite',
+                    ...(isImageSeed(seed) && { seed }),
+                    ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
+            } catch (error) { painted = { ok: false, error: (error && error.message) || '脸部重绘失败' }; }
+            if (stopped()) painted = { ok: false, reason: 'stale-target', error: '目标已变化，未接收迟到图片' };
+            if (!painted?.ok || !painted.dataUrl) {
+                if (painted?.stopGeneration) halted = true;
+                items.push({ mood, ok: false, error: painted?.error || '脸部重绘失败',
+                    ...(painted?.reason && { reason: painted.reason }), ...(painted?.stopGeneration && { stopGeneration: true }) });
+                continue;
+            }
+            let output;
+            try {
+                const result = await loadImageElement(painted.dataUrl);
+                const back = drawRegion(result, crop.side, crop.side, 0, 0, result.naturalWidth || result.width, result.naturalHeight || result.height, false);
+                const merged = new Uint8ClampedArray(fullData);
+                blendFaceInto(merged, width, crop, back.ctx.getImageData(0, 0, crop.side, crop.side).data);
+                output = pngFromRgba(merged, width, height);
+            } catch (error) {
+                items.push({ mood, ok: false, error: (error && error.message) || '脸部合成失败' });
+                continue;
+            }
+            const imageId = newId();
+            // 不走抠图：底图透明度已原样保留。
+            const stamp = now();
+            const image = { schemaVersion: GENERATED_IMAGE_SCHEMA_VERSION, id: imageId, type: 'sprite', originalDataUrl: output, workingDataUrl: '',
+                dataUrl: output, alphaMaskDataUrl: '', matteCrop: null, revision: 1, createdAt: stamp, updatedAt: stamp, faceSource: baseImageId };
             let saved;
             try { saved = await persistGeneratedImage(image); }
             catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
@@ -2852,7 +2973,7 @@ export function createAssetGenerationService(deps) {
         prepareExternalSpriteDna,
         generateExpressionSet: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionSet),
         generateExpressionImage: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionImage),
-        paintDirectorExpressions, supportsDirectorExpressions, directorExpressionStatus,
+        paintDirectorExpressions, supportsDirectorExpressions, directorExpressionStatus, paintFaceExpressions, faceExpressionStatus,
         paintExpressionCaptions: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, paintExpressionCaptions),
         generateCharacterSprite: request => withExternalSpriteDna(request, generateCharacterSprite),
         generateCharacterAvatar: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateCharacterAvatar),
@@ -2888,11 +3009,11 @@ export function createAssetGenerationService(deps) {
             pendingFloors.clear();
         },
     };
-    for (const method of ['generateExpressionSet', 'generateExpressionImage', 'paintExpressionCaptions', 'paintDirectorExpressions',
+    for (const method of ['generateExpressionSet', 'generateExpressionImage', 'paintExpressionCaptions', 'paintDirectorExpressions', 'paintFaceExpressions',
         'generateCharacterSprite', 'generateCharacterAvatar', 'generateSceneVariants', 'writeWardrobePrompt',
         'paintWardrobeReference', 'importAssetImage', 'readStoredImage', 'readStoredImageRecord', 'getImagePrompt', 'writeStoredImage']) {
         const execute = service[method];
-        const generation = method.startsWith('generate') || ['paintExpressionCaptions', 'paintDirectorExpressions', 'paintWardrobeReference', 'writeWardrobePrompt'].includes(method);
+        const generation = method.startsWith('generate') || ['paintExpressionCaptions', 'paintDirectorExpressions', 'paintFaceExpressions', 'paintWardrobeReference', 'writeWardrobePrompt'].includes(method);
         service[method] = (...args) => {
             const objectInput = args[0] && typeof args[0] === 'object';
             const linked = linkRecoverySignals([objectInput && args[0].signal, recoveryController.signal]);

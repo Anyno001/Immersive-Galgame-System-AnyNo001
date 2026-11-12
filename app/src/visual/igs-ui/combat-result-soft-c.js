@@ -116,8 +116,10 @@ ${S} .igs-combat-loot-back::before{content:"?";position:absolute;left:4px;right:
 ${S}.land .igs-combat-loot-back::before{height:62px;line-height:63px;}
 ${S} .igs-combat-loot-back::after{content:"未翻开";position:absolute;left:0;right:0;top:56px;width:auto;height:auto;rotate:0deg;translate:none;background:none;text-align:center;font-size:12px;color:var(--dim);}
 ${S}.land .igs-combat-loot-back::after{top:72px;font-size:13px;}
-${S} .igs-combat-loot-tools{display:flex;margin-top:var(--sp);}
+${S} .igs-combat-loot-tools{display:flex;gap:8px;margin-top:var(--sp);}
 ${S} .igs-combat-loot-tools .igs-combat-btn{flex:1;}
+${S} .igs-cx-rw .card :is(.name,.desc){color:var(--ink);}
+${S} .igs-cx-rw .card .desc{margin:4px 6px 0;line-height:1.45;}
 ${S} .igs-combat-actions{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-top:var(--sp);}
 ${S} .igs-combat-loot-tools + .igs-combat-actions,${S} .igs-combat-loot ~ .igs-combat-actions{margin-top:8px;}
 ${S} .igs-combat-btn{position:relative;width:100%;height:44px;min-height:44px;padding:0;border-radius:12px;font-size:14px;font-weight:400;letter-spacing:0;background:var(--pk-l);color:var(--pk-d);white-space:nowrap;}

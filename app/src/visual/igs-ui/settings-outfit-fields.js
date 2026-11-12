@@ -252,6 +252,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         ]);
         const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`, [`scene-pick-outfit-mood:${c}:${o}:${encSeg(mood)}`, `上传${mood}立绘`]) + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
+            imageId && (mood === '默认' || mood === '平和') ? menuItem(`outfit-face-box:${c}:${o}:${encSeg(mood)}`, '调整脸部位置') : '',
             menuItem(`outfit-mood-url-ask:${c}:${o}:${encSeg(mood)}`, raw && !imageId ? '修改网址' : '填写网址'),
             mood === '默认' ? '' : menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),

@@ -98,7 +98,7 @@ ${S} .ik:has(.igs-combat-loot-choices) .igs-combat-loot-row:not(.igs-combat-loot
 ${S} .ik:has(.igs-combat-loot-choices) .igs-combat-loot-row:not(.igs-combat-loot-choices) .igs-combat-loot-name{font-size:14px;}
 ${S} .igs-combat-loot-choices{display:block;width:100%;margin-top:10px;}
 ${S} .igs-combat-loot-choices .igs-cx-rw{justify-content:flex-start;}
-${S} .igs-combat-loot-tools{display:flex;justify-content:center;width:auto;margin-top:12px;}
+${S} .igs-combat-loot-tools{display:flex;justify-content:center;gap:22px;width:auto;margin-top:12px;}
 ${S} .igs-combat-loot-tools .igs-combat-btn{font-size:14px;letter-spacing:2px;}
 ${P} .ik:has(.igs-combat-loot) .ik-shade{background:linear-gradient(180deg,rgba(18,20,22,0) 22%,rgba(18,20,22,.8) 38%,var(--ink) 50%);}
 ${P} .ik:has(.igs-combat-loot) .ik-fig{top:-20px;width:380px;height:500px;left:5px;}
@@ -113,9 +113,9 @@ ${P} .igs-combat-actions{width:100%;margin-top:auto;padding-top:10px;}
 ${S} .igs-combat-actions:empty{display:none;}
 ${S} .igs-combat-btn{flex:none;width:auto;min-width:0;height:auto;min-height:0;padding:0 0 4px;border:0;border-radius:0;background:none;box-shadow:none;color:var(--stone);font-family:var(--font-song);font-size:16px;font-weight:400;letter-spacing:4px;white-space:nowrap;text-shadow:none;}
 ${S} .igs-combat-btn:hover{background:none;color:var(--moon);opacity:1;}
-${S} .igs-combat-btn.is-primary{width:68px;height:68px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:var(--seal-bg);color:var(--seal-fg);border-radius:4px 3px 5px 3px;box-shadow:inset 0 0 0 4px var(--seal-bg),inset 0 0 0 5px var(--seal-fg);font-family:var(--font-brush);font-size:24px;line-height:1.05;letter-spacing:0;writing-mode:vertical-rl;white-space:normal;animation:sfxk-seal ${T(450)} cubic-bezier(.3,.7,.3,1) ${T(1300)} backwards;}
-${P} .igs-combat-btn.is-primary{width:62px;height:62px;font-size:22px;}
-${S} .igs-combat-btn.is-primary:hover{background:var(--seal-bg);color:var(--seal-fg);filter:brightness(1.08);}
+${S} .igs-combat-actions .igs-combat-btn.is-primary{width:68px;height:68px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:var(--seal-bg);color:var(--seal-fg);border-radius:4px 3px 5px 3px;box-shadow:inset 0 0 0 4px var(--seal-bg),inset 0 0 0 5px var(--seal-fg);font-family:var(--font-brush);font-size:24px;line-height:1.05;letter-spacing:0;writing-mode:vertical-rl;white-space:normal;animation:sfxk-seal ${T(450)} cubic-bezier(.3,.7,.3,1) ${T(1300)} backwards;}
+${P} .igs-combat-actions .igs-combat-btn.is-primary{width:62px;height:62px;font-size:22px;}
+${S} .igs-combat-actions .igs-combat-btn.is-primary:hover{background:var(--seal-bg);color:var(--seal-fg);filter:brightness(1.08);}
 ${S} .igs-combat-btn[disabled],${S} .igs-combat-btn[aria-disabled="true"]{opacity:.5;cursor:default;}
 @keyframes sfxk-fade{from{opacity:0}to{opacity:1}}
 @keyframes sfxk-rise{from{opacity:0;translate:0 10px}to{opacity:1;translate:0 0}}

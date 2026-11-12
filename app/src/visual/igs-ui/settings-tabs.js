@@ -84,7 +84,6 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-feature="sprite-matte-color">
       {{autoMatteField}}
       {{spriteMatteColorField}}
-      {{directorEmotionField}}
     </div>
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
@@ -110,9 +109,6 @@ const IMAGE_SOURCE_TEMPLATE = `
         <summary>识别与等待</summary>
         <div class="igs-source-filter-grid">{{adapterField}}{{pollIntervalField}}{{pollAttemptsField}}</div>
       </details>
-    </div>
-    <div class="igs-settings-sub" data-image-feature="consistency"{{sourceConsistencyHidden}}>
-      <div class="igs-source-filter-grid">{{consistencyStrengthField}}{{consistencyModelField}}</div>
     </div>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>

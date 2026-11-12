@@ -400,7 +400,7 @@ export const battleHtml = (v, orient) => softBattleHtml(v, orient, 'soft-a');
 export const STYLE_TEXT = `${COMBAT_SKIN_SOFT_A_CONCEPT_CSS}${softWiringCss('soft-a')}`;
 
 // 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布（soft-c 共用，key 区分样式作用域）。
-const REWARD_SIZE = { port: { w: 136, h: 198 }, land: { w: 160, h: 214 }, avail: { port: 290, land: 380 } };
+const REWARD_SIZE = { port: { w: 136, h: 198 }, land: { w: 160, h: 214 }, avail: { port: 262, land: 380 } };
 export const softRewardRowHtml = (views, { orient, chosen, dim, pending }, key) => rewardRowMarkup(key, orient, views.map((view, index) => rewardCardMarkup(
-    cardHtml(view, { w: 0, h: 0, left: 0, top: 0, z: 1, rot: '0' }, { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient]);
+    cardHtml(view, { w: 0, h: 0, left: 0, top: 0, z: 1, rot: '0' }, { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, '', views.map((v) => v.fxText));
 export const rewardRowHtml = (views, o) => softRewardRowHtml(views, o, 'soft-a');

@@ -460,7 +460,6 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 imageContentNote: contentNotes[sourceMode] ? `<div class="igs-source-filter-note">${esc(contentNotes[sourceMode])}</div>` : '',
                 sourceNaiHidden: hiddenAttr(sourceMode !== 'nai'),
                 sourceBuiltinHidden: hiddenAttr(sourceMode !== 'nai'),
-                sourceConsistencyHidden: hiddenAttr(sourceMode !== 'nai' && sourceMode !== 'dbgen'),
                 sourceExtensionHidden: hiddenAttr(sourceMode !== 'extension'),
                 sourceDbgenHidden: hiddenAttr(sourceMode !== 'dbgen'),
                 sourceExternalHidden: hiddenAttr(sourceMode === 'nai'),
@@ -468,8 +467,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     imageApi.spriteMatteColor || 'auto', [['auto', '自动'], ['white', '白底'], ['grey', '灰底'], ['green', '绿底'], ['purple', '紫底']], '抠图底色'),
                     '立绘与物品图未出透明底时按此底色出图后抠除，角色主色与底色相近时可更换。自动：内置NAI与数据库生图用白底，其余用浅灰底。'),
                 autoMatteField: !isMatteUnlocked() ? '' : checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
-                directorEmotionField: field('bridge.autoIllustration.nai.directorEmotion', '表情差分', checkbox('bridge.autoIllustration.nai.directorEmotion', auto.nai.directorEmotion === true, '使用NAI导演工具'),
-                    '在默认立绘上直接修改表情，不重新出图。官方NAI可用；中转站需支持导演工具接口。'),
+                directorEmotionField: field('bridge.autoIllustration.nai.expressionRoute', '表情差分方式', segmentedInput('bridge.autoIllustration.nai.expressionRoute',
+                    auto.nai.expressionRoute, [['full', '整张生成'], ['face', '只改脸部'], ['director', '导演工具']], '表情差分方式'),
+                    '只改脸部：其余像素与默认立绘一致，与剧情CG局部重绘共用下方强度与模型。导演工具：需官方NAI或支持该接口的中转。'),
                 externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA'),
                 naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭）'),
@@ -544,8 +544,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 autoNaiSizeField: field('bridge.autoIllustration.nai.size', '尺寸', textInput('bridge.autoIllustration.nai.size', auto.nai.size, '832x1216')),
                 autoNaiStepsField: field('bridge.autoIllustration.nai.steps', '步数', numberInput('bridge.autoIllustration.nai.steps', effectiveNai.steps, 1, 50, medium)),
                 autoNaiScaleField: field('bridge.autoIllustration.nai.scale', 'CFG', numberInput('bridge.autoIllustration.nai.scale', auto.nai.scale, 0, 10, false, 'any')),
-                consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '一致性重绘强度', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05')),
-                consistencyModelField: field('bridge.autoIllustration.consistencyModel', '一致性重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
+                consistencyStrengthField: field('bridge.autoIllustration.consistencyStrength', '重绘强度', numberInput('bridge.autoIllustration.consistencyStrength', auto.consistencyStrength, 0.1, 1, false, '0.05')),
+                consistencyModelField: field('bridge.autoIllustration.consistencyModel', '重绘模型', selectInput('bridge.autoIllustration.consistencyModel', auto.consistencyModel, CONSISTENCY_MODEL_OPTIONS)),
                 autoNaiSamplerField: field('bridge.autoIllustration.nai.sampler', '采样器', textInput('bridge.autoIllustration.nai.sampler', effectiveNai.sampler, 'k_euler_ancestral', 'text', medium)),
             };
             const anchorViewportField = (autoSettings) => {
@@ -592,6 +592,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                         + `<div class="igs-settings-sub" data-image-feature="backfill"${hiddenAttr(!auto.interludeEnabled && !auto.nsfwEnabled)}>${imageFields.autoBackfillField}</div>`,
                     nsfw: imageFields.autoNsfwField
                         + `<div class="igs-settings-sub" data-image-feature="nsfw"${imageFields.autoNsfwHidden}>${grid(imageFields.autoNsfwCountField)}</div>`,
+                    inpaint: sourceMode === 'nai' || sourceMode === 'dbgen'
+                        ? imageFields.directorEmotionField + grid(imageFields.consistencyStrengthField, imageFields.consistencyModelField) : '',
                 },
             });
             return imageFields;
