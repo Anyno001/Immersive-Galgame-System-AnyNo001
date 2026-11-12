@@ -7,6 +7,7 @@ import { setStagePauseReason } from './stage-pause.js';
 import { createCgLibraryView } from './cg-library-view.js';
 import { cgReasonText } from '../../media/cg-library.js';
 import { recoverOperation } from '../../storage/automatic-recovery.js';
+import { downloadCgEntry, downloadCgZip } from '../../media/cg-download.js';
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -32,6 +33,7 @@ export function createCgGalleryPanel(doc, options = {}) {
     let acting = Promise.resolve();
     let viewerJob = Promise.resolve();
     let viewerController = null;
+    let zipping = false;
 
     const chatId = () => { try { return String(options.getChatId?.() || ''); } catch (_) { return ''; } };
     const query = (selector) => (root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null);
@@ -60,6 +62,7 @@ export function createCgGalleryPanel(doc, options = {}) {
             + `<button type="button" data-cg-act="hide" data-cg-key="${escapeHtml(entry.key)}" aria-pressed="${entry.hidden}">${entry.hidden ? '取消隐藏' : '隐藏'}</button>`
             + (canJump ? `<button type="button" data-cg-act="jump" data-cg-key="${escapeHtml(entry.key)}">跳到楼层</button>` : '')
             + rerollButton(entry)
+            + `<button type="button" data-cg-act="download" data-cg-key="${escapeHtml(entry.key)}">下载</button>`
             + `<button type="button" class="is-danger" data-cg-act="delete" data-cg-key="${escapeHtml(entry.key)}">删除</button>`
             + `</div></li>`;
     }
@@ -75,7 +78,8 @@ export function createCgGalleryPanel(doc, options = {}) {
         const pager = s.list.length > s.entries.length || s.page > 0
             ? `<div class="igs-cg-pager"><button type="button" data-cg-act="page-prev" ${s.page <= 0 ? 'disabled' : ''}>上一页</button><span>第 ${s.page + 1} / ${s.pages} 页 · 共 ${s.list.length} 张</span><button type="button" data-cg-act="page-next" ${s.page >= s.pages - 1 ? 'disabled' : ''}>下一页</button></div>`
             : (s.list.length ? `<div class="igs-cg-pager"><span>共 ${s.list.length} 张</span></div>` : '');
-        const batch = s.entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除本页 ${s.entries.length} 张</button>` : '';
+        const zip = s.list.length ? `<button type="button" data-cg-act="download-listed"${zipping ? ' disabled' : ''}>${zipping ? '打包中…' : `打包下载 ${s.list.length} 张`}</button>` : '';
+        const batch = zip + (s.entries.length ? `<button type="button" class="is-danger" data-cg-act="delete-listed">删除本页 ${s.entries.length} 张</button>` : '');
         root.innerHTML = `<header class="igs-cg-head"><h2>CG 库</h2><span class="igs-cg-head-actions">${batch}<button type="button" data-cg-act="close" aria-label="关闭 CG 库">×</button></span></header>`
             + `<div class="igs-cg-filters" role="group" aria-label="筛选">${toggle('filter-favorite', filters.favoritesOnly, '只看收藏')}${toggle('filter-hidden', filters.showHidden, '显示已隐藏')}${toggle('filter-chat', Boolean(filters.chatId), '只看当前聊天')}${toggle('order', Boolean(filters.oldestFirst), filters.oldestFirst ? '最早在前' : '最新在前')}</div>`
             + pager
@@ -120,6 +124,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         event?.stopPropagation?.();
         const hit = findAction(event && event.target);
         if (hit && hit.act === 'reroll') { queueAct('reroll', hit.key); return; }
+        if (hit && hit.act === 'download') { queueAct('download', hit.key); return; }
         closeViewer();
     }
 
@@ -139,6 +144,7 @@ export function createCgGalleryPanel(doc, options = {}) {
         return (src ? `<img src="${escapeHtml(src)}" alt="${alt}">` : '')
             + (note ? `<p class="igs-cg-viewer-note">${escapeHtml(note)}</p>` : '')
             + rerollButton(entry, 'igs-cg-viewer-reroll')
+            + `<button type="button" class="igs-cg-viewer-download" data-cg-act="download" data-cg-key="${escapeHtml(entry.key)}">下载原图</button>`
             + '<button type="button" class="igs-cg-viewer-close" aria-label="关闭大图">×</button>';
     }
 
@@ -176,6 +182,23 @@ export function createCgGalleryPanel(doc, options = {}) {
     async function handle(act, key) {
         if (!view) return;
         const entry = key ? view.find(key) : null;
+        if (act === 'download-listed') {
+            if (zipping) return;
+            const list = view.state.list.slice();
+            if (!list.length) return;
+            zipping = true; render();
+            try {
+                const result = await downloadCgZip(service, list, doc.defaultView || globalThis, {
+                    onProgress: ({ done, total }) => view?.setNotice(`正在打包原图：${done} / ${total}`),
+                });
+                view?.setNotice(result.ok === false ? `打包失败：${cgReasonText(result.reason)}`
+                    : `已打包 ${result.images} 张${result.missing ? `，${result.missing} 张原图读不到已跳过` : ''}`);
+            } catch (error) {
+                if (error?.name !== 'AbortError') view?.setNotice(`打包失败：${error?.message || '未知原因'}`);
+                else view?.setNotice('');
+            } finally { zipping = false; if (view) render(); }
+            return;
+        }
         if (act === 'delete-listed') {
             const ask = typeof options.confirm === 'function' ? options.confirm : () => false;
             const list = view.state.entries.slice();
@@ -190,6 +213,11 @@ export function createCgGalleryPanel(doc, options = {}) {
             return;
         }
         if (!entry) return;
+        if (act === 'download') {
+            const result = await downloadCgEntry(service, entry, doc.defaultView || globalThis);
+            view.setNotice(result?.ok ? `已下载 ${result.fileName}` : `下载失败：${cgReasonText(result?.reason)}`);
+            return;
+        }
         if (act === 'jump') { if (entry.chatId === chatId()) options.onJump?.(entry); return; }
         if (act === 'favorite' || act === 'hide') {
             const field = act === 'favorite' ? 'favorite' : 'hidden';
@@ -357,6 +385,7 @@ export const CG_GALLERY_STYLE_TEXT = `
 #igs-cg-viewer img{max-width:96%;max-height:92%;object-fit:contain;display:block;}
 #igs-cg-viewer .igs-cg-viewer-note{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);margin:0;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;font-size:13px;}
 #igs-cg-viewer .igs-cg-viewer-reroll{position:absolute;top:12px;right:64px;min-height:44px;padding:0 14px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:14px;cursor:pointer;}
+#igs-cg-viewer .igs-cg-viewer-download{position:absolute;top:12px;left:12px;min-height:44px;padding:0 14px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:14px;cursor:pointer;}
 #igs-cg-viewer .igs-cg-viewer-reroll:disabled{opacity:.55;cursor:default;}
 #igs-cg-viewer .igs-cg-viewer-close{position:absolute;top:12px;right:12px;min-width:44px;min-height:44px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:20px;line-height:1;cursor:pointer;}
 @media (max-width:420px){#igs-cg-gallery .igs-cg-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}

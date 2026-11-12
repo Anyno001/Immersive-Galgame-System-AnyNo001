@@ -1,6 +1,7 @@
 import { requireMediaCache } from './media-cache-owner.js';
 import { recoverMediaOperation } from './tavern-media-http.js';
-import { cgEntryStamp } from './image-identity.js';
+import { cgEntryStamp, isImagePath, dataUrlBlob } from './image-identity.js';
+import { createTavernImageFiles } from './tavern-image-files.js';
 export { cgEntryStamp } from './image-identity.js';
 // CG 库服务。三层数据各管各的：
 // 1. 目录（igs-cg-index entries）：每张楼层 CG / 照片一条轻记录，打开 CG 库只读这里。
@@ -35,6 +36,7 @@ const REASON_TEXT = {
     missing: '这张图的记录已经不在了',
     'write-timeout': '保存超时',
     'store-unavailable': 'CG 库不可用',
+    'download-unavailable': '当前环境不支持下载',
 };
 
 export function cgReasonText(reason) {
@@ -354,6 +356,34 @@ export function createCgLibrary(deps = {}) {
         }
     }
 
+    // 下载用原件：绕过显示缓存（可能已压成 WebP），直接取酒馆文件或记录里的原始字节。
+    async function readOriginalBlob(entry) {
+        if (!entry) return { ok: false, reason: 'missing' };
+        try {
+            let raw = '';
+            if (entry.kind === 'photo') {
+                if (!photoStore) return { ok: false, reason: 'store-unavailable' };
+                const rec = typeof photoStore.getRecord === 'function'
+                    ? await step(photoStore.getRecord(entry.photoId))
+                    : (await step(photoStore.getMany([entry.photoId])))[0];
+                raw = String(rec?.dataUrl || '');
+            } else {
+                if (!illustrationStore) return { ok: false, reason: 'store-unavailable' };
+                const rec = await step(illustrationStore.getSlotRecord(entry.key));
+                if (!rec || rec.status !== 'done') return forget(entry);
+                raw = String(rec.dataUrl || '');
+            }
+            if (!raw) return forget(entry);
+            const globalObject = deps.globalObject || globalThis;
+            const blob = isImagePath(raw)
+                ? await (deps.readFileBlob || (path => createTavernImageFiles(globalObject, 'igs-media').readBlob(path)))(raw)
+                : dataUrlBlob(raw, { Blob: globalObject.Blob || globalThis.Blob, atob: globalObject.atob || globalThis.atob });
+            return blob ? { ok: true, blob } : { ok: false, reason: 'file-unreadable' };
+        } catch (error) {
+            return { ok: false, reason: error?.message === 'image-file-not-found' ? 'file-unreadable' : reasonOf(error, 'file-unreadable') };
+        }
+    }
+
     // 已存的缩略图：stamp 与条目时间对得上才算数（同一格重画过就重新生成）。
     async function readThumbs(entries) {
         const list = (entries || []).filter(Boolean);
@@ -501,6 +531,7 @@ export function createCgLibrary(deps = {}) {
         makeThumb,
         mediaCache,
         readFull,
+        readOriginalBlob,
         setHidden: (entry, hidden) => setFlag(entry, 'hidden', hidden === true),
         setFavorite: (entry, favorite) => setFlag(entry, 'favorite', favorite === true),
         remove,

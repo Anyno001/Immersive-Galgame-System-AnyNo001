@@ -1273,7 +1273,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const tiles = s.entries.map((entry, index) => {
             const label = entry.kind === 'photo' ? '照片' : `第 ${entry.messageId} 楼`;
             const on = selected.has(entry.key);
-            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><span class="igs-image-cg-pic" data-image-cg-thumb="${esc(entry.key)}">${imageCgThumbHtml(view, entry)}</span><span>${esc(label)}</span></button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></article>`;
+            return `<article class="igs-image-cg-tile"><label class="igs-image-cg-check"><input type="checkbox" data-action="image-cg-toggle:${index}" ${on ? 'checked' : ''} aria-label="选择${esc(label)}"></label><button type="button" class="igs-image-cg-view" data-action="image-cg-view:${index}" aria-label="查看${esc(label)}大图"><span class="igs-image-cg-pic" data-image-cg-thumb="${esc(entry.key)}">${imageCgThumbHtml(view, entry)}</span><span>${esc(label)}</span></button><span class="igs-image-cg-ops"><button type="button" class="igs-image-cg-download" data-action="image-cg-download:${index}">下载</button><button type="button" class="igs-image-cg-delete" data-action="image-cg-delete:${index}">删除</button></span></article>`;
         }).join('');
         const empty = s.phase === 'ready' && !s.entries.length ? '<div class="igs-scene-empty">还没有生成过CG</div>' : '';
         return pager + line + (tiles || empty);

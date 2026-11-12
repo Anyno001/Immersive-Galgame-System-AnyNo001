@@ -198,6 +198,10 @@ const IMAGE_CG_TEMPLATE = `
         <button class="igs-settings-action" data-action="image-cg-delete-selected" type="button">删选中</button>
         <button class="igs-settings-action is-danger" data-action="image-cg-delete-all" type="button">删全部</button>
       </div>
+      <div class="igs-cg-actions-row"><span class="igs-cg-actions-label">下载</span>
+        <button class="igs-settings-action" data-action="image-cg-download-selected" type="button">下选中</button>
+        <button class="igs-settings-action" data-action="image-cg-download-all" type="button">打包全部</button>
+      </div>
     </div>
     <div class="igs-settings-result" data-result="image-cg">{{imageCgStatus}}</div>
     <div class="igs-image-cg-grid" data-image-cg-list>{{imageCgList}}</div>

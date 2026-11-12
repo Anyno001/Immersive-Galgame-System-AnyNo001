@@ -14,6 +14,8 @@ import { snapshotAssetLibrary } from '../../scene/asset-scope.js';
 import { collectImageReferences } from '../../media/image-references.js';
 import { writeZip } from '../../media/archive-zip.js';
 import { createArchiveDownload } from '../../media/archive-download.js';
+import { downloadCgEntry, downloadCgZip } from '../../media/cg-download.js';
+import { cgReasonText } from '../../media/cg-library.js';
 import { createTavernImageFiles } from '../../media/tavern-image-files.js';
 import { dataUrlBlob } from '../../media/image-identity.js';
 import { writeCheckedStorage } from '../../storage/checked-storage-write.js';
@@ -812,6 +814,42 @@ async function deleteCgEntries(action, settingsState, options, dialogs, rerender
     const removed = removedKeys.size;
     const failed = batch && batch.failed || 0;
     asyncState.imageCgStatus = failed ? `已删除${removed}张，${failed}张未能删除。` : `已删除${removed}张。`;
+    return rerenderSettings();
+}
+
+// 单张存原件；「下选中」一张也直接存、多张打 zip；「打包全部」按当前排序的整个列表，不限本页。
+async function downloadCgFromSettings(action, settingsState, options, rerenderSettings) {
+    const asyncState = settingsState.asyncState;
+    const view = asyncState.imageCg || null;
+    const service = options.cgGallery;
+    const globalObj = options.global || globalThis;
+    if (!view || typeof service?.readOriginalBlob !== 'function') {
+        asyncState.imageCgStatus = 'CG库不可用';
+        return rerenderSettings();
+    }
+    let targets;
+    if (action.startsWith('image-cg-download:')) targets = [view.state.entries[Number(action.slice('image-cg-download:'.length))]].filter(Boolean);
+    else if (action === 'image-cg-download-selected') {
+        const selected = cgSelection(asyncState);
+        targets = view.state.entries.filter((entry) => selected.has(entry.key));
+        if (!targets.length) { asyncState.imageCgStatus = '先勾选要下载的CG。'; return rerenderSettings(); }
+    } else if (action === 'image-cg-download-all') targets = view.state.list.slice();
+    else return rerenderSettings();
+    if (!targets.length) { asyncState.imageCgStatus = '还没有可下载的CG。'; return rerenderSettings(); }
+    try {
+        if (targets.length === 1) {
+            const result = await downloadCgEntry(service, targets[0], globalObj);
+            asyncState.imageCgStatus = result?.ok ? `已下载${result.fileName}` : `下载失败：${cgReasonText(result?.reason)}`;
+        } else {
+            asyncState.imageCgStatus = `正在打包${targets.length}张原图…`;
+            rerenderSettings();
+            const result = await downloadCgZip(service, targets, globalObj);
+            asyncState.imageCgStatus = result.ok === false ? `打包失败：${cgReasonText(result.reason)}`
+                : `已打包${result.images}张${result.missing ? `，${result.missing}张原图读不到已跳过` : ''}。`;
+        }
+    } catch (error) {
+        asyncState.imageCgStatus = error?.name === 'AbortError' ? '' : `下载失败：${error?.message || '未知原因'}`;
+    }
     return rerenderSettings();
 }
 
@@ -3547,6 +3585,10 @@ export async function handleSettingsAction(action, ctx) {
         resetCgView(settingsState.asyncState);
         settingsState.asyncState.imageCgStatus = '';
         return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('image-cg-download')) {
+        return downloadCgFromSettings(normalizedAction, settingsState, options, rerenderSettings);
     }
 
     if (normalizedAction === 'image-cg-select-all' || normalizedAction.startsWith('image-cg-toggle:') || normalizedAction.startsWith('image-cg-delete:') || normalizedAction === 'image-cg-delete-selected' || normalizedAction === 'image-cg-delete-all') {
