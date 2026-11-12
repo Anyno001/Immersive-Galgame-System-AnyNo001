@@ -139,10 +139,10 @@ export function prepareCharacterCaption(input = {}) {
         const portrait = ['sprite', 'derived'].includes(selected.value?.purpose);
         const outfitText = outfit ? (b.framing === 'half_body' && portrait
             ? outfit.descriptionHalfBody || outfit.description : outfit.description) : null;
-        // 立绘/差分的表情动作词排在外貌衣装前：角色段过长时 NAI 截断末尾，表情不能落在最后。
+        // 仅表情差分把表情动作词排在外貌衣装前（防截断）；默认立绘保持原顺序，免得外貌被挤后导致长相变样。
         const dnaSlot = `<<dna:${b.token}>>`, outfitSlot = `<<outfit:${b.token}>>`;
         const hasOutfit = outfitText != null && pos.char_caption.includes(outfitSlot);
-        if (portrait && pos.char_caption.trimStart().startsWith(dnaSlot)) {
+        if (selected.value?.purpose === 'derived' && pos.char_caption.trimStart().startsWith(dnaSlot)) {
             const rest = pos.char_caption.replace(dnaSlot, '').replace(hasOutfit ? outfitSlot : '\u0000', '')
                 .split(',').map(s => s.trim()).filter(Boolean).join(', ');
             const subject = identity.subject.trim();
