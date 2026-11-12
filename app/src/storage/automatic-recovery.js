@@ -170,6 +170,8 @@ export async function recoverOperation(execute, { signal, isActive = () => true,
             result = await recoveryStep(execute, signal);
         } catch (error) { cause = error; result = failureFrom(error) || { ok: false,
             reason: error?.code || error?.message || 'operation-pending', error: error?.message || String(error) }; }
+        // 用户中途停止时，本次已返回的部分成果（如批量差分里已画好的几张）要交回调用方入库，不能当作取消丢掉。
+        if ((signal?.aborted || !isActive()) && Array.isArray(result?.items) && result.items.some(item => item?.ok)) return result;
         if (signal?.aborted || !isActive()) break;
         if (result !== false && result?.ok !== false) return result;
         if (recoveryCancelled(result)) return result;

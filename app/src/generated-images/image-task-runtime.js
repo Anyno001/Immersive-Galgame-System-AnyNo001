@@ -108,13 +108,16 @@ export async function runImageTask(runtime, meta, execute) {
     lease.bind(guarded);
     lease.bind(guarded.signal);
     let stop;
-    const cancelled = new Promise(resolve => { stop = () => resolve(staleImageTask()); });
+    // 用户自己点停止（调用方 signal 中止）时等任务把已完成的部分交回来；配置失效等其它原因才立即放弃。
+    const userStopped = () => Boolean(meta?.signal?.aborted);
+    const cancelled = new Promise(resolve => { stop = () => { if (!userStopped()) resolve(staleImageTask()); }; });
     lease.signal.addEventListener('abort', stop, { once: true });
+    const partial = result => Array.isArray(result?.items) && result.items.some(item => item?.ok);
     try {
         if (!lease.isCurrent()) return staleImageTask();
         const result = await Promise.race([Promise.resolve().then(() =>
             lease.isCurrent() ? execute(guarded, lease) : staleImageTask()), cancelled]);
-        if (!lease.isCurrent()) return staleImageTask();
+        if (!lease.isCurrent() && !(userStopped() && partial(result))) return staleImageTask();
         if (result?.ok) {
             for (const entry of [result, ...(result.captions || []), ...(result.slots || []), ...(result.items || [])]) {
                 lease.bind(entry); lease.bind(entry.caption);

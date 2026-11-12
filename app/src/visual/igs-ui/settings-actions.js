@@ -2174,14 +2174,15 @@ export async function handleSettingsAction(action, ctx) {
                 ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: baseId, nsfw, note: moodNote, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged })
                 : null;
-            if (directed && !directed.ok) throw new Error(directed.error || '导演工具表情失败');
+            // 导演工具整体失败（读不到底图等）不抛出：已画好的底图照样入库，失败原因随结果带回。
+            const directedFailed = Boolean(directed && !directed.ok);
             const unmapped = directed ? new Set([...(directed.unmapped || []), ...wantedMoods.filter(isBaseMood)]) : null;
             const rItems = (unmapped ? resumeItems.filter((item) => unmapped.has(item.mood)) : resumeItems).filter((item) => !done.has(item.mood));
             const pItems = (unmapped ? paintItems.filter((item) => unmapped.has(item.mood)) : paintItems).filter((item) => !done.has(item.mood));
             const wLabels = (unmapped ? writeLabels.filter((label) => unmapped.has(label)) : writeLabels).filter((label) => !done.has(label));
             const needLegacy = retry ? (!unmapped || unmapped.size > 0) : resume ? rItems.length > 0 : pItems.length + wLabels.length > 0;
             const paintOnly = !retry && !wLabels.length;
-            const legacy = !needLegacy || baseHalted || (directed && (directed.stopped || stopControl.signal.aborted)) ? null
+            const legacy = !needLegacy || directedFailed || baseHalted || (directed && (directed.stopped || stopControl.signal.aborted)) ? null
                 : resume || paintOnly
                 ? await service.paintExpressionCaptions({ name, items: rItems, basePrompt, dna, outfit, nsfw, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged,
@@ -2198,7 +2199,9 @@ export async function handleSettingsAction(action, ctx) {
                         service, name, paintItems: pItems, writeLabels: wLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
                         shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }),
                     });
-            const parts = [baseResult, directed, legacy].filter(Boolean);
+            const parts = [baseResult, directedFailed
+                ? { ok: false, items: directMoods.map((label) => ({ mood: label, ok: false, error: directed.error || '导演工具表情失败' })), error: directed.error || '导演工具表情失败' }
+                : directed, legacy].filter(Boolean);
             result = parts.length === 1 ? parts[0] : {
                 ok: parts.some((part) => (part.items || []).some((item) => item.ok)) || parts.every((part) => part.ok),
                 stopped: parts.some((part) => part.stopped),
@@ -2209,7 +2212,9 @@ export async function handleSettingsAction(action, ctx) {
             return failed(error);
         }
         stopControl.done();
-        if (!result || !result.ok) return failed(result && result.error);
+        // 中途停止时已画好的图照样入库：只要有成功项就继续往下保存，不走失败分支。
+        const anyPainted = Boolean(result && (result.items || []).some((item) => item.ok && item.imageId));
+        if (!result || (!result.ok && !anyPainted)) return failed(result && result.error);
         if (!targetUnchanged()) return failed('角色、衣装或资料作用域已变化，原资料保持不变');
         const adoptedRecords = [];
         const verifiedSprites = new Set();
