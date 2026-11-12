@@ -1777,7 +1777,8 @@ export function createAssetGenerationService(deps) {
 
     const DIRECTOR_EMOTIONS = { 平和: 'neutral', 喜悦: 'happy', 愤怒: 'angry', 悲伤: 'sad', 惊讶: 'surprised', 害羞: 'shy',
         紧张: 'nervous', 思考: 'thinking', 爱恋: 'love', 嫌弃: 'disgusted', 得意: 'smug', 冷淡: 'bored', 大笑: 'laughing',
-        哭泣: 'sad', 不满: 'irritated', 无奈: 'tired', 心虚: 'embarrassed', 委屈: 'hurt', 怀疑: 'confused' };
+        哭泣: 'sad', 不满: 'irritated', 无奈: 'tired', 心虚: 'embarrassed', 委屈: 'hurt', 怀疑: 'confused',
+        害怕: 'scared', 兴奋: 'excited', 担忧: 'worried', 坚定: 'determined', 调皮: 'playful' };
 
     function directorEmotionOf(mood, nsfw) {
         const label = String(mood || '').trim();

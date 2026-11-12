@@ -513,7 +513,7 @@ function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDr
 }
 
 // 角色记一个档位；没记过按 8。用户取消返回 0。老存档记的 18 按 20 处理。
-export const MOOD_TIERS = [8, 12, 16, 20];
+export const MOOD_TIERS = [8, 12, 16, 20, 25];
 
 function normalizeMoodTier(value) {
     const picked = Number(value);
@@ -533,6 +533,7 @@ async function chooseMoodTier(dialogs, saved, name, { firstDefault = false } = {
         { value: '12', label: '12', note: '重要配角' },
         { value: '16', label: '16', note: '主要角色' },
         { value: '20', label: '20', note: '主角' },
+        { value: '25', label: '25', note: '全部表情' },
         { value: 'pick', label: '自选', note: '勾选要画的表情' },
     ];
     let raw;
@@ -1968,7 +1969,7 @@ export async function handleSettingsAction(action, ctx) {
         let pickedLabels = null;
         if (customPick) {
             const pickSlots = outfitMode ? outfitSpriteSlots(outfitEntry) : (character || {});
-            const options = moodTierLabels(20, { nsfw, extra: allGroups.map((group) => group.label) })
+            const options = moodTierLabels(25, { nsfw, extra: allGroups.map((group) => group.label) })
                 .map((label) => ({ value: label, label: String(pickSlots[label] || '').trim() ? `${label}·有图` : label, note: String(pickSlots[label] || '').trim() ? '已有图，勾选也不会重画' : '' }));
             pickedLabels = typeof dialogs.pick === 'function' ? await dialogs.pick(`「${name}」要画哪些表情？`, options, []) : null;
             if (!pickedLabels || !pickedLabels.length) return rerenderSettings();
