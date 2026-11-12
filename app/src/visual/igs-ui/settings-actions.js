@@ -2067,9 +2067,12 @@ export async function handleSettingsAction(action, ctx) {
             return rerenderSettings();
         }
         const directorStatus = typeof service.directorExpressionStatus === 'function' ? service.directorExpressionStatus({ enabled: settingsState.draft.bridge?.autoIllustration?.nai?.directorEmotion === true }) : null;
+        // 导演工具的底图：先取「默认」，没有再取「平和」；底图自己重画时不能拿它改它。
+        const directorBaseMood = ['默认', '平和'].find((label) => generatedAssetIdOf(String(slots[label] || ''))) || '';
+        const directorBaseId = directorBaseMood ? generatedAssetIdOf(String(slots[directorBaseMood])) : '';
         const directorReason = !directorStatus || !directorStatus.ok ? (directorStatus && directorStatus.reason) || ''
-            : !defaultId ? '这套服装还没有默认立绘'
-            : retry && mood === '默认' ? '默认立绘本身需要整张生成' : '';
+            : retry && ['默认', '平和'].includes(mood) ? `「${mood}」是表情差分的底图，需要整张生成`
+            : !directorBaseId ? '这套服装还没有「默认」或「平和」立绘' : '';
         const useDirector = Boolean(directorStatus && directorStatus.ok && !directorReason);
         const routeText = useDirector
             ? '本次使用NAI导演工具，在默认立绘上修改表情。'
@@ -2144,14 +2147,15 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
         };
         try {
-            const directMoods = useDirector
-                ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels) : [];
+            const wantedMoods = useDirector ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels) : [];
+            const isBaseMood = (label) => label === '默认' || label === directorBaseMood;
+            const directMoods = wantedMoods.filter((label) => !isBaseMood(label));
             const directed = directMoods.length && typeof service.paintDirectorExpressions === 'function'
-                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: defaultId, nsfw, note: moodNote, onProgress,
+                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: directorBaseId, nsfw, note: moodNote, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged })
                 : null;
             if (directed && !directed.ok) throw new Error(directed.error || '导演工具表情失败');
-            const unmapped = directed ? new Set(directed.unmapped || []) : null;
+            const unmapped = directed ? new Set([...(directed.unmapped || []), ...wantedMoods.filter(isBaseMood)]) : null;
             const rItems = unmapped ? resumeItems.filter((item) => unmapped.has(item.mood)) : resumeItems;
             const pItems = unmapped ? paintItems.filter((item) => unmapped.has(item.mood)) : paintItems;
             const wLabels = unmapped ? writeLabels.filter((label) => unmapped.has(label)) : writeLabels;
