@@ -1012,11 +1012,15 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (!request.imageBase64) return { ok: false, reason: 'invalid-emotion-request', error: '缺少原图' };
         const settings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
         // 画师串贴在情绪名后面：分区「表情差分」优先，没开分区或该栏为空用全局画师串。
-        const artist = artistFor({ promptKind: 'expression' }, settings)?.positive || globalArtist(settings).positivePrompt;
+        const rawArtist = artistFor({ promptKind: 'expression' }, settings)?.positive || globalArtist(settings).positivePrompt;
+        // 导演工具不认 V4 权重写法，带上会返回 500：去掉「1.2::」「::」与括号，只留画师名。
+        const artist = String(rawArtist || '').replace(/-\d+(?:\.\d+)?::[^:]*?(?:::|$)/g, ',')
+            .replace(/\d+(?:\.\d+)?::/g, '').replace(/::/g, ',')
+            .replace(/[{}\[\]()]/g, '').replace(/;;/g, ',').split(',').map(part => part.trim()).filter(Boolean).join(', ');
         const [emotionName, ...rest] = String(request.prompt || '').split(';;');
         const tags = [artist, rest.join(';;')].map(part => String(part || '').trim()).filter(Boolean).join(', ');
         const sent = { ...request, prompt: tags ? `${emotionName};;${tags}` : emotionName };
-        if (artist) report?.('info', `导演工具：已附加画师串（提示词共${sent.prompt.length}字）`);
+        if (artist) report?.('info', `导演工具：已附加画师串（去掉权重符号后提示词共${sent.prompt.length}字）`);
         try {
             let result = await sendNai('emotion', sent, settings, sent);
             // 带画师串时服务端报错：去掉画师串重发一次，确认是不是画师串导致。
