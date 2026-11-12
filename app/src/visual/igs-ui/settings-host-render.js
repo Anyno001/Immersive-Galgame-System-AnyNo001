@@ -469,7 +469,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     '立绘与物品图未出透明底时按此底色出图后抠除，角色主色与底色相近时可更换。自动：内置NAI与数据库生图用白底，其余用浅灰底。'),
                 autoMatteField: !isMatteUnlocked() ? '' : checkbox('bridge.imageApi.autoMatte', imageApi.autoMatte !== false, '自动抠图（关闭后保留原图底色）'),
                 directorEmotionField: field('bridge.autoIllustration.nai.directorEmotion', '表情差分', checkbox('bridge.autoIllustration.nai.directorEmotion', auto.nai.directorEmotion === true, '使用NAI导演工具'),
-                    '仅限官方NAI。在默认立绘上直接修改表情，不重新出图。'),
+                    '在默认立绘上直接修改表情，不重新出图。官方NAI可用；中转站需支持导演工具接口。'),
                 externalSpriteDnaField: checkbox('bridge.imageApi.externalSpriteDna', imageApi.externalSpriteDna === true, '外部生图前补齐角色 DNA'),
                 naiSpriteTransparentField: checkbox('bridge.imageApi.naiSpriteTransparent', imageApi.naiSpriteTransparent !== false, '立绘透明底'),
                 dbgenSpriteTransparentField: checkbox('bridge.imageApi.dbgenSpriteTransparent', imageApi.dbgenSpriteTransparent !== false, '立绘透明底（V4.5 请关闭）'),

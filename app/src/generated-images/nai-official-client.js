@@ -79,6 +79,22 @@ export function resolveNaiEndpoint(endpoint) {
     } catch { return trimmed; }
 }
 
+// 导演工具地址：官方固定为 image.novelai.net；中转按生图地址推算，/ai/generate-image 换成 /ai/augment-image，
+// 只填根地址或 /ai 的补上 /ai/augment-image，其余自定义路径无法推算时返回空串。
+export function resolveNaiAugmentEndpoint(endpoint) {
+    if (isOfficialNaiEndpoint(endpoint)) return 'https://image.novelai.net/ai/augment-image';
+    try {
+        const url = new URL(String(endpoint).trim());
+        if (!['http:', 'https:'].includes(url.protocol)) return '';
+        const path = url.pathname.replace(/\/+$/, '');
+        if (path === '' || path === '/ai') url.pathname = '/ai/augment-image';
+        else if (/\/generate-image$/.test(path)) url.pathname = path.replace(/\/generate-image$/, '/augment-image');
+        else if (/\/augment-image$/.test(path)) url.pathname = path;
+        else return '';
+        return url.href;
+    } catch { return ''; }
+}
+
 function describeStatus(status, detail = '') {
     const suffix = detail ? `：${detail}` : '';
     if (status === 401) return 'NAI 鉴权失败（401）：请检查 NAI Key';
@@ -338,8 +354,9 @@ export function createNaiOfficialClient(deps = {}) {
 
     async function emotion(request = {}, naiSettings = {}) {
         const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
-        const supportsEmotion = isOfficialNaiEndpoint(settings.endpoint);
-        if (!supportsEmotion) return { ok: false, reason: 'director-unsupported', supportsEmotion, error: '导演工具仅支持官方NAI地址' };
+        const augmentUrl = resolveNaiAugmentEndpoint(settings.endpoint);
+        const supportsEmotion = Boolean(augmentUrl);
+        if (!supportsEmotion) return { ok: false, reason: 'director-unsupported', supportsEmotion, error: '无法从当前NAI地址推算导演工具地址，请填写以 /ai/generate-image 结尾的地址' };
         const blocked = precheck(settings);
         if (blocked) return { ...blocked, supportsEmotion };
         if (request.signal?.aborted || (typeof request.shouldStart === 'function' && !request.shouldStart()))
@@ -347,7 +364,7 @@ export function createNaiOfficialClient(deps = {}) {
         const body = { req_type: 'emotion', prompt: String(request.prompt || ''), defry: 0,
             width: request.width, height: request.height,
             image: String(request.imageBase64 || '').replace(/^data:[^,]*,/, '') };
-        const sent = await dispatch(body, { ...settings, url: 'https://image.novelai.net/ai/augment-image',
+        const sent = await dispatch(body, { ...settings, url: augmentUrl,
             ...(request.signal && { signal: request.signal }),
             ...(request.shouldStart && { shouldStart: request.shouldStart }) });
         return sent ? { ...sent, supportsEmotion } : sent;
