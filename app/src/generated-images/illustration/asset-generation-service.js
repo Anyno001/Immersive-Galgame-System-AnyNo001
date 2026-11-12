@@ -1847,14 +1847,22 @@ export function createAssetGenerationService(deps) {
         return canvas.toDataURL('image/png');
     }
 
-    function supportsDirectorExpressions() {
+    // 返回本次能否走导演工具；不能时带上原因，供生成前提示。
+    function directorExpressionStatus({ enabled } = {}) {
         try {
-            return readSettings().auto.nai.directorEmotion === true && typeof emotionPaint === 'function'
-                && nai?.describeEmotion?.()?.supported === true;
-        } catch { return false; }
+            if ((typeof enabled === 'boolean' ? enabled : readSettings().auto.nai.directorEmotion === true) !== true) return { ok: false, reason: '未开启「使用NAI导演工具」' };
+            if (typeof emotionPaint !== 'function') return { ok: false, reason: '当前图像来源不支持导演工具' };
+            const capability = nai?.describeEmotion?.();
+            if (capability?.supported !== true) return { ok: false, reason: capability?.message || '当前图像来源不支持导演工具' };
+            return { ok: true, reason: '' };
+        } catch (error) { return { ok: false, reason: (error && error.message) || '无法读取导演工具设置' }; }
     }
 
-    async function paintDirectorExpressions({ name, moods, baseImageId, nsfw = false, onProgress, signal, shouldStart } = {}) {
+    function supportsDirectorExpressions() {
+        return directorExpressionStatus().ok;
+    }
+
+    async function paintDirectorExpressions({ name, moods, baseImageId, nsfw = false, note = '', onProgress, signal, shouldStart } = {}) {
         const labels = (Array.isArray(moods) ? moods : []).map(item => String(item || '').trim()).filter(Boolean);
         const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
         const unmapped = [], plan = [];
@@ -1878,7 +1886,8 @@ export function createAssetGenerationService(deps) {
             reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: plan.length, mood });
             let painted;
             try {
-                painted = await emotionPaint({ prompt: extra ? `${emotion};;${extra}` : emotion,
+                const tags = [extra, String(note || '').trim()].filter(Boolean).join(', ');
+                painted = await emotionPaint({ prompt: tags ? `${emotion};;${tags}` : emotion,
                     width: flat.width, height: flat.height, imageBase64: flat.base64,
                     ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
             } catch (error) { painted = { ok: false, error: (error && error.message) || '导演工具表情失败' }; }
@@ -2758,7 +2767,7 @@ export function createAssetGenerationService(deps) {
         prepareExternalSpriteDna,
         generateExpressionSet: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionSet),
         generateExpressionImage: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionImage),
-        paintDirectorExpressions, supportsDirectorExpressions,
+        paintDirectorExpressions, supportsDirectorExpressions, directorExpressionStatus,
         paintExpressionCaptions: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, paintExpressionCaptions),
         generateCharacterSprite: request => withExternalSpriteDna(request, generateCharacterSprite),
         generateCharacterAvatar: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateCharacterAvatar),

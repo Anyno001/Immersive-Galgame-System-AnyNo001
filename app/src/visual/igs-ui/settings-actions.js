@@ -2066,6 +2066,15 @@ export async function handleSettingsAction(action, ctx) {
             showGeneratedNotice(globalObj, '没有已写好提示词但尚未出图的表情。');
             return rerenderSettings();
         }
+        const directorStatus = typeof service.directorExpressionStatus === 'function' ? service.directorExpressionStatus({ enabled: settingsState.draft.bridge?.autoIllustration?.nai?.directorEmotion === true }) : null;
+        const directorReason = !directorStatus || !directorStatus.ok ? (directorStatus && directorStatus.reason) || ''
+            : !defaultId ? '这套服装还没有默认立绘'
+            : retry && mood === '默认' ? '默认立绘本身需要整张生成' : '';
+        const useDirector = Boolean(directorStatus && directorStatus.ok && !directorReason);
+        const routeText = useDirector
+            ? '本次使用NAI导演工具，在默认立绘上修改表情。'
+            : directorStatus && directorReason !== '未开启「使用NAI导演工具」' ? `本次整张生成：${directorReason}。` : '';
+        if ((retry || resume) && routeText) showGeneratedNotice(globalObj, routeText, 'info');
         if (!retry && !resume) {
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
             if (!missingLabels.length) {
@@ -2076,7 +2085,8 @@ export async function handleSettingsAction(action, ctx) {
             }
             const paintNames = paintItems.map((item) => item.mood).join('、');
             const writeNames = writeLabels.join('、');
-            const confirmed = await dialogs.confirm(singleDefault
+            const confirmed = await dialogs.confirm((routeText ? `${routeText}
+` : '') + (singleDefault
                 ? `给${who}画1张「平和」，表情先共用。`
                 : !writeLabels.length
                 ? `${customPick ? '所选' : '这一档'}还有${paintItems.length}张已写好提示词、尚未出图：${paintNames}。将只补画这${paintItems.length}张，不重写提示词。`
@@ -2084,7 +2094,7 @@ export async function handleSettingsAction(action, ctx) {
                     ? (missingLabels.length === labels.length
                         ? `生成${who}的${missingLabels.length}张表情差分：${writeNames}。`
                         : `${customPick ? '所选' : '这一档'}还有${missingLabels.length}张尚未生成：${writeNames}。将只生成这${missingLabels.length}张，已有的${filledLabels.length}张保持不变。`)
-                    : `${customPick ? '所选' : '这一档'}还有${missingLabels.length}张尚未生成。其中${paintItems.length}张已有提示词，将直接补画：${paintNames}；另外${writeLabels.length}张需先编写提示词：${writeNames}。已有的${filledLabels.length}张保持不变。`);
+                    : `${customPick ? '所选' : '这一档'}还有${missingLabels.length}张尚未生成。其中${paintItems.length}张已有提示词，将直接补画：${paintNames}；另外${writeLabels.length}张需先编写提示词：${writeNames}。已有的${filledLabels.length}张保持不变。`));
             if (!confirmed) return rerenderSettings();
         }
         let result;
@@ -2134,10 +2144,10 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
         };
         try {
-            const directMoods = service.supportsDirectorExpressions?.() === true && defaultId && !(retry && mood === '默认')
+            const directMoods = useDirector
                 ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels) : [];
             const directed = directMoods.length && typeof service.paintDirectorExpressions === 'function'
-                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: defaultId, nsfw, onProgress,
+                ? await service.paintDirectorExpressions({ name, moods: directMoods, baseImageId: defaultId, nsfw, note: moodNote, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged })
                 : null;
             if (directed && !directed.ok) throw new Error(directed.error || '导演工具表情失败');

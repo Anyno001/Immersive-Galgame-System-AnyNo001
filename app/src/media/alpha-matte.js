@@ -1,8 +1,16 @@
 import { decodeImage } from './image-decode.js';
 // 纯色底立绘抠图：从图像四边洪泛，只抠与边缘连通、颜色接近底色的像素，
-// 角色内部的白色（衬衫、高光）不与边缘连通，不会被误抠。
+// 封闭空洞仅在极接近底色、平整且达到面积下限时才抠，角色内部的白衣服与高光保留。
 const HARD_TOLERANCE = 28;
-const SOFT_TOLERANCE = 72;
+const SOFT_SPAN = 44;
+const HOLE_TOLERANCE = 12;
+const HOLE_MAX_CHANNEL_STD = 3;
+const HOLE_MAX_MEAN_DIST = 10;
+const HOLE_MIN_AREA_RATIO = 0.0002;
+const HOLE_MIN_AREA = 64;
+const FRINGE_RINGS = 3;
+const MIN_ALPHA = 0.1;
+const FG_MIN_DIST = 60;
 
 function colorDistance(data, i, bg) {
     const dr = data[i] - bg[0];
@@ -27,16 +35,30 @@ function sampleBorderColor(data, width, height) {
 export function matteSolidBackground(imageData) {
     const { data, width, height } = imageData;
     const bg = sampleBorderColor(data, width, height);
-    const visited = new Uint8Array(width * height);
-    const stack = [];
+    const total = width * height;
+    // 底色噪点大时适度放宽硬阈值，上限 38，避免吃掉浅色皮肤/浅发。
+    const hist = new Uint32Array(256);
+    let borderCount = 0;
+    const tally = (x, y) => { hist[Math.min(255, Math.round(colorDistance(data, (y * width + x) * 4, bg)))] += 1; borderCount += 1; };
+    for (let x = 0; x < width; x += 1) { tally(x, 0); tally(x, height - 1); }
+    for (let y = 1; y < height - 1; y += 1) { tally(0, y); tally(width - 1, y); }
+    let acc = 0;
+    let p95 = 0;
+    while (p95 < 255 && acc + hist[p95] < borderCount * 0.95) { acc += hist[p95]; p95 += 1; }
+    const hard = Math.max(HARD_TOLERANCE, Math.min(38, Math.round(p95 * 1.5 + 6)));
+
+    // state: 0 未处理，1 已抠，2 空洞候选已访问，3 过渡带已处理
+    const state = new Uint8Array(total);
+    const buf = new Int32Array(total);
+    let top = 0;
     const seed = (x, y) => {
         const p = y * width + x;
-        if (!visited[p] && colorDistance(data, p * 4, bg) <= HARD_TOLERANCE) { visited[p] = 1; stack.push(p); }
+        if (!state[p] && colorDistance(data, p * 4, bg) <= hard) { state[p] = 1; buf[top++] = p; }
     };
     for (let x = 0; x < width; x += 1) { seed(x, 0); seed(x, height - 1); }
     for (let y = 0; y < height; y += 1) { seed(0, y); seed(width - 1, y); }
-    while (stack.length) {
-        const p = stack.pop();
+    while (top) {
+        const p = buf[--top];
         data[p * 4 + 3] = 0;
         const x = p % width;
         const y = (p - x) / width;
@@ -45,24 +67,110 @@ export function matteSolidBackground(imageData) {
         if (y > 0) seed(x, y - 1);
         if (y < height - 1) seed(x, y + 1);
     }
-    // 边缘羽化：紧邻已抠区域、颜色介于硬/软阈值之间的像素按距离给半透明，消除白边。
-    for (let y = 0; y < height; y += 1) {
-        for (let x = 0; x < width; x += 1) {
-            const p = y * width + x;
-            if (visited[p]) continue;
-            const touches = (x > 0 && visited[p - 1]) || (x < width - 1 && visited[p + 1])
-                || (y > 0 && visited[p - width]) || (y < height - 1 && visited[p + width]);
-            if (!touches) continue;
-            const d = colorDistance(data, p * 4, bg);
-            if (d >= SOFT_TOLERANCE) continue;
-            const alpha = Math.max(0.05, (d - HARD_TOLERANCE) / (SOFT_TOLERANCE - HARD_TOLERANCE));
-            // 去溢色：把混进边缘的底色按 alpha 反推出去，避免灰边。
-            for (let k = 0; k < 3; k += 1) {
-                const i = p * 4 + k;
-                data[i] = Math.max(0, Math.min(255, Math.round((data[i] - bg[k] * (1 - alpha)) / alpha)));
-            }
-            data[p * 4 + 3] = Math.round(255 * alpha);
+
+    // 封闭空洞（叉腰、发丝间）：须极接近底色、平整且有一定面积；白衣服的灰色褶皱会使方差超标而保留。
+    const minArea = Math.max(HOLE_MIN_AREA, Math.round(total * HOLE_MIN_AREA_RATIO));
+    const comp = new Int32Array(total);
+    for (let s = 0; s < total; s += 1) {
+        if (state[s] || colorDistance(data, s * 4, bg) > HOLE_TOLERANCE) continue;
+        let n = 0;
+        let top2 = 0;
+        let sd = 0;
+        const sum = [0, 0, 0];
+        const sq = [0, 0, 0];
+        state[s] = 2;
+        buf[top2++] = s;
+        while (top2) {
+            const p = buf[--top2];
+            comp[n++] = p;
+            const i = p * 4;
+            sd += colorDistance(data, i, bg);
+            for (let k = 0; k < 3; k += 1) { const v = data[i + k]; sum[k] += v; sq[k] += v * v; }
+            const x = p % width;
+            const push = (q) => {
+                if (!state[q] && colorDistance(data, q * 4, bg) <= HOLE_TOLERANCE) { state[q] = 2; buf[top2++] = q; }
+            };
+            if (x > 0) push(p - 1);
+            if (x < width - 1) push(p + 1);
+            if (p >= width) push(p - width);
+            if (p < total - width) push(p + width);
         }
+        if (n < minArea || sd / n > HOLE_MAX_MEAN_DIST) continue;
+        let flat = true;
+        for (let k = 0; k < 3; k += 1) {
+            const mean = sum[k] / n;
+            if (Math.sqrt(Math.max(0, sq[k] / n - mean * mean)) > HOLE_MAX_CHANNEL_STD) { flat = false; break; }
+        }
+        if (!flat) continue;
+        for (let j = 0; j < n; j += 1) { state[comp[j]] = 1; data[comp[j] * 4 + 3] = 0; }
+    }
+
+    // 过渡带：离已抠区域 3px 内的像素，用邻近实心像素估计前景色，按「混合色在底色→前景色连线上的位置」求 alpha 并去溢色；
+    // 深色人物与白底的半透明过渡离底色很远，只看与底色的距离会漏掉。前景估不出或本身接近底色时退回按距离估。
+    let frontier = new Int32Array(total);
+    let next = new Int32Array(total);
+    const cand = new Int32Array(total);
+    let cn = 0;
+    let fn = 0;
+    for (let p = 0; p < total; p += 1) if (state[p] === 1) frontier[fn++] = p;
+    for (let ring = 0; ring < FRINGE_RINGS && fn; ring += 1) {
+        let nn = 0;
+        const visit = (q) => {
+            if (state[q] !== 0 && state[q] !== 2) return;
+            state[q] = 3;
+            cand[cn++] = q;
+            next[nn++] = q;
+        };
+        for (let j = 0; j < fn; j += 1) {
+            const p = frontier[j];
+            const x = p % width;
+            if (x > 0) visit(p - 1);
+            if (x < width - 1) visit(p + 1);
+            if (p >= width) visit(p - width);
+            if (p < total - width) visit(p + width);
+        }
+        const t = frontier; frontier = next; next = t; fn = nn;
+    }
+    const R = 3;
+    const fg = [0, 0, 0];
+    const alphas = new Float32Array(cn);
+    for (let j = 0; j < cn; j += 1) {
+        const q = cand[j];
+        const i = q * 4;
+        const x = q % width;
+        const y = (q - x) / width;
+        let cnt = 0;
+        fg[0] = 0; fg[1] = 0; fg[2] = 0;
+        for (let yy = Math.max(0, y - R); yy <= Math.min(height - 1, y + R); yy += 1) {
+            for (let xx = Math.max(0, x - R); xx <= Math.min(width - 1, x + R); xx += 1) {
+                const r = yy * width + xx;
+                if (state[r] !== 0) continue;
+                const k = r * 4;
+                fg[0] += data[k]; fg[1] += data[k + 1]; fg[2] += data[k + 2]; cnt += 1;
+            }
+        }
+        let a = -1;
+        if (cnt) {
+            const dr = fg[0] / cnt - bg[0];
+            const dg = fg[1] / cnt - bg[1];
+            const db = fg[2] / cnt - bg[2];
+            const len2 = dr * dr + dg * dg + db * db;
+            if (len2 > FG_MIN_DIST * FG_MIN_DIST) {
+                a = ((data[i] - bg[0]) * dr + (data[i + 1] - bg[1]) * dg + (data[i + 2] - bg[2]) * db) / len2;
+            }
+        }
+        if (a < 0) a = (colorDistance(data, i, bg) - hard) / SOFT_SPAN;
+        alphas[j] = Math.max(0, Math.min(1, a));
+    }
+    for (let j = 0; j < cn; j += 1) {
+        const i = cand[j] * 4;
+        const a = alphas[j];
+        if (a >= 0.98) continue;
+        if (a < MIN_ALPHA) { data[i + 3] = 0; continue; }
+        for (let k = 0; k < 3; k += 1) {
+            data[i + k] = Math.max(0, Math.min(255, Math.round((data[i + k] - bg[k] * (1 - a)) / a)));
+        }
+        data[i + 3] = Math.round(255 * a);
     }
     return imageData;
 }
