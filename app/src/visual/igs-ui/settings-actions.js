@@ -128,7 +128,8 @@ function decodeSeg(value) {
 
 // 脸框按底图 imageId 存在素材库根的 spriteFaceBoxes；相对原图宽高。
 async function askFaceBox({ settingsState, service, imageId, initial, persistSettingsDraft, editTarget }) {
-    const host = settingsState.dom && settingsState.dom.root;
+    // 挂在设置器遮罩根节点上：设置器重绘只改壳内节点，弹层不被抹掉。
+    const host = settingsProgressHost(globalThis) || settingsState.dom;
     let url = '';
     try { url = typeof service.getImageDataUrl === 'function' ? await service.getImageDataUrl(imageId) : ''; } catch { url = ''; }
     const box = await pickFaceBox({ host, imageUrl: url, initial });

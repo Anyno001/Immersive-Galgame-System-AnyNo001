@@ -31,8 +31,10 @@ function sameNode(a, b) {
 function patchChildren(parent, next, active) {
     let cur = parent.firstChild;
     let incoming = next.firstChild;
+    const transient = (node) => node && node.nodeType === 1 && node.hasAttribute('data-igs-transient');
     while (incoming) {
         const following = incoming.nextSibling;
+        while (transient(cur)) cur = cur.nextSibling;
         if (cur && sameNode(cur, incoming)) {
             patchNode(cur, incoming, active);
             cur = cur.nextSibling;
@@ -43,7 +45,8 @@ function patchChildren(parent, next, active) {
     }
     while (cur) {
         const following = cur.nextSibling;
-        parent.removeChild(cur);
+        // 临时弹层（选脸窗口等）不属于模板，重绘时留着。
+        if (!transient(cur)) parent.removeChild(cur);
         cur = following;
     }
 }

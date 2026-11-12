@@ -42,6 +42,7 @@ export function pickFaceBox({ host, imageUrl, initial = null, title = '拖动椭
     return new Promise((resolve) => {
         const root = doc.createElement('div');
         root.className = 'igs-face-picker';
+        root.setAttribute('data-igs-transient', '');
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
         root.setAttribute('aria-label', '调整脸部位置');
