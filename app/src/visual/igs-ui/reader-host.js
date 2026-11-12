@@ -3210,7 +3210,15 @@ export function createIgsReaderHost(options = {}) {
                 try { base = floor.assets.sprite(row.speaker, '', outfit).url || ''; } catch (_) { base = ''; }
             }
             const ownMood = row.mood && raw !== base;
-            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: ownMood ? `${id}::${row.mood}` : id };
+            // 取景按情绪组存（同组情绪共用一个取景）；legacyKey 是旧版按单个情绪存的键，没调过组取景时沿用。
+            if (url) {
+                found = {
+                    url: resolveReaderAssetUrl(url, current),
+                    adjustKey: id,
+                    groupKey: ownMood ? `${id}::${row.moodGroup || row.mood}` : '',
+                    legacyKey: ownMood ? `${id}::${row.mood}` : '',
+                };
+            }
         }
         if (!found) {
             const status = resolveStatusAvatar(assets.statusAvatars, row.key);
@@ -3464,7 +3472,14 @@ ${row.key}`;
             onPlay: (i) => logSpeak(i),
             onReplay: (i) => { if (state.activeReader === current) jumpReaderSegment(i); },
             onSceneRow: (i) => logSceneRow(current, i),
-            onSaveAdjust: (adjust) => saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } }),
+            unified: Boolean(rs._sceneAssets && rs._sceneAssets.unifiedSpriteLayout === true),
+            onSaveAdjust: (adjust, unified) => {
+                // 「统一」与立绘设置的「统一角色立绘位置」是同一个开关。
+                if (typeof unified === 'boolean' && unified !== Boolean(rs._sceneAssets && rs._sceneAssets.unifiedSpriteLayout === true)) {
+                    saveBridgePatch((bridge) => ({ sceneAssets: { ...(bridge.sceneAssets || {}), unifiedSpriteLayout: unified } }));
+                }
+                return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } });
+            },
         });
         log.revealing = result.revealing;
     }
