@@ -87,4 +87,24 @@ export function faceBoxFromScan(scan, width, height) {
         rx: 0.6 * faceW, ry: 0.75 * faceW * width / height });
 }
 
-export const FACE_PRESERVE_TAGS = 'same character, same hairstyle, same eye color, consistent lighting';
+const EYE_COLOR = /\b(?:red|blue|green|yellow|purple|violet|pink|orange|brown|black|white|grey|gray|gold(?:en)?|silver|aqua|cyan|teal|amber|crimson|scarlet|magenta|lavender|emerald|sapphire|azure|ruby|multicolored|gradient|two-tone|light\s+\w+|dark\s+\w+)\b/i;
+
+// 从 DNA 文本里挑出眼色与瞳孔词（blue eyes、heart-shaped pupils、heterochromia）；遮罩盖住整张脸时靠它稳住眼色。
+export function eyeColorTags(...texts) {
+    const out = [], seen = new Set();
+    for (const text of texts) {
+        for (const raw of String(text || '').split(/[,，\n]/)) {
+            const tag = raw.replace(/^\s*-?\d+(?:\.\d+)?::/, '').replace(/::\s*$/, '').replace(/[(){}[\]]/g, '').replace(/:\d+(?:\.\d+)?$/, '').trim();
+            if (!tag) continue;
+            const eye = /\beyes?\b/i.test(tag) && EYE_COLOR.test(tag);
+            if (!eye && !/\bpupils?\b/i.test(tag) && !/heterochromia/i.test(tag)) continue;
+            const key = tag.toLowerCase().replace(/\s+/g, ' ');
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(tag);
+        }
+    }
+    return out;
+}
+
+export const FACE_PRESERVE_TAGS ='same character, same hairstyle, same eye color, consistent lighting';

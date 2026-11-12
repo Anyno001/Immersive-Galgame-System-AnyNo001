@@ -37,3 +37,10 @@ test('羽化回贴：椭圆外与 alpha 不变，中心完全替换', () => {
     assert.equal(base[0], before[0]);
     assert.equal(faceBlendWeight(crop.ellipse, 0, 0), 0);
 });
+
+test('只改脸部从 DNA 取眼色与瞳孔词加权，不取表情与形状类眼睛词', async () => {
+    const { eyeColorTags } = await import('../src/generated-images/illustration/face-edit-plan.js');
+    assert.deepEqual(eyeColorTags('1girl, 1.2::blue eyes::, big eyes, starry eyes, closed eyes, heart-shaped pupils', '(red eyes:1.1), heterochromia, blue eyes'),
+        ['blue eyes', 'heart-shaped pupils', 'red eyes', 'heterochromia']);
+    assert.deepEqual(eyeColorTags('', null, 'pink hair, smile'), []);
+});

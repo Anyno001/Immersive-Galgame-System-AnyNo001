@@ -6,7 +6,7 @@ import { imageBackendMethod } from '../backend-methods.js';
 import { moodPresetTags, resolvePresetGroup } from '../../scene/mood-groups.js';
 import { findOpaqueBounds } from '../../media/alpha-matte.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
-import { FACE_PRESERVE_TAGS, blendFaceInto, buildFaceMask, planFaceCrop } from './face-edit-plan.js';
+import { FACE_PRESERVE_TAGS, eyeColorTags, blendFaceInto, buildFaceMask, planFaceCrop } from './face-edit-plan.js';
 import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
 import { isConsistencyModelValid, isConsistencyStrengthValid, normalizeConsistencyModel, normalizeConsistencyStrength } from './auto-illustration-settings.js';
 import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/generation-seeds.js';
@@ -2082,7 +2082,11 @@ export function createAssetGenerationService(deps) {
         if (!isConsistencyModelValid(editModel)) return { ok: false, error: '重绘模型无效，请在「局部重绘」里重新选择' };
         // 框外原图已锁长相，每档随机种子；DNA 只取触发词与身份，不带性格。
         const dnaParts = dna ? buildCharacterDnaPromptParts(dna) : { positive: '', negative: '' };
-        const dnaFace = dna ? (({ triggerWords, identity }) => mergePromptTags([triggerWords, identity]))(normalizeCharacterDna(dna)) : '';
+        const fullDna = dna ? normalizeCharacterDna(dna) : null;
+        const dnaFace = fullDna ? mergePromptTags([fullDna.triggerWords, fullDna.identity]) : '';
+        // 遮罩盖住整张脸，眼色只能靠提示词：从 DNA（含各景别）取眼色词加权，排在表情后面。
+        const eyes = fullDna ? eyeColorTags(fullDna.triggerWords, fullDna.identity,
+            ...Object.values(fullDna.views || {}).map((view) => view?.subject)).join(', ') : '';
         const items = [];
         let halted = false;
         for (let i = 0; i < plan.length; i += 1) {
@@ -2093,7 +2097,7 @@ export function createAssetGenerationService(deps) {
             try {
                 const face = mergePromptTags(`${emotion} expression`, extra);
                 const rest = mergePromptTags(dnaFace, String(note || '').trim(), FACE_PRESERVE_TAGS);
-                const prompt = [`1.3::${face}::`, rest].filter(Boolean).join(', ');
+                const prompt = [`1.3::${face}::`, eyes && `1.25::${eyes}::`, rest].filter(Boolean).join(', ');
                 const sentTitle = `脸部重绘发出去（${name}·${mood}）：模型 ${editModel}，强度 ${strength}`;
                 const sentParts = Math.max(1, Math.ceil(prompt.length / 520));
                 for (let k = 0; k < sentParts; k += 1) {
