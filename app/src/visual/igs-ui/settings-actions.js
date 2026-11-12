@@ -132,8 +132,12 @@ function decodeSeg(value) {
 async function askFaceBox({ settingsState, service, imageId, initial, persistSettingsDraft, editTarget }) {
     // 挂在设置器遮罩根节点上：设置器重绘只改壳内节点，弹层不被抹掉。
     const host = settingsProgressHost(globalThis) || settingsState.dom;
+    // 先用设置器已显示的那张（内存缓存，脸框按相对坐标存，分辨率无关）；没缓存才去酒馆文件夹读，后者较慢。
     let url = '';
-    try { url = typeof service.getImageDataUrl === 'function' ? await service.getImageDataUrl(imageId) : ''; } catch { url = ''; }
+    try { url = typeof service.resolveUrl === 'function' ? String(service.resolveUrl(`igs-gen:${imageId}`) || '') : ''; } catch { url = ''; }
+    if (!/^(?:data:|blob:|https?:)/i.test(url)) {
+        try { url = typeof service.getImageDataUrl === 'function' ? await service.getImageDataUrl(imageId) : ''; } catch { url = ''; }
+    }
     const box = await pickFaceBox({ host, imageUrl: url, initial });
     if (!box) return null;
     const lib = draftAssetLibrary(settingsState, editTarget);
