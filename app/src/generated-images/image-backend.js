@@ -1011,8 +1011,14 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (!capability.supported) return { ok: false, reason: capability.reason, error: capability.message };
         if (!request.imageBase64) return { ok: false, reason: 'invalid-emotion-request', error: '缺少原图' };
         const settings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
+        // 画师串贴在情绪名后面：分区「表情差分」优先，没开分区或该栏为空用全局画师串。
+        const artist = artistFor({ promptKind: 'expression' }, settings)?.positive || globalArtist(settings).positivePrompt;
+        const [emotionName, ...rest] = String(request.prompt || '').split(';;');
+        const tags = [artist, rest.join(';;')].map(part => String(part || '').trim()).filter(Boolean).join(', ');
+        const sent = { ...request, prompt: tags ? `${emotionName};;${tags}` : emotionName };
+        if (artist) report?.('info', '导演工具：已附加画师串');
         try {
-            const result = await sendNai('emotion', request, settings, request);
+            const result = await sendNai('emotion', sent, settings, sent);
             return result && result.ok && result.dataUrl
                 ? { ok: true, dataUrl: result.dataUrl }
                 : { ok: false, reason: result?.reason || 'emotion-failed',
