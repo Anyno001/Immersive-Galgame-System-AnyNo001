@@ -940,7 +940,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         if (!nai || typeof nai.emotion !== 'function') return { supported: false, reason: 'director-unsupported', message: '当前 NAI 客户端不支持导演工具' };
         if (!base.ready.ok) return { supported: false, reason: 'backend-unavailable', message: base.ready.error };
         const naiSettings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
-        if (!resolveNaiAugmentEndpoint(naiSettings.endpoint)) return { supported: false, reason: 'director-unsupported', message: '无法从当前NAI地址推算导演工具地址，请填写以 /ai/generate-image 结尾的地址' };
+        if (!resolveNaiAugmentEndpoint(naiSettings.endpoint)) return { supported: false, reason: 'director-unsupported', message: 'NAI地址是自定义路径，无法推算导演工具地址；请填写域名、/v1 或以 /ai/generate-image 结尾的地址' };
         return { supported: true, reason: '', message: '', via: 'nai' };
     }
 

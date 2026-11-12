@@ -64,35 +64,40 @@ export function foldCharsForRelay(body, settings = {}) {
             v4_negative_prompt: { ...p.v4_negative_prompt, caption: { ...neg, base_caption: negBase } } }) } };
 }
 
-export function resolveNaiEndpoint(endpoint) {
+// NAI 地址规范：去掉多余斜杠和重复的 /v1，再补成 NAI 原生路径。
+// 返回 { base, kind }：base 为不含 /ai/... 的前缀；kind 为 'native'（可推算）或 'custom'（自定义路径，原样使用）。
+// 用户填的前缀（如 /v1、/api）保留，不擅自删除；只把 /ai、/ai/generate-image、/ai/augment-image 这类结尾归一。
+function normalizeNaiEndpoint(endpoint) {
     const trimmed = String(endpoint || '').trim();
-    if (!trimmed) return NAI_OFFICIAL_ENDPOINT;
-    // 内置 NAI 接受根地址或 /ai；显式自定义路径保留，避免改变旧接口语义。
-    try {
-        const url = new URL(trimmed);
-        if (!['http:', 'https:'].includes(url.protocol)) return trimmed;
-        const path = url.pathname.replace(/\/+$/, '');
-        if (path === '') url.pathname = '/ai/generate-image';
-        else if (path === '/ai') url.pathname = '/ai/generate-image';
-        else return trimmed;
-        return url.href;
-    } catch { return trimmed; }
+    if (!trimmed) return { base: 'https://image.novelai.net', kind: 'native' };
+    let url;
+    try { url = new URL(trimmed); } catch { return { base: trimmed, kind: 'custom' }; }
+    if (!['http:', 'https:'].includes(url.protocol)) return { base: trimmed, kind: 'custom' };
+    if (/(^|\.)novelai\.net$/i.test(url.hostname)) return { base: 'https://image.novelai.net', kind: 'native' };
+    const segments = url.pathname.split('/').filter(Boolean);
+    // 连续重复的 v1（/v1/v1）只留一个。
+    const deduped = segments.filter((seg, i) => !(i > 0 && /^v\d+$/i.test(seg) && seg.toLowerCase() === segments[i - 1].toLowerCase()));
+    const lower = deduped.map(seg => seg.toLowerCase());
+    let prefix = deduped;
+    const last = lower.at(-1), prev = lower.at(-2);
+    if (prev === 'ai' && (last === 'generate-image' || last === 'augment-image')) prefix = deduped.slice(0, -2);
+    else if (last === 'ai') prefix = deduped.slice(0, -1);
+    else if (last === 'generate-image' || last === 'augment-image') prefix = deduped.slice(0, -1);
+    else if (deduped.length && !deduped.every(seg => /^(?:v\d+|api)$/i.test(seg))) return { base: trimmed, kind: 'custom' };
+    url.pathname = prefix.length ? `/${prefix.join('/')}` : '';
+    url.search = ''; url.hash = '';
+    return { base: url.href.replace(/\/+$/, ''), kind: 'native' };
 }
 
-// 导演工具地址：官方固定为 image.novelai.net；中转按生图地址推算，/ai/generate-image 换成 /ai/augment-image，
-// 只填根地址或 /ai 的补上 /ai/augment-image，其余自定义路径无法推算时返回空串。
+export function resolveNaiEndpoint(endpoint) {
+    const { base, kind } = normalizeNaiEndpoint(endpoint);
+    return kind === 'native' ? `${base}/ai/generate-image` : base;
+}
+
+// 导演工具地址：由规范后的生图地址推算；自定义路径无法推算时返回空串。
 export function resolveNaiAugmentEndpoint(endpoint) {
-    if (isOfficialNaiEndpoint(endpoint)) return 'https://image.novelai.net/ai/augment-image';
-    try {
-        const url = new URL(String(endpoint).trim());
-        if (!['http:', 'https:'].includes(url.protocol)) return '';
-        const path = url.pathname.replace(/\/+$/, '');
-        if (path === '' || path === '/ai') url.pathname = '/ai/augment-image';
-        else if (/\/generate-image$/.test(path)) url.pathname = path.replace(/\/generate-image$/, '/augment-image');
-        else if (/\/augment-image$/.test(path)) url.pathname = path;
-        else return '';
-        return url.href;
-    } catch { return ''; }
+    const { base, kind } = normalizeNaiEndpoint(endpoint);
+    return kind === 'native' ? `${base}/ai/augment-image` : '';
 }
 
 function describeStatus(status, detail = '') {
@@ -356,7 +361,7 @@ export function createNaiOfficialClient(deps = {}) {
         const settings = { ...NAI_DEFAULT_SETTINGS, ...naiSettings };
         const augmentUrl = resolveNaiAugmentEndpoint(settings.endpoint);
         const supportsEmotion = Boolean(augmentUrl);
-        if (!supportsEmotion) return { ok: false, reason: 'director-unsupported', supportsEmotion, error: '无法从当前NAI地址推算导演工具地址，请填写以 /ai/generate-image 结尾的地址' };
+        if (!supportsEmotion) return { ok: false, reason: 'director-unsupported', supportsEmotion, error: 'NAI地址是自定义路径，无法推算导演工具地址；请填写域名、/v1 或以 /ai/generate-image 结尾的地址' };
         const blocked = precheck(settings);
         if (blocked) return { ...blocked, supportsEmotion };
         if (request.signal?.aborted || (typeof request.shouldStart === 'function' && !request.shouldStart()))
