@@ -88,6 +88,16 @@ ${S} .igs-combat-loot-card[data-rarity="epic"]::before{content:"史";}
 ${S} .igs-combat-loot-card[data-rarity="mythic"]::before{content:"神";}
 ${S} .igs-combat-loot-back{background:var(--ink2);box-shadow:none;border-radius:inherit;}
 ${S} .igs-combat-loot-back::after{content:"?";position:absolute;inset:14px;left:14px;top:14px;width:auto;height:auto;aspect-ratio:auto;translate:none;rotate:none;display:flex;align-items:center;justify-content:center;background:none;border-radius:2px;box-shadow:inset 0 0 0 1px var(--line);font-family:var(--font-brush);font-size:34px;color:#3a4245;transform:none;}
+/* 三选一候选牌是完整卡面，版面吃紧：收起战功行、缩小标题与上方战利品签，卡面按手牌放大牌尺寸一行排开 */
+${S} .ik:has(.igs-combat-loot-choices) .ik-rows{display:none;}
+${S} .ik:has(.igs-combat-loot-choices) .ik-ttl{font-size:64px;}
+${S} .ik:has(.igs-combat-loot-choices) .ik-panel{gap:8px;}
+${S} .ik:has(.igs-combat-loot-choices) .igs-combat-loot-row:not(.igs-combat-loot-choices) .igs-combat-loot-card{height:46px;}
+${S} .ik:has(.igs-combat-loot-choices) .igs-combat-loot-row:not(.igs-combat-loot-choices) .igs-combat-loot-face{flex-direction:row;justify-content:center;align-items:center;padding:0 4px;}
+${S} .ik:has(.igs-combat-loot-choices) .igs-combat-loot-row:not(.igs-combat-loot-choices) .igs-combat-loot-tag{display:none;}
+${S} .ik:has(.igs-combat-loot-choices) .igs-combat-loot-row:not(.igs-combat-loot-choices) .igs-combat-loot-name{font-size:14px;}
+${S} .igs-combat-loot-choices{display:block;width:100%;margin-top:10px;}
+${S} .igs-combat-loot-choices .igs-cx-rw{justify-content:flex-start;}
 ${S} .igs-combat-loot-tools{display:flex;justify-content:center;width:auto;margin-top:12px;}
 ${S} .igs-combat-loot-tools .igs-combat-btn{font-size:14px;letter-spacing:2px;}
 ${P} .ik:has(.igs-combat-loot) .ik-shade{background:linear-gradient(180deg,rgba(18,20,22,0) 22%,rgba(18,20,22,.8) 38%,var(--ink) 50%);}

@@ -1,6 +1,6 @@
 // 照搬概念稿的皮肤登记：每套一个模块，导出 battleHtml(v, orient) 与 STYLE_TEXT。battleHtml 还是 null 的皮肤不算画布皮肤，战斗中沿用原有标记。
 // 各套并行落盘时只改自己的 combat-skin-<键>.js，不改本文件。
-import { markCanvasSkin } from './combat-skin-canvas.js';
+import { markCanvasSkin, REWARD_ROW_CSS } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_COMIC_STYLE_TEXT, comicBattleHtml } from './combat-skin-comic.js';
 import * as veil from './combat-skin-veil.js';
 import * as ink from './combat-skin-ink.js';
@@ -15,4 +15,5 @@ const MODULES = { comic: { battleHtml: comicBattleHtml, STYLE_TEXT: COMBAT_SKIN_
 
 export const CANVAS_BATTLE = Object.freeze(Object.fromEntries(Object.entries(MODULES).filter(([, m]) => typeof m.battleHtml === 'function').map(([k, m]) => [k, m.battleHtml])));
 for (const key of Object.keys(CANVAS_BATTLE)) markCanvasSkin(key);
-export const CANVAS_STYLE_TEXT = Object.values(MODULES).map((m) => m.STYLE_TEXT || '').join('\n');
+export const CANVAS_REWARD = Object.freeze(Object.fromEntries(Object.entries(MODULES).filter(([, m]) => typeof m.rewardRowHtml === 'function').map(([k, m]) => [k, m.rewardRowHtml])));
+export const CANVAS_STYLE_TEXT = `${Object.values(MODULES).map((m) => m.STYLE_TEXT || "").join("\n")}\n${REWARD_ROW_CSS}`;

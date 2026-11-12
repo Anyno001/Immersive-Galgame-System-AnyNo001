@@ -5,7 +5,7 @@ import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars, rewardCardMarkup, rewardRowMarkup, REWARD_ROW_CSS } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_INK_CONCEPT_CSS } from './combat-skin-ink-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -457,3 +457,9 @@ ${C}.is-ended .foes{pointer-events:none;}
 
 export const STYLE_TEXT = `${COMBAT_SKIN_INK_CONCEPT_CSS}\n${ghostCopy(COMBAT_SKIN_INK_CONCEPT_CSS)}${INK_WIRING_CSS}`;
 export const battleHtml = inkBattleHtml;
+
+// 结算三选一：每张候选牌用本皮肤放大牌的完整卡面（费用、牌名、图案、数值、关键字墨印、完整效果），一行静态排布。
+const REWARD_SIZE = { port: { w: 100, h: 164 }, land: { w: 138, h: 205 } };
+const REWARD_POS = [{ left: 0, z: 1, ty: '0', rot: '0' }];
+export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('ink', orient, views.map((view, index) => rewardCardMarkup(
+    cardHtml(view, 0, REWARD_POS, { selected: view.inst }, [], 99, orient === 'land'), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient]);

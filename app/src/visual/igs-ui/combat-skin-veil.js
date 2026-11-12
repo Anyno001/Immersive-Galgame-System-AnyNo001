@@ -6,7 +6,7 @@ import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { battlePick, canvasW, ringVars, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
+import { battlePick, canvasW, ringVars, SKILL_ICON_SVG, ITEM_ICON_SVG, rewardCardMarkup, rewardRowMarkup } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_VEIL_CONCEPT_CSS } from './combat-skin-veil-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -432,3 +432,8 @@ ${C}.is-ended .foes{pointer-events:none;}
 // 影子容器没有 .port 类：设计稿里「.port 后代」规则同样套到非横屏的影子上。
 const concept = COMBAT_SKIN_VEIL_CONCEPT_CSS.split('.igs-cx-ghost[data-cx="veil"]).port').join('.igs-cx-ghost[data-cx="veil"]):is(.port,.igs-cx-ghost:where(:not(.land)))');
 export const STYLE_TEXT = `${concept}${VEIL_WIRING_CSS}`;
+
+// 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布。
+const REWARD_SIZE = { port: { w: 114, h: 186 }, land: { w: 142, h: 224 }, avail: { port: 362, land: 560 } };
+export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('veil', orient, views.map((view, index) => rewardCardMarkup(
+    cardHtml(view, 0, [{ left: 0, z: 1, ty: 0, rot: '0' }], { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient], `--cw:${CFG.hand[orient].cw}px;--ch:${CFG.hand[orient].ch}px;--sw:${CFG.hand[orient].sw}px;--sh:${CFG.hand[orient].sh}px;`);

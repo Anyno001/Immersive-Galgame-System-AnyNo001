@@ -2,11 +2,11 @@ import { esc } from './reader-value-utils.js';
 import { cardTextHtml, partHtml } from './combat-card-text.js';
 export { cardTextHtml } from './combat-card-text.js';
 import { CARD_TYPE_LABELS, describeEffects, describeKeywords, intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
-import { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
+import { KEYWORD_NAME_TIPS, rewardHandView, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { isCanvasSkin } from './combat-skin-canvas.js';
-import { CANVAS_BATTLE } from './combat-skin-registry.js';
+import { CANVAS_BATTLE, CANVAS_REWARD } from './combat-skin-registry.js';
 import { CHALLENGE_LABELS } from '../../combat/challenge-labels.js';
 import { CHALLENGE_ACHIEVEMENTS } from '../../combat/challenge-history.js';
 import { INTIMATE_ENDING_LINE } from '../../scene/intimate-duel.js';
@@ -536,9 +536,13 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
 // 规则 v6 卡牌槽三选一：选定的战利品带 choices 时，在下方列出候选，点选其一（可改选），或跳过。
-function lootChoicesHtml(f, pending) {
+function lootChoicesHtml(f, pending, v = {}) {
     const slot = f.done ? f.cards.find((c) => c.chosen)?.slot : null;
     if (!slot || slot.kind !== 'card' || !Array.isArray(slot.choices) || !slot.choices.length) return '';
+    if (isCanvasSkin(v.skin) && CANVAS_REWARD[v.skin]) {
+        const views = slot.choices.map((_, i) => rewardHandView(rewardCardView(slot, i), rewardCardMarks(slot, i)));
+        return `<div class="igs-combat-loot-row igs-combat-loot-choices is-full" style="--n:${slot.choices.length}">${CANVAS_REWARD[v.skin](views, { orient: v.orient === 'land' ? 'land' : 'port', chosen: f.card, dim: f.card === 'skip', pending })}</div>`;
+    }
     const cards = slot.choices.map((card, i) => {
         const marks = rewardCardMarks(slot, i);
         const view = rewardCardView(slot, i);
@@ -674,7 +678,7 @@ function lootHtml(v) {
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
         ? btn('reroll', r.cost > 0 ? `重新抽取（消耗${r.cost}积分）` : '重新抽取（免费）', { disabled: pending || !r.available }) : '';
-    const choices = lootChoicesHtml(f, pending);
+    const choices = lootChoicesHtml(f, pending, v);
     const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
     const tools = `${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`

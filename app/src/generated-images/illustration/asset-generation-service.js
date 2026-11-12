@@ -1918,12 +1918,19 @@ export function createAssetGenerationService(deps) {
         }
         if (!plan.length) return { ok: true, items: [], unmapped, stopped: false };
         if (typeof emotionPaint !== 'function') return { ok: false, error: '当前图像来源不能使用导演工具' };
-        const record = normalizeGeneratedImageRecord(await store.getImage(baseImageId, { fields: '*' }));
-        const source = record?.originalDataUrl || record?.dataUrl;
+        // 只读需要的那一张：全部字段会把原图、透明图、遮罩等文件全从酒馆读一遍。
+        const startedAt = Date.now();
+        let source = '';
+        try { source = (await store.getImage(baseImageId, { fields: ['originalDataUrl'], original: true }))?.originalDataUrl || ''; } catch { source = ''; }
+        if (!source) {
+            try { source = (await store.getImage(baseImageId, { fields: ['dataUrl'] }))?.dataUrl || ''; } catch { source = ''; }
+        }
         if (!source) return { ok: false, error: '找不到默认立绘原图' };
+        const readAt = Date.now();
         let flat;
         try { flat = await flattenForDirector(source); }
         catch (error) { return { ok: false, error: (error && error.message) || '原图处理失败' }; }
+        report('info', `导演工具准备：读取底图 ${secs(readAt - startedAt)}，铺白底 ${secs(Date.now() - readAt)}（${flat.width}x${flat.height}）`);
         const items = [];
         let halted = false;
         for (let i = 0; i < plan.length; i += 1) {
@@ -2868,16 +2875,21 @@ export function createAssetGenerationService(deps) {
                 ...(target && { shouldStart: target.shouldStart }) });
             const captured = generation && typeof llm?.runImageTask === 'function';
             const run = async guarded => {
+                const enteredAt = Date.now();
                 // 存储空间明显装不下这一批时不发任何请求，免得出完图才发现存不下。
                 const planned = generation ? plannedImageCount(method, args[0]) : 0;
                 if (planned) {
                     const room = await checkImageStorageRoom(deps.global || globalThis, planned);
                     if (!room.ok) return { ...room, stopGeneration: true };
                 }
+                const roomAt = Date.now();
                 if (generation && method !== 'writeWardrobePrompt' && typeof nai?.waitUntilReady === 'function') {
                     const ready = await nai.waitUntilReady(guarded);
                     if (!ready.ok) return ready;
                 }
+                // 开工前的准备超过 3 秒才记一笔，方便排查「点了很久才开始」。
+                if (generation && Date.now() - enteredAt > 3000)
+                    report('info', `开始生成前等待：存储检查 ${secs(roomAt - enteredAt)}，就绪检查 ${secs(Date.now() - roomAt)}`);
                 const perform = () => execute(...(objectInput && captured ? [guarded, ...args.slice(1)] : args));
                 const readOnly = ['readStoredImage', 'readStoredImageRecord', 'getImagePrompt'].includes(method);
                 return recoverOperation(perform, {

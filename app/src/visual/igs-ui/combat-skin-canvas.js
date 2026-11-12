@@ -92,3 +92,36 @@ export function canvasGhostWrap(doc, cardEl) {
     wrap.appendChild(inner);
     return { wrap, inner };
 }
+
+// 结算三选一的候选牌：用本皮肤手牌的放大牌标记，去掉绝对定位与扇形，改成 pick-card 按钮（不带 data-combat-act="card"，不会被当成出牌）。
+// html 是皮肤 cardHtml 以「已选中、费用足够」状态渲染的整张牌；这里只改根节点：去内联位置、换动作与标签、加已选 / 跳过 / 待定态。
+export function rewardCardMarkup(html, { index, chosen, dim, pending }) {
+    let out = String(html).replace(/^(<[a-z]+ [^>]*?) style="[^"]*"/, '$1');
+    out = out.replace(/data-combat-act="card" data-combat-id="[^"]*"/, `data-combat-act="pick-card" data-combat-id="${index}"`)
+        .replace(/^(<[a-z]+ [^>]*?)class="card /, `$1class="card rw-card${chosen ? ' is-chosen' : ''}${dim ? ' is-dim' : ''} `)
+        .replace(/ aria-label="/, ` aria-label="选择 `)
+        .replace(/ aria-disabled="true"/, '');
+    if (chosen) out = out.replace(/ aria-label="([^"]*)"/, ' aria-label="$1（已选定）"');
+    if (pending) out = out.replace(/^(<[a-z]+ )/, '$1aria-disabled="true" ');
+    return out;
+}
+// 候选牌排布容器：套皮肤的影子作用域（igs-cx-ghost 带 data-cx，吃到该皮肤的牌面样式，面板控制器的画布点击 / 拖拽只认 igs-cx-canvas，不会碰到），一行静态排布。
+// size 是放大牌的设计宽高；窄屏按可用宽度等比缩小（--rw-k 由 zoom 吃掉）。
+export function rewardRowMarkup(key, orient, cards, size, vars = '') {
+    const land = orient === 'land';
+    const avail = size.avail?.[orient] ?? (land ? 460 : Math.max(240, canvasW(orient) - 56));
+    const n = Math.max(1, cards.length);
+    const k = Math.min(1, avail / (n * size.w + (n - 1) * 8));
+    return `<div class="igs-cx-ghost igs-cx-rw${land ? ' land' : ''}" data-cx="${key}" style="--rw-k:${k.toFixed(3)}"><div class="hand cx-rw-hand" style="${vars}--rw-w:${size.w}px;--rw-h:${size.h}px">${cards.join('')}</div></div>`;
+}
+export const REWARD_ROW_CSS = `
+#igs-overlay .igs-cx-ghost.igs-cx-rw{position:relative;left:auto;top:auto;pointer-events:auto;z-index:auto;display:flex;justify-content:center;width:auto;max-width:100%;zoom:var(--rw-k,1);touch-action:auto;flex-direction:row;align-items:flex-start;gap:0;padding:0;margin:0;min-height:0;background:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw *{touch-action:auto;}
+#igs-overlay .igs-sfx-result .rs-ui:has(.igs-combat-loot-choices.is-full){left:14px;right:14px;width:auto;}
+#igs-overlay .igs-sfx-result.land .rs-ui:has(.igs-combat-loot-choices.is-full){left:auto;right:120px;width:560px;}
+#igs-overlay .igs-combat-loot:has(>.igs-combat-loot-choices.is-full)>.igs-combat-loot-row:not(.igs-combat-loot-choices):not(.ink-keep){display:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand{position:static;display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:8px;left:auto;top:auto;width:auto;height:auto;transform:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand>.card.card.card.card.card{position:relative;flex:none;left:auto;top:auto;bottom:auto;right:auto;width:var(--rw-w);height:var(--rw-h);margin:0;transform:none;rotate:none;opacity:1;filter:none;cursor:pointer;z-index:auto;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand>.card.card.card.card.card.is-dim{opacity:.55;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand>.card.card.card.card.card.is-chosen{transform:translateY(-4px);}
+`;

@@ -723,3 +723,19 @@ export function combatHitMarks(events) {
     }
     return [...groups].map(([unitId, marks]) => ({ unitId, marks }));
 }
+
+// 结算三选一的候选牌：转成与手牌同形的视图（无实例号用占位，视为可用，不出费用不足置灰），画布皮肤用手牌完整卡面渲染。
+// card 是 rewardCardView 给出的升级 / 刻印后的牌；升级以 marks.upgraded 为准（定义里的 upgraded 是升级后字段，不是标记）。
+export function rewardHandView(card, marks = {}) {
+    const { upgraded: _def, ...base } = card || {};
+    const face = { ...base, upgraded: marks.upgraded === true };
+    const keywordParts = describeKeywordParts(face, attributeNumberOptions(face));
+    const keywords = keywordParts.map((p) => p.text).join('');
+    return {
+        inst: 'reward', id: face.id, name: face.name, type: face.type, cost: face.cost, upgraded: face.upgraded, rarity: face.rarity || '',
+        typeLabel: CARD_TYPE_LABELS[face.type] || '', text: describeEffects(face.effects), art: cardArtSvg(face),
+        affordable: true, needsTarget: false, targets: [], affects: [], playable: true,
+        ...(keywords ? { keywords, keywordParts } : {}), ...(face.temp ? { temp: true } : {}),
+        ...cardTextView(face), ...cardSlotView(face, null, COMBAT_RULES.version), keywordNames: cardKeywordNames(face),
+    };
+}

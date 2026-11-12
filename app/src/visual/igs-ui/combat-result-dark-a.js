@@ -147,6 +147,8 @@ ${L} .da-rw small{font-size:14px;line-height:18px;}${L} .da-rw strong{font-size:
 ${S} .da-c4in{inset:0;padding:40px 10px 10px;display:flex;flex-direction:column;gap:6px;}
 ${L} .da-c4in{padding:50px 20px 20px;gap:10px;}
 ${S} .da-c4in .igs-combat-loot{position:relative;flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;gap:0;padding:0;margin:0;pointer-events:none;}
+${S}:not(.land) .da-gb:has(.igs-combat-loot-choices){grid-template-rows:230px 120px 340px;}
+${S} .da-c4in .igs-combat-loot-choices{align-items:center;justify-content:center;display:flex;}
 ${S} .da-c4in .igs-combat-loot-cap{display:none;}
 ${S} .da-c4in .igs-combat-state{margin:0;font-size:14px;letter-spacing:.2em;color:var(--da-dim);}
 ${S} .da-c4in .igs-combat-loot-row{position:absolute;inset:0;width:auto;display:flex;justify-content:stretch;gap:8px;--loot-w:auto;}

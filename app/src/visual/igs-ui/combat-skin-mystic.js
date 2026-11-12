@@ -6,7 +6,7 @@ import { resourceBarHtml } from './combat-resource-bar.js';
 import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars, rewardCardMarkup, rewardRowMarkup } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_MYSTIC_CONCEPT_CSS } from './combat-skin-mystic-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -451,3 +451,8 @@ ${C}.is-ended .foes{pointer-events:none;}
 `;
 
 export const STYLE_TEXT = `${COMBAT_SKIN_MYSTIC_CONCEPT_CSS.replace(/@font-face\{[^}]*\}/g, '')}${WIRING_CSS}`;
+
+// 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布。
+const REWARD_SIZE = { port: { w: 128, h: 200 }, land: { w: 160, h: 232 }, avail: { port: 318, land: 560 } };
+export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('mystic', orient, views.map((view, index) => rewardCardMarkup(
+    cardHtml(view, 0, '', { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), REWARD_SIZE[orient], '');
