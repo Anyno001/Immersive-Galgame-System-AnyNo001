@@ -51,7 +51,7 @@ import { normalizeImageJobLogSettings, formatImageJobLogTime, imageJobLogLevelLa
 import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { CREATURE_DISPLAY_RANGE, normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
-import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORIGIN_PERSONALITIES, ORIGIN_REPO_URL, normalizeOriginSettings } from './origin-settings.js';
+import { ORIGIN_CREDIT, ORIGIN_DEFAULT_NAME, ORIGIN_MODS, ORIGIN_MOD_LABELS, ORIGIN_PERSONALITIES, ORIGIN_REPO_URL, ORIGIN_ECON_STYLES, normalizeOriginSettings, originEconStyle } from './origin-settings.js';
 import { originChatStatus } from './origin-attach.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { COMBAT_DIFFICULTY_KEYS, COMBAT_RULES } from '../../combat/rules.js';
@@ -368,7 +368,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 originPersonaTextField: field('bridge.origin.personaText', '自定义人格', textareaInput('bridge.origin.personaText', origin.personaText, '填写后覆盖上面的人格腔调'), '留空使用人格腔调'),
                 originBindToField: field('bridge.origin.bindTo', '系统绑定对象', textInput('bridge.origin.bindTo', origin.bindTo, '宿主')),
                 originRpChatField: field('bridge.origin.rpChat', '反串私聊', selectInput('bridge.origin.rpChat', origin.rpChat, [['auto', '随正文生成'], ['manual', '仅手动生成']])),
-                originAutoEconField: checkbox('bridge.origin.autoEcon', origin.autoEcon, '允许角色自主使用系统（购买、抽奖、使用道具）'),
+                originEconStyleField: field('bridge.origin.econStyle', '使用策略', selectInput('bridge.origin.econStyle', originEconStyle(origin), ORIGIN_ECON_STYLES)),
+                originEconTextField: field('bridge.origin.econText', '自定义策略', textareaInput('bridge.origin.econText', origin.econText, '例如：只在任务卡住时买道具，抽奖留到剧情转折'), '填写后覆盖使用策略'),
                 originChatToStoryField: checkbox('bridge.origin.chatToStory', origin.chatToStory, '宿主与系统的对话结果写入剧情'),
                 originRouteField: field('bridge.origin.route', '系统请求', selectInput('bridge.origin.route', origin.route, [['tavern', '跟随酒馆当前连接'], ['llm', '使用备用模型']])),
                 originModelField: field('bridge.origin.llmProfile', '备用模型预设', selectInput('bridge.origin.llmProfile', origin.llmProfile, originProfileChoices(origin.llmProfile))),

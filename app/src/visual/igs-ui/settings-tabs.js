@@ -587,7 +587,9 @@ const ORIGIN_TEMPLATE = `
       <div class="igs-source-filter-grid">{{originSysNameField}}{{originPersonalityField}}{{originFourthWallField}}</div>
       <div class="igs-settings-full">{{originPersonaTextField}}</div>
       <div class="igs-source-filter-grid">{{originBindToField}}{{originRpChatField}}</div>
-      <div class="igs-settings-section">{{originAutoEconField}}{{originChatToStoryField}}</div>
+      <div class="igs-source-filter-grid">{{originEconStyleField}}</div>
+      <div class="igs-settings-full">{{originEconTextField}}</div>
+      <div class="igs-settings-section">{{originChatToStoryField}}</div>
       <div class="igs-source-filter-note">绑定对象填「宿主」时系统为用户派发任务；填角色名时系统归该角色，用户旁观，对话页改为角色与系统的私聊。</div>
     </div>
     <div class="igs-source-filter">

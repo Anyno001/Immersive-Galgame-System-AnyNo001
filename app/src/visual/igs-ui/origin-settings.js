@@ -30,6 +30,14 @@ export const ORIGIN_PERSONA_TEXT = Object.freeze({
     温和: '温和耐心，像个可靠的向导。',
 });
 
+// 角色动用系统的策略；空 = 沿用旧开关 autoEcon（勾选为按需使用）。
+export const ORIGIN_ECON_STYLES = Object.freeze([['off', '不主动使用'], ['thrifty', '精打细算'], ['normal', '按需使用'], ['lavish', '花钱大方']]);
+export function originEconStyle(settings) {
+    const s = settings || {};
+    if (ORIGIN_ECON_STYLES.some(([id]) => id === s.econStyle)) return s.econStyle;
+    return s.autoEcon || originBoundRole(s) ? 'normal' : 'off';
+}
+
 export const ORIGIN_SETTINGS_DEFAULTS = Object.freeze({
     enabled: false,
     freq: 3,
@@ -44,9 +52,13 @@ export const ORIGIN_SETTINGS_DEFAULTS = Object.freeze({
     rewardPref: '',
     penaltyPref: '',
     fourthWall: 0,
-    drawCost: 300,
+    drawCost: 60,
+    // 物价版本：缺省为第 1 版，读入时把旧默认抽奖价 300 迁到 60。
+    priceVer: 2,
     bindTo: '宿主',
     autoEcon: false,
+    econStyle: '',
+    econText: '',
     chatToStory: true,
     rpChat: 'auto',
     sysName: ORIGIN_DEFAULT_NAME,
@@ -103,9 +115,12 @@ export function normalizeOriginSettings(raw) {
         rewardPref: text(src.rewardPref, d.rewardPref),
         penaltyPref: text(src.penaltyPref, d.penaltyPref),
         fourthWall: int(src.fourthWall, 0, 100, d.fourthWall),
-        drawCost: int(src.drawCost, 0, 99999, d.drawCost),
+        drawCost: src.priceVer !== d.priceVer && Number(src.drawCost) === 300 ? d.drawCost : int(src.drawCost, 0, 99999, d.drawCost),
+        priceVer: d.priceVer,
         bindTo: text(src.bindTo, d.bindTo, 24).trim() || d.bindTo,
         autoEcon: bool(src.autoEcon, d.autoEcon),
+        econStyle: ORIGIN_ECON_STYLES.some(([id]) => id === src.econStyle) ? src.econStyle : d.econStyle,
+        econText: text(src.econText, d.econText, 600),
         chatToStory: bool(src.chatToStory, d.chatToStory),
         rpChat: RP_CHAT.has(src.rpChat) ? src.rpChat : d.rpChat,
         sysName,

@@ -43,7 +43,7 @@ test('D3 回退时技能 / 权限 / 商城 / 对话都跟楼走', () => {
 });
 
 test('D4 / D5 不限楼数回退：删回很早的楼也能精确回到当时状态；只写 chatMetadata，不 saveChat，存档很小', () => {
-    const h = createHarness();
+    const h = createHarness({ achieveOn: false });
     const seen = [0];
     for (let k = 1; k <= 30; k += 1) {
         h.user('u' + k);
@@ -65,3 +65,41 @@ test('D4 / D5 不限楼数回退：删回很早的楼也能精确回到当时状
     assert.ok(size < 30 * 400 + 6000, '存档大小 ' + size);
 });
 
+
+test('正文报积分：完成时的「奖励积分 N 点」补记并结算对应任务，发布任务的奖励不记，数据块已记的不重复', () => {
+    const h = createHarness({ achieveOn: false });
+    h.user('u0');
+    h.ai('叮！发布任务：替她解围，奖励积分 100 点' + blk('新任务|类型:支线|标题:解围|描述:d|条件:c|奖励:积分100|对象:宿主'));
+    assert.equal(h.state().points, 0);
+    h.user('u1');
+    h.ai('叮！任务完成，奖励积分 100 点' + blk('进度|1|80|快了'));
+    assert.equal(h.state().points, 100);
+    assert.equal(h.state().tasks[0].status, 'done');
+    h.user('u2');
+    h.ai('系统小妹：恭喜宿主，获得 50 积分！' + blk('积分|+50|奖励'));
+    assert.equal(h.state().points, 150);
+    h.user('u3');
+    h.ai('当前积分：999。你花费了 300 积分。');
+    assert.equal(h.state().points, 150);
+});
+
+test('物价第 2 版：新聊天按新价出货；旧存档的初始商城、已抽过的扣费和成就奖励按旧价回放', () => {
+    const fresh = createHarness({ drawCost: 60, achieveOn: false });
+    fresh.user('u');
+    fresh.ai('a' + blk('积分|+100|x'));
+    assert.equal(fresh.state().shop.find((x) => x.name === '回溯券').price, 240);
+    assert.equal(fresh.engine.dispatch({ type: 'draw' }).ok, true);
+    assert.equal(fresh.state().points, 40);
+
+    const old = createHarness({ drawCost: 300, achieveOn: false });
+    old.user('u');
+    old.ai('a' + blk('积分|+400|x'));
+    assert.equal(old.engine.dispatch({ type: 'draw' }).ok, true);
+    const raw = old.ctx.chatMetadata.origin_v2;
+    delete raw.pv;
+    for (const o of raw.ops) delete o.cost;
+    old.host.settings = () => ({ ...old.settingsObj, drawCost: 60 });
+    old.reopen();
+    assert.equal(old.state().shop.find((x) => x.name === '回溯券').price, 1200);
+    assert.equal(old.state().points, 100);
+});

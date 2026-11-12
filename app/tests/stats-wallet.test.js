@@ -195,12 +195,12 @@ test('生产失败恢复：分段购买不发货且共享余额拒读，原意�
     const recovered = await runtime.engine.retrySave();
     assert.equal(recovered.ok, true, JSON.stringify(recovered));
     assert.equal(runtime.engine.getState().bag.find((item) => item.name === '凝神丹').count, 1);
-    assert.equal((await h.services.readSharedPoints()).balance, 300);
+    assert.equal((await h.services.readSharedPoints()).balance, 460);
     const count = h.db.calls.insertRow;
     assert.equal((await runtime.engine.retrySave()).ok, true);
     await runtime.engine.whenSaved();
     assert.equal(h.db.calls.insertRow, count);
-    assert.equal(runtime.engine.getState().points, 300);
+    assert.equal(runtime.engine.getState().points, 460);
 });
 
 test('积分结算基础：待扣款持久化并阻止新消费，重建服务重试只结算原记录', async t => {
