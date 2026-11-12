@@ -8,7 +8,7 @@ import { findOpaqueBounds } from '../../media/alpha-matte.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
 import { FACE_PRESERVE_TAGS, blendFaceInto, buildFaceMask, planFaceCrop } from './face-edit-plan.js';
 import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
-import { isConsistencyStrengthValid, normalizeConsistencyStrength } from './auto-illustration-settings.js';
+import { isConsistencyModelValid, isConsistencyStrengthValid, normalizeConsistencyModel, normalizeConsistencyStrength } from './auto-illustration-settings.js';
 import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/generation-seeds.js';
 
 import { numberParagraphs } from './marker-placer.js';
@@ -2074,6 +2074,9 @@ export function createAssetGenerationService(deps) {
         const maskDataUrl = pngFromRgba(buildFaceMask(crop), work, work);
         const strength = normalizeConsistencyStrength(readSettings(signal).auto.consistencyStrength);
         if (!isConsistencyStrengthValid(strength)) return { ok: false, error: '重绘强度需在0.1到1之间' };
+        // 显式带「重绘模型」：否则发送时按 imageKind 取立绘分类模型，与能力检查用的全局模型不一致。
+        const editModel = normalizeConsistencyModel(readSettings(signal).auto.consistencyModel);
+        if (!isConsistencyModelValid(editModel)) return { ok: false, error: '重绘模型无效，请在「局部重绘」里重新选择' };
         const seed = characterGenerationSeed(readSettings(signal).sceneAssets, name);
         const dnaParts = dna ? buildCharacterDnaPromptParts(dna) : { positive: '', negative: '' };
         const items = [];
@@ -2086,7 +2089,7 @@ export function createAssetGenerationService(deps) {
             try {
                 const prompt = mergePromptTags(dnaParts.positive, `${emotion} expression`, extra, String(note || '').trim(), FACE_PRESERVE_TAGS);
                 painted = await faceEditPaint({ sourceDataUrl, maskDataUrl, prompt, negative: dnaParts.negative, width: work, height: work,
-                    strength, slotArtist: true, promptKind: 'expression', imageKind: 'sprite',
+                    strength, model: editModel, slotArtist: true, promptKind: 'expression', imageKind: 'sprite',
                     ...(isImageSeed(seed) && { seed }),
                     ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
             } catch (error) { painted = { ok: false, error: (error && error.message) || '脸部重绘失败' }; }
