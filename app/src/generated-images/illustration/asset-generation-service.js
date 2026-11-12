@@ -2016,7 +2016,10 @@ export function createAssetGenerationService(deps) {
     function faceExpressionStatus() {
         try {
             if (typeof faceEditPaint !== 'function') return { ok: false, reason: '当前图像来源不支持局部重绘' };
-            const capability = nai?.describeEdit?.();
+            // 按「重绘模型」检查，与实际发送一致；立绘模型（如 V5 Curated）没有重绘版本也不影响只改脸部。
+            const editModel = normalizeConsistencyModel(readSettings().auto.consistencyModel);
+            if (!isConsistencyModelValid(editModel)) return { ok: false, reason: '重绘模型无效，请在「局部重绘」里重新选择' };
+            const capability = nai?.describeEdit?.(undefined, { model: editModel });
             if (capability?.supported !== true) return { ok: false, reason: capability?.message || '当前图像来源不支持局部重绘' };
             return { ok: true, reason: '' };
         } catch (error) { return { ok: false, reason: (error && error.message) || '无法读取局部重绘设置' }; }
