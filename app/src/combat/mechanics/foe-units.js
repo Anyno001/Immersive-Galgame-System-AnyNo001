@@ -36,6 +36,13 @@ registerMechanic({
             if (unit.kind !== 'deck' || !aimed?.alive || aimed.side === unit.side || unit.res?.facing === aimId || !hasFlanker(ctx.state, unit)) return;
             face(ctx, unit, aimId, kit);
         },
+        // M8：对带遭遇分组的指定敌人使用道具（单目标药水）同样转向；全体与随机目标不带 aimId，不转向。
+        // 只认带 encounter 的目标：旧战斗没有该字段，道具不改朝向，重放不变。
+        'item-before'(ctx, { unit, aimId }, kit) {
+            const aimed = aimId != null ? ctx.state.units[aimId] : null;
+            if (unit.kind !== 'deck' || !aimed?.alive || !aimed.encounter || aimed.side === unit.side || unit.res?.facing === aimId || !hasFlanker(ctx.state, unit)) return;
+            face(ctx, unit, aimId, kit);
+        },
         // 还没有朝向、或朝向的单位已不在场（倒下、分裂、退场）时，回合开始面向出手顺序里第一名存活敌人。
         'turn-start-after'(ctx, { unit }, kit) {
             const current = unit.res?.facing;
@@ -106,9 +113,17 @@ registerMechanic({
             kit.splitUnit(ctx, target);
         },
         // E11：带不灭的敌人倒下时，若还有其他敌人存活，记下复活回合；同组全部倒下则按原规则判胜。
+        // M8：带遭遇分组时只看同组存活者；同组最后一名倒下时取消同组所有待复活（整组算一次击倒，不再复活）。
         defeated(ctx, { unit }, kit) {
+            if (unit.side === 'enemy' && unit.encounter && kit.encounterFallen(ctx.state, unit)) {
+                for (const id of ctx.state.order) {
+                    const other = ctx.state.units[id];
+                    if (other?.encounter === unit.encounter && other.res?.reviveAt != null) tidyRes(other, 'reviveAt');
+                }
+                return;
+            }
             if (unit.side !== 'enemy' || unit.minion === true || !st(unit, 'revive')) return;
-            const others = ctx.state.order.some((id) => id !== unit.id && ctx.state.units[id]?.alive && ctx.state.units[id].side === 'enemy');
+            const others = unit.encounter || ctx.state.order.some((id) => id !== unit.id && ctx.state.units[id]?.alive && ctx.state.units[id].side === 'enemy');
             if (!others) return;
             const at = ctx.state.turn + REVIVE_TURNS;
             kit.resOf(ctx, unit).reviveAt = at;
@@ -130,6 +145,74 @@ registerMechanic({
     report(event, kit) {
         if (event.type === 'split') kit.note(event.unitId, `分裂成 ${event.into.length} 只`);
         else if (event.type === 'revive-pending') kit.note(event.unitId, '倒下后仍在蠢动');
+    },
+});
+
+// M3 随从表：summon-kin 按召唤者 kin 表里的种类召唤指定随从；split-into 本体离场，分出随从表里的种类（异种分裂）。
+// 种类必须登记在召唤者的 kin 表（建局 kinProblem 经 refs 核对）。随从表单位不进后备，召唤者倒下时随 E12 退场（minion 为真时）。
+const KIN_KEY_MAX = 4;
+const kinKeys = (effect) => (Array.isArray(effect?.kin) ? effect.kin.filter((key) => typeof key === 'string') : []);
+const kinField = (effect, path, state, kit) => kit.arrayField(effect.kin, kit.joinPath(path, 'kin'), state, 1, KIN_KEY_MAX, (item, itemPath, st) => kit.idField(item, itemPath, st));
+const aliveKin = (state, owner, key) => state.order.filter((id) => {
+    const other = state.units[id];
+    return other?.alive && other.kinOf === owner.id && other.kinKey === key;
+}).length;
+
+registerMechanic({
+    key: 'foe-kin', family: 'general', archetypes: [], unitKinds: ['skill'],
+    ops: {
+        // pick：order 依次取 kin 列表（循环），random 按种子在未达上限的种类中抽；cap 为同一召唤者同种类在场上限。
+        'summon-kin': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'kin', 'amount', 'pick', 'cap'], path, state);
+                const at = (key) => kit.joinPath(path, key);
+                return {
+                    op: 'summon-kin',
+                    kin: kinField(effect, path, state, kit),
+                    amount: kit.intField(effect.amount, at('amount'), state, 1, 4, 1),
+                    pick: kit.enumField(effect.pick, at('pick'), state, ['order', 'random'], 'order'),
+                    ...(effect.cap === undefined ? {} : { cap: kit.intField(effect.cap, at('cap'), state, 1, 5) }),
+                };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                const keys = kinKeys(effect);
+                const amount = effect.amount ?? 1;
+                for (let i = 0; i < amount && keys.length; i += 1) {
+                    const open = keys.filter((key) => effect.cap === undefined || aliveKin(ctx.state, unit, key) < effect.cap);
+                    if (!open.length) break;
+                    const key = effect.pick === 'random'
+                        ? open[kit.rollInt(ctx.state, open.length)]
+                        : keys[i % keys.length];
+                    if (!open.includes(key)) continue;
+                    if (!kit.spawnKin(ctx, unit, key, 'summon')) break;
+                }
+            },
+            refs: kinKeys,
+            value: (e) => (e.amount ?? 1) * 6,
+            describe: (e) => `召唤 ${e.amount ?? 1} 名随从${e.pick === 'random' ? '（种类随机）' : ''}${e.cap ? `，同种在场至多 ${e.cap} 名` : ''}（场上敌人最多 5 名）`,
+            brief: (e) => `召唤${e.amount ?? 1}`,
+        },
+        // hp：current 时子体当前与最大生命取本体当前生命，kin 时取随从表生命；本体离场不算倒下。
+        'split-into': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'kin', 'hp'], path, state);
+                return {
+                    op: 'split-into',
+                    kin: kinField(effect, path, state, kit),
+                    hp: kit.enumField(effect.hp, kit.joinPath(path, 'hp'), state, ['current', 'kin'], 'current'),
+                };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                kit.splitIntoKin(ctx, unit, kinKeys(effect), effect.hp ?? 'current');
+            },
+            refs: kinKeys,
+            value: (e) => kinKeys(e).length * 4,
+            describe: (e) => `分裂为 ${kinKeys(e).length} 只${e.hp === 'kin' ? '' : '（生命取分裂时的当前生命）'}`,
+            brief: () => '分裂',
+        },
+    },
+    report(event, kit) {
+        if (event.type === 'kin-enter' && event.cause === 'death') kit.note(event.ownerId, `倒下时生出${event.name}`);
     },
 });
 

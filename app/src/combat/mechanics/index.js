@@ -22,6 +22,14 @@ import './foe.js';
 import './foe-units.js';
 import './foe-seize.js';
 import './foe-restrict.js';
+// 敌人模板库：敌方特性状态与不行动 / 自毁 / 回复至 / 卸层算子（只限技能单位）。
+import './foe-traits.js';
+// 敌人模板 M6 新敌方特性（减速、时间扭曲、硬壳、缠绕等）。
+import './foe-afflict.js';
+// 敌人模板 M7 战斗外影响（盗金）。
+import './foe-heist.js';
+// 敌人模板 M7 二选一诅咒（只限本场，玩家亲自选）。
+import './foe-curse.js';
 import './inscription.js';
 // 规则 v6 固定卡缺口算子（G2）。
 import './fixed-tally.js';

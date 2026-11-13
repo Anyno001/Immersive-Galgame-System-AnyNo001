@@ -3467,6 +3467,13 @@ export function createStatsRuntime({
             ensureLoaded();
             return active() ? Number(currentStatsState(ledger).protagonist.bars.money) || 0 : 0;
         },
+        // 敌人模板 M7 盗金：开战时快照的剧情货币余额（物品表）；未启用、未设定或读不到时为 null（战斗不设可偷金币）。
+        currencyBalance: () => {
+            ensureLoaded();
+            if (!active()) return null;
+            const snap = currencySnapshot();
+            return snap.ready && Number.isSafeInteger(snap.balance) && snap.balance >= 0 ? snap.balance : null;
+        },
         enableForChat: ev(enableForChat),
         // 本聊天关闭：数值冻结，不清存档（§10A）。战斗开启时锁定为启用。
         disableForChat: ev(() => {

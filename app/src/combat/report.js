@@ -6,6 +6,8 @@ import { weakShare } from './points.js';
 import { COMBAT_AWAKEN_TYPES } from '../scene/combat-directives.js';
 import { mechanicReporters, statusDef, statusLabel } from './mechanics/registry.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
+import { IMPLANT_CARDS, cardsAddedOf, cardsLostOf, goldLostOf } from './mechanics/foe-heist.js';
+import { CURSE_LABELS } from './mechanics/foe-curse.js';
 
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 // detail 档位 -> 每回合最多写几条出手。
@@ -215,6 +217,9 @@ export function collectTurns(events, units = {}) {
             currentTurn().escape = event.unitId;
         } else if (event.type === 'awaken') {
             currentTurn().awaken = { unitId: event.unitId, type: event.awakenType, line: event.line || '' };
+        } else if (event.type === 'curse-chosen') {
+            // M7 二选一诅咒：玩家回合开始时的抉择不属于任何出手，记在回合上。
+            currentTurn().curses = [...(turn.curses || []), { unitId: event.unitId, status: event.status }];
         } else {
             // 规则 v5 机制事件：交给登记了 report 的机制，只能给当前出手追加短句；未知事件仍忽略。
             const reporters = mechanicReporters();
@@ -259,6 +264,7 @@ function describeTurn(turn, units, maxActions, firstAction, finalAction) {
         const line = sanitize(turn.awaken.line);
         lines.push(`${sanitize(units[unitId]?.name || unitId)} 觉醒：${AWAKEN_TYPE_NAMES[type] || sanitize(type)}${line ? `『${line}』` : ''}`);
     }
+    for (const c of turn.curses || []) lines.push(`${sanitize(units[c.unitId]?.name || c.unitId)} 承受了「${CURSE_LABELS[c.status] || sanitize(c.status)}」`);
     lines.push(...picked.map(({ action }) => `${describeAction(action, units)}${action.desperate ? '（绝境反击）' : ''}`));
     for (const id of turn.fallen || []) lines.push(`${sanitize(units[id]?.name || id)} 力竭倒下`);
     if (turn.escape) lines.push(`${sanitize(units[turn.escape]?.name || turn.escape)} 带领众人撤离`);
@@ -293,7 +299,7 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     if (!result) return { ok: false, reason: 'combat-not-finished' };
     const units = state.units;
     const maxActions = REPORT_DETAIL[detail] || REPORT_DETAIL.normal;
-    const turns = collectTurns(events, units).filter((turn) => turn.actions.length || turn.fallen || turn.escape || turn.awaken);
+    const turns = collectTurns(events, units).filter((turn) => turn.actions.length || turn.fallen || turn.escape || turn.awaken || turn.curses);
     const allActions = turns.flatMap((turn) => turn.actions);
     const firstAction = allActions[0];
     const finalAction = result === 'win'
@@ -316,15 +322,26 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     const exp = expEach > 0 ? [...new Set(expTargets.map(sanitize).filter(Boolean))].map((name) => ({ name, amount: expEach })) : [];
     const expMarks = exp.map((item) => `[igs-combat:exp|${item.name}|${item.amount}|战斗:${reportId}]`);
     const hpLost = state.hpLost ? (state.hpLost[state.rewardOwner || state.controlledId] || 0) : null;
+    // 敌人模板 M7 盗金：本场带 purse 时，撤离或仍在场的盗贼手里的金币记为损失，写进战报块 gold-lost，由数值侧按增减扣剧情货币。
+    const goldLost = state.purse !== undefined ? goldLostOf(state) : 0;
+    // 敌人模板 M7 偷牌：撤离或仍在场的窃贼手里的长期副本，战后由会话按副本 ID 写账本 card-lost。
+    const cardsLost = cardsLostOf(state);
+    const lostNames = cardsLost.map((item) => sanitize(state.catalog?.[item.owner]?.[item.cardId]?.name || item.cardId));
+    // 敌人模板 M7 永久寄生：本场植入的牌胜、败、撤退都带出战斗，战后由会话写账本 card-implant。
+    const cardsAdded = cardsAddedOf(state);
+    const addedNames = cardsAdded.map((item) => sanitize(IMPLANT_CARDS[item.cardId]?.name || item.cardId));
     const text = [
         '（战斗结束）',
-        `<igs-combat-report id="${reportId}" result="${result}" encounter="${sanitize(encounter)}"${weak === true ? ' weak="1"' : ''}${hpLost === null ? '' : ` hp-lost="${hpLost}"`}>`,
+        `<igs-combat-report id="${reportId}" result="${result}" encounter="${sanitize(encounter)}"${weak === true ? ' weak="1"' : ''}${hpLost === null ? '' : ` hp-lost="${hpLost}"`}${goldLost > 0 ? ` gold-lost="${goldLost}"` : ''}>`,
         ...lines.filter(Boolean),
+        ...(goldLost > 0 ? [`损失：被盗走 ${goldLost} 金币。`] : []),
+        ...(lostNames.length ? [`损失：卡组里的「${lostNames.join('」「')}」被偷走。`] : []),
+        ...(addedNames.length ? [`寄生：卡组里被植入了「${addedNames.join('」「')}」。`] : []),
         '</igs-combat-report>',
         ...expMarks,
     ].join('\n');
     // 规则 v5 E17 / D11：有敌人限时撤离的胜利不给战利品，标记随战报条目保存。
-    return { ok: true, text, result, reportId, exp, ...(hpLost === null ? {} : { hpLost }), ...(result === 'win' && state.noLoot === true ? { noLoot: true } : {}) };
+    return { ok: true, text, result, reportId, exp, ...(hpLost === null ? {} : { hpLost }), ...(goldLost > 0 ? { goldLost } : {}), ...(cardsLost.length ? { cardsLost } : {}), ...(cardsAdded.length ? { cardsAdded } : {}), ...(result === 'win' && state.noLoot === true ? { noLoot: true } : {}) };
 }
 
 const REPORT_ID_PATTERN = /<igs-combat-report\b[^>]*\bid\s*=\s*"([^"]+)"/i;

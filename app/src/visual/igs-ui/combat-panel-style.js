@@ -361,11 +361,11 @@ ${C} #igs-cx-canvas .cx-res-row .cx-orb{width:12px;height:12px;}
 ${C} #igs-cx-canvas .cx-res-row .cx-res-ico{width:11px;height:11px;}
 
 ${C} .igs-combat-intent{--it:var(--igs-cb-warm);position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0 4px;align-self:center;box-sizing:border-box;width:max-content;max-width:calc(100% + var(--e-gap,0px) - 4px);min-height:24px;margin-bottom:-4px;padding:2px 8px;border-radius:var(--igs-cb-r-m);background:var(--igs-cb-veil);color:var(--igs-cb-ink-soft);font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.25;text-align:center;box-shadow:0 6px 14px -8px rgba(0,0,0,.7);}
-${C} .igs-combat-intent[data-intent="attack"]{--it:var(--igs-cb-attack);}
-${C} .igs-combat-intent[data-intent="defend"]{--it:var(--igs-cb-skill);}
+${C} .igs-combat-intent:is([data-intent^="attack"],[data-intent="explode"]){--it:var(--igs-cb-attack);}
+${C} .igs-combat-intent[data-intent^="defend"]{--it:var(--igs-cb-skill);}
 ${C} .igs-combat-intent[data-intent="heal"]{--it:var(--igs-cb-life);}
 ${C} .igs-combat-intent[data-intent="debuff"]{--it:var(--igs-cb-power);}
-${C} .igs-combat-intent-icon{flex:none;display:grid;place-items:center;color:var(--it);}
+${C} .igs-combat-intent-icon{flex:none;display:inline-flex;align-items:center;gap:3px;color:var(--it);}
 ${C} .igs-combat-intent-icon svg{width:16px;height:16px;stroke-width:1.8;}
 ${C} .igs-combat-intent :is(.igs-combat-intent-value,.igs-combat-intent-kind){flex:none;color:var(--it);font-weight:700;}
 ${C} .igs-combat-intent-value{font-size:17px;line-height:1;font-variant-numeric:tabular-nums;}

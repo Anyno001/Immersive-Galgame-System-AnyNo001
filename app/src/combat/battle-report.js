@@ -23,7 +23,10 @@ export function parseBattleReport(text) {
     // 旧战报没有 weak 与敌方一行时按旧行为：weak=false、foes=[]。
     const foeLine = FOE_LINE.exec(String(text));
     const foes = foeLine ? foeLine[1].split('，').map((part) => FOE_ENTRY.exec(part.trim())).filter(Boolean).map((m) => ({ name: m[1].trim(), status: m[2] })) : [];
-    return { reportId: attrs.id, result: attrs.result, party, weak: attrs.weak === '1', foes };
+    // 敌人模板 M7 盗金：gold-lost 为被敌人带走的金币；旧战报不带时为 0。
+    const goldText = /\sgold-lost="(\d{1,9})"/.exec(match[1])?.[1];
+    const goldLost = goldText === undefined ? 0 : Number(goldText);
+    return { reportId: attrs.id, result: attrs.result, party, weak: attrs.weak === '1', foes, ...(goldLost > 0 ? { goldLost } : {}) };
 }
 
 // 合成数值侧的战斗指令；isHero 判断某个名字是不是主角（含用户名、别名）。floor 为战报所在楼。
@@ -41,5 +44,7 @@ export function battleDirectiveOf(report, { isHero = () => false, floor = null }
         foes: Array.isArray(report.foes) ? report.foes.map((foe) => ({ name: foe.name, status: foe.status })) : [],
         kind: 'battle', fromReport: true, reportId: report.reportId, result: report.result, floor,
         heroStatus, hurt: REPORT_HURT_TIER[heroStatus] || null, allies, allClean: report.party.length > 0 && report.party.every((member) => member.status === '无伤'),
+        // 敌人模板 M7 盗金：数值侧按增减扣剧情货币；旧战报不带此字段。
+        ...(Number.isSafeInteger(report.goldLost) && report.goldLost > 0 ? { goldLost: report.goldLost } : {}),
     };
 }

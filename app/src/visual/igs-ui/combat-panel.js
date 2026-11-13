@@ -1970,6 +1970,7 @@ export function createCombatPanelController(doc, options = {}) {
             case 'item': return useItem(id);
             case 'target': return pickTarget(id);
             case 'cancel': selected = null; chosen = []; render(); return { ok: true };
+            case 'choose-pick': return pendingChoice(s.state().battle) ? toggleChoice(id) : { ok: false, reason: 'no-choice-pending' };
             case 'choose-confirm': return confirmChoice();
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });

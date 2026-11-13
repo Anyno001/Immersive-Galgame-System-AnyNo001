@@ -445,6 +445,8 @@ export function bootstrapIGS(options = {}) {
         getUserName: () => (typeof illustrationMessageHost.getUserName === 'function' ? illustrationMessageHost.getUserName() : ''),
         // 战斗积分与数值侧金钱合并成一个钱包：主角余额里并入数值侧金钱（statsRuntime 在战斗服务之后创建，按需读取）。
         getWallet: () => (app.statsRuntime && typeof app.statsRuntime.walletMoney === 'function' ? app.statsRuntime.walletMoney() : 0),
+        // 敌人模板 M7 盗金：开战时快照剧情货币余额（只读）；未启用剧情货币时为 null。
+        getCurrency: () => (app.statsRuntime && typeof app.statsRuntime.currencyBalance === 'function' ? app.statsRuntime.currencyBalance() : null),
         readLore: (name) => (typeof illustrationMessageHost.readCharacterLore === 'function'
             ? illustrationMessageHost.readCharacterLore(name, { includeWorldInfo: false }) : []),
         readGenerationMaterials: createCombatGenerationMaterials(globalObject),

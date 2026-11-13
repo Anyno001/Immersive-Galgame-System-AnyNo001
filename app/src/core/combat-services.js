@@ -267,6 +267,8 @@ export function createCombatServices(options = {}) {
                 ledger, tables: bundle.impl, request, send, storage, global, chat: getChat, getChatId, userName: getUserName,
                 chatRecord: options.chatRecord, llm: getLlm, sourceFilter: getSourceFilter, readLore, readStoryContext, now: () => Date.now(),
                 pointsSpendingGate,
+                // 敌人模板 M7 盗金：开战时剧情货币余额快照（只读，不并入积分钱包）。
+                purse: () => (typeof options.getCurrency === 'function' ? options.getCurrency() : null),
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,

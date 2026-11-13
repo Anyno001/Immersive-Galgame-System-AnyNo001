@@ -33,7 +33,7 @@ export const APPLY_STATUSES = Object.freeze({
     barricade: Object.freeze({ max: 1, value: 14 }),
     'retain-block': Object.freeze({ max: 3, value: 4 }),
     'block-surge': Object.freeze({ max: 2, value: 6 }),
-    plated: Object.freeze({ max: 10, value: 3 }),
+    plated: Object.freeze({ max: 14, value: 3 }),
     recoil: Object.freeze({ max: 1, value: 6 }),
     bramble: Object.freeze({ max: 10, value: 1 }),
     juggernaut: Object.freeze({ max: 5, value: 4 }),
@@ -125,6 +125,30 @@ export const APPLY_STATUSES = Object.freeze({
     'rend-draw': Object.freeze({ max: 2, value: 6.5 }),
     // 规则 v6 固定卡（fixed-pile.js）：狱火（玩家阶段抽到攻击牌即免费打出）。
     'draw-strike': Object.freeze({ max: 1, value: 15 }),
+    // 敌人模板特性（foe-traits.js）。
+    'death-curse': Object.freeze({ max: 5, value: 3 }),
+    rile: Object.freeze({ max: 3, value: 4 }),
+    ritual: Object.freeze({ max: 10, value: 5 }),
+    plating: Object.freeze({ max: 20, value: 2 }),
+    metallicize: Object.freeze({ max: 20, value: 3 }),
+    imbalanced: Object.freeze({ max: 1, value: -4 }),
+    tender: Object.freeze({ debuff: true, max: 3, value: 5 }),
+    soar: Object.freeze({ max: 1, value: 8 }),
+    // 敌人模板 M6（foe-afflict.js）。硬壳、蒸汽、滑溜等层数是绝对值，不随档位换算。
+    slow: Object.freeze({ max: 1, value: 6 }),
+    chrono: Object.freeze({ max: 5, value: 5 }),
+    shell: Object.freeze({ max: 99, value: 0.5 }),
+    stabs: Object.freeze({ max: 3, value: 4 }),
+    hive: Object.freeze({ max: 5, value: 3 }),
+    shifting: Object.freeze({ max: 1, value: 8 }),
+    fading: Object.freeze({ max: 9, value: -2 }),
+    ravenous: Object.freeze({ max: 10, value: 1 }),
+    slippery: Object.freeze({ max: 15, value: 3 }),
+    skittish: Object.freeze({ max: 20, value: 0.5 }),
+    sandpit: Object.freeze({ max: 9, value: 3 }),
+    steam: Object.freeze({ max: 99, value: 0.5 }),
+    hex: Object.freeze({ debuff: true, max: 3, value: 5 }),
+    smoggy: Object.freeze({ debuff: true, max: 1, value: 6 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

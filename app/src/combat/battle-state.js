@@ -4,6 +4,7 @@ import { damageModifiers, opHandler, statusDef } from './mechanics/registry.js';
 import { inscribedView } from './mechanics/inscription.js';
 import { attributeAmount, attributeCardView } from './card-attributes.js';
 import { shivFirstBonus } from './mechanics/shadow.js';
+import { intentKinds } from './intent-kinds.js';
 // 规则 v5 机制登记入口：导入即登记，保证估算与结算前机制已就位。
 import './mechanics/index.js';
 // 规则 v6 G5c 虚弱 / 易伤百分比（relic-modify 由登记入口最后导入，其钩子排在其他机制之后）。
@@ -127,7 +128,7 @@ export const canPlay = (state, unit, card) => canAfford(card, unit.energy, radia
 const SELF_STATUSES = new Set(['strength', 'dexterity', 'regen', 'thorns', 'intangible', 'no-draw', 'endure', 'artifact']);
 const OFFENSE_OPS = new Set([
     'damage', 'damage-from-block', 'delayed-counter', 'mutual-damage', 'drain', 'minion-strike',
-    'tally-strike', 'spread-debuff', 'splash', 'seize-card', 'seize-might', 'mark-card', 'draw-to-foe',
+    'tally-strike', 'spread-debuff', 'splash', 'seize-card', 'seize-might', 'mark-card', 'draw-to-foe', 'release', 'foe-surge', 'constrict',
 ]);
 
 // 静态固定卡可省略 target；出牌判定、托管、面板与结算共用 schema 对应的默认值。
@@ -217,7 +218,8 @@ export function conditionHolds(state, unit, when, targetId, cardInst) {
         case 'target-intent-attack': {
             const foe = state.units[targetId];
             const intent = state.intents?.[targetId];
-            return Boolean(foe?.alive && intent && foe.skills?.find((skill) => skill.id === intent.skillId)?.intent === 'attack');
+            const kind = intent && foe?.skills?.find((skill) => skill.id === intent.skillId)?.intent;
+            return Boolean(foe?.alive && ['attack', 'attack-debuff', 'attack-defend', 'attack-buff'].includes(kind));
         }
         case 'target-hp-below': {
             const foe = state.units[targetId];
@@ -272,29 +274,41 @@ function v6ConditionHolds(state, unit, when, targetId) {
 // 估算 attacker 对 target 一组效果的总伤害（目标缺省时为 0）。aimId 是被指定的目标 id。
 // card 为打出的牌面视图（规则 v6 G5c 出伤加值用，只在 v6 交给 computeDamage；不传时与旧版一致）。
 export function estimateDamage(state, attacker, target, effects, aimId, card) {
+    return damageEstimate(state, attacker, target, effects, aimId, card);
+}
+
+function damageEstimate(state, attacker, target, effects, aimId, card, attacks) {
     if (!target) return 0;
     const shown = state?.rulesVersion >= 6 ? card : undefined;
     let total = 0;
     for (const effect of effects || []) {
         if (effect.op === 'damage') {
             const aim = effect.target || 'enemy';
-            if (aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id)) {
+            if (aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id) || (attacks && aim === 'random-enemy')) {
                 const first = attacker?.attributePolicy ? shivFirstBonus(attacker, shown?.id) : 0;
-                total += (effect.hits || 1) * (computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion, shown) + first);
+                const damage = computeDamage(attacker, target, effect.amount, effect.strengthScale, state?.rulesVersion, shown) + first;
+                const hits = effect.hits || 1;
+                total += hits * damage;
+                attacks?.push({ damage, hits, target: aim });
             }
         } else if (effect.op === 'damage-from-block') {
             const aim = effect.target || 'enemy';
             if ((aim === 'all-enemies' || (aim === 'enemy' && aimId === target.id)) && attacker.block > 0) {
-                total += computeDamage(attacker, target, attacker.block, 1, state?.rulesVersion);
+                const damage = computeDamage(attacker, target, attacker.block, 1, state?.rulesVersion);
+                total += damage;
+                attacks?.push({ damage, hits: 1, target: aim });
             }
         } else if (effect.op === 'conditional' && conditionHolds(state, attacker, effect.when, aimId)) {
-            total += estimateDamage(state, attacker, target, effect.then, aimId, card);
+            total += damageEstimate(state, attacker, target, effect.then, aimId, card, attacks);
         } else {
             // 已登记机制的算子按其自身估算；未登记或未提供估算的为 0。
             const handler = opHandler(effect?.op);
             if (handler?.estimateDamage) {
-                const kit = { state, attacker, target, aimId, computeDamage, conditionHolds, attributeAmount, estimate: (list) => estimateDamage(state, attacker, target, list, aimId, attacker?.attributePolicy ? card : undefined) };
-                total += Math.max(0, Number(handler.estimateDamage(effect, kit)) || 0);
+                const before = attacks?.length;
+                const kit = { state, attacker, target, aimId, computeDamage, conditionHolds, attributeAmount, estimate: (list) => damageEstimate(state, attacker, target, list, aimId, attacker?.attributePolicy ? card : undefined, attacks) };
+                const damage = Math.max(0, Number(handler.estimateDamage(effect, kit)) || 0);
+                total += damage;
+                if (attacks && attacks.length === before && damage > 0) attacks.push({ damage, hits: 1, target: targetSpec(effect) });
             }
         }
     }
@@ -318,11 +332,17 @@ export function describeIntent(state, unitId) {
     const skill = intent && unit?.alive ? unit.skills.find((item) => item.id === intent.skillId) : null;
     if (!skill) return null;
     const target = state.units[intent.targetId] || state.units[state.controlledId];
+    const attacks = [];
+    const damage = damageEstimate(state, unit, target, skill.effects, intent.targetId, undefined, attacks);
+    const kinds = intentKinds(state, unit, skill, attacks);
+    const stopped = kinds[0] === 'stun' || kinds[0] === 'sleep';
     return {
         skillId: skill.id,
         name: skill.name,
-        intent: skill.intent,
+        intent: kinds[0],
+        kinds,
         targetId: intent.targetId ?? null,
-        damage: estimateDamage(state, unit, target, skill.effects, intent.targetId),
+        damage: stopped ? 0 : damage,
+        attacks: stopped ? [] : attacks,
     };
 }

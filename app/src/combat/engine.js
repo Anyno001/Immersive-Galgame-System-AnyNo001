@@ -11,12 +11,16 @@
 import { COMBAT_RULES, TOKEN_CARDS, estimateEffectsValue, isCompatibleRulesVersion } from './rules.js';
 import { BUS_FILTERS, DEFEAT_CAUSES, damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
 import { isInscription } from './mechanics/inscription.js';
+import { CURSE_CHOICE_KIND, openCurseOffer, takeCurse } from './mechanics/foe-curse.js';
 import { hash32, nextRandom, randomInt } from './random.js';
 import {
     LOW_HP_RATIO, canAfford, canPlay, cardCountKey, cardView, computeBlock, computeDamage, conditionHolds, playBlock,
     effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, radianceOf, targetSpec, weakestId,
 } from './battle-state.js';
-import { chooseAllyPlay, chooseSkillIntent, pickCards } from './policy.js';
+import { chooseAllyPlay, chooseSkillIntent, isScriptOpener, nextScriptStep, pickCards, scriptNodeSkills, scriptPlan, skillHasUses } from './policy.js';
+import { SCRIPT_CONDITION_MAX, isScriptCondition } from './script-conditions.js';
+import { INSERT_MAX, INTERRUPT_EVENTS, INTERRUPT_MAX, INTERRUPT_SEQ_MAX, INTERRUPT_THEN, REBIRTH_CLEAR, SKILL_USES_MAX, SLEEP_HURT_MODES, SLEEP_SHED_MAX, STATUSES, normalizeEffect, normalizeEnemyTemplate, normalizeKinFields } from './schema.js';
+import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { ATTRIBUTE_POLICY_VERSION, canAttributeSift, validAttributePolicy } from './attribute-policy.js';
 import { attributeAmount } from './card-attributes.js';
@@ -42,6 +46,8 @@ const GROW_MAX = 20;
 const DECAYING_STATUSES = Object.freeze(['vulnerable', 'weak', 'no-draw', 'frail']);
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+// 同场同名敌人的编号后缀（会话建 setup 与 M8 遭遇分组命名共用），超出后用数字。
+export const ENEMY_SUFFIXES = Object.freeze(['甲', '乙', '丙', '丁', '戊']);
 // 负面状态：会被「神器」挡掉、被净化清除。
 const DEBUFFS = Object.freeze(['weak', 'vulnerable', 'poison', 'no-draw', 'frail']);
 const PASSIVE_FREE_TRIGGERS = new Set(['turn-start', 'turn-end']);
@@ -183,11 +189,123 @@ function traitsInvalid(traits) {
         || (t.skill !== undefined && (t.kind !== 'active' || !validId(t.skill?.id) || !Array.isArray(t.skill.effects) || !t.skill.effects.length || !TRAIT_SKILL_COSTS.includes(t.skill.cost))));
 }
 
+// 行动脚本（敌人模板）：opener / openers 二选一，cycle / next 二选一；引用的技能须在技能或阶段技能里；loopFrom 落在 cycle 范围内。
+const SCRIPT_CYCLE_LIMIT = 12;
+const SCRIPT_PICK_LIMIT = 6;
+// 脚本条件：随从数 / 同伴数严格校验取值；其余条件只校验形状，未知种类在判定时恒不成立（不会误出招）。
+const whenInvalid = (when) => !when || typeof when !== 'object' || Array.isArray(when) || typeof when.kind !== 'string' || !when.kind
+    || (isScriptCondition(when) ? !intInRange(when.value, 1, SCRIPT_CONDITION_MAX) : when.value !== undefined && !['number', 'string'].includes(typeof when.value));
+const pickListInvalid = (list, skillIds) => !Array.isArray(list) || !list.length || list.length > SCRIPT_PICK_LIMIT
+    || list.some((item) => !item || typeof item !== 'object' || !skillIds.has(item.skill) || !intInRange(item.weight, 1, 100)
+        || (item.when !== undefined && whenInvalid(item.when)));
+// 睡眠（M4）：只允许在单位顶层脚本里，引用的技能须存在，turns 1–5，shed 1–3 个已知状态键（与档案层同一份清单），
+// groggy 只能为 true，hurt 只能为 wake / tick。
+const SLEEP_SHED_KEYS = new Set([...STATUSES, ...Object.keys(APPLY_STATUSES)]);
+const sleepInvalid = (sleep, skillIds) => !sleep || typeof sleep !== 'object' || Array.isArray(sleep) || !skillIds.has(sleep.skill)
+    || !intInRange(sleep.turns, 1, 5) || (sleep.groggy !== undefined && sleep.groggy !== true)
+    || (sleep.hurt !== undefined && !SLEEP_HURT_MODES.includes(sleep.hurt))
+    || Object.keys(sleep).some((key) => !['skill', 'turns', 'shed', 'groggy', 'hurt'].includes(key))
+    || (sleep.shed !== undefined && (!Array.isArray(sleep.shed) || !sleep.shed.length || sleep.shed.length > SLEEP_SHED_MAX || sleep.shed.some((key) => !SLEEP_SHED_KEYS.has(key))));
+// 打断（M4）：只允许在单位顶层脚本里，1–3 条；字段与档案层 validateInterrupt 同一套约束。
+const INTERRUPT_FIELDS = ['on', 'status', 'amount', 'step', 'seq', 'then', 'once', 'block', 'shed', 'unstun', 'rearm'];
+const interruptInvalid = (rule, skillIds) => !rule || typeof rule !== 'object' || Array.isArray(rule)
+    || Object.keys(rule).some((key) => !INTERRUPT_FIELDS.includes(key))
+    || !INTERRUPT_EVENTS.includes(rule.on)
+    || (rule.on === 'status-lost' ? !SLEEP_SHED_KEYS.has(rule.status) : rule.status !== undefined && (rule.on === 'hp-lost' || !SLEEP_SHED_KEYS.has(rule.status)))
+    || (rule.on === 'hp-lost' ? !intInRange(rule.amount, 1, 999) || (rule.step !== undefined && !intInRange(rule.step, 1, 99)) : rule.amount !== undefined || rule.step !== undefined)
+    || !Array.isArray(rule.seq) || !rule.seq.length || rule.seq.length > INTERRUPT_SEQ_MAX || rule.seq.some((id) => !skillIds.has(id))
+    || (rule.then !== undefined && !INTERRUPT_THEN.includes(rule.then))
+    || (rule.once !== undefined && rule.once !== true) || (rule.unstun !== undefined && rule.unstun !== true)
+    || (rule.block !== undefined && !intInRange(rule.block, 1, 99))
+    || (rule.shed !== undefined && (!Array.isArray(rule.shed) || !rule.shed.length || rule.shed.length > SLEEP_SHED_MAX || rule.shed.some((key) => !SLEEP_SHED_KEYS.has(key))))
+    || (rule.rearm !== undefined && !intInRange(rule.rearm, 1, rule.seq.length - 1));
+function scriptInvalid(script, skillIds, topLevel = false) {
+    if (!script || typeof script !== 'object' || Array.isArray(script)) return true;
+    if (script.sleep !== undefined && (!topLevel || sleepInvalid(script.sleep, skillIds))) return true;
+    if (script.interrupts !== undefined && (!topLevel || !Array.isArray(script.interrupts) || !script.interrupts.length
+        || script.interrupts.length > INTERRUPT_MAX || script.interrupts.some((rule) => interruptInvalid(rule, skillIds)))) return true;
+    // 概率插招与受击重掷（M4）：inserts 1–3 条 { skill, pct 1–99 }；reroll 只能为 true。
+    if (script.inserts !== undefined && (!Array.isArray(script.inserts) || !script.inserts.length || script.inserts.length > INSERT_MAX
+        || script.inserts.some((item) => !item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).some((key) => key !== 'skill' && key !== 'pct')
+            || !skillIds.has(item.skill) || !intInRange(item.pct, 1, 99)))) return true;
+    if (script.reroll !== undefined && script.reroll !== true) return true;
+    if ([script.opener, script.openers, script.cycle, script.next].every((part) => part === undefined)) return true;
+    if (script.opener !== undefined && script.openers !== undefined) return true;
+    if (script.cycle !== undefined && script.next !== undefined) return true;
+    if (script.opener !== undefined && !skillIds.has(script.opener)) return true;
+    if (script.openers !== undefined && pickListInvalid(script.openers, skillIds)) return true;
+    if (script.next !== undefined) {
+        if (!script.next || typeof script.next !== 'object' || Array.isArray(script.next)) return true;
+        const rows = Object.entries(script.next);
+        if (!rows.length || rows.length > SCRIPT_CYCLE_LIMIT || rows.some(([id, list]) => !skillIds.has(id) || pickListInvalid(list, skillIds))) return true;
+    }
+    if (script.cycle !== undefined && (!Array.isArray(script.cycle) || !script.cycle.length || script.cycle.length > SCRIPT_CYCLE_LIMIT
+        || script.cycle.some((node) => (Array.isArray(node) ? pickListInvalid(node, skillIds)
+            : node && typeof node === 'object' ? !skillIds.has(node.skill) || whenInvalid(node.when) : !skillIds.has(node))))) return true;
+    return script.loopFrom !== undefined && !(Array.isArray(script.cycle) && intInRange(script.loopFrom, 0, script.cycle.length - 1));
+}
+
+// 按回合进入的阶段：afterTurns 1–20，且不能同时带 hpBelowPct；旧阶段（只有 hpBelowPct）校验不变。
+const turnPhaseInvalid = (phase) => phase?.afterTurns !== undefined && (phase.hpBelowPct !== undefined || !intInRange(phase.afterTurns, 1, 20));
+// 生命不高于阈值进入的阶段（hpAtMostPct 10–90，不与其他触发并用）；阶段改写的意图必须是本单位的技能。
+// 归零重生阶段（onDefeat 只能为 true，不与其他触发并用）：maxHpPct 10–500、clear 为 all / debuffs、shed 1–3 个已知状态键；这三项只属于归零重生阶段。
+const rebirthInvalid = (phase) => (phase?.onDefeat !== undefined
+    ? phase.onDefeat !== true || phase.hpBelowPct !== undefined || phase.hpAtMostPct !== undefined || phase.afterTurns !== undefined
+        || (phase.maxHpPct !== undefined && !intInRange(phase.maxHpPct, 10, 500))
+        || (phase.clear !== undefined && !REBIRTH_CLEAR.includes(phase.clear))
+        || (phase.shed !== undefined && (!Array.isArray(phase.shed) || !phase.shed.length || phase.shed.length > SLEEP_SHED_MAX || phase.shed.some((key) => !SLEEP_SHED_KEYS.has(key))))
+        || (phase.needs !== undefined && !SLEEP_SHED_KEYS.has(phase.needs))
+        || (phase.brace !== undefined && phase.brace !== true)
+    : phase?.maxHpPct !== undefined || phase?.clear !== undefined || phase?.shed !== undefined || phase?.needs !== undefined || phase?.brace !== undefined);
+const phaseInvalid = (phase, skillIds) => turnPhaseInvalid(phase)
+    || rebirthInvalid(phase)
+    || (phase?.hpAtMostPct !== undefined && (phase.hpBelowPct !== undefined || phase.afterTurns !== undefined || !intInRange(phase.hpAtMostPct, 10, 90)))
+    || (phase?.intent !== undefined && !skillIds.has(phase.intent));
+
+// 注册状态复用档案校验；旧 setup 的 apply-status 内置状态别名保留原行为。
+// 其他效果可能已按等级换算，不套用档案数值上限。
+function statusEffectsInvalid(effects) {
+    return Array.isArray(effects) && effects.some((effect) => {
+        if (effect?.op === 'apply-status' && !STATUSES.includes(effect.status)) {
+            const definition = { ...effect };
+            delete definition._attribute;
+            if (!normalizeEffect(definition).ok) return true;
+        }
+        return ['then', 'a', 'b'].some((key) => statusEffectsInvalid(effect?.[key]));
+    });
+}
+
+// 技能单位与随从表单位共用的技能、阶段、脚本校验；返回原因或 null。
+function skillKitProblem(def) {
+    if (!Array.isArray(def.skills) || !def.skills.length) return 'missing-skills';
+    const phases = Array.isArray(def.phases) ? def.phases : [];
+    const allSkills = [...def.skills, ...phases.flatMap((phase) => phase?.addSkills || [])];
+    const bad = allSkills.find((skill) => !validId(skill?.id) || !Array.isArray(skill.effects) || statusEffectsInvalid(skill.effects)
+        || (skill.maxRepeat !== undefined && !intInRange(skill.maxRepeat, 0, 3))
+        || (skill.maxUses !== undefined && !intInRange(skill.maxUses, 1, SKILL_USES_MAX)));
+    if (bad !== undefined) return 'invalid-skill';
+    const skillIds = new Set(allSkills.map((skill) => skill.id));
+    if (phases.some((phase) => phaseInvalid(phase, skillIds))) return 'invalid-phase';
+    if (def.script !== undefined && scriptInvalid(def.script, skillIds, true)) return 'invalid-script';
+    if (phases.some((phase) => phase?.script !== undefined && scriptInvalid(phase.script, skillIds))) return 'invalid-script';
+    return null;
+}
+
+// M3 档案与直接建局共用随从表校验；保留建局接口的错误分类。
+function kinProblem(unit) {
+    const result = normalizeKinFields(unit);
+    if (result.ok) return null;
+    if (result.errors.some((issue) => issue.reason === 'missing-skills')) return 'missing-skills';
+    return 'invalid-kin';
+}
+
 function validateUnit(unit, path, attributeRules) {
     const fail = (reason) => ({ reason, detail: { path } });
     if (!SIDES.includes(unit.side)) return fail('invalid-side');
     if (!UNIT_KINDS.includes(unit.kind)) return fail('invalid-kind');
     if (unit.side === 'enemy' && unit.kind !== 'skill') return fail('enemy-must-use-skills');
+    if (unit.template !== undefined && (unit.side !== 'enemy' || unit.kind !== 'skill'
+        || !normalizeEnemyTemplate(unit.template).ok)) return fail('invalid-template');
     if (attributeRules && unit.kind === 'deck' && !validAttributePolicy(unit.attributePolicy)) return fail('invalid-attribute-policy');
     if (!intInRange(unit.maxHp, 1, 9999)) return fail('invalid-hp');
     if (unit.hp !== undefined && !intInRange(unit.hp, 1, unit.maxHp)) return fail('invalid-hp');
@@ -195,11 +313,10 @@ function validateUnit(unit, path, attributeRules) {
     const badActions = unit.actions !== undefined && !(unit.kind === 'skill' && intInRange(unit.actions, 1, 2));
     if ((unit.energy !== undefined && !intInRange(unit.energy, 0, 10)) || (unit.draw !== undefined && !intInRange(unit.draw, 0, 10)) || badScale || badActions || (unit.speed !== undefined && !intInRange(unit.speed, 1, 999))) return fail('invalid-stat');
     if (unit.kind === 'skill') {
-        if (!Array.isArray(unit.skills) || !unit.skills.length) return fail('missing-skills');
-        const phaseSkills = (Array.isArray(unit.phases) ? unit.phases : []).flatMap((phase) => phase?.addSkills || []);
-        const bad = [...unit.skills, ...phaseSkills].find((skill) => !validId(skill?.id) || !Array.isArray(skill.effects));
-        return bad === undefined ? null : fail('invalid-skill');
+        const problem = skillKitProblem(unit) || kinProblem(unit);
+        return problem ? fail(problem) : null;
     }
+    if (unit.script !== undefined) return fail('invalid-script');
     const heroSkill = unit.heroSkill;
     if (heroSkill != null && (!validId(heroSkill?.id) || !Array.isArray(heroSkill.effects) || !heroSkill.effects.length)) return fail('invalid-hero-skill');
     if (unit.traits !== undefined && traitsInvalid(unit.traits)) return fail('invalid-traits');
@@ -248,11 +365,15 @@ function validateSetup(setup) {
     if (setup.weakFoes !== undefined && setup.weakFoes !== true) return { reason: 'invalid-setup' };
     if (setup.trackHpLoss !== undefined && (setup.trackHpLoss !== true || !(setup.rulesVersion >= 6))) return { reason: 'invalid-setup' };
     if (setup.rewardOwner !== undefined && (setup.trackHpLoss !== true || !setup.units.some((unit) => unit.id === setup.rewardOwner && unit.side === 'ally'))) return { reason: 'invalid-setup' };
+    // purse（敌人模板 M7 盗金）：开战时剧情货币余额快照，只在规则 v5 起的新建 setup 里写；旧 setup 不带时战斗没有可偷金币。
+    if (setup.purse !== undefined && !(Number.isSafeInteger(setup.purse) && setup.purse >= 0 && setup.purse <= 1e9 && setup.rulesVersion >= 5)) return { reason: 'invalid-setup' };
     const ids = new Set();
     for (const [index, unit] of setup.units.entries()) {
         const path = `units[${index}]`;
         if (!unit || typeof unit.id !== 'string' || !ID_PATTERN.test(unit.id) || FORBIDDEN_KEYS.has(unit.id) || ids.has(unit.id)) return { reason: 'invalid-unit-id', detail: { path } };
         ids.add(unit.id);
+        // M8 遭遇分组：只限规则 v5 起的敌方技能单位，取值同单位 id 规则。
+        if (unit.encounter !== undefined && (unit.side !== 'enemy' || unit.kind !== 'skill' || typeof unit.encounter !== 'string' || !ID_PATTERN.test(unit.encounter) || !(setup.rulesVersion >= 5))) return { reason: 'invalid-encounter', detail: { path } };
         const problem = validateUnit(unit, path, setup.attributeRules);
         if (problem) return problem;
     }
@@ -273,7 +394,7 @@ function validatePassives(setup) {
     for (const [index, unit] of setup.units.entries()) {
         const phasePassives = (Array.isArray(unit.phases) ? unit.phases : []).flatMap((phase) => phase?.passives || []);
         const passives = unit.passives === undefined ? [] : unit.passives;
-        if (!Array.isArray(passives) || [...passives, ...phasePassives].some((p) => !validId(p?.id) || !Array.isArray(p.effects))) return { reason: 'invalid-passive', detail: { path: `units[${index}]` } };
+        if (!Array.isArray(passives) || [...passives, ...phasePassives].some((p) => !validId(p?.id) || !Array.isArray(p.effects) || statusEffectsInvalid(p.effects))) return { reason: 'invalid-passive', detail: { path: `units[${index}]` } };
     }
     return null;
 }
@@ -492,12 +613,46 @@ function spawnUnit(ctx, owner, def, tag, minion = false) {
     let n = 1;
     while (Object.hasOwn(state.units, `${base}-${tag}${n}`)) n += 1;
     const id = `${base}-${tag}${n}`;
-    const unit = buildUnit({ ...def, id, side: 'enemy', kind: 'skill' });
+    // M8：召唤、分裂、死亡生成的单位沿用来源的遭遇分组；同组已有同名单位时按甲乙丙编号。
+    const encounter = owner.encounter;
+    const unit = buildUnit({ ...def, id, side: 'enemy', kind: 'skill', ...(encounter ? { encounter } : {}) });
+    if (encounter) {
+        const baseName = def.baseName ?? unit.name;
+        const same = Object.values(state.units).filter((other) => other.encounter === encounter && (other.baseName ?? other.name) === baseName).length;
+        if (same) {
+            unit.baseName = baseName;
+            unit.name = `${baseName}${ENEMY_SUFFIXES[same] || same + 1}`;
+        }
+    }
     state.units[id] = unit;
     state.cooldowns[id] = {};
     state.history[id] = [];
     state.order.push(id);
     return unit;
+}
+
+// M8 遭遇分组：单位所在遭遇是否已全部倒下（同组其余非爪牙单位都不在场）；没有分组的单位按单体算。
+// 爪牙随召唤者退场，不算遭遇成员，结果与钩子登记顺序无关。
+function encounterFallen(state, unit) {
+    if (!unit?.encounter) return true;
+    return !Object.values(state.units).some((other) => other.alive && other.id !== unit.id && other.minion !== true && other.encounter === unit.encounter);
+}
+
+// M8 建局命名：同一遭遇里同名的 setup 单位按出现顺序加甲乙丙（记 baseName）；没有分组或不重名时不动，旧战斗形状不变。
+function nameEncounterUnits(state) {
+    const groups = new Map();
+    for (const unit of Object.values(state.units)) {
+        if (!unit.encounter) continue;
+        const key = `${unit.encounter}|${unit.name}`;
+        groups.set(key, [...(groups.get(key) || []), unit]);
+    }
+    for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        list.forEach((unit, index) => {
+            unit.baseName = unit.name;
+            unit.name = `${unit.name}${ENEMY_SUFFIXES[index] || index + 1}`;
+        });
+    }
 }
 
 // 规则 v5 E13 召唤爪牙：只限存活敌方召唤者，写 minion / minionOf；返回新单位，未入场返回 null。v3/v4 不调用。
@@ -513,6 +668,63 @@ function summonUnit(ctx, owner, def) {
     return unit;
 }
 
+// M3 随从表单位：按召唤者 kin 表里的种类建出单位（只建不入场），写 kinOf / kinKey。mode：summon（召唤者存活，minion 缺省为真，写 minionOf）、
+// split（本体刚离场）、death（本体刚倒下）；后两者 minion 缺省沿用本体，随从身份归本体的召唤者。hp 给出时当前与最大生命都取该值，
+// 否则取 kin 表生命乘召唤者的 kinScale。子体继承同一张 kin 表与 kinScale，伤害系数沿用召唤者。
+function createKin(ctx, owner, key, mode, hp) {
+    const state = ctx.state;
+    const def = owner?.kin?.[key];
+    if (!(state.rulesVersion >= 5) || state.outcome || !def || owner.side !== 'enemy' || (mode === 'summon' && !owner.alive)) return null;
+    const minion = def.minion ?? (mode === 'summon' ? true : owner.minion === true);
+    const maxHp = Math.max(1, Math.min(9999, Math.round(hp ?? def.maxHp * (owner.kinScale ?? 1))));
+    const unit = spawnUnit(ctx, owner, {
+        name: typeof def.name === 'string' && def.name ? def.name : key, maxHp, hp: maxHp,
+        speed: def.speed ?? owner.speed, damageScale: owner.damageScale, skills: def.skills, passives: def.passives || [],
+        ...(def.phases ? { phases: def.phases } : {}), ...(def.script ? { script: def.script } : {}),
+        ...(def.art ? { art: def.art } : owner.art ? { art: owner.art } : {}), ...(def.deathSpawns ? { deathSpawns: def.deathSpawns } : {}),
+        kin: owner.kin, ...(owner.kinScale !== undefined ? { kinScale: owner.kinScale } : {}),
+    }, 'k', minion);
+    if (!unit) return null;
+    unit.kinOf = owner.id;
+    unit.kinKey = key;
+    if (minion) {
+        unit.minion = true;
+        const lord = mode === 'summon' ? owner.id : owner.minion === true ? owner.minionOf : undefined;
+        if (lord !== undefined) unit.minionOf = lord;
+    }
+    return unit;
+}
+
+// M3 召唤指定随从 / 倒下生成：建出后发事件再入场；场上满员或条件不符返回 null。
+function spawnKin(ctx, owner, key, mode) {
+    const unit = createKin(ctx, owner, key, mode);
+    if (!unit) return null;
+    emit(ctx, mode === 'summon' ? { type: 'minion-enter', unitId: unit.id, ownerId: owner.id, name: unit.name } : { type: 'kin-enter', unitId: unit.id, ownerId: owner.id, name: unit.name, cause: mode });
+    enterUnit(ctx, unit);
+    return unit;
+}
+
+// M3 异种分裂：本体离场（left = 'split'，不发 defeated、不补位），再按 keys 生成随从表单位；hpMode 'current' 时子体当前与最大生命取本体当前生命，
+// 'kin' 时取随从表生命。满员时少分或不分；生成后按原规则判胜负（一只都没分出且场上无敌人即胜）。
+function splitIntoKin(ctx, unit, keys, hpMode) {
+    const state = ctx.state;
+    if (!(state.rulesVersion >= 5) || state.outcome || !unit?.alive || unit.side !== 'enemy' || unit.kind !== 'skill') return [];
+    const hp = unit.hp;
+    unit.alive = false;
+    unit.block = 0;
+    unit.left = 'split';
+    delete state.intents[unit.id];
+    const children = [];
+    for (const key of keys) {
+        const child = createKin(ctx, unit, key, 'split', hpMode === 'current' ? hp : undefined);
+        if (child) children.push(child);
+    }
+    emit(ctx, { type: 'split', unitId: unit.id, into: children.map((child) => child.id), hp });
+    for (const child of children) enterUnit(ctx, child);
+    checkOutcome(ctx);
+    return children;
+}
+
 // 规则 v5 E10 分裂：原单位退场（left = 'split'，不发 defeated、不补位），按当前生命分出至多两只子体（最大与当前生命都取原单位当前生命），
 // 沿用技能、被动、速度、伤害系数、阶级与立绘，写 splitFrom（子体不再分裂）；原单位是爪牙时子体仍是同一召唤者的爪牙。返回子体列表。
 function splitUnit(ctx, unit) {
@@ -524,8 +736,9 @@ function splitUnit(ctx, unit) {
     unit.left = 'split';
     delete state.intents[unit.id];
     const def = {
-        name: unit.name, maxHp: hp, hp, speed: unit.speed, damageScale: unit.damageScale, skills: unit.skills, passives: unit.passives,
+        name: unit.name, ...(unit.baseName ? { baseName: unit.baseName } : {}), maxHp: hp, hp, speed: unit.speed, damageScale: unit.damageScale, skills: unit.skills, passives: unit.passives,
         ...(unit.art ? { art: unit.art } : {}), ...(unit.tier ? { tier: unit.tier } : {}), ...(unit.actions ? { actions: unit.actions } : {}),
+        ...(unit.script ? { script: unit.script } : {}),
     };
     const children = [];
     for (let i = 0; i < 2; i += 1) {
@@ -583,6 +796,75 @@ function retireUnit(ctx, unit, reason) {
     return true;
 }
 
+// 归零重生（M4，规则 v5 起）：生命归零时若还有未用的 onDefeat 阶段，按定义顺序取一个代替倒下：
+// 最大生命按 maxHpPct% 改写并回满，格挡清零，按 clear 清状态（all 全部 / debuffs 只清减益）、再移除 shed，
+// 清掉打断序列与累计失血，发 rebirth，随后按阶段规则生效（换技能、脚本、改写意图）；没有改写意图时重新规划。
+// 不发 defeated、不触发击杀与补位。
+function rebirth(ctx, unit) {
+    if (!(ctx.state.rulesVersion >= 5) || !unit.rebirths || unit.rebirthsApplied >= unit.rebirths.length) return false;
+    const phase = unit.rebirths[unit.rebirthsApplied];
+    // 致死转爆炸（M4）：needs 状态不在时这次不重生，按原规则倒下。
+    const stored = phase.needs ? unit.statuses[phase.needs] || 0 : 0;
+    if (phase.needs && stored <= 0) return false;
+    unit.rebirthsApplied += 1;
+    unit.maxHp = Math.max(1, Math.floor((unit.maxHp * (phase.maxHpPct ?? 100)) / 100));
+    unit.hp = unit.maxHp;
+    unit.block = 0;
+    const clear = phase.clear ?? 'all';
+    for (const status of Object.keys(unit.statuses)) {
+        if (clear === 'all' || isDebuff(status) || (phase.shed || []).includes(status)) setStatus(unit, status, 0);
+    }
+    if (unit.res) {
+        delete unit.res.interrupt;
+        delete unit.res.hpTally;
+        if (!Object.keys(unit.res).length) delete unit.res;
+    }
+    if (phase.needs) unit.res = { ...unit.res, stored };
+    if (phase.brace) setStatus(unit, 'about-to-blow', 1);
+    delete unit.pendingIntent;
+    emit(ctx, { type: 'rebirth', unitId: unit.id, hp: unit.hp, index: unit.rebirthsApplied });
+    applyPhase(ctx, unit, phase, { index: unit.rebirthsApplied, trigger: 'defeat' });
+    if (!phase.intent && unit.alive && !ctx.state.outcome) planIntent(ctx, unit);
+    return true;
+}
+
+function markDefeated(ctx, unit, source, kind) {
+    unit.hp = 0;
+    unit.alive = false;
+    unit.block = 0;
+    delete ctx.state.intents[unit.id];
+    emit(ctx, { type: 'defeated', unitId: unit.id });
+    runHooks(ctx, 'defeated', { unit, source, kind });
+    // M8：同组非爪牙同伴倒下时，组内其余存活单位触发 mate-down 被动（如同伴死亡强化）；爪牙倒下不算。
+    if (ctx.state.rulesVersion >= 5 && unit.encounter && unit.minion !== true) {
+        for (const id of [...ctx.state.order]) {
+            const mate = ctx.state.units[id];
+            if (mate?.alive && mate.id !== unit.id && mate.encounter === unit.encounter && !ctx.state.outcome) fireBus(ctx, mate, 'mate-down', null);
+        }
+    }
+    // M3 倒下生成：不经钩子深度限制，在补位与判胜负之前入场，战斗不因本体倒下结束。
+    if (ctx.state.rulesVersion >= 5 && unit.side === 'enemy' && Array.isArray(unit.deathSpawns)) {
+        for (const key of unit.deathSpawns) if (!ctx.state.outcome) spawnKin(ctx, unit, key, 'death');
+    }
+    reinforce(ctx, unit);
+}
+
+// 死亡通知与伤害后置钩子分开：普通伤害保持原顺序，自毁不伪造一次伤害或攻击击杀。
+// M8：带遭遇分组的单位只在全组倒下时通知一次（同组召唤、分裂、复活前的倒下不单计）。
+function fireDefeatBus(ctx, unit, kind) {
+    if (unit.alive || ctx.state.rulesVersion < 6 || unit.minion === true || unit.left || !encounterFallen(ctx.state, unit)) return;
+    const cause = DEFEAT_CAUSES.includes(kind) ? kind : 'other';
+    for (const id of ctx.state.order) if (ctx.state.units[id]?.side !== unit.side) fireBus(ctx, ctx.state.units[id], 'defeated', null, { cause });
+}
+
+function defeatUnit(ctx, unit, source, kind) {
+    if (ctx.state.outcome || !unit?.alive) return false;
+    markDefeated(ctx, unit, source, kind);
+    checkOutcome(ctx);
+    fireDefeatBus(ctx, unit, kind);
+    return true;
+}
+
 // 结算一次伤害，返回实际扣掉的生命。blockable 为假时无视格挡（中毒、自伤）。
 // source 是事件里的来源；kind 是 attack/thorns/poison/self。strike 是同一次攻击的序号。
 function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
@@ -624,28 +906,23 @@ function dealDamage(ctx, target, amount, source, kind, blockable, strike = 0) {
         target.block += COMBAT_RULES.endureBlock;
         emit(ctx, { type: 'endure', unitId: target.id, block: COMBAT_RULES.endureBlock });
     }
+    let reborn = false;
     if (target.hp <= 0) {
-        target.alive = false;
-        target.block = 0;
-        delete ctx.state.intents[target.id];
-        emit(ctx, { type: 'defeated', unitId: target.id });
-        runHooks(ctx, 'defeated', { unit: target, source, kind });
-        reinforce(ctx, target);
+        reborn = rebirth(ctx, target);
+        if (!reborn) markDefeated(ctx, target, source, kind);
     } else if (hpLoss > 0) {
         checkHpThresholds(ctx, target);
     }
     if (!loss) runHooks(ctx, 'damage-after', { target, source, kind, amount, blocked, hpLoss });
-    if (hpLoss > 0) runHooks(ctx, 'hp-loss-after', { target, source, kind, hpLoss });
+    // 归零重生后的单位已换成新形态，这次致命失血不再计入唤醒、累计失血等失血反应。
+    if (hpLoss > 0 && !reborn) runHooks(ctx, 'hp-loss-after', { target, source, kind, hpLoss });
     checkOutcome(ctx);
     const attacker = source?.unitId != null ? ctx.state.units[source.unitId] : null;
-    // 规则 v5：爪牙倒下、分裂或退场（left）不算击杀。
-    if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side && target.minion !== true && !target.left) fireBus(ctx, attacker, 'kill', null);
+    // 规则 v5：爪牙倒下、分裂或退场（left）不算击杀。M8：带遭遇分组的只在全组倒下时算一次击杀。
+    if (!target.alive && kind === 'attack' && attacker && attacker.side !== target.side && target.minion !== true && !target.left && encounterFallen(ctx.state, target)) fireBus(ctx, attacker, 'kill', null);
     else if (target.alive && hpLoss > 0) fireBus(ctx, target, 'hp-loss', null);
     // 规则 v6 G5b：敌方单位因任意原因倒下（爪牙、分裂、退场不算），对面每个存活单位各触发一次，被动可按 cause 过滤死因。
-    if (!target.alive && ctx.state.rulesVersion >= 6 && target.minion !== true && !target.left) {
-        const cause = DEFEAT_CAUSES.includes(kind) ? kind : 'other';
-        for (const id of ctx.state.order) if (ctx.state.units[id]?.side !== target.side) fireBus(ctx, ctx.state.units[id], 'defeated', null, { cause });
-    }
+    fireDefeatBus(ctx, target, kind);
     if (broke && target.alive) fireBus(ctx, target, 'block-broken', null);
     return hpLoss;
 }
@@ -673,22 +950,76 @@ function checkHpThresholds(ctx, unit) {
         unit.lowHpTriggered = true;
         fireTrigger(ctx, unit, 'on-low-hp', null);
     }
-    while (unit.alive && unit.phasesApplied < unit.phases.length && unit.hp * 100 < unit.maxHp * unit.phases[unit.phasesApplied].hpBelowPct) {
+    // hpBelowPct 为低于阈值，hpAtMostPct 为不高于阈值。
+    const reached = (phase) => (phase.hpAtMostPct !== undefined ? unit.hp * 100 <= unit.maxHp * phase.hpAtMostPct : unit.hp * 100 < unit.maxHp * phase.hpBelowPct);
+    while (unit.alive && unit.phasesApplied < unit.phases.length && reached(unit.phases[unit.phasesApplied])) {
         enterPhase(ctx, unit, unit.phases[unit.phasesApplied]);
     }
 }
 
-// 进入下一阶段：替换技能、追加被动；当前意图已不存在时重新规划。
+// 进入下一血量阶段。
 function enterPhase(ctx, unit, phase) {
     unit.phasesApplied += 1;
+    applyPhase(ctx, unit, phase, { index: unit.phasesApplied });
+}
+
+// 按回合进入的阶段（敌人模板）：自身回合开始时计数，达到 afterTurns 依次进入。
+function checkTurnPhases(ctx, unit) {
+    unit.turnsTaken += 1;
+    while (unit.alive && unit.turnPhasesApplied < unit.turnPhases.length && unit.turnsTaken >= unit.turnPhases[unit.turnPhasesApplied].afterTurns) {
+        unit.turnPhasesApplied += 1;
+        applyPhase(ctx, unit, unit.turnPhases[unit.turnPhasesApplied - 1], { index: unit.turnPhasesApplied, trigger: 'turns' });
+    }
+}
+
+// 阶段生效：替换技能、追加被动；带 script 时换上新脚本并把进度归零（当前意图的旧步号作废）；
+// 带 intent 时把当前已公示的意图改写为该技能并保留到执行（pendingIntent）；否则当前意图已不存在时重新规划。
+function applyPhase(ctx, unit, phase, detail) {
     const removed = new Set(phase.removeSkills || []);
     const added = phase.addSkills || [];
     const addedIds = new Set(added.map((skill) => skill.id));
     unit.skills = [...unit.skills.filter((skill) => !removed.has(skill.id) && !addedIds.has(skill.id)), ...added];
     unit.passives = [...unit.passives, ...(phase.passives || [])];
-    emit(ctx, { type: 'phase', unitId: unit.id, index: unit.phasesApplied });
+    if (phase.script) {
+        unit.script = phase.script;
+        ctx.state.scripts = { ...(ctx.state.scripts || {}), [unit.id]: { opened: false, step: 0 } };
+        const planned = ctx.state.intents[unit.id];
+        if (planned && planned.step !== undefined) {
+            const { step, ...rest } = planned;
+            ctx.state.intents[unit.id] = rest;
+        }
+    }
+    emit(ctx, { type: 'phase', unitId: unit.id, ...detail });
+    if (phase.intent && unit.skills.some((skill) => skill.id === phase.intent)) {
+        unit.pendingIntent = phase.intent;
+        planIntent(ctx, unit);
+        return;
+    }
     const intent = ctx.state.intents[unit.id];
     if (intent && !unit.skills.some((skill) => skill.id === intent.skillId)) planIntent(ctx, unit);
+}
+
+// 出手的技能与脚本预定的一致时推进脚本进度。state.scripts 整体替换、不原地修改，写时复制无需额外拷贝。
+// 首招（opener / openers 之一）只标记已开场；转移表不记步数，下一招由出手历史决定。
+// 意图带规划时的 cycle 步号（step）且该步含出手的技能时按它推进；旧局面没有步号时按出手时的规划判定。
+function advanceScript(state, unit, skillId, intent) {
+    const progress = state.scripts?.[unit.id] || { opened: false, step: 0 };
+    if (!progress.opened && (isScriptOpener(unit.script, skillId) || unit.script.next)) {
+        state.scripts = { ...(state.scripts || {}), [unit.id]: { opened: true, step: progress.step } };
+        return;
+    }
+    if (unit.script.next) return;
+    const cycle = Array.isArray(unit.script.cycle) ? unit.script.cycle : [];
+    if (Number.isInteger(intent?.step) && intent.step >= 0 && intent.step < cycle.length) {
+        if (!scriptNodeSkills(cycle[intent.step]).includes(skillId)) return;
+        state.scripts = { ...(state.scripts || {}), [unit.id]: { opened: true, step: nextScriptStep(unit.script, intent.step) } };
+        return;
+    }
+    // 随机节点按出手的技能是否属于该步判定，不重新抽取。
+    const plan = scriptPlan(state, unit.id);
+    if (!plan || (plan.opener ? plan.skillId !== skillId : !scriptNodeSkills(unit.script.cycle?.[plan.index]).includes(skillId))) return;
+    const step = plan.opener ? (state.scripts?.[unit.id]?.step ?? 0) : nextScriptStep(unit.script, plan.index);
+    state.scripts = { ...(state.scripts || {}), [unit.id]: { opened: true, step } };
 }
 
 // ---------- 被动与触发总线 ----------
@@ -772,6 +1103,10 @@ const engineKit = (targets) => ({
     emit, dealDamage, addStatus, setStatus, statusSources, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, attributeAmount, resOf, ownCatalog, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
     discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
+    // 敌人模板 M7 偷牌（mechanics/foe-heist.js）：长期卡组至少保留的张数，偷到只剩这么多时不再偷。
+    deckMin: COMBAT_RULES.deckMin,
+    // 敌人模板 M6（mechanics/foe-afflict.js）：往对方牌堆塞内置状态牌（foreign 为真时不算对方自己生成）。
+    createToken,
     // 规则 v5 B08 加演（mechanics/cadence.js）：只登记，行动顺序由本文件处理。
     grantEncore,
     // 规则 v5 P5b 预燃（mechanics/inscription.js）：免费打出，与狡黠同一流程。
@@ -780,11 +1115,19 @@ const engineKit = (targets) => ({
     replanIntent: (ctx, unit) => {
         if (unit?.kind === 'skill' && unit.alive && !ctx.state.outcome) planIntent(ctx, unit);
     },
+    // M4 受击重掷：避开当前意图的技能重新规划（只剩这一招时照旧）。
+    rerollIntent: (ctx, unit) => {
+        if (unit?.kind === 'skill' && unit.alive && !ctx.state.outcome) planIntent(ctx, unit, ctx.state.intents[unit.id]?.skillId ?? null);
+    },
     requestEndTurn: (ctx) => {
         ctx.endTurnRequested = true;
     },
     // 规则 v5 E10–E13：运行时新增、移除与复活单位只经这些入口（mechanics/foe-units.js）。
-    summonUnit, dismissUnit, splitUnit, reviveUnit, retireUnit,
+    summonUnit, dismissUnit, splitUnit, reviveUnit, retireUnit, defeatUnit,
+    // M3 随从表：召唤指定随从、异种分裂（mechanics/foe-units.js）。
+    spawnKin, splitIntoKin,
+    // M8 遭遇分组：全组是否已倒下（成长、复活等按遭遇计一次）。
+    encounterFallen,
 });
 
 // 单个效果的结算。source 记录来源（单位、种类、id），写进事件。
@@ -977,7 +1320,9 @@ function strike(ctx, unit, effect, aimId, source) {
                 if (whipping) emit(ctx, { type: 'damage', kind: 'attack', source, target: target.id, amount: hitFor(target), blocked: 0, hpLoss: 0, overkill: true, strike: strikeNo });
                 continue;
             }
-            dealDamage(ctx, target, hitFor(target), source, 'attack', true, strikeNo);
+            const blockBefore = target.block;
+            const hpLoss = dealDamage(ctx, target, hitFor(target), source, 'attack', true, strikeNo);
+            runHooks(ctx, 'attack-after', { attacker: unit, target, hpLoss, blockBefore });
             if (!hitUnits.includes(target)) hitUnits.push(target);
             const thorns = target.statuses.thorns || 0;
             if (thorns > 0 && target.id !== unit.id) dealDamage(ctx, unit, thorns, { unitId: target.id, kind: 'status', id: 'thorns' }, 'thorns', true);
@@ -1235,9 +1580,14 @@ function attackTargetId(ctx, unit) {
     return ids.length ? ids[rollInt(state, ids.length)] : null;
 }
 
-// 为技能单位规划下一次行动；没有可选技能则清掉意图。
-function planIntent(ctx, unit) {
-    const intent = chooseSkillIntent(ctx.state, unit.id, rollFloat(ctx.state));
+// 为技能单位规划下一次行动；没有可选技能则清掉意图。带概率插招（M4，规则 v5 起）的单位每次规划另取一个随机数判定插招；
+// 不带的单位随机数消耗与旧版一致。avoid 为受击重掷时要避开的技能。
+function planIntent(ctx, unit, avoid = null) {
+    const roll = rollFloat(ctx.state);
+    const opts = {};
+    if (ctx.state.rulesVersion >= 5 && unit.script?.inserts) opts.chance = rollFloat(ctx.state);
+    if (avoid) opts.avoid = avoid;
+    const intent = chooseSkillIntent(ctx.state, unit.id, roll, opts);
     if (!intent) {
         delete ctx.state.intents[unit.id];
         return;
@@ -1252,15 +1602,47 @@ function takeSkillTurn(ctx, unit) {
     const state = ctx.state;
     const intent = state.intents[unit.id];
     const skill = intent && unit.skills.find((item) => item.id === intent.skillId);
-    if (!skill) {
+    if (!skill || !skillHasUses(unit, skill)) {
         planIntent(ctx, unit);
         return;
     }
     let targetId = intent.targetId ?? null;
     if (targetId !== null && !state.units[targetId]?.alive) targetId = attackTargetId(ctx, unit);
     delete state.intents[unit.id];
+    // 打断序列（M4）：出手后推进位置；restart 重放首招，main 跳过首招进入常规脚本，缺省保留进度。
+    const queue = unit.res?.interrupt;
+    const rule = queue && unit.script?.interrupts?.[queue.rule];
+    const queued = Boolean(rule && rule.seq[queue.pos] === skill.id);
+    if (queued) {
+        if (queue.pos + 1 < rule.seq.length) unit.res.interrupt = { rule: queue.rule, pos: queue.pos + 1 };
+        else {
+            delete unit.res.interrupt;
+            if (rule.then !== undefined) state.scripts = { ...(state.scripts || {}), [unit.id]: { opened: rule.then === 'main', step: 0 } };
+        }
+        emit(ctx, { type: 'interrupt-step', unitId: unit.id, rule: queue.rule, pos: queue.pos });
+    }
+    // 阶段改写的意图是插入的一招，睡眠中的睡眠技能、打断序列里的招也不推进脚本。
+    const forced = !queued && unit.pendingIntent === skill.id;
+    // 概率插招（M4）插入的一招不推进脚本。
+    const inserted = !queued && !forced && Number.isInteger(intent.insert);
+    if (forced) delete unit.pendingIntent;
+    const sleeping = (unit.statuses.asleep || 0) > 0 && unit.script?.sleep?.skill === skill.id;
+    if (unit.script && !forced && !sleeping && !queued && !inserted) advanceScript(state, unit, skill.id, intent);
+    if (skill.maxUses !== undefined) {
+        const res = unit.res || (unit.res = {});
+        res.skillUses = { ...res.skillUses, [skill.id]: (res.skillUses?.[skill.id] || 0) + 1 };
+    }
     emit(ctx, { type: 'skill', unitId: unit.id, skillId: skill.id, name: skill.name, targetId });
-    runEffects(ctx, unit, skill.effects, targetId, { unitId: unit.id, kind: 'skill', id: skill.id });
+    // 自毁技能在整招结束后判胜负，避免前段伤害先结束战斗而漏掉自身倒下。
+    const holdOutcome = ctx.holdOutcome;
+    const selfDestruct = state.rulesVersion >= 5 && skill.effects.some((effect) => effect.op === 'self-destruct');
+    if (selfDestruct) ctx.holdOutcome = true;
+    try {
+        runEffects(ctx, unit, skill.effects, targetId, { unitId: unit.id, kind: 'skill', id: skill.id });
+    } finally {
+        ctx.holdOutcome = holdOutcome;
+    }
+    if (selfDestruct) checkOutcome(ctx);
     if (unit.alive) runHooks(ctx, 'action-after', { unit, kind: 'skill', skill, effects: skill.effects });
     const cooldowns = state.cooldowns[unit.id];
     for (const id of Object.keys(cooldowns)) {
@@ -1608,6 +1990,8 @@ function useItem(ctx, unit, itemId, aimId) {
     item.count -= 1;
     ctx.state.items.used = true;
     emit(ctx, { type: 'item', unitId: unit.id, itemId, name: item.name, targetId: aimId ?? null });
+    // M8：结算前的道具钩子（单目标道具转向带遭遇分组的背击单位）。
+    runHooks(ctx, 'item-before', { unit, itemId, aimId: aimId ?? null });
     runEffects(ctx, unit, item.effects, aimId ?? null, { unitId: unit.id, kind: 'item', id: itemId });
     // 规则 v6 G5b：使用道具后。
     if (ctx.state.rulesVersion >= 6) fireBus(ctx, unit, 'item-used', null);
@@ -1691,6 +2075,7 @@ function takeAutoTurn(ctx, unit) {
     emit(ctx, { type: 'act', unitId: unit.id, side: unit.side, track: actionProgress(state) });
     startUnitTurn(ctx, unit);
     if (!unit.alive || state.outcome) return;
+    if (unit.turnPhases) checkTurnPhases(ctx, unit);
     if (skipsAction(ctx, unit)) {
         endUnitTurn(ctx, unit);
         return;
@@ -1808,7 +2193,8 @@ function buildUnit(def, attributeRules) {
         lowHpTriggered: false,
         passives: deepCopy(def.passives || []),
         skills: def.kind === 'skill' ? deepCopy(def.skills) : [],
-        phases: def.kind === 'skill' && Array.isArray(def.phases) ? deepCopy(def.phases).sort((a, b) => b.hpBelowPct - a.hpBelowPct) : [],
+        phases: def.kind === 'skill' && Array.isArray(def.phases)
+            ? deepCopy(def.phases.filter((phase) => phase.afterTurns === undefined && phase.onDefeat === undefined)).sort((a, b) => (b.hpBelowPct ?? b.hpAtMostPct) - (a.hpBelowPct ?? a.hpAtMostPct)) : [],
         phasesApplied: 0,
         speed: def.speed ?? COMBAT_RULES.defaultSpeed,
         av: 0,
@@ -1818,8 +2204,30 @@ function buildUnit(def, attributeRules) {
     };
     if (typeof def.art === 'string' && def.art) unit.art = def.art;
     if (def.tier === 'elite' || def.tier === 'boss') unit.tier = def.tier;
+    // M8 遭遇分组与同组编号前的原名：只在定义中带有时写入，旧战斗形状不变。
+    if (def.kind === 'skill' && typeof def.encounter === 'string' && def.encounter) unit.encounter = def.encounter;
+    if (def.kind === 'skill' && typeof def.baseName === 'string' && def.baseName) unit.baseName = def.baseName;
     // 每次出手连用技能次数（只技能单位）：大于 1 时才写字段，旧战斗形状不变。
     if (def.kind === 'skill' && Number.isInteger(def.actions) && def.actions > 1) unit.actions = def.actions;
+    // 敌人模板：行动脚本与按回合进入的阶段（按回合数升序），只在定义中带有时写入。
+    if (def.kind === 'skill' && def.template !== undefined) unit.template = deepCopy(def.template);
+    if (def.kind === 'skill' && def.script) unit.script = deepCopy(def.script);
+    // 睡眠（M4）：开战持有 sleep.turns 层 asleep。
+    if (def.kind === 'skill' && def.script?.sleep) unit.statuses.asleep = def.script.sleep.turns;
+    // M3 随从表、倒下生成与随从生命系数：只在定义中带有时写入。
+    if (def.kind === 'skill' && def.kin) unit.kin = deepCopy(def.kin);
+    if (def.kind === 'skill' && Array.isArray(def.deathSpawns)) unit.deathSpawns = [...def.deathSpawns];
+    if (def.kind === 'skill' && def.kinScale !== undefined) unit.kinScale = def.kinScale;
+    // 归零重生阶段（M4）：按定义顺序，只在定义中带有时写入。
+    if (def.kind === 'skill' && Array.isArray(def.phases) && def.phases.some((phase) => phase.onDefeat !== undefined)) {
+        unit.rebirths = deepCopy(def.phases.filter((phase) => phase.onDefeat !== undefined));
+        unit.rebirthsApplied = 0;
+    }
+    if (def.kind === 'skill' && Array.isArray(def.phases) && def.phases.some((phase) => phase.afterTurns !== undefined)) {
+        unit.turnPhases = deepCopy(def.phases.filter((phase) => phase.afterTurns !== undefined)).sort((a, b) => a.afterTurns - b.afterTurns);
+        unit.turnPhasesApplied = 0;
+        unit.turnsTaken = 0;
+    }
     if (def.kind === 'deck') {
         if (attributeRules) unit.attributePolicy = deepCopy(def.attributePolicy);
         unit.energy = 0;
@@ -1870,6 +2278,7 @@ export function createBattle(setup, seed) {
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),
         ...(reserve.size ? { reserve: [...setup.reserve] } : {}),
+        ...(setup.purse !== undefined ? { purse: setup.purse } : {}),
     };
     const ctx = newCtx(state, true);
     for (const def of setup.units) {
@@ -1912,6 +2321,7 @@ export function createBattle(setup, seed) {
         const overflow = innate.length - (def.draw ?? COMBAT_RULES.drawPerTurn);
         if (overflow > 0) state.units[def.id].nextTurn.push({ gain: 'draw', amount: overflow });
     }
+    nameEncounterUnits(state);
     emit(ctx, { type: 'battle-start', controlledId: state.controlledId });
     for (const id of state.order) if (state.units[id].kind === 'skill') planIntent(ctx, state.units[id]);
     for (const id of state.order) if (id !== state.controlledId) scheduleUnit(state, state.units[id]);
@@ -1923,6 +2333,7 @@ export function createBattle(setup, seed) {
         fireTrigger(ctx, state.units[id], 'battle-start', null);
     }
     settleWipe(ctx);
+    presentCurseOffer(ctx);
     return { ok: true, state, events: ctx.events };
 }
 
@@ -1935,9 +2346,31 @@ function validateChoice(state, insts) {
         : null;
 }
 
+// M7 二选一诅咒：玩家阶段、无挂起选择时，把排队给操控角色的第一份诅咒挂起为选择（只能由玩家 choose，引擎与托管都不代选）。
+function presentCurseOffer(ctx) {
+    const state = ctx.state;
+    if (state.phase !== 'player' || state.outcome || state.pending || !state.offers) return;
+    const pending = openCurseOffer(state);
+    if (pending) emit(ctx, { type: 'choose-start', unitId: pending.unitId, kind: pending.kind, count: pending.count, options: pending.options.slice() });
+}
+
+// 选中一道诅咒：出队并按层数施加为本场状态（神器照常抵消），然后挂起下一份排队的诅咒。
+function resolveCurseChoice(ctx, insts) {
+    const state = ctx.state;
+    const { unit, option, from } = takeCurse(state, insts[0]);
+    emit(ctx, { type: 'choose', unitId: unit.id, insts: insts.slice() });
+    emit(ctx, { type: 'curse-chosen', unitId: unit.id, from, status: option.status, stacks: option.stacks });
+    if (unit.alive) addStatus(ctx, unit, option.status, option.stacks, { unitId: from, kind: 'status', id: option.status });
+    presentCurseOffer(ctx);
+}
+
 // 玩家选完牌：把选择交给挂起的那个效果执行，再继续结算这张牌剩下的效果。
 function resolveChoice(ctx, insts) {
     const state = ctx.state;
+    if (state.pending.kind === CURSE_CHOICE_KIND) {
+        resolveCurseChoice(ctx, insts);
+        return;
+    }
     const play = state.play;
     const unit = state.units[play.unitId];
     delete state.pending;
@@ -2040,6 +2473,7 @@ export function applyAction(state, action) {
         endPlayerTurn(ctx);
     }
     settleWipe(ctx);
+    presentCurseOffer(ctx);
     finishState(work);
     return { ok: true, state: work, events: ctx.events };
 }

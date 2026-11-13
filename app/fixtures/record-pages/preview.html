@@ -318,7 +318,8 @@ function openSettingsScene() {
 }
 // 战斗面板预览：内存战斗表与存档；?combat=battle 直接开战，?combat=end 打到结束。
 const attributePreview = new URLSearchParams(location.search).get('attributes') === '1';
-const combatPreview = createCombatPreview({ attributes: attributePreview });
+const templatePreview = new URLSearchParams(location.search).get('templates') === '1';
+const combatPreview = createCombatPreview({ attributes: attributePreview, templates: templatePreview });
 // ?res=mage|mage3|bard|priest|warrior|summoner|all：给主战者叠一组假资源，只改面板读到的快照，不写引擎状态，用于看资源条排版。
 const RES_PREVIEW = {
   mage: { orbs: { slots: 10, list: ['lightning', 'frost', 'dark', 'plasma', 'glass', 'lightning', 'frost'].map(kind => ({ kind })) }, focus: 2 },

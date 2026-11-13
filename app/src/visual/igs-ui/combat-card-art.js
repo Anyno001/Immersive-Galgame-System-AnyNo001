@@ -143,6 +143,8 @@ const PASSIVE_WHEN = Object.freeze({
     // 规则 v6 G5b。
     defeated: '每有敌人倒下时', 'status-gained': '每次获得状态后', 'item-used': '每次使用道具后', foresee: '每次预知后',
     'orb-channel': '每次凝结法珠后', 'radiance-spent': '每次消耗圣辉后', 'minion-act': '随从每次出手后',
+    // 敌人模板 M8。
+    'mate-down': '同伴倒下时',
 });
 const ORB_LABEL = Object.freeze({ lightning: '雷珠', frost: '霜珠', dark: '蚀珠', plasma: '源珠', glass: '晶珠' });
 const CAUSE_LABEL = Object.freeze({ attack: '被攻击击倒', poison: '因中毒倒下', doom: '因灾厄倒下', orb: '被法珠击倒', minion: '被随从击倒', thorns: '被荆棘击倒', self: '自损倒下' });
@@ -244,6 +246,20 @@ const INTENT_ICON = Object.freeze({
     attack: RECORD_ICONS.weapon, defend: RECORD_ICONS.armor, heal: RECORD_ICONS.potion, special: RECORD_ICONS.sparkle,
     buff: arrow('M12 20.5V7.5M6.5 13 12 7.5l5.5 5.5M5 3.5h14'),
     debuff: arrow('M12 3.5v13M6.5 11 12 16.5l5.5-5.5M5 20.5h14'),
+    'attack-debuff': arrow('m3 18 10-10 3 3L6 21H3v-3ZM11 7l3-3 3 3-3 3M20 3v9m-3-3 3 3 3-3'),
+    'attack-defend': arrow('m2 17 9-9 3 3-9 9H2v-3ZM9 7l3-3 3 3-3 3M18 11l4 2v4c0 2-2 4-4 5-2-1-4-3-4-5v-4l4-2Z'),
+    'attack-buff': arrow('m3 18 10-10 3 3L6 21H3v-3ZM11 7l3-3 3 3-3 3M20 12V3m-3 3 3-3 3 3'),
+    idle: arrow('M8 5v14M16 5v14'),
+    sleep: arrow('M6 6h7l-7 8h7m2-1h5l-5 6h5'),
+    stun: arrow('m12 3 2.4 5.2 5.6.8-4 4 .9 5.7-4.9-2.6-4.9 2.6.9-5.7-4-4 5.6-.8Z'),
+    escape: arrow('M10 4H4v16h6m3-12 5 4-5 4m-5-4h13'),
+    unknown: arrow('M8 7a4 4 0 1 1 6 3.5c-2 1-2 2-2 3.5m0 4v1'),
+    summon: arrow('M4 19c0-4 3-6 6-6s6 2 6 6M10 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6m9 2v6m-3-3h6'),
+    explode: arrow('m12 2 2 6 6-3-3 6 5 3-6 1 1 7-5-4-5 4 1-7-6-1 5-3-3-6 6 3Z'),
+    status: arrow('M5 3h10l4 4v14H5Zm10 0v5h4M8 12h8m-8 4h6'),
+    affliction: arrow('M5 3h10l4 4v14H5Zm4 9 6 6m0-6-6 6'),
+    'defend-debuff': arrow('m10 3 7 3v6c0 4-3 6-7 8-4-2-7-4-7-8V6Zm10 6v10m-3-3 3 3 3-3'),
+    'defend-buff': arrow('m10 3 7 3v6c0 4-3 6-7 8-4-2-7-4-7-8V6Zm10 16V9m-3 3 3-3 3 3'),
 });
 
 export function intentIconSvg(kind) {

@@ -3,7 +3,7 @@
 import { esc } from './reader-value-utils.js';
 import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
-import { intentIconSvg } from './combat-card-art.js';
+import { skinIntentHtml } from './combat-intent.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, canvasW, ringVars, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
@@ -110,7 +110,7 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const pics = v.portraits || {}, arts = v.enemyArt || {};
     const ring = ringVars(i, f, n, L);
     const it = u.intent;
-    const intent = it ? `<div class="intent" title="${esc(`${it.label}·${it.name}${it.damage ? `，${it.damage} 点伤害` : ''}`)}">${intentIconSvg(it.kind)}${it.damage ? `<b>${esc(it.damage)}</b>` : ''}<em>${esc(it.damage ? it.name : `${it.label}·${it.name}`)}</em></div>` : '<div class="intent"></div>';
+    const intent = skinIntentHtml(it, { empty: '<div class="intent"></div>' });
     const fcs = `${u.block ? `<span class="fc blk">${ICON.shield}<b>${esc(u.block)}</b></span>` : ''}${u.statuses.map((s) => `<span class="fc">${esc(s.label)}<b>${esc(s.stacks)}</b></span>`).join('')}`;
     const ok = pick.pickable(u);
     const kind = enemyArtKeyFor({ art: u.art, name: u.name });

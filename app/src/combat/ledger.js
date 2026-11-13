@@ -34,6 +34,7 @@ import { heroInventoryView } from './inventory-view.js';
 import { equippedGear, placeGear, removeGear, slotGearList } from './gear-slots.js';
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
+import { IMPLANT_CARDS } from './mechanics/foe-heist.js';
 import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
 import { isRelicPassive } from './relics/draw.js';
 import { heldOffCombat, offCombatModel, refsHeld, relicRefKey } from './relics/off-combat.js';
@@ -55,6 +56,10 @@ export const WOUND_TAG_HASH = 'wound';
 export const BATTLE_GROWTH_TAG_HASH = 'battle-growth';
 // 规则 v6 G5g：战斗胜利积分，锚定胜利战报楼，不来自标签。
 export const BATTLE_POINTS_TAG_HASH = 'battle-points';
+// 敌人模板 M7 偷牌：被敌人带走的长期副本，锚定战报楼（胜、败、撤退都记），不来自标签。
+export const CARD_LOST_TAG_HASH = 'card-lost';
+// 敌人模板 M7 永久寄生：被敌人植入的牌，锚定战报楼（胜、败、撤退都记），不来自标签。
+export const CARD_IMPLANT_TAG_HASH = 'card-implant';
 export const GEAR_TAG_HASH = 'gear';
 export const SELL_TAG_HASH = 'sell';
 export const REBUILD_TAG_HASH = 'rebuild';
@@ -70,7 +75,7 @@ export const ALLOC_TAG_HASH = 'alloc';
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'relic-inscribe', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'relic-inscribe', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points', 'card-lost', 'card-implant']);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -84,7 +89,7 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, 'relic-inscribe': 18.05,
-    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, 'card-upgrade': 18.65, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
+    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, 'card-upgrade': 18.65, 'card-lost': 18.68, 'card-implant': 18.69, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -315,6 +320,10 @@ function inactiveReason(entry, scanFloor) {
     if (entry.type === 'card-upgrade' && !levelUpgrade && floor.report.weak === true) return 'card-upgrade-weak-report';
     if (entry.type === 'wound' && floor.report?.reportId !== entry.payload.reportId) return 'wound-report-invalid';
     if (entry.type === 'battle-growth' && floor.report?.reportId !== entry.payload.reportId) return 'battle-growth-report-invalid';
+    // 敌人模板 M7 偷牌：只认本场战报楼。
+    if (entry.type === 'card-lost' && floor.report?.reportId !== entry.payload.reportId) return 'card-lost-report-invalid';
+    // 敌人模板 M7 永久寄生：只认本场战报楼。
+    if (entry.type === 'card-implant' && floor.report?.reportId !== entry.payload.reportId) return 'card-implant-report-invalid';
     // 规则 v6 G5g：胜利积分只认胜利战报楼里本场战报。
     if (entry.type === 'battle-points' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'battle-points-report-invalid';
     // 规则 v6 G3d：积分记录的弱敌战标记须与战报一致（防止弱敌战按全额领分）。
@@ -1135,6 +1144,31 @@ const handlers = Object.freeze({
         state.points -= payload.cost;
         state.purges += 1;
         state.purgedAt.add(payload.battle);
+        return null;
+    },
+    // 敌人模板 M7 偷牌：按副本 ID 从长期卡组移除被带走的那一张（连同成长、升级、刻印）；
+    // 副本已不在卡组、牌名不符或移除后会少于 deckMin 张时拒收（战斗侧已按 deckMin 限制偷取）。
+    'card-lost'(state, payload) {
+        if (state.kind !== 'deck-character') return 'combat-card-lost-kind-mismatch';
+        const at = state.deckCopies.indexOf(payload.copyId);
+        if (at < 0 || state.copies.get(payload.copyId)?.cardId !== payload.cardId) return 'combat-card-lost-copy-missing';
+        if (state.deck.length <= COMBAT_RULES.deckMin) return 'combat-card-lost-deck-min';
+        state.copies.delete(payload.copyId);
+        state.deck.splice(at, 1);
+        state.deckCopies.splice(at, 1);
+        syncOwned(state);
+        return null;
+    },
+    // 敌人模板 M7 永久寄生：只接受固定可植入牌表里的牌；目录缺时按表补入（同 ID 已有不同定义则拒收），新增一张副本放进卡组。
+    'card-implant'(state, payload, context = {}) {
+        if (state.kind !== 'deck-character') return 'combat-card-implant-kind-mismatch';
+        const def = IMPLANT_CARDS[payload.cardId];
+        if (!def) return 'combat-card-implant-unknown';
+        const known = state.catalog.get(def.id);
+        if (known && known.name !== def.name) return 'combat-card-id-collision';
+        if (!known) state.catalog.set(def.id, { ...def, effects: [] });
+        addCard(state, def.id, context.entry?.id || 'card-implant');
+        syncOwned(state);
         return null;
     },
     // 规则 v6 G3c 升级机会：只主角卡组角色；当前胜场须正好是 UPGRADE_EVERY 的倍数且这次升级机会未用过（与删卡各记各的，过期作废）。

@@ -14,7 +14,8 @@ import {
 import { ARCHETYPE_FAMILIES, CARD_TEMPLATES, COMPOSITE_SKILL_KEYS, GEAR_PASSIVE_TEMPLATES, ITEM_TEMPLATES, nearestTemplateCost, passiveAtRarity, passiveTemplateWeight, templateCatalogText, templatesFor } from './card-templates.js';
 import { gearHasPassive, templateCandidates } from './acquire-candidates.js';
 import { traitTemplateWeightOf } from './trait-template-bias.js';
-import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtTheme } from './enemy-art.js';
+import { ENEMY_ART_THEMES, enemyArtCatalogText, isEnemyArtKey, isEnemyArtTheme } from './enemy-art.js';
+import { enemyPool, fallbackChoice, materializeChoice } from './enemies/pool.js';
 import {
     CARD_COST_SLOTS, assembleClass, assembleClassTier, assembleDeck, assembleEnemy, assembleGear, assembleGrowth, assembleInitialGear, assembleItem, assembleReward, assembleSignature,
     assembleDrawCard, assembleSkillCharacter, assembleSkillFill, assembleTrait, costSlotsFor,
@@ -26,7 +27,7 @@ import { isRelicPassive, resolveRelic } from './relics/draw.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 
 // 支持的实体种类（顺序即处理顺序的参考）
-export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill', 'encounter-theme', 'profile-gear', 'signature-card', 'draw-card']);
+export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'enemy-roster', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill', 'encounter-theme', 'profile-gear', 'signature-card', 'draw-card']);
 // 被拒收后最多再修正的轮数
 export const MAX_FIX_ROUNDS = 2;
 
@@ -107,6 +108,7 @@ export const GENERATION_SYSTEM = [
     '- profile-deck：{"classRef"?:"没有 input.classRef 时可选 existingClasses 中合适职业的 id；省略则使用同一请求里本角色的 class","aliases"?:[≤5 个称呼],"hp"?:所用职业原型在 input.archetypeHp 中的范围,"passive":个人被动,"skill":["人物技能名","卡牌模板键"]——人物技能，第二项必须取自卡牌模板目录（技能模板键在这里无效）；按这个角色本人的设定、性格与招式设计，每人不同，不要与职业特性重复；战斗中每回合可主动用一次,"cards":[4–6 张个人卡牌]}；专属卡不在这里给，角色到解锁等级时另行生成（signature-card）',
     '- profile-skill：{"aliases"?:[≤5 个称呼],"className"?:"≤12 字","hp"?:20–120,"tier"?:"support|peer|ace|legend——按该角色在剧情中的实力地位相对主角选择：support 弱于主角、peer 相当、ace 明显强于主角（可靠的强力同伴）、legend 碾压级；拿不准时选 peer","skills":[3–5 个技能],"passives":[1–2 个被动]}',
     `- enemy：{"art"?:"外观格位键，按敌人名称与剧情形象选最接近的一格。${enemyArtCatalogText()}","hp"?:input.hpRange 范围内,"skills":[2–4 个技能],"passives"?:[0–2 个被动]}；input.tier 为 boss 时可另给 "enrage":技能，半血后加入。`,
+    '- enemy-roster：{"enemies":[按 input.enemies 的顺序每人一项 ["敌人名","特性编码","外观格位键（可省，取值同 enemy 的 art）"]]}——input.pool 是本档位的敌人特性池，每项 code 为编码、text 为一句话特性、fit 为程序预写的适合敌人类型。先根据剧情与世界书确认敌人的战斗能力，再结合 fit 与 text 选择最接近的一项；fit 是能力适配指引，不是种族或外观硬限制，不因名字或立绘像某种生物就赋予剧情没有的能力。缝合项按其实际组合挑选。只选已有 code，不改数值、概率或组合；必须选，不得回答不合适或留空，多个敌人可选同一项。敌人名照抄 input.enemies，每个恰好一次。',
     '- skill-to-card：{"name"?:"默认 input.skill","template":"input.output 为 card 时填卡牌模板键，为 skill 时填技能模板键","cost"?:卡牌费用 0–3}；input.mode 为 upgrade 时另填 "targetId"：从 input.candidates 选出被精进的那一项，找不到时填 ""。input.templates 存在时（卡牌带 input.rarity）模板只能从其中选，可另填 "values":[整数…]——按 input.templateVars 中所选模板各变量的范围依次给数值，程序按费用 × 稀有度预算校验，不合格会要你修改；省略 values 则由程序求解。',
     '- equip-to-passive：{"template":"被动模板键"}——按 input.name、input.slot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）与 input.description 选最贴合这件装备的被动；名称与数值由程序给定。input.rarity 存在时改回 {"ability":"六维键 str/dex/con/int/wis/cha，按名称与简述选这件装备加成的一项","template":"被动模板键，只能从 input.templates 中选"}；没有 input.templates 时这件装备没有被动，只回 ability。',
     '- item-to-consumable：{"template":"道具模板键"}——按 input.name 与 input.description 选最贴合这件一次性道具的效果；input.templates 存在时只能从其中选（数值按 input.rarity 由程序放大）；名称、数量与数值由程序给定。',
@@ -344,6 +346,80 @@ export function enemyEntities({ enemies, tier = 'normal', existing, partyLevel =
     return { entities, reused };
 }
 
+// 敌人特性池请求（enemy-roster）：同档位本场新出现的敌人合为一个请求，模型只按剧情为每人选池中最接近的编码。
+// 池的构成、缝合与兜底由程序按 seed 确定；本档位池为空时退回逐个 enemy 自由生成。已落账的敌人复用。
+export function enemyRosterEntities({ enemies, tier = 'normal', existing, partyLevel = 1, seed = '' } = {}) {
+    if (!COMBAT_RULES.tiers[tier]) return { entities: [], reused: [], error: 'combat-tier-unknown' };
+    const pool = enemyPool({ tier, seed });
+    if (!pool.length) return enemyEntities({ enemies, tier, existing, partyLevel });
+    const known = existing instanceof Map ? existing : new Map(classList(existing).map((profile) => [profile.id, profile]));
+    const names = [];
+    const reused = [];
+    const seen = new Set();
+    for (const { name } of Array.isArray(enemies) ? enemies : []) {
+        const id = enemyIdFor(name, tier);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (known.has(id)) reused.push(id);
+        else names.push({ name: String(name).trim(), id });
+    }
+    if (!names.length) return { entities: [], reused };
+    const owner = `enemy-roster:${tier}`;
+    return {
+        entities: [{
+            key: owner, kind: 'enemy-roster', role: 'enemy', owner,
+            input: { enemies: names.map((item) => item.name), tier, pool: pool.map(({ code, text, fit }) => ({ code, text, fit })) },
+            fixed: { tier, names, pool },
+        }],
+        reused,
+    };
+}
+
+// 读出回复里的有效选择：名字须在请求内且只出现一次，编码须在池内；外观格位非法只记诊断。
+function rosterPicks(entity, value) {
+    const picks = new Map();
+    const mentioned = new Set();
+    const errors = [];
+    const diagnostics = [];
+    const wanted = new Set(entity.fixed.names.map((item) => item.name));
+    const codes = new Set(entity.fixed.pool.map((item) => item.code));
+    const list = isPlainObject(value) ? value.enemies : undefined;
+    if (!Array.isArray(list)) return { picks, errors: [errorItem('enemies', 'expected-array')], diagnostics };
+    list.forEach((row, index) => {
+        const at = `enemies[${index}]`;
+        if (!Array.isArray(row)) return errors.push(errorItem(at, 'expected-array'));
+        const name = typeof row[0] === 'string' ? row[0].trim() : '';
+        if (!wanted.has(name)) return errors.push(errorItem(`${at}[0]`, 'enemy-unknown', name.slice(0, 20)));
+        if (mentioned.has(name)) return errors.push(errorItem(`${at}[0]`, 'enemy-duplicate', name));
+        mentioned.add(name);
+        if (!codes.has(row[1])) return errors.push(errorItem(`${at}[1]`, 'code-unknown'));
+        const art = row[2];
+        if (art !== undefined && art !== null && art !== '' && !isEnemyArtKey(art)) diagnostics.push({ code: 'combat-art-dropped', key: entity.key, field: `${at}[2]` });
+        picks.set(name, { code: row[1], ...(isEnemyArtKey(art) ? { art } : {}) });
+    });
+    for (const { name } of entity.fixed.names) if (!mentioned.has(name)) errors.push(errorItem('enemies', 'enemy-missing', name));
+    return { picks, errors, diagnostics };
+}
+
+// 按选择物化每个敌人的档案（ID 按名字与档位）；没有有效选择的按 enemy-pick|ID 等概率兜底。
+function rosterProfiles(entity, picks) {
+    const byCode = new Map(entity.fixed.pool.map((item) => [item.code, item]));
+    const fallen = [];
+    const profiles = entity.fixed.names.map(({ name, id }) => {
+        const pick = picks.get(name);
+        if (!pick) fallen.push(name);
+        const item = pick ? byCode.get(pick.code) : fallbackChoice(entity.fixed.pool, id);
+        return materializeChoice(item, { id, name, art: pick?.art }) || templateEnemy(name, entity.fixed.tier);
+    });
+    return { profiles, fallen };
+}
+
+function settleRoster(entity, value) {
+    const { picks, errors, diagnostics } = rosterPicks(entity, value);
+    if (errors.length) return { ok: false, errors };
+    return { ok: true, result: { profiles: rosterProfiles(entity, picks).profiles }, diagnostics };
+}
+
 // 装备奖励槽的被动模板候选（规则 v5 D10）：按该稀有度加强后不超队友伤害上限，按种子与权重抽 5 个，华而不实 ×2。
 function rewardGearTemplates(slot, seed) {
     const allowed = Object.keys(GEAR_PASSIVE_TEMPLATES).filter((key) => effectsDamage(passiveAtRarity(key, slot.rarity)?.effects) <= COMBAT_RULES.allySkillDamageCap);
@@ -558,6 +634,7 @@ function validateInitialGear(entity, value, context) {
 function settleEntity(entity, value, state) {
     if (entity.kind === 'profile-init') return withInitResult(entity, value, { ok: true, result: {} });
     if (entity.kind === 'encounter-theme') return themeResult(entity, value);
+    if (entity.kind === 'enemy-roster') return settleRoster(entity, value);
     if (!isPlainObject(value)) return { ok: false, errors: [errorItem('', 'expected-object')] };
     const context = { key: entity.key, owner: entity.owner, fixed: entity.fixed, input: entity.input };
     if (entity.kind === 'challenge-foe') {
@@ -683,7 +760,7 @@ function settleGrowth(entity, value, state) {
 }
 
 // 各种类的处理顺序：职业先于牌组，成长/奖励等靠后
-const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13, 'signature-card': 14, 'challenge-foe': 15, 'draw-card': 16 });
+const KIND_ORDER = Object.freeze({ class: 0, 'profile-deck': 1, 'profile-skill': 2, enemy: 3, 'enemy-roster': 3, 'profile-init': 4, 'skill-to-card': 5, 'equip-to-passive': 6, 'item-to-consumable': 7, 'battle-reward': 8, 'class-tier': 9, trait: 10, 'skill-fill': 11, 'encounter-theme': 12, 'profile-gear': 13, 'signature-card': 14, 'challenge-foe': 15, 'draw-card': 16 });
 
 // 请求过期（被中止）的统一返回
 const staleResult = (accepted) => ({ ok: false, reason: 'request-stale', accepted: [], rejected: [], diagnostics: [], discarded: accepted.size });
@@ -703,11 +780,12 @@ function parseReply(reply, expectedKeys, diagnostics) {
     return { values };
 }
 
-// 被拒收实体的记录与兜底：敌人用模板敌人，主角阻断，盟友跳过
+// 被拒收实体的记录与兜底：敌人用模板敌人，特性池请求逐个按种子从池中兜底（只在内存，不落账），主角阻断，盟友跳过
 function rejection(entity, errors) {
     const record = { key: entity.key, kind: entity.kind, role: entity.role, owner: entity.owner, errors: errors.slice(0, 8) };
     if (entity.kind === 'challenge-foe') record.fallback = { kind: 'local-foe', foe: pickFoe(entity.input?.event, entity.input?.domain) };
     else if (entity.kind === 'enemy') record.fallback = { kind: 'template-enemy', profile: templateEnemy(entity.fixed.name, entity.fixed.tier) };
+    else if (entity.kind === 'enemy-roster') record.fallback = { kind: 'template-enemies', profiles: rosterProfiles(entity, new Map()).profiles };
     else if (entity.role === 'protagonist') record.fallback = { kind: 'blocked' };
     else if (entity.role === 'ally') record.fallback = { kind: 'skip' };
     return record;
@@ -790,6 +868,15 @@ export async function generateEntities(entities, { request, llm = {}, signal, co
         }
         if (lastRound) {
             for (const item of failed) {
+                // 特性池请求：保留回复里有效的选择，其余敌人按 enemy-pick|档案ID 从池中兜底，照常落账
+                if (item.entity.kind === 'enemy-roster') {
+                    const { picks } = rosterPicks(item.entity, item.previous);
+                    const { profiles, fallen } = rosterProfiles(item.entity, picks);
+                    state.accepted.set(item.entity.key, { profiles });
+                    state.settled.add(item.entity.key);
+                    diagnostics.push({ code: 'combat-roster-fallback', key: item.entity.key, names: fallen });
+                    continue;
+                }
                 // 带稀有度的卡牌成长：数值不合格时丢掉模型给的 values，改由程序求解
                 if (item.entity.kind === 'skill-to-card' && item.entity.input?.rarity && isPlainObject(item.previous) && item.previous.values !== undefined) {
                     const { values, ...withoutValues } = item.previous;
@@ -829,6 +916,8 @@ export function generationWrites(result, { createdAt = 0 } = {}) {
         if (item.profile) {
             profiles.push(profileRecord(item.profile, { createdAt: Number.isFinite(item.createdAt) ? item.createdAt : createdAt, ...(Number.isInteger(item.version) ? { version: item.version } : {}) }));
         }
+        // 特性池请求一次产出多个敌人档案
+        for (const profile of Array.isArray(item.profiles) ? item.profiles : []) profiles.push(profileRecord(profile, { createdAt }));
         if (item.entry) entries.push(item.entry);
     }
     return { profiles, entries };

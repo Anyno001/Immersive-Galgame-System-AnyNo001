@@ -169,6 +169,11 @@ export function applyBattleReport(state, directive, ctx) {
         if (to !== from) ctx.changes.push({ source: 'battle', target: '主角', key: 'stress', from, to, note });
         next = withBars(next, moved);
     }
+    // 敌人模板 M7 盗金：战报带 goldLost（被撤离或残存的敌人带走的金币）时按增减扣剧情货币；同一战报只结算一次（上方 lastBattleReport）。
+    // 没有剧情货币时战斗侧不会快照可偷金币，这里不扣。
+    if (Number.isSafeInteger(directive.goldLost) && directive.goldLost > 0 && ctx.currency) {
+        shiftCurrency(ctx, -directive.goldLost, { source: 'battle', note: `${note}被盗` });
+    }
     if (outcome !== '败' && outcome !== '撤' && ally) {
         const engine = ctx.engine || createEngine();
         const roll = () => comradeRoll(engine, next, ally, ctx);

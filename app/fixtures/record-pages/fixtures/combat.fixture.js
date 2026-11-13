@@ -3,6 +3,9 @@ import { createCombatLedger } from '../../../src/combat/ledger.js';
 import { enemyIdFor } from '../../../src/combat/generation.js';
 import { createMemoryStorage } from '../../../src/storage/preset-store.js';
 import { abilityMod } from '../../../src/combat/abilities.js';
+import { enemyById, materializeEnemy } from '../../../src/combat/enemies/index.js';
+
+const TEMPLATE_IDS = ['en-sts1-act1-12', 'en-sts2-hive-02', 'en-sts2-hive-05'];
 
 // 战斗面板预览：内存战斗表 + 内存存档 + 本地聊天快不出网。
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -19,10 +22,18 @@ const enemyDef = (name, amount) => ({ kind: 'enemy', id: enemyIdFor(name, 'norma
     skills: [{ id: 'e1', name: '撕咬', intent: 'attack', effects: [{ op: 'damage', amount }] }, { id: 'e2', name: '低吼', intent: 'debuff', effects: [{ op: 'status', status: 'weak', stacks: 1 }] }] });
 const row = (def, createdAt) => ({ id: def.id, name: def.name || def.className, kind: def.kind, className: def.className || '', version: 1, createdAt, definition: def });
 
-export function createCombatPreview({ attributes = false } = {}) {
-    const chat = [{ mes: '出发', is_user: true }, { mes: '桥头传来低吼。\n[igs-combat:start|月下桥头|野狼*2]', swipe_id: 0, is_user: false }];
+export function createCombatPreview({ attributes = false, templates = false } = {}) {
+    const foes = templates ? TEMPLATE_IDS.map((id) => {
+        const entry = enemyById(id);
+        if (!entry) throw new Error(`combat-preview-template-missing:${id}`);
+        const profile = materializeEnemy(entry, 'original', { id: enemyIdFor(entry.name, entry.tier) });
+        if (!profile) throw new Error(`combat-preview-template-unavailable:${id}`);
+        return profile;
+    }) : [enemyDef('野狼', 5)];
+    const enemyNames = templates ? foes.map((profile) => profile.name).join(',') : '野狼*2';
+    const chat = [{ mes: '出发', is_user: true }, { mes: `桥头传来低吼。\n[igs-combat:start|月下桥头|${enemyNames}]`, swipe_id: 0, is_user: false }];
     const stats = { sends: 0 };
-    const t = { profile: [row(classDef, 1), row(heroDef, 2), row(enemyDef('野狼', 5), 3)], ledger: [] };
+    const t = { profile: [row(classDef, 1), row(heroDef, 2), ...foes.map((profile, i) => row(profile, i + 3))], ledger: [] };
     t.read = () => ({ ok: true, missing: [], diagnostics: [], profile: clone(t.profile), ledger: clone(t.ledger) });
     t.append = async (kind, records) => { for (const r of records) t[kind].push(clone(r)); return { ok: true, written: records.map((r) => r.id), present: [], rejected: [], pending: [] }; };
     const baseLedger = createCombatLedger({ tables: t, chat: () => chat, userName: '主角', now: () => 1 });

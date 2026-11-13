@@ -8,13 +8,19 @@
 //       affix=精英去掉数x首领去掉数，从末尾去掉难度表给的常驻效果）
 //       [--archetypes all|warrior,mage] [--deck-seeds 1,2,3,4] [--inspect-decks]
 //       [--wins 0] [--trace --trace-run 0 --trace-from 0 --trace-steps 40]
+//       [--sources template,generated,original,stitched]（敌人来源对照；显式给出时报告带来源列并追加来源校准汇总；--out 可逗号分隔同时写 .md 与 .json）
+//       [--entries 条目键,…]（原版 / 缝合只取所列条目）[--tune 条目ID=生命x伤害x格挡,…]（试调，不改条目数据：以该微调重建敌人库，
+//       缺项或写 - 保留条目原值；缝合项随来源条目一同换算）
 // 个人牌使用本地模板夹具；职业牌由 assembleDeck 的固定池抽取。不同 deck-seed 使用独立角色 ID，不读写用户数据。
 import { writeFileSync } from 'node:fs';
 import { applyAction, createBattle, legalActions } from '../src/combat/engine.js';
 import { chooseAllyPlay, pickCards } from '../src/combat/policy.js';
 import { COMBAT_RULES, expToNextLevel } from '../src/combat/rules.js';
-import { deckProfileEntities, generateEntities, generationWrites, skillProfileEntity, templateEnemy } from '../src/combat/generation.js';
+import { deckProfileEntities, enemyIdFor, generateEntities, generationWrites, skillProfileEntity, templateEnemy } from '../src/combat/generation.js';
 import { enemyFillSkills } from '../src/combat/enemy-loadout.js';
+import { enemyPool, materializeChoice } from '../src/combat/enemies/pool.js';
+import { ENEMY_ENTRIES } from '../src/combat/enemies/entries.js';
+import { ENEMIES as LIBRARY_ENEMIES, prepareEnemyEntries } from '../src/combat/enemies/index.js';
 import { attributeViewFor, buildAllocEntries, createCombatLedger, normalizeSnapshot } from '../src/combat/ledger.js';
 import { ABILITY_KEYS, REL_TIERS } from '../src/combat/abilities.js';
 import { cardView, weakestId } from '../src/combat/battle-state.js';
@@ -58,6 +64,51 @@ const RELS = only('--rels', ['weaker', 'even', 'stronger', 'formidable'].map(key
 const DIFFS = only('--diffs', Object.keys(COMBAT_RULES.difficulty));
 // 前五场标准档：普通按人数给胜率下限；精英约五成暂按职业均值 40%–60% 对照，逐种子保留诊断。
 const WIN_TARGETS = { normal: [COUNT === 1 ? 0.9 : COUNT === 2 ? 0.8 : 0.6, 1], elite: [0.4, 0.6] };
+// 敌人来源：缺省沿用旧行为（--generated 时生成近似，否则模板）；显式 --sources 时报告带来源列与校准汇总，未知或缺值直接退出。
+const SOURCE_LABEL = { template: '模板', generated: '生成近似', original: '原版', stitched: '缝合' };
+const MULTI = process.argv.includes('--sources');
+const SOURCES = MULTI ? [...new Set(String(arg('--sources', '') || '').split(',').map((s) => s.trim()).filter(Boolean))] : [GENERATED ? 'generated' : 'template'];
+const UNKNOWN_SOURCES = SOURCES.filter((s) => !Object.hasOwn(SOURCE_LABEL, s));
+if (!SOURCES.length || UNKNOWN_SOURCES.length) {
+    console.error(`未知敌人来源：${UNKNOWN_SOURCES.join(',') || '（空）'}；可选 ${Object.keys(SOURCE_LABEL).join(',')}`);
+    process.exit(2);
+}
+// 特性池与战斗准备同一构造（enemyPool），固定种子；按条目键排序后按场次轮换，同场次在各职业、等级间对到同一条目。
+const POOL_SEED = 'balance';
+const ENTRY_ONLY = new Set(String(arg('--entries', '') || '').split(',').map((s) => s.trim()).filter(Boolean));
+const TUNE = new Map(String(arg('--tune', '') || '').split(',').map((s) => s.trim()).filter(Boolean).map((part) => {
+    const [id, value = ''] = part.split('=');
+    const [hp, damage, block] = value.split('x').map((v) => (v === '' || v === '-' ? undefined : Number(v)));
+    return [id, { hp, damage, block }];
+}));
+const BAD_TUNE = [...TUNE].filter(([id, t]) => !ENEMY_ENTRIES.some((e) => e.id === id)
+    || Object.values(t).some((v) => v !== undefined && !(Number.isFinite(v) && v > 0)));
+if (BAD_TUNE.length) {
+    console.error(`无效试调：${BAD_TUNE.map(([id]) => id).join(',')}（条目须存在，数值须为正数）`);
+    process.exit(2);
+}
+// 试调时以覆盖后的微调重建敌人库；参考值只取原始生命与伤害，不受微调影响。
+const LIB_ENTRIES = TUNE.size ? prepareEnemyEntries(ENEMY_ENTRIES.map((item) => {
+    const t = TUNE.get(item.id);
+    if (!t) return item;
+    const scale = { ...(item.scale || {}) };
+    for (const [k, v] of Object.entries(t)) if (v !== undefined) scale[k] = v;
+    return { ...item, scale };
+})).entries : LIBRARY_ENEMIES;
+const TUNE_NOTE = TUNE.size ? `；条目试调 ${arg('--tune', '')}` : '';
+const LIBRARY = new Map();
+const isLibrary = (source) => source === 'original' || source === 'stitched';
+const entryKey = (item) => (item.kind === 'stitched' ? item.profile.id : item.enemyId);
+function libraryItems(tier, kind) {
+    const key = `${tier}|${kind}`;
+    if (!LIBRARY.has(key)) {
+        const items = enemyPool({ tier, seed: POOL_SEED }, LIB_ENTRIES).filter((item) => item.kind === kind).map((item) => ({ item, key: entryKey(item) }))
+            .filter(({ key: k }) => !ENTRY_ONLY.size || ENTRY_ONLY.has(k));
+        items.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+        LIBRARY.set(key, items);
+    }
+    return LIBRARY.get(key);
+}
 
 // 本地生成回复夹具；当前 assembleClass 忽略旧职业牌字段，职业牌来自 v6 固定池。
 const CLASS_VALUE = { className: '剑士', archetype: 'warrior', passive: ['锋锐', 'opening-strength'],
@@ -259,25 +310,37 @@ function tweak(u, tier, g, le) {
     }
 }
 
-// 一格：敌人名字按场次轮换；阵容只含主角（与开战大厅同形状），setup 由 buildSetup 按当场难度生成。
-function enemyProfile(name, tier, level) {
+// 一场的敌人档案：模板 / 生成近似按名字构造；原版 / 缝合取特性池第 run 项，按剧情名与档位 ID 物化（与战斗准备 rosterProfiles 同一调用）。
+function enemyProfile(source, name, tier, level, run) {
     const t = templateEnemy(name, tier);
-    if (!GENERATED) return t;
-    const { generated: _g, ...rest } = t;
-    return { ...rest, skills: enemyFillSkills({ ...t, skills: [] }, level, 'normal') };
+    if (source === 'template') return { profile: t, entry: null };
+    if (source === 'generated') {
+        const { generated: _g, ...rest } = t;
+        return { profile: { ...rest, skills: enemyFillSkills({ ...t, skills: [] }, level, 'normal') }, entry: null };
+    }
+    const items = libraryItems(tier, source);
+    const { item, key } = items[run % items.length];
+    return { profile: materializeChoice(item, { id: enemyIdFor(name, tier), name }), entry: key };
 }
 
-function simulateCell(world, level, rel, relLabel, tier, diff) {
-    const cell = { level, rel, relLabel, tier, diff, count: COUNT, battleWins: WINS, generated: GENERATED, runs: 0, win: 0, defeat: 0, timeout: 0, error: 0, lost: [], turns: [], samples: [], rejects: 0, heroHp: null, enemyHp: [], enemyLevel: [], crowd: null, reserveCount: null, errors: {} };
+// 一格：敌人名字按场次轮换；阵容只含主角（与开战大厅同形状），setup 由 buildSetup 按当场难度生成；各来源共用同一战斗种子。
+function simulateCell(world, level, rel, relLabel, tier, diff, source) {
+    const cell = { level, rel, relLabel, tier, diff, count: COUNT, battleWins: WINS, generated: source === 'generated', runs: 0, win: 0, defeat: 0, timeout: 0, error: 0, lost: [], turns: [], samples: [], rejects: 0, heroHp: null, enemyHp: [], enemyLevel: [], crowd: null, reserveCount: null, errors: {}, source, entries: {} };
+    // 本档位特性池为空（如首领）：整格标不适用，不计失败。
+    if (isLibrary(source) && !libraryItems(tier, source).length) return { ...cell, na: true, health: { mean: null, min: null, p10: null, median: null, p90: null, max: null }, target: null };
     const fail = (reason) => { cell.error += 1; cell.errors[reason] = (cell.errors[reason] || 0) + 1; };
     for (let run = 0; run < RUNS; run += 1) {
         const name = ENEMIES[run % ENEMIES.length];
         const attr = attributeViewFor(world.state, name);
+        const { profile, entry } = enemyProfile(source, name, tier, attr?.level ?? world.hero.level, run);
+        const stat = entry ? (cell.entries[entry] ??= { runs: 0, win: 0, defeat: 0 }) : null;
+        if (stat) stat.runs += 1;
+        cell.runs += 1;
+        if (!profile) { fail('materialize-failed'); continue; }
         const lobby = { heroId: world.hero.id, battleWins: WINS, allies: world.ally ? [world.hero, world.ally] : [world.hero], controllable: [world.hero.id],
-            enemies: new Map([[name, enemyProfile(name, tier, attr?.level ?? world.hero.level)]]), enemyAttributes: attr ? new Map([[name, attr]]) : new Map() };
+            enemies: new Map([[name, profile]]), enemyAttributes: attr ? new Map([[name, attr]]) : new Map() };
         const built = buildSetup(lobby, { tier, allies: ALLY ? [ALLY] : [], enemies: [{ name, count: COUNT }] }, { difficulty: diff, userName: HERO });
         if (built.ok && ALLY_SINGLE) for (const u of built.setup.units) delete u.actions;
-        cell.runs += 1;
         if (!built.ok) { fail(built.reason); continue; }
         cell.crowd = built.setup.crowd;
         cell.reserveCount = built.setup.reserve?.length || 0;
@@ -287,10 +350,10 @@ function simulateCell(world, level, rel, relLabel, tier, diff) {
         cell.enemyHp.push(mean(built.setup.units.filter((u) => u.side === 'enemy').map((u) => u.maxHp)));
         if (attr) cell.enemyLevel.push(attr.level);
         const r = runBattle(built.setup, hash32(`balance|${level}|${rel}|${tier}|${diff}|${run}`), TRACE && run === TRACE_RUN);
-        cell.samples.push({ run, enemy: name, outcome: r.outcome, remaining: Number.isFinite(r.lost) ? 1 - r.lost : null, turn: r.turn, rejects: r.rejects || 0 });
+        cell.samples.push({ run, enemy: name, ...(entry ? { entry } : {}), outcome: r.outcome, remaining: Number.isFinite(r.lost) ? 1 - r.lost : null, turn: r.turn, rejects: r.rejects || 0 });
         cell.rejects += r.rejects || 0;
-        if (r.outcome === 'victory') { cell.win += 1; cell.lost.push(r.lost); cell.turns.push(r.turn); }
-        else if (r.outcome === 'defeat') { cell.defeat += 1; cell.turns.push(r.turn); }
+        if (r.outcome === 'victory') { cell.win += 1; cell.lost.push(r.lost); cell.turns.push(r.turn); if (stat) stat.win += 1; }
+        else if (r.outcome === 'defeat') { cell.defeat += 1; cell.turns.push(r.turn); if (stat) stat.defeat += 1; }
         else if (r.outcome === 'timeout') {
             cell.timeout += 1;
             cell.timeouts ??= [];
@@ -315,27 +378,37 @@ function verdict(c) {
     return `${c.target.passed ? '达标' : '未达标'}（${range}）`;
 }
 
+const rateOf = (c) => (c.runs ? c.win / c.runs : null);
+// 显式 --sources 时每行带来源标签；旧调用输出逐字不变。
+const srcTag = (c) => (MULTI ? `${SOURCE_LABEL[c.source]} ` : '');
 function report(cells) {
     // --brief：逐职业、种子保留胜率、余血分布与错误／超时／动作拒收。
-    if (process.argv.includes('--brief')) return cells.map(c => `L${c.level} N${c.count} W${c.battleWins} ${c.relLabel}${TIER_LABEL[c.tier]}${DIFF_LABEL[c.diff] || c.diff} 胜${pct(c.win / c.runs)} ${verdict(c)} 余血${pct(c.health.mean)} ${fixed(mean(c.turns))}回合 异常${c.error}/${c.timeout}/${c.rejects}`).join('\n');
+    if (process.argv.includes('--brief')) return cells.map(c => (c.na
+        ? `L${c.level} N${c.count} W${c.battleWins} ${c.relLabel}${TIER_LABEL[c.tier]}${DIFF_LABEL[c.diff] || c.diff} ${srcTag(c)}不适用（本档位特性池为空）`
+        : `L${c.level} N${c.count} W${c.battleWins} ${c.relLabel}${TIER_LABEL[c.tier]}${DIFF_LABEL[c.diff] || c.diff} ${srcTag(c)}胜${pct(rateOf(c))} ${verdict(c)} 余血${pct(c.health.mean)} ${fixed(mean(c.turns))}回合 异常${c.error}/${c.timeout}/${c.rejects}`)).join('\n');
     const tried = Object.keys(TRY).length ? `；试调 ${arg('--try', '')}` : '';
-    const out = ['# 战斗平衡模拟', '', `每格 ${RUNS} 场；敌人 ${COUNT} 只（${GENERATED ? '生成敌人近似形状' : '模板敌人'}，名字轮换 ${ENEMIES.length} 个）；主角${HERO_SKILL ? '使用' : '不使用'}人物技能；托管策略；满血开战${tried}。`, ''];
+    const enemyNote = MULTI ? `来源 ${SOURCES.map((s) => SOURCE_LABEL[s]).join('、')}` : (GENERATED ? '生成敌人近似形状' : '模板敌人');
+    const out = ['# 战斗平衡模拟', '', `每格 ${RUNS} 场；敌人 ${COUNT} 只（${enemyNote}，名字轮换 ${ENEMIES.length} 个）；主角${HERO_SKILL ? '使用' : '不使用'}人物技能；托管策略；满血开战${tried}${TUNE_NOTE}。`, ''];
     for (const level of LEVELS) {
         const mine = cells.filter((c) => c.level === level);
         out.push(`## 主角 ${level} 级（标准档生命 ${mine.find((c) => c.diff === 'normal')?.heroHp ?? '—'}）`, '',
-            '| 相对档 | 档位 | 难度 | 敌人等级 | 敌人生命 | 胜率 | 胜利损失生命 | 平均回合 | 败 / 超时 / 错误 | 标准档对照 |', '|---|---|---|---|---|---|---|---|---|---|');
+            `| 相对档 | 档位 | 难度 |${MULTI ? ' 来源 |' : ''} 敌人等级 | 敌人生命 | 胜率 | 胜利损失生命 | 平均回合 | 败 / 超时 / 错误 | 标准档对照 |`, `|---|---|---|${MULTI ? '---|' : ''}---|---|---|---|---|---|---|`);
         for (const c of mine) {
+            const head = `| ${c.relLabel} | ${TIER_LABEL[c.tier]} | ${DIFF_LABEL[c.diff] || c.diff} |${MULTI ? ` ${SOURCE_LABEL[c.source]} |` : ''}`;
+            if (c.na) { out.push(`${head} — | — | 不适用 | — | — | — | 本档位特性池为空 |`); continue; }
             const hp = mean(c.enemyHp);
-            out.push(`| ${c.relLabel} | ${TIER_LABEL[c.tier]} | ${DIFF_LABEL[c.diff] || c.diff} | ${fixed(mean(c.enemyLevel))} | ${hp === null ? '—' : Math.round(hp)} | ${pct(c.win / c.runs)} | ${pct(mean(c.lost))} | ${fixed(mean(c.turns))} | ${c.defeat} / ${c.timeout} / ${c.error} | ${verdict(c)} |`);
+            out.push(`${head} ${fixed(mean(c.enemyLevel))} | ${hp === null ? '—' : Math.round(hp)} | ${pct(rateOf(c))} | ${pct(mean(c.lost))} | ${fixed(mean(c.turns))} | ${c.defeat} / ${c.timeout} / ${c.error} | ${verdict(c)} |`);
         }
         out.push('');
     }
     if (DIFFS.length > 1) {
-        out.push('## 难度梯度（胜率，按难度从低到高）', '', '| 等级 | 相对档 | 档位 | 各档胜率 | 平均每档降幅 |', '|---|---|---|---|---|');
-        for (const level of LEVELS) for (const [rel, relLabel] of RELS) for (const tier of TIERS) {
-            const rates = DIFFS.map((d) => cells.find((c) => c.level === level && c.rel === rel && c.tier === tier && c.diff === d)).map((c) => c.win / c.runs);
+        out.push('## 难度梯度（胜率，按难度从低到高）', '', `| 等级 | 相对档 | 档位 |${MULTI ? ' 来源 |' : ''} 各档胜率 | 平均每档降幅 |`, `|---|---|---|${MULTI ? '---|' : ''}---|---|`);
+        for (const level of LEVELS) for (const [rel, relLabel] of RELS) for (const tier of TIERS) for (const source of SOURCES) {
+            const row = DIFFS.map((d) => cells.find((c) => c.level === level && c.rel === rel && c.tier === tier && c.diff === d && c.source === source));
+            if (row.some((c) => !c || c.na)) continue;
+            const rates = row.map(rateOf);
             const drop = ((rates[0] - rates[rates.length - 1]) / (rates.length - 1)) * 100;
-            out.push(`| ${level} | ${relLabel} | ${TIER_LABEL[tier]} | ${rates.map(pct).join(' → ')} | ${drop.toFixed(1)} 个百分点 |`);
+            out.push(`| ${level} | ${relLabel} | ${TIER_LABEL[tier]} |${MULTI ? ` ${SOURCE_LABEL[source]} |` : ''} ${rates.map(pct).join(' → ')} | ${drop.toFixed(1)} 个百分点 |`);
         }
         out.push('');
     }
@@ -346,13 +419,90 @@ function report(cells) {
     return out.join('\n');
 }
 
+// 来源校准汇总（仅显式 --sources）：同职业、等级、相对档、档位、难度、场次与战斗种子下，各来源只换敌人档案。
+const groupKey = (c) => `${c.archetype ?? '-'}|${c.deckSeed}|${c.level}|${c.rel}|${c.tier}|${c.diff}`;
+const groupLabel = (c) => `${c.archetype ?? 'warrior(固定)'}${c.deckSeed ? ` seed=${c.deckSeed}` : ''} L${c.level} ${c.relLabel}${TIER_LABEL[c.tier]}${DIFF_LABEL[c.diff] || c.diff}`;
+function calibration(cells) {
+    const live = cells.filter((c) => !c.na);
+    const out = ['# 敌人来源校准汇总', '', `特性池种子 \`${POOL_SEED}\`；原版 / 缝合按条目键排序后按场次轮换，与模板、生成近似共用同一战斗种子与建局链。生成近似为模板形状技能按档位上限求解，不代表副 LLM 实际输出。`, ''];
+    const na = cells.filter((c) => c.na);
+    if (na.length) out.push(`不适用格 ${na.length} 个（${[...new Set(na.map((c) => `${TIER_LABEL[c.tier]}${SOURCE_LABEL[c.source]}`))].join('、')}：本档位特性池为空，不计入统计）。`, '');
+    out.push('## 来源总览', '', '| 档位 | 来源 | 格数 | 场次 | 胜率 | 平均回合 | 胜利余血 | 败 / 超时 / 错误 / 拒收 |', '|---|---|---|---|---|---|---|---|');
+    for (const tier of TIERS) for (const source of SOURCES) {
+        const mine = live.filter((c) => c.tier === tier && c.source === source);
+        if (!mine.length) continue;
+        const runs = mine.reduce((s, c) => s + c.runs, 0);
+        const win = mine.reduce((s, c) => s + c.win, 0);
+        const sum = (k) => mine.reduce((s, c) => s + c[k], 0);
+        out.push(`| ${TIER_LABEL[tier]} | ${SOURCE_LABEL[source]} | ${mine.length} | ${runs} | ${pct(runs ? win / runs : null)} | ${fixed(mean(mine.flatMap((c) => c.turns)))} | ${pct(mean(mine.flatMap((c) => c.lost.map((x) => 1 - x))))} | ${sum('defeat')} / ${sum('timeout')} / ${sum('error')} / ${sum('rejects')} |`);
+    }
+    out.push('');
+    // 职业均值：精英的 40%–60% 目标按职业均值判定。
+    const byLevel = new Map();
+    for (const c of live) {
+        const k = `${c.level}|${c.rel}|${c.tier}|${c.diff}|${c.source}`;
+        if (!byLevel.has(k)) byLevel.set(k, []);
+        byLevel.get(k).push(c);
+    }
+    out.push('## 职业均值（各职业单格胜率的均值）', '', '| 等级 | 相对档 | 档位 | 难度 | 来源 | 职业数 | 均值 | 最低职业 | 最高职业 | 目标 |', '|---|---|---|---|---|---|---|---|---|---|');
+    for (const group of byLevel.values()) {
+        const c0 = group[0];
+        const rates = group.map((c) => ({ c, r: rateOf(c) }));
+        const avg = mean(rates.map((x) => x.r));
+        const lo = rates.reduce((a, b) => (b.r < a.r ? b : a));
+        const hi = rates.reduce((a, b) => (b.r > a.r ? b : a));
+        const t = c0.target;
+        const judge = t ? `${avg >= t.min && avg <= t.max ? '达标' : '未达标'}（${pct(t.min)}–${pct(t.max)}）` : '';
+        out.push(`| ${c0.level} | ${c0.relLabel} | ${TIER_LABEL[c0.tier]} | ${DIFF_LABEL[c0.diff] || c0.diff} | ${SOURCE_LABEL[c0.source]} | ${group.length} | ${pct(avg)} | ${lo.c.archetype ?? '-'} ${pct(lo.r)} | ${hi.c.archetype ?? '-'} ${pct(hi.r)} | ${judge} |`);
+    }
+    out.push('');
+    // 相对模板的胜率差：同组同种子，只换敌人来源。
+    const template = new Map(live.filter((c) => c.source === 'template').map((c) => [groupKey(c), c]));
+    const diffs = live.filter((c) => c.source !== 'template' && template.has(groupKey(c)))
+        .map((c) => ({ c, d: rateOf(c) - rateOf(template.get(groupKey(c))), base: rateOf(template.get(groupKey(c))) }))
+        .sort((a, b) => Math.abs(b.d) - Math.abs(a.d) || a.c.level - b.c.level);
+    if (diffs.length) {
+        out.push('## 相对模板偏差最大的分组（前 12）', '', '| 分组 | 来源 | 胜率 | 模板胜率 | 差值 | 平均回合 |', '|---|---|---|---|---|---|');
+        for (const { c, d, base } of diffs.slice(0, 12)) out.push(`| ${groupLabel(c)} | ${SOURCE_LABEL[c.source]} | ${pct(rateOf(c))} | ${pct(base)} | ${d >= 0 ? '+' : ''}${Math.round(d * 100)} 个百分点 | ${fixed(mean(c.turns))} |`);
+        out.push('');
+    }
+    // 偏离目标区间：普通按单格判定，精英为单格诊断（正式按职业均值）。
+    const off = live.filter((c) => c.target).map((c) => {
+        const r = rateOf(c);
+        return { c, r, gap: r < c.target.min ? r - c.target.min : r > c.target.max ? r - c.target.max : 0 };
+    }).filter((x) => x.gap !== 0).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
+    out.push('## 偏离目标区间的单格（前 12）', '');
+    if (!off.length) out.push('无。', '');
+    else {
+        out.push('| 分组 | 来源 | 胜率 | 目标 | 偏离 | 口径 |', '|---|---|---|---|---|---|');
+        for (const { c, r, gap } of off.slice(0, 12)) out.push(`| ${groupLabel(c)} | ${SOURCE_LABEL[c.source]} | ${pct(r)} | ${pct(c.target.min)}–${pct(c.target.max)} | ${gap >= 0 ? '+' : ''}${Math.round(gap * 100)} 个百分点 | ${c.target.scope === 'archetype' ? '单格诊断' : '单格判定'} |`);
+        out.push(`偏离单格共 ${off.length} 个。`, '');
+    }
+    // 条目胜率：跨职业、等级合并；场次为该条目实际参战次数。
+    for (const tier of TIERS) for (const source of SOURCES.filter(isLibrary)) {
+        const agg = new Map();
+        for (const c of live.filter((x) => x.tier === tier && x.source === source)) for (const [key, s] of Object.entries(c.entries)) {
+            const a = agg.get(key) || { runs: 0, win: 0, defeat: 0 };
+            a.runs += s.runs; a.win += s.win; a.defeat += s.defeat;
+            agg.set(key, a);
+        }
+        if (!agg.size) continue;
+        const rows = [...agg].map(([key, a]) => ({ key, ...a, rate: a.runs ? a.win / a.runs : null })).sort((a, b) => a.rate - b.rate || (a.key < b.key ? -1 : 1));
+        const shown = rows.length <= 16 ? rows : [...rows.slice(0, 8), null, ...rows.slice(-8)];
+        out.push(`## ${TIER_LABEL[tier]}${SOURCE_LABEL[source]}条目胜率（${rows.length} 个条目，按胜率升序${rows.length > 16 ? '，列最低与最高各 8 个' : ''}）`, '', '| 条目 | 场次 | 胜 | 败 | 胜率 |', '|---|---|---|---|---|');
+        for (const r of shown) out.push(r ? `| ${r.key} | ${r.runs} | ${r.win} | ${r.defeat} | ${pct(r.rate)} |` : '| … | | | | |');
+        out.push('');
+    }
+    return out.join('\n');
+}
+
 const t0 = Date.now();
 const cells = [];
 for (const archetype of ARCHETYPES || [null]) for (const deckSeed of DECK_SEEDS) {
     const profiles = await heroProfiles(archetype, deckSeed);
     for (const level of LEVELS) for (const [rel, relLabel] of RELS) {
         const world = await buildWorld(profiles, level, rel);
-        for (const tier of TIERS) for (const diff of DIFFS) cells.push({ ...simulateCell(world, level, rel, relLabel, tier, diff), archetype, deckSeed });
+        for (const tier of TIERS) for (const diff of DIFFS) for (const source of SOURCES) cells.push({ ...simulateCell(world, level, rel, relLabel, tier, diff, source), archetype, deckSeed });
     }
 }
 // 分职业时每个职业各出一份报告（--brief 每行前缀职业键）。
@@ -365,6 +515,10 @@ const text = ARCHETYPES
         }).join('\n');
     }).join('\n')
     : DECK_SEEDS.map(seed => report(cells.filter(c => c.deckSeed === seed))).join('\n');
-console.log(text);
+const full = MULTI ? `${text}\n\n${calibration(cells)}` : text;
+console.log(full);
 console.log(`用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-if (OUT) writeFileSync(OUT, OUT.endsWith('.json') ? JSON.stringify(cells, null, 2) : `${text}\n`, 'utf8');
+// --out 可逗号分隔：.json 写逐格数据，其余写文本报告。
+for (const path of OUT.split(',').map((p) => p.trim()).filter(Boolean)) {
+    writeFileSync(path, path.endsWith('.json') ? JSON.stringify(cells, null, 2) : `${full}\n`, 'utf8');
+}

@@ -84,8 +84,9 @@ registerMechanic({
     },
     hooks: {
         // 本牌击倒非爪牙敌人：来源须是正在结算的这张牌（ctx.inst）；爪牙标记 minion 由 P4 E12/E13 写入，之前所有敌人都算非爪牙。
+        // M8：带遭遇分组的敌人只在全组倒下的那一击算击倒（同组召唤、分裂子体与待复活者不单计）。
         defeated(ctx, { unit: target, source }, kit) {
-            if (source?.kind !== 'card' || !ctx.inst || target.minion === true) return;
+            if (source?.kind !== 'card' || !ctx.inst || target.minion === true || !kit.encounterFallen(ctx.state, target)) return;
             const owner = ctx.state.units[source.unitId];
             const entry = ctx.state.cards[ctx.inst];
             if (!owner || owner.kind !== 'deck' || owner.side === target.side || !entry || entry.owner !== owner.id || entry.cardId !== source.id) return;

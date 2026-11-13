@@ -5,14 +5,14 @@
 // 写盘优化：会话记录每次出牌都整条重写，这里改为内存里始终保存最新值，实际 setItem 合并延后（默认 300ms）；
 // 页面隐藏、卸载、会话结束、发件箱写入前立即落盘；读取时先看内存里尚未落盘的值。存储格式不变。
 import { COMBAT_RULES, CURSE_CARD, SKILL_COUNT_MAX, combatSpeedFor, crowdScaleFor, difficultyRule, encounterScaleFor, isCompatibleRulesVersion, scaleEnemyStats, skillTarget } from './rules.js';
-import { applyAction, createBattle, legalActions, replayBattle, seedFor } from './engine.js';
+import { ENEMY_SUFFIXES, applyAction, createBattle, legalActions, replayBattle, seedFor } from './engine.js';
 import {
-    deckProfileEntities, enemyEntities, enemyIdFor, generationWrites, rewardEntity, skillFillEntity, skillProfileEntity,
+    deckProfileEntities, enemyRosterEntities, enemyIdFor, generationWrites, rewardEntity, skillFillEntity, skillProfileEntity,
     templateEnemy, withCharacterLore, withStoryContext, withCombatInitialization, encounterThemeEntity, profileGearEntity,
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachCardUpgrade, attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportHpLostOf, reportIdFor, reportIdOf } from './report.js';
-import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance, upgradableRows, upgradeChance } from './ledger.js';
+import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CARD_IMPLANT_TAG_HASH, CARD_LOST_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance, upgradableRows, upgradeChance } from './ledger.js';
 import { battlePoints, battleTierOf, weakBattlePoints } from './points.js';
 import { heldOffCombat, winPointsBonus } from './relics/off-combat.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
@@ -46,12 +46,12 @@ import { settleRewardOffer } from './reward-cards.js';
 import { equippedGear } from './gear-slots.js';
 import { allCleanOf, freeRerollOf } from './trait-reward-bias.js';
 import { battleRandomFields, resolveBattleRandomKey } from './random-domain.js';
+import { encounterByName, encounterEntryByName } from './enemies/encounters.js';
+import { KIN_FIELDS } from './kin.js';
 
 export const SESSION_VERSION = 1;
 export const sessionKeyFor = (chatId) => `igs-combat:session:${chatId}`;
 export const outboxKeyFor = (chatId) => `igs-combat:outbox:${chatId}`;
-// 同场多个同名敌人的编号后缀
-const ENEMY_SUFFIXES = Object.freeze(['甲', '乙', '丙', '丁', '戊']);
 // 会话记录写盘的合并间隔（毫秒）
 const PERSIST_DELAY_MS = 300;
 
@@ -269,41 +269,69 @@ function bossPhases(template, difficulty) {
     return template.phases.map((phase) => (phase?.hpBelowPct === 50 ? { ...phase, hpBelowPct: enrageAt } : phase));
 }
 
-// 敌方单位：按名字取模板，缩放数值，同名多只加编号后缀
-function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map(), crowd = 1, battleWins = 0, archetype) {
+// 敌方单位：按名字取模板，缩放数值，同名多只加编号后缀。
+// M8：名字解析到遭遇条目（kind 'encounter'，由目录物化）时，由程序展开成员表，同一组成员写同一个 encounter（同组同名的甲乙丙由引擎建局命名）；
+// 同一遭遇名数量大于 1 时每组各自一个分组。
+const isEncounter = (value) => value?.kind === 'encounter' && Array.isArray(value.members);
+export const encounterSize = (value) => (isEncounter(value) ? value.members.reduce((sum, member) => sum + member.count, 0) : 1);
+export function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map(), crowd = 1, battleWins = 0, archetype) {
     const units = [];
     const tiers = [];
-    for (const { name, count } of start.enemies) {
-        const template = templates.get(name);
-        const attributes = enemyAttributes.get(name) || null;
+    const build = (template, name, attributes) => {
         const scaled = scaleEnemyStats(template, attributes?.level ?? partyLevel, difficulty, { gap: attributes ? attributes.level - partyLevel : 0 });
         const phases = bossPhases(template, difficulty);
         const loadout = enemyLoadout(template, attributes?.level ?? partyLevel, difficulty);
-        const skills = loadout.skills.length ? [...template.skills, ...loadout.skills] : template.skills;
+        // 模板敌人（带 template）保持条目原有技能组，不补技能；难度词缀照常追加。
+        const fromTemplate = template.template !== undefined;
+        const skills = !fromTemplate && loadout.skills.length ? [...template.skills, ...loadout.skills] : template.skills;
         const passives = loadout.passives.length ? [...(template.passives || []), ...loadout.passives] : template.passives;
         const vitals = applyAbilities(scaled.hp, template.base?.speed ?? combatSpeedFor({ tier: template.tier, id: template.id }), attributes);
         const factor = crowd * encounterScaleFor(template.tier, battleWins, archetype)
             * (template.generated !== false ? (COMBAT_RULES.generatedScale[template.tier] ?? 1) : 1);
         const maxHp = Math.max(1, Math.min(9999, Math.round(vitals.hp * factor)));
         const damageScale = Math.min(5, Math.round(scaled.damageScale * factor * 100) / 100);
-        for (let index = 0; index < count; index += 1) {
+        return (id, shownName, extra = {}) => {
             units.push({
-                id: count > 1 ? `${template.id}-${index + 1}` : template.id,
-                name: count > 1 ? `${name}${ENEMY_SUFFIXES[index] || index + 1}` : name,
+                id, name: shownName,
                 side: 'enemy', kind: 'skill', maxHp, damageScale, speed: vitals.speed,
                 skills: scaleSkills(skills, attributes), passives, phases,
+                ...(template.template ? { template: template.template } : {}),
+                ...(template.script ? { script: template.script } : {}),
+                ...Object.fromEntries(KIN_FIELDS.filter((key) => template[key] !== undefined).map((key) => [key, template[key]])),
                 art: enemyArtKeyFor({ art: template.art, name, tier: template.tier }),
                 ...(template.tier === 'elite' || template.tier === 'boss' ? { tier: template.tier } : {}),
                 ...abilityFields(attributes),
+                ...extra,
             });
             tiers.push(template.tier);
+        };
+    };
+    for (const { name, count } of start.enemies) {
+        const template = templates.get(name);
+        const attributes = enemyAttributes.get(name) || null;
+        if (isEncounter(template)) {
+            for (let group = 0; group < count; group += 1) {
+                const encounter = `${template.id}-${group + 1}`.slice(0, 64);
+                // 单位 id 带遭遇与成员序号：两个遭遇引用同一成员条目时不撞 id。
+                template.members.forEach((member, slot) => {
+                    const add = build(member.profile, member.profile.name, attributes);
+                    for (let index = 0; index < member.count; index += 1) {
+                        add(`${encounter}-m${slot + 1}-${index + 1}`.slice(0, 64), member.profile.name, { encounter });
+                    }
+                });
+            }
+            continue;
+        }
+        const add = build(template, name, attributes);
+        for (let index = 0; index < count; index += 1) {
+            add(count > 1 ? `${template.id}-${index + 1}` : template.id, count > 1 ? `${name}${ENEMY_SUFFIXES[index] || index + 1}` : name);
         }
     }
     return { units, tiers };
 }
 
-// 备战前需要补建的档案：主角牌组（缺则建）、盟友技能档案、敌人档案
-function neededProfiles(ledgerState, start, userName, { heroOnly = false } = {}) {
+// 备战前需要补建的档案：主角牌组（缺则建）、盟友技能档案、敌人档案（同档位新敌人合为一个特性池请求，池按 seed 确定）
+function neededProfiles(ledgerState, start, userName, { heroOnly = false, seed = '' } = {}) {
     const entities = [];
     if (!findCharacter(ledgerState, userName)) {
         entities.push(...deckProfileEntities({ name: userName, id: profileIdFor('deck-character', userName), role: 'protagonist', classes: ledgerState.classes }));
@@ -313,7 +341,8 @@ function neededProfiles(ledgerState, start, userName, { heroOnly = false } = {})
         if (PROTAGONIST_ALIASES.includes(ally) || ally === userName || findCharacter(ledgerState, ally)) continue;
         entities.push(skillProfileEntity({ name: ally, role: 'ally' }));
     }
-    entities.push(...enemyEntities({ enemies: start.enemies, tier: start.tier, existing: ledgerState.enemies, partyLevel: 1 }).entities);
+    // M8：解析到遭遇条目的名字由目录物化成员，不请求副 LLM 生成敌人档案。
+    entities.push(...enemyRosterEntities({ enemies: start.enemies.filter(({ name }) => !encounterEntryByName(name)), tier: start.tier, existing: ledgerState.enemies, partyLevel: 1, seed }).entities);
     return entities;
 }
 
@@ -345,7 +374,7 @@ function skillFillEntities(ledgerState, start, userName, filledIds) {
     const partyLevel = averageLevel(party);
     for (const { name } of start.enemies) {
         const enemy = ledgerState.enemies.get(enemyIdFor(name, start.tier));
-        if (!enemy || enemy.generated === false) continue;
+        if (!enemy || enemy.generated === false || enemy.template !== undefined) continue;
         addFill(enemy, enemy.skills.length, skillTarget(attributeViewFor(ledgerState, name)?.level ?? partyLevel, enemy.tier));
     }
     return entities;
@@ -372,6 +401,14 @@ function buildLobby(ledgerState, start, userName, fallbackTemplates, weakFoes, b
     const enemies = new Map();
     const templated = [];
     for (const { name } of start.enemies) {
+        // M8：程序登记的遭遇条目优先；成员由目录物化，同一组写同一 encounter，组成不交给模型。
+        const encounter = encounterByName(name);
+        if (encounter) {
+            enemies.set(name, encounter);
+            continue;
+        }
+        const entry = encounterEntryByName(name);
+        if (entry) return { ok: false, reason: 'combat-encounter-unavailable', detail: { encounterId: entry.id, unavailable: entry.unavailable || [] } };
         const id = enemyIdFor(name, start.tier);
         const enemy = ledgerState.enemies.get(id) || fallbackTemplates.get(id);
         if (enemy) {
@@ -513,12 +550,13 @@ function reserveQueue(enemyUnitList, tiers, combatId) {
 }
 
 // 由大厅 + 战斗起点 + 难度生成引擎的开局参数
-export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', userName, combatId = '' } = {}) {
+export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', userName, combatId = '', purse = null } = {}) {
     const controlled = controlledId ?? lobby.heroId;
     if (!lobby.controllable.includes(controlled)) return { ok: false, reason: 'combat-controlled-invalid' };
     const partyLevel = averageLevel(lobby.allies);
     const battleWins = lobby.battleWins ?? lobby.allies.find((ally) => ally.id === lobby.heroId)?.purge?.battle ?? 0;
-    const totalFoes = start.enemies.reduce((sum, enemy) => sum + (Number(enemy.count) || 0), 0);
+    // M8：遭遇条目按展开后的成员数计入人数折算。
+    const totalFoes = start.enemies.reduce((sum, enemy) => sum + (Number(enemy.count) || 0) * encounterSize(lobby.enemies?.get?.(enemy.name)), 0);
     const crowd = crowdScaleFor(totalFoes, battleWins);
     const archetype = lobby.allies.find(ally => ally.id === lobby.heroId)?.classProfile?.archetype;
     const { units: enemies, tiers } = enemyUnits(start, lobby.enemies, partyLevel, difficulty, lobby.enemyAttributes, crowd, battleWins, archetype);
@@ -540,6 +578,10 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     if (lobby.weakFoes === true) setup.weakFoes = true;
     const reserve = reserveQueue(enemies, tiers, combatId);
     if (reserve) setup.reserve = reserve;
+    // 敌人模板 M7 盗金：只在本场有会盗金的敌人且剧情货币可读时快照余额；其余 setup 形状不变。
+    const stealsGold = enemies.some((unit) => (unit.skills || []).some((skill) => (skill.effects || []).some((effect) => effect?.op === 'steal-gold'))
+        || (unit.phases || []).some((phase) => (phase?.addSkills || []).some((skill) => (skill.effects || []).some((effect) => effect?.op === 'steal-gold'))));
+    if (stealsGold && Number.isSafeInteger(purse) && purse >= 0 && purse <= 1e9) setup.purse = purse;
     const controlledAlly = lobby.allies.find((ally) => ally.id === controlled);
     const awaken = awakenFor(start, controlledAlly, lobby.heroId, userName);
     if (awaken) setup.awaken = awaken;
@@ -646,6 +688,15 @@ const validBattleGrowth = (result) => result.battleGrowth === undefined
     || (Array.isArray(result.battleGrowth) && result.battleGrowth.every((growth) => typeof growth?.character === 'string' && growth.character && growthInt(growth.hpMax)
         && Array.isArray(growth.cards) && growth.cards.every((card) => typeof card?.cardId === 'string' && card.cardId && growthInt(card.damage) && growthInt(card.block)
             && (card.copyId === undefined || (typeof card.copyId === 'string' && card.copyId)))));
+// 敌人模板 M7 偷牌：被带走的长期副本（owner 为账本角色 ID）。
+const lostCardOk = (item) => typeof item?.owner === 'string' && item.owner && typeof item.copyId === 'string' && /^[A-Za-z0-9_|:.-]{1,200}$/.test(item.copyId)
+    && typeof item.cardId === 'string' && item.cardId;
+const validCardsLost = (result) => result.cardsLost === undefined || (Array.isArray(result.cardsLost) && result.cardsLost.every(lostCardOk));
+const lostCard = (item) => ({ owner: item.owner, copyId: item.copyId, cardId: item.cardId });
+// 敌人模板 M7 永久寄生：被植入的牌（owner 为账本角色 ID，cardId 为固定可植入牌）。
+const addedCardOk = (item) => typeof item?.owner === 'string' && item.owner && typeof item.cardId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(item.cardId);
+const validCardsAdded = (result) => result.cardsAdded === undefined || (Array.isArray(result.cardsAdded) && result.cardsAdded.every(addedCardOk));
+const addedCard = (item) => ({ owner: item.owner, cardId: item.cardId });
 // 永久成长的单张记录；规则 v5 P5a 带副本 ID 时一并保留。
 const growthCard = (card) => ({ cardId: card.cardId, ...(card.copyId ? { copyId: card.copyId } : {}), damage: card.damage, block: card.block });
 
@@ -661,6 +712,10 @@ const reportItemOf = (report) => ({
         ? { wounds: report.wounds.map((wound) => ({ character: wound.character, hp: wound.hp, maxHp: wound.maxHp, down: wound.down === true })) } : {}),
     ...(Array.isArray(report.battleGrowth) && report.battleGrowth.length
         ? { battleGrowth: report.battleGrowth.map((growth) => ({ character: growth.character, cards: growth.cards.map(growthCard), hpMax: growth.hpMax })) } : {}),
+    ...(Array.isArray(report.cardsLost) && report.cardsLost.length && report.cardsLost.every(lostCardOk)
+        ? { cardsLost: report.cardsLost.map(lostCard) } : {}),
+    ...(Array.isArray(report.cardsAdded) && report.cardsAdded.length && report.cardsAdded.every(addedCardOk)
+        ? { cardsAdded: report.cardsAdded.map(addedCard) } : {}),
 });
 
 // 本场消耗物品字段
@@ -837,7 +892,7 @@ export function createCombatSession(options = {}) {
         if (read?.ok !== true) return { ok: false, reason: read?.reason || 'combat-record-read-failed' };
         const result = read.value?.result;
         // result 为 null：「重新开始」撤掉了上一局的结果，按没有结果处理。
-        const corrupt = result !== undefined && result !== null && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !validUsed(result) || !validWounds(result) || !validBattleGrowth(result));
+        const corrupt = result !== undefined && result !== null && (typeof result?.reportId !== 'string' || typeof result?.text !== 'string' || typeof result?.result !== 'string' || !validUsed(result) || !validWounds(result) || !validBattleGrowth(result) || !validCardsLost(result) || !validCardsAdded(result));
         return corrupt ? { ok: false, reason: 'combat-record-corrupt' } : { ok: true, value: read.value || null };
     }
 
@@ -861,7 +916,9 @@ export function createCombatSession(options = {}) {
 
     // 战斗结束：把战报写进聊天记录（结果只写一次）
     async function saveResult(session, report, battle) {
-        const extra = { ...(report.used ? { used: report.used, character: report.character } : {}), ...(report.wounds ? { wounds: report.wounds } : {}), ...(report.battleGrowth ? { battleGrowth: report.battleGrowth } : {}) };
+        const extra = { ...(report.used ? { used: report.used, character: report.character } : {}), ...(report.wounds ? { wounds: report.wounds } : {}), ...(report.battleGrowth ? { battleGrowth: report.battleGrowth } : {}),
+            ...(Array.isArray(report.cardsLost) && report.cardsLost.length ? { cardsLost: report.cardsLost.map(lostCard) } : {}),
+            ...(Array.isArray(report.cardsAdded) && report.cardsAdded.length ? { cardsAdded: report.cardsAdded.map(addedCard) } : {}) };
         const written = await writeChatRecord(session, {
             result: { reportId: report.reportId, result: report.result, text: report.text, outcome: battle?.outcome || '', turn: Number(battle?.turn) || 0, at: now(), ...extra },
         });
@@ -1128,6 +1185,11 @@ export function createCombatSession(options = {}) {
             return ok();
         }
         if (located.challenge) return prepareChallenge(session, signal);
+        const unavailableEncounter = located.start.enemies.map(({ name }) => encounterEntryByName(name))
+            .find((entry) => entry && !encounterByName(entry.name));
+        if (unavailableEncounter) return blocked(session, 'combat-encounter-unavailable', {
+            detail: { encounterId: unavailableEncounter.id, unavailable: unavailableEncounter.unavailable || [] },
+        });
         setState({ ...session, status: 'preparing' });
         const protagonistWait = typeof options.awaitProtagonist === 'function' ? options.awaitProtagonist() : null;
         if (protagonistWait) {
@@ -1144,7 +1206,7 @@ export function createCombatSession(options = {}) {
             ? chatRecord.value.prepared.weakFoes === true
             : weakFoesOf(session.start, new Map(session.start.enemies.map(({ name }) => [name, attributeViewFor(ledgerState, name)]))));
         session.randomKey = resolveBattleRandomKey({ chatId: session.chatId, combatId: session.combatId, record: savedRecord, offer: ledgerState.offers?.get(session.combatId), prepared });
-        let entities = neededProfiles(ledgerState, located.start, userName, { heroOnly: alreadyPrepared });
+        let entities = neededProfiles(ledgerState, located.start, userName, { heroOnly: alreadyPrepared, seed: session.randomKey ?? session.combatId ?? '' });
         const initNames = alreadyPrepared ? [userName] : [userName, ...located.start.allies, ...located.start.enemies.map((enemy) => enemy.name)];
         if (ledgerState.attributes?.table === 'ok') {
             const names = [...new Set(initNames.map((name) => (PROTAGONIST_ALIASES.includes(name) ? userName : findCharacter(ledgerState, name)?.name || name)))];
@@ -1177,7 +1239,7 @@ export function createCombatSession(options = {}) {
         if (entities.length) {
             const context = await withStoryContext(
                 { encounter: located.start.encounter, tier: located.start.tier, protagonist: userName }, options.readStoryContext,
-                { names: initNames, signal, full: entities.some((entity) => entity.kind === 'profile-deck') },
+                { names: initNames, signal, full: entities.some((entity) => entity.kind === 'profile-deck' || entity.kind === 'enemy-roster') },
             );
             generated = await generateWithRetry(await withCharacterLore(entities, options.readLore), {
                 request, llm: resolveOption(options.llm), signal, classes: ledgerState.classes, now: now(), context, retryDelays: options.retryDelays,
@@ -1198,11 +1260,14 @@ export function createCombatSession(options = {}) {
             if (writes.profiles.length) {
                 wrote = true;
                 const written = await tables.append('profile', writes.profiles);
-                const onlySkillFill = (generated.accepted || []).every((item) => !item.profile || item.kind === 'skill-fill');
+                const onlySkillFill = (generated.accepted || []).every((item) => (!item.profile && !item.profiles?.length) || item.kind === 'skill-fill');
                 if (written?.ok !== true && !onlySkillFill) return blocked(session, 'combat-profile-write-failed', { write: written });
                 if (written?.ok !== true) fillDiagnostics.push({ code: 'combat-skill-fill-write-failed', owners: writes.profiles.map((profile) => profile.id) });
             }
-            for (const rejected of generated.rejected) if (rejected.fallback?.kind === 'template-enemy') fallbackTemplates.set(rejected.owner, rejected.fallback.profile);
+            for (const rejected of generated.rejected) {
+                if (rejected.fallback?.kind === 'template-enemy') fallbackTemplates.set(rejected.owner, rejected.fallback.profile);
+                if (rejected.fallback?.kind === 'template-enemies') for (const profile of rejected.fallback.profiles || []) fallbackTemplates.set(profile.id, profile);
+            }
             if (generated.blocked) return blocked(session, 'combat-protagonist-generation-failed', { rejected: generated.rejected });
             if (wantsReward) {
                 wrote = true;
@@ -1249,7 +1314,7 @@ export function createCombatSession(options = {}) {
         }
         if (!stillWanted()) { setState({ status: 'idle' }); return fail('request-stale'); }
         const lobby = buildLobby(ledgerState, located.start, userName, fallbackTemplates, session.weakFoes, session.battleWins);
-        if (!lobby.ok) return blocked(session, lobby.reason);
+        if (!lobby.ok) return blocked(session, lobby.reason, lobby.detail ? { detail: lobby.detail } : {});
         lobby.vitals = lobbyVitals(lobby, difficultyOf());
         const skipped = (generated?.rejected || []).filter((item) => item.fallback?.kind === 'skip').map((item) => item.owner);
         const newTheme = theme && theme !== savedTheme ? { theme } : {};
@@ -1401,7 +1466,9 @@ export function createCombatSession(options = {}) {
         if (current.status !== 'lobby') return fail('combat-session-not-ready');
         if (!isCurrent(current)) return floorChanged();
         if (isChallenge(current)) return startChallenge();
-        const built = buildSetup(current.lobby, current.start, { controlledId, difficulty: difficultyOf(), userName: getUserName(), combatId: current.randomKey ?? current.combatId });
+        let purse = null;
+        try { purse = resolveOption(options.purse); } catch { purse = null; }
+        const built = buildSetup(current.lobby, current.start, { controlledId, difficulty: difficultyOf(), userName: getUserName(), combatId: current.randomKey ?? current.combatId, purse });
         if (!built.ok) return fail(built.reason);
         const seed = seedFor(current.randomKey ?? current.combatId);
         const battle = createBattle(built.setup, seed);
@@ -1492,6 +1559,37 @@ export function createCombatSession(options = {}) {
                 growthResult = { ok: false, reason: 'combat-battle-growth-write-failed' };
             }
         }
+        // 敌人模板 M7 偷牌：被带走的长期副本按副本 ID 写 card-lost（胜、败、撤退都记），锚定战报楼，随楼层回退撤销。
+        let lostResult = null;
+        const lost = Array.isArray(report.cardsLost) ? report.cardsLost.filter(lostCardOk) : [];
+        if (Number.isInteger(reportMessageId) && lost.length && ledger?.append) {
+            const swipeId = reportSwipeId();
+            const entries = lost.map((item, index) => {
+                const anchor = { messageId: reportMessageId, swipeId, tagHash: CARD_LOST_TAG_HASH, occurrence: index };
+                return { id: ledgerEntryId('card-lost', item.owner, anchor), type: 'card-lost', character: item.owner, anchor, payload: { copyId: item.copyId, cardId: item.cardId, reportId: report.reportId }, createdAt: now() };
+            });
+            try {
+                lostResult = await ledger.append(entries);
+            } catch {
+                lostResult = { ok: false, reason: 'combat-card-lost-write-failed' };
+            }
+        }
+        // 敌人模板 M7 永久寄生：本场植入的牌写 card-implant（胜、败、撤退都记），锚定战报楼，随楼层回退撤销。
+        let implantResult = null;
+        const implanted = Array.isArray(report.cardsAdded) ? report.cardsAdded.filter(addedCardOk) : [];
+        if (Number.isInteger(reportMessageId) && implanted.length && ledger?.append) {
+            const swipeId = reportSwipeId();
+            const entries = implanted.map((item, index) => {
+                const anchor = { messageId: reportMessageId, swipeId, tagHash: CARD_IMPLANT_TAG_HASH, occurrence: index };
+                return { id: ledgerEntryId('card-implant', item.owner, anchor), type: 'card-implant', character: item.owner, anchor, payload: { cardId: item.cardId, reportId: report.reportId }, createdAt: now() };
+            });
+            try {
+                implantResult = await ledger.append(entries);
+            } catch {
+                implantResult = { ok: false, reason: 'combat-card-implant-write-failed' };
+            }
+        }
+
         // 规则 v6 G5g：普通战斗胜利发积分（挑战与亲密对决不发；敌人撤离的胜利照发），锚定胜利战报楼，随楼层回退撤销。
         // 记在本场受控单位（账本角色 ID）名下；不是主角时账本重放按 combat-points-not-protagonist 拒收。
         let pointsResult = null;
@@ -1539,7 +1637,7 @@ export function createCombatSession(options = {}) {
         // 战报与伤势落账后通知调用方刷新生命与成长缓存，否则状态栏与注入的生命仍是上一份（满血）快照。
         if (typeof options.onReportSettled === 'function') { try { options.onReportSettled({ messageId: reportMessageId ?? null, wound: woundResult }); } catch { /* 刷新失败不影响战报收尾 */ } }
         setState({ ...identityOf(current), status: 'done', report });
-        return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}), ...(growthResult ? { battleGrowth: growthResult } : {}), ...(pointsResult ? { battlePoints: pointsResult } : {}) });
+        return ok({ messageId: reportMessageId ?? null, scan, ...(consumeResult ? { consume: consumeResult } : {}), ...(woundResult ? { wound: woundResult } : {}), ...(growthResult ? { battleGrowth: growthResult } : {}), ...(lostResult ? { cardLost: lostResult } : {}), ...(implantResult ? { cardImplant: implantResult } : {}), ...(pointsResult ? { battlePoints: pointsResult } : {}) });
     }
 
     // 把战报发进聊天：战报楼已存在则直接收尾；发送失败进入 send-failed 可重试
@@ -1702,6 +1800,8 @@ export function createCombatSession(options = {}) {
             if (!started.ok) return started;
         }
         for (let step = 0; step < AUTO_STEP_LIMIT && current.status === 'battle'; step += 1) {
+            // 挂起的选择（选牌、二选一诅咒）只能由玩家亲自决定：托管不代选，直接停下。
+            if (current.battle.pending) return fail('choice-pending');
             const pick = chooseAllyPlay(current.battle, current.battle.controlledId);
             let result = pick ? act({ type: 'play', ...pick }) : null;
             if (!result?.ok) result = act({ type: 'end-turn' });

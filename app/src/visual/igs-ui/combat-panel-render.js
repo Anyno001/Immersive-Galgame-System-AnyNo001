@@ -1,7 +1,8 @@
 import { esc } from './reader-value-utils.js';
 import { cardTextHtml, partHtml } from './combat-card-text.js';
 export { cardTextHtml } from './combat-card-text.js';
-import { CARD_TYPE_LABELS, describeEffects, describeKeywords, intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
+import { CARD_TYPE_LABELS, describeEffects, describeKeywords, portraitSilhouetteSvg } from './combat-card-art.js';
+import { intentDamageText, intentIconsHtml, intentTip } from './combat-intent.js';
 import { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
@@ -51,6 +52,7 @@ const REASON_TEXT = Object.freeze({
     'combat-profile-write-failed': '角色档案写入失败',
     'combat-protagonist-generation-failed': '主角卡组生成失败',
     'combat-protagonist-missing': '没有主角卡组档案',
+    'combat-encounter-unavailable': '该遭遇的敌人模板尚未就绪',
     'combat-deck-needs-adjust': '主角卡组需要调整后才能出战',
     'combat-llm-config-incomplete': '副 LLM 配置不完整',
     'combat-session-save-failed': '战斗进度保存失败，本步未生效',
@@ -196,11 +198,11 @@ export function tintTriplet(value) {
     return rgb.length === 3 && rgb.every((n) => n <= 255) ? rgb.join(',') : '';
 }
 
-// 敌方意图：深色底小标签，图标与数值按意图着色；有伤害时显示伤害数，否则显示意图类别，后接招式名。
+// 敌方意图：逐组显示每段伤害与段数，各皮肤共用数值与图标内容。
 function intentHtml(it) {
-    const head = it.damage ? `<b class="igs-combat-intent-value">${esc(it.damage)}</b>` : `<span class="igs-combat-intent-kind">${esc(it.label)}</span>`;
-    const tip = `${it.label}·${it.name}${it.damage ? `，${it.damage} 点${it.unit || '伤害'}` : ''}`;
-    return `<div class="igs-combat-intent" data-intent="${esc(it.kind)}" title="${esc(tip)}"><span class="igs-combat-intent-icon">${intentIconSvg(it.kind)}</span>${head}<span class="igs-combat-intent-name">${esc(it.name)}</span></div>`;
+    const value = intentDamageText(it);
+    const head = value ? `<b class="igs-combat-intent-value">${esc(value)}</b>` : `<span class="igs-combat-intent-kind">${esc(it.label)}</span>`;
+    return `<div class="igs-combat-intent" data-intent="${esc(it.kind)}" title="${esc(intentTip(it))}"><span class="igs-combat-intent-icon">${intentIconsHtml(it)}</span>${head}<span class="igs-combat-intent-name">${esc(it.name)}</span></div>`;
 }
 
 // 单位块：敌人是站立立绘、意图浮在上方；我方是圆框头像（样式层按 size 裁成主战者半身 / 队友头肩）。名字 / 格挡 / 血条 / 状态在下方。size 为 sm（队友）/ md（敌人）/ lg（主战者）。
@@ -784,9 +786,21 @@ const intimateResultHtml = (v) => {
     return `<section class="igs-combat-result igs-duel-result" data-outcome="${esc(v.end.outcome)}"><p class="igs-duel-result-line">${esc(line)}</p><div class="igs-combat-actions">${send}</div></section>`;
 };
 
-// 面板 HTML：主体按状态与皮肤出，删牌浮层统一叠在最上层（结算画布外，各皮肤与竖屏都不被裁切）。
+// M7 二选一诅咒浮层：挂起的选择带 curses 时出现，必须选一项再确认（不能关闭或跳过）；各皮肤与竖屏共用，叠在最上层。
+function curseSheetHtml(v) {
+    const choice = v.status === 'battle' ? v.battle?.choice : null;
+    if (!choice?.curses?.length || v.battle.outcome) return '';
+    const picks = Array.isArray(v.chosen) ? v.chosen : [];
+    const busy = Boolean(v.pending);
+    const items = choice.curses.map((c) => btn('choose-pick', `${c.name}｜${c.text}`, { id: c.id, pressed: picks.includes(c.id), disabled: busy })).join('');
+    return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="二选一诅咒"><i class="igs-combat-purge-veil"></i>`
+        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">承受一道诅咒（只限本场）</div><div class="igs-combat-purge">${items}</div>`
+        + `<div class="igs-combat-actions">${btn('choose-confirm', '承受', { primary: true, disabled: busy || picks.length !== choice.count })}</div></div></div>`;
+}
+
+// 面板 HTML：主体按状态与皮肤出，删牌与诅咒浮层统一叠在最上层（结算画布外，各皮肤与竖屏都不被裁切）。
 export function renderCombatPanelHtml(v) {
-    return `${renderCombatPanelBody(v)}${purgeSheetHtml(v)}${upgradeSheetHtml(v)}`;
+    return `${renderCombatPanelBody(v)}${purgeSheetHtml(v)}${upgradeSheetHtml(v)}${curseSheetHtml(v)}`;
 }
 
 function renderCombatPanelBody(v) {

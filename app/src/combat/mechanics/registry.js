@@ -7,6 +7,8 @@ export const HOOK_POINTS = Object.freeze([
     'damage-before', 'damage-after', 'hp-loss-before', 'hp-loss-after', 'defeated',
     // 一次出手（出牌、技能单位出手、人物技能）结算完：{ unit, kind: 'card' | 'skill' | 'hero-skill', card?, skill?, effects }。
     'action-after',
+    // 每段攻击结算后（含零伤害），反伤之前：{ attacker, target, hpLoss, blockBefore }；不冒充 damage-after。
+    'attack-after',
     // 获得格挡之后、「获得格挡」总线之前：{ target, amount, source, shared? }，可追加格挡并改写 amount 为本次合计。
     'block-gained',
     // 单体攻击每次选定存活目标后：{ attacker, target }，可把 target 换成同阵营另一名存活单位（D07 掩护）。
@@ -15,6 +17,8 @@ export const HOOK_POINTS = Object.freeze([
     'act-before',
     // 开战：首个玩家回合抽完牌之后、开战被动之前触发一次，payload 为空对象（P5b 预燃）。
     'battle-start',
+    // 使用道具、结算效果之前：{ unit, itemId, aimId }（M8 单目标道具转向背击单位）。
+    'item-before',
 ]);
 // 伤害修正阶段：outgoing-add 在攻击力之后、outgoing-mult 紧随其后（均在虚弱之前），incoming-mult 在易伤之后。
 export const DAMAGE_STAGES = Object.freeze(['outgoing-add', 'outgoing-mult', 'incoming-mult']);
@@ -57,8 +61,9 @@ export const validAttributeSpec = (spec) => Boolean(spec && typeof spec === 'obj
     && (spec.max === undefined || (Number.isInteger(spec.max) && spec.max > 0)));
 const validAttribute = (spec) => spec === undefined || isFn(spec) || validAttributeSpec(spec);
 
-// 算子可选的函数字段：估值、技能伤害上限、托管估算、牌面说明、面板短写、手牌待选（choice(state, unit, effect, kit) → { options, count } | null）。
-const HANDLER_FNS = Object.freeze(['value', 'damage', 'estimateDamage', 'estimateBlock', 'describe', 'brief', 'choice']);
+// 算子可选的函数字段：估值、技能伤害上限、托管估算、牌面说明、面板短写、手牌待选（choice(state, unit, effect, kit) → { options, count } | null）、
+// 引用的随从种类（refs(effect) → 种类键数组，档案与建局据此核对随从表）。
+const HANDLER_FNS = Object.freeze(['value', 'damage', 'estimateDamage', 'estimateBlock', 'describe', 'brief', 'choice', 'refs']);
 function invalid(key, reason) {
     throw new Error(`mechanic-invalid:${key}:${reason}`);
 }

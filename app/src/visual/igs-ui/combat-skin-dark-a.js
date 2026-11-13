@@ -4,7 +4,8 @@
 import { esc } from './reader-value-utils.js';
 import { cardFxHtml } from './combat-card-text.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
-import { intentIconSvg, portraitSilhouetteSvg } from './combat-card-art.js';
+import { portraitSilhouetteSvg } from './combat-card-art.js';
+import { skinIntentHtml } from './combat-intent.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_DARK_A_CONCEPT_CSS } from './combat-skin-dark-a-concept-style.js';
@@ -151,8 +152,7 @@ function handLayout(n, sel, orient) {
 function foeHtml(u, i, f, n, L, v, pick) {
     const pics = v.portraits || {}, arts = v.enemyArt || {};
     const it = u.intent;
-    const atk = it && it.kind === 'attack';
-    const intent = it ? `<div class="intent ${atk ? 'atk' : 'cast'}" title="${esc(`${it.label}·${it.name}${it.damage ? `，${it.damage} 点伤害` : ''}`)}">${atk ? ICON.claw : intentIconSvg(it.kind)}${it.damage ? `<b>${esc(it.damage)}</b>` : ''}<em>${esc(it.damage ? it.name : `${it.label}·${it.name}`)}</em></div>` : '';
+    const intent = skinIntentHtml(it, { attackIcon: ICON.claw });
     const sts = (u.tier ? `<u class="tier">${u.tier === 'boss' ? '首领' : '精英'}</u>` : '') + (u.block ? blkChip(u.block) : '') + u.statuses.map(sc).join('');
     const ok = pick.pickable(u);
     const aim = ok ? (pick.card || pick.skill ? ' target' : ' pickable') : '';
