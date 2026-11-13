@@ -1505,32 +1505,37 @@ export function createAssetGenerationService(deps) {
     function listReview(floorKey) {
         return (reviewPage(floorKey)?.records || []).map(record => ({ ...record, url: tempUrl(record) }));
     }
-    function tempPageOptions() {
-        return { chatId: currentChat(), types: ['background', 'sprite'], statuses: [...ACTIVE_TEMP_STATUSES], limit: 24, includeTotal: true, ...tempCursor };
+    // 立绘在角色页、背景在场景页分开确认，各自翻页。
+    const tempTypesOf = (type) => (type === 'sprite' || type === 'background' ? [type] : ['background', 'sprite']);
+    function tempPageOptions(type) {
+        return { chatId: currentChat(), types: tempTypesOf(type), statuses: [...ACTIVE_TEMP_STATUSES], limit: 24, includeTotal: true, ...(tempCursor[type || 'all'] || {}) };
     }
-    function tempPage() {
+    function tempPage(type) {
         if (stopped || !messageHost.getChatId()) return { records: [], total: 0, hasNext: false, hasPrevious: false };
-        const options = tempPageOptions();
+        const options = tempPageOptions(type);
         const page = tempCache.peekQuery(options);
         if (page) return { ...page, loading: false, error: tempCache.status().error };
         // 页索引会被写记录作废，而本函数是同步读：退回缓存里已有的单条记录，
         // 否则刚生成完的素材当帧读回来是空的。翻过页时不兜底，避免把整批记录当第一页。
-        const paged = tempCursor.afterKey || tempCursor.beforeKey;
-        const records = paged ? [] : tempCache.values().filter((record) => ACTIVE_TEMP_STATUSES.has(record.status)).slice(0, options.limit);
+        const cursor = tempCursor[type || 'all'] || {};
+        const paged = cursor.afterKey || cursor.beforeKey;
+        const types = tempTypesOf(type);
+        const records = paged ? [] : tempCache.values().filter((record) => ACTIVE_TEMP_STATUSES.has(record.status) && types.includes(record.type)).slice(0, options.limit);
         return { records, total: records.length, hasNext: false, hasPrevious: false, loading: tempCache.status().pending, error: tempCache.status().error };
     }
-    function listTemp() { return tempPage().records.map(record => ({ ...record, url: tempUrl(record) })); }
-    async function changeTempPage(direction) {
-        const page = tempPage();
-        if (direction === 'next' && page.hasNext && page.lastKey) tempCursor = { afterKey: page.lastKey };
-        else if (direction === 'previous' && page.hasPrevious && page.firstKey) tempCursor = { beforeKey: page.firstKey };
-        else tempCursor = {};
-        return tempCache.query(tempPageOptions(), { fresh: true });
+    function listTemp(type) { return tempPage(type).records.map(record => ({ ...record, url: tempUrl(record) })); }
+    async function changeTempPage(direction, type) {
+        const page = tempPage(type);
+        const slot = type || 'all';
+        if (direction === 'next' && page.hasNext && page.lastKey) tempCursor[slot] = { afterKey: page.lastKey };
+        else if (direction === 'previous' && page.hasPrevious && page.firstKey) tempCursor[slot] = { beforeKey: page.firstKey };
+        else tempCursor[slot] = {};
+        return tempCache.query(tempPageOptions(type), { fresh: true });
     }
     async function retryMetadata() {
         const target = retryTarget;
         tempCache.clear();
-        if (messageHost.getChatId()) await tempCache.query(tempPageOptions(), { fresh: true });
+        if (messageHost.getChatId()) await Promise.all(['sprite', 'background'].map(type => tempCache.query(tempPageOptions(type), { fresh: true })));
         if (target && target.chatId === messageHost.getChatId()) return processMessage(target.messageId, { manual: target.manual });
         return { ok: true };
     }

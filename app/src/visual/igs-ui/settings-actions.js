@@ -1349,9 +1349,66 @@ export async function handleSettingsAction(action, ctx) {
                 const results = await Promise.allSettled([service?.retryMetadata?.(), options.itemImages?.retryMetadata?.()]);
                 if (results.some(result => result.status === 'rejected' || result.value?.ok === false)) throw new Error('asset-record-read-failed');
             } else if (service?.changeTempPage) {
-                await service.changeTempPage(normalizedAction.slice('gen-temp-page:'.length));
+                const [direction, kind] = normalizedAction.slice('gen-temp-page:'.length).split(':');
+                await service.changeTempPage(direction, kind || undefined);
             }
         } catch (error) { settingsState.asyncState.genRecordsError = error.message || '素材记录读取失败'; }
+        return rerenderSettings();
+    }
+
+    // 一键全部入库 / 丢弃：逐项走单项动作，名称用默认、单项确认自动通过，「一并清空 DNA」按否处理；最后统一重绘。
+    const bulk = /^gen-temp-bulk:(accept|discard):(sprite|background)$/.exec(normalizedAction);
+    if (bulk) {
+        const [, op, kind] = bulk;
+        const service = options.generatedAssets;
+        const globalObj = options.global || globalThis;
+        if (!service || typeof service.listTemp !== 'function') return { ok: false, reason: 'generated-assets-unavailable' };
+        const noun = kind === 'sprite' ? '立绘' : '背景';
+        const ask = op === 'accept'
+            ? `是否将全部刚生成的${noun}按原名称入库？`
+            : `是否丢弃全部刚生成的${noun}及其图片？`;
+        if (!(await dialogs.confirm(ask))) return rerenderSettings();
+        const failures = [];
+        const quiet = {
+            confirm: async (message) => !/^是否一并清空/.test(String(message || '')),
+            prompt: async (_message, value) => value,
+            alert: async (message) => { failures.push(String(message || '')); return true; },
+            view: async () => true,
+            choose: async () => null,
+        };
+        const subCtx = { ...ctx, dialogs: quiet, rerenderSettings: () => ({ ok: true }) };
+        const done = new Set();
+        let handled = 0;
+        for (let round = 0; round < 50 && state.activeSettings === settingsState; round += 1) {
+            try { await service.changeTempPage?.('first', kind); } catch { /* 读失败时用缓存里的记录 */ }
+            const keys = service.listTemp(kind).map(record => String(record?.key || '')).filter(key => key && !done.has(key));
+            if (!keys.length) break;
+            for (const key of keys) {
+                done.add(key);
+                const result = await handleSettingsAction(`gen-temp-${op}:${encodeURIComponent(key)}`, subCtx);
+                if (!operationFailed(result)) handled += 1;
+            }
+        }
+        // 生成库里还没放进角色 / 场景的条目也一并处理。
+        const assets = draftAssetLibrary(settingsState, editTarget);
+        const library = normalizeGeneratedLibrary(assets.generated);
+        const ids = (node, out = []) => {
+            if (typeof node === 'string' && node.startsWith('igs-gen:')) out.push(node);
+            else if (node && typeof node === 'object') for (const child of Object.values(node)) ids(child, out);
+            return out;
+        };
+        const placedIn = kind === 'sprite' ? assets.characters || {} : assets.scenes || {};
+        const leftovers = Object.entries(kind === 'sprite' ? library.characters : library.scenes)
+            .filter(([name, value]) => { const placed = new Set(ids(placedIn[name])); return !ids(value).every(url => placed.has(url)); })
+            .map(([name]) => name);
+        for (const name of leftovers) {
+            const action = op === 'discard'
+                ? `gen-lib-remove:${encodeURIComponent(kind)}:${encodeURIComponent(name)}`
+                : kind === 'sprite' ? `gen-adopt-sprite:${encodeURIComponent(name)}` : `gen-file-scene:${encodeURIComponent(name)}`;
+            const result = await handleSettingsAction(action, subCtx);
+            if (!operationFailed(result)) handled += 1;
+        }
+        if (failures.length) pageAlert(dialogs, globalObj, `已处理 ${handled} 项；以下未完成：\n${[...new Set(failures)].join('\n')}`);
         return rerenderSettings();
     }
 

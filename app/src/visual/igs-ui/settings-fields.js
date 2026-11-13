@@ -1021,13 +1021,14 @@ function generatedLeftovers(library, characters, scenes) {
     return { sprites: pending(source.characters, characters), backgrounds: pending(source.scenes, scenes) };
 }
 
-// 「待确认」页签上的数字：刚生成的临时图 + 还没入库的生成素材。
-export function countGeneratedWaiting({ library = {}, temp = [], tempPage, characters = {}, scenes = {} } = {}) {
+// 「待确认」页签上的数字：刚生成的临时图 + 还没入库的生成素材。kind 为 sprite / background 时只数这一类。
+export function countGeneratedWaiting({ library = {}, temp = [], tempPage, characters = {}, scenes = {}, kind = '' } = {}) {
     const left = generatedLeftovers(library, characters, scenes);
-    return (tempPage?.total ?? (Array.isArray(temp) ? temp.length : 0)) + left.sprites.length + left.backgrounds.length;
+    const leftovers = (kind !== 'background' ? left.sprites.length : 0) + (kind !== 'sprite' ? left.backgrounds.length : 0);
+    return (tempPage?.total ?? (Array.isArray(temp) ? temp.length : 0)) + leftovers;
 }
 
-export function renderGeneratedAssetPane({ library = {}, temp = [], tempPage, readError = '', resolveUrl, characters = {}, scenes = {} } = {}) {
+export function renderGeneratedAssetPane({ library = {}, temp = [], tempPage, readError = '', resolveUrl, characters = {}, scenes = {}, kind = '' } = {}) {
     // 修复抠图只给刚生成的立绘，背景不提供入口。
     const resolve = (url) => {
         const raw = String(url || '').trim();
@@ -1050,7 +1051,8 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], tempPage, re
         return id && type === 'sprite' && isMatteUnlocked() ? menuItem(`gen-matte-edit:${encSeg(id)}`, '修复抠图') : '';
     };
     const source = library && typeof library === 'object' ? library : {};
-    const left = generatedLeftovers(source, characters, scenes);
+    const all = generatedLeftovers(source, characters, scenes);
+    const left = { sprites: kind === 'background' ? [] : all.sprites, backgrounds: kind === 'sprite' ? [] : all.backgrounds };
     const leftoverRows = [];
     for (const name of left.sprites) {
         const value = source.characters[name];
@@ -1079,18 +1081,24 @@ export function renderGeneratedAssetPane({ library = {}, temp = [], tempPage, re
     }).join('');
     const count = (tempPage?.total ?? (Array.isArray(temp) ? temp.length : 0)) + leftoverRows.length;
     const error = readError || tempPage?.error;
+    const pageKind = kind ? `:${kind}` : '';
     const controls = tempPage ? `<div class="igs-gen-tile-actions">`
-        + `<button type="button" class="igs-review-link" data-action="gen-temp-page:previous"${tempPage.hasPrevious ? '' : ' disabled'}>上一页</button>`
+        + `<button type="button" class="igs-review-link" data-action="gen-temp-page:previous${pageKind}"${tempPage.hasPrevious ? '' : ' disabled'}>上一页</button>`
         + `<span class="igs-gen-page-note">${tempPage.loading ? '正在读取素材…' : `共 ${tempPage.total || 0} 项，每页 24 项`}</span>`
-        + `<button type="button" class="igs-review-link" data-action="gen-temp-page:next"${tempPage.hasNext ? '' : ' disabled'}>下一页</button>`
+        + `<button type="button" class="igs-review-link" data-action="gen-temp-page:next${pageKind}"${tempPage.hasNext ? '' : ' disabled'}>下一页</button>`
         + `<button type="button" class="igs-review-link" data-action="gen-records-retry">重新读取</button></div>`
         + (error ? '<p role="alert" class="igs-gen-page-note">素材或物品记录正在自动恢复，读取完成后继续原操作。</p>' : '') : '';
+    const bulk = kind && count
+        ? `<button type="button" class="igs-review-clear" data-action="gen-temp-bulk:accept:${kind}">全部入库</button>`
+            + `<button type="button" class="igs-review-clear" data-action="gen-temp-bulk:discard:${kind}">全部丢弃</button>`
+        : '';
     return renderReviewCard({
-        key: 'generated',
-        title: '刚生成的图',
+        key: kind ? `generated-${kind}` : 'generated',
+        headerAction: bulk,
+        title: kind === 'sprite' ? '刚生成的立绘' : kind === 'background' ? '刚生成的背景' : '刚生成的图',
         count,
         hint: '存入后从此处移除。',
         body: controls + (tempRows || leftoverRows.length ? `<div class="igs-gen-grid">${tempRows}${leftoverRows.join('')}</div>` : ''),
-        empty: '暂无刚生成的素材',
+        empty: kind === 'sprite' ? '暂无刚生成的立绘' : kind === 'background' ? '暂无刚生成的背景' : '暂无刚生成的素材',
     });
 }

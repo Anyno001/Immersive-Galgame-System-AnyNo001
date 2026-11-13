@@ -733,16 +733,18 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     return resolveGenerated(sprite?.url || firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])));
                 },
             });
-            const generatedArgs = {
+            // 刚生成的立绘放在角色页、背景放在场景页的待确认，各自分页。
+            const generatedArgsOf = (kind) => ({
+                kind,
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
                 characters: sceneAssets.characters || {},
                 scenes: sceneAssets.scenes || {},
-                temp: !idx && generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
+                temp: !idx && generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp(kind) : [],
                 resolveUrl: resolveGenerated,
                 moodGroups: sceneAssets.moodGroups || [],
-                tempPage: !idx && generatedService?.tempPage ? generatedService.tempPage() : null,
+                tempPage: !idx && generatedService?.tempPage ? generatedService.tempPage(kind) : null,
                 readError: asyncState.genRecordsError || options.itemImages?.metadataStatus?.().error || '',
-            };
+            });
             // 待确认：角色页放 AI 写出但没登记的服装词、词库外的情绪词；场景页放生成了还没入库的图。索引模式不读。
             const reviewData = memo(() => {
                 // 没有待确认词时不必建解析器，也不会有写回。
@@ -755,7 +757,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 return { outfitReview, moodReview, waitingCount: outfitReview.length + moodReview.length };
             });
             const waitingCount = () => (idx ? 0 : reviewData().waitingCount);
-            const generatedCount = memo(() => (idx ? 0 : countGeneratedWaiting(generatedArgs)));
+            const generatedCount = memo(() => (idx ? 0 : countGeneratedWaiting(generatedArgsOf('background'))));
             const reviewPane = () => {
                 const { outfitReview, moodReview } = reviewData();
                 return `<div class="igs-settings-section igs-review-pane">`
@@ -763,7 +765,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     + renderMoodReviewList(moodReview, sceneAssets.moodGroups, { busy: Boolean(asyncState.moodReviewClassifying) })
                     + `</div>`;
             };
-            const generatedPane = () => `<div class="igs-settings-section igs-review-pane">${renderGeneratedAssetPane(generatedArgs)}</div>`;
+            const generatedPane = () => `<div class="igs-settings-section igs-review-pane">${renderGeneratedAssetPane(generatedArgsOf('background'))}</div>`;
+            const generatedSpritePane = () => `<div class="igs-review-pane">${renderGeneratedAssetPane(generatedArgsOf('sprite'))}</div>`;
             // 多选与打包下载、＋并排放在区块标题右侧；进入多选后同一个按钮变成「完成」，取消、全选在列表上方的选择条里。
             const selectLink = (kind, count) => (count ? `<button type="button" class="igs-settings-action igs-asset-select-toggle${assetSelect(kind) ? ' is-on' : ''}" data-action="asset-select:${kind}" aria-pressed="${Boolean(assetSelect(kind))}">${assetSelect(kind) ? '完成' : '多选'}</button>` : '');
             const scenesPane = () => `<div class="igs-settings-section">
@@ -836,6 +839,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         </div>
         ${isOpenKey('live2d-library') ? `<details class="igs-settings-sub igs-settings-advanced" data-advanced="live2d-library" open><summary>Live2D模型（高级）</summary>${renderLive2dLibrary(readLive2dConfig(storage, cardKey), scopeState.assetScopeLabel || '未选卡范围')}</details>` : ''}
         ${renderDnaCandidateBar(asyncState.dnaCandidate)}
+        ${idx ? '' : generatedSpritePane()}
         ${idx ? '' : renderMigrateEntry(asyncState.migrateRows)}
         ${idx ? '' : charsHtml()}
         ${idx ? '' : renderDnaOnlyCharacterList(sceneAssets.characterDna || {}, sceneAssets.characters || {})}
