@@ -83,7 +83,7 @@ export function renderStatusHudAvatarFraming(statusHud) {
         + '<span>头像取景</span>'
         + `<div class="igs-hud-pos-head"><button type="button" class="igs-settings-action igs-settings-inline-action" data-action="status-hud-avatar-reset"${atDefault ? ' disabled' : ''}>复位</button></div>`
         + AVATAR_AXES.map(row).join('')
-        + '<em>本页没有说话人立绘时，沿用上传的头像。</em>'
+        + '<em>这里是所有角色的默认取景。单个角色可在「素材 → 角色」该角色的 ⋯ 里点「调整头像取景」，对着立绘拖动单独调。本页没有说话人立绘时，沿用上传的头像。</em>'
         + '</div>';
 }
 

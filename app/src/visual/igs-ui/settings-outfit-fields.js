@@ -138,6 +138,28 @@ export function thumb(url, alt, extraClass = '', resolveUrl, note = '') {
     return `<span class="igs-outfit-thumb igs-outfit-thumb-empty${extraClass}" aria-hidden="true">${value ? '生成' : PERSON_SVG}</span>`;
 }
 
+// 表情批量删除：多选时每格变成勾选按钮，不开菜单、不弹大图。o 为空表示角色原装。
+export function moodPickRow(c, o, mood, url, picked, resolveUrl) {
+    const value = shownUrl(url, resolveUrl);
+    const img = isImageUrl(value)
+        ? `<img loading="lazy" decoding="async" class="igs-outfit-thumb" src="${esc(value)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
+        : '<span class="igs-outfit-thumb igs-outfit-thumb-empty" aria-hidden="true"></span>';
+    return `<button type="button" class="igs-outfit-slot is-selectable${picked ? ' is-picked' : ''}" data-action="mood-pick:${c}:${o}:${encSeg(mood)}" aria-pressed="${picked}">`
+        + `${img}<span class="igs-btn-mgr-label">${esc(mood)}</span><span class="igs-asset-tile-check" aria-hidden="true"></span></button>`;
+}
+
+export function moodSelectBar(picking, total) {
+    return `<div class="igs-asset-select-bar"><span>已选 ${picking.size} 项</span>`
+        + `<button type="button" class="igs-settings-action" data-action="mood-pick-all">${picking.size === total ? '全不选' : '全选'}</button>`
+        + `<button type="button" class="igs-settings-action is-danger" data-action="mood-delete-picked"${picking.size ? '' : ' disabled'}>删除选中</button>`
+        + `<button type="button" class="igs-settings-action" data-action="mood-select-done">完成</button></div>`;
+}
+
+// 当前多选是否落在这个角色 / 这套服装上；是则返回已选集合。
+export function moodPicking(moodSelect, charName, outfitName = '') {
+    return moodSelect && moodSelect.char === charName && moodSelect.outfit === outfitName && moodSelect.names instanceof Set ? moodSelect.names : null;
+}
+
 // 缺格预览与统一衣装解析同源，不把旧原装图当作新默认。
 function previewOf(sceneAssets, charName, mood, outfit) {
     const hit = resolveSpriteAsset(charName, mood, { sceneAssets }, outfit);
@@ -220,7 +242,7 @@ function formBadges(entry) {
     ].filter(Boolean).map(([kind, icon, title]) => `<span class="igs-form-badge is-${kind}" title="${esc(title)}">${icon}</span>`).join('');
 }
 
-function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen) {
+function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen, picking = null) {
     const c = encSeg(charName);
     const o = encSeg(name);
     const moods = { ...plain(entry.moods), ...(!isBuiltinNudeOutfit(entry.wardrobe) && entry.base ? { 默认: entry.base } : {}) };
@@ -240,6 +262,10 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         + `<input class="igs-scene-url-input" data-scene-outfit-avatar-char="${esc(charName)}" data-scene-outfit-avatar="${esc(name)}" value="${esc(avatar)}" placeholder="留空沿用角色头像">`
         + (avatar ? `<button type="button" class="igs-btn-mgr-icon" data-action="scene-clear-outfit-avatar:${c}:${o}" title="清除服装头像">${icons.trash}</button>` : '')
         + `</div></div>`;
+    if (picking) {
+        const list = Object.entries(moods).map(([mood, url]) => moodPickRow(c, o, mood, url, picking.has(mood), resolveUrl)).join('');
+        return `<div class="igs-outfit-panel" data-outfit-panel="${esc(name)}">${moodSelectBar(picking, Object.keys(moods).length)}<div class="igs-btn-mgr-list igs-outfit-slots">${list || '<div class="igs-scene-empty">暂无情绪槽</div>'}</div></div>`;
+    }
     const ownRows = Object.entries(moods).map(([mood, url]) => {
         const filled = Boolean(String(url || '').trim());
         const preview = filled ? null : previewOf(sceneAssets, charName, mood, name);
@@ -283,7 +309,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
 }
 
 // 直接选中真实衣装，初次打开优先显示默认衣装；所有操作固定真实衣装键。
-export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuItems = [], outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl, builtinImageSource = true, isOpen = () => false }) {
+export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, baseMenuItems = [], outfits, activeOutfit, sceneAssets, icons, expressionNotes, resolveUrl, builtinImageSource = true, isOpen = () => false, moodSelect = null, basePickHtml = '' }) {
     const map = plain(outfits);
     const names = Object.keys(map);
     const stored = readDefaultOutfit(sceneAssets, charName);
@@ -336,17 +362,19 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
             menuItem(`ui-toggle-open:${encSeg(metaKey)}`, isOpen(metaKey) ? '收起服装设置' : '服装设置（衣柜、别名…）'),
             menuItem(`scene-hide-outfit:${c}:${o}`, hidden(target) ? '在本卡恢复显示' : '在本卡隐藏这套'),
             faceMood ? menuItem(`outfit-face-box:${c}:${o}:${encSeg(faceMood)}`, '调整脸部位置') : '',
+            Object.keys(plain(map[target]?.moods)).length || map[target]?.base ? menuItem(`mood-select:${c}:${o}`, '批量删除表情') : '',
             menuItem(`scene-rename-outfit:${c}:${o}`, '重命名这套'),
             menuItem(`scene-remove-outfit:${c}:${o}`, '删除这套', ' is-danger'),
         ], `「${target}」的操作`)
-        : renderRowMenu([...baseMenuItems, faceMood ? menuItem(`char-face-box:${c}:${encSeg(faceMood)}`, '调整脸部位置') : ''], '角色立绘的操作');
+        : renderRowMenu([...baseMenuItems, faceMood ? menuItem(`char-face-box:${c}:${encSeg(faceMood)}`, '调整脸部位置') : '',
+            baseMoods.length ? menuItem(`mood-select:${c}:`, '批量删除表情') : ''], '角色立绘的操作');
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">+服装</button>`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add igs-outfit-tab-mood" data-action="${target ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}">+情绪</button>`
         + `${quickButtons}${menu}</div>`;
     const panel = target
-        ? renderOutfitPanel(charName, target, plain(map[target]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen)
-        : baseListHtml;
+        ? renderOutfitPanel(charName, target, plain(map[target]), baseMoods, sceneAssets, icons, expressionNotes, resolveUrl, isOpen, moodPicking(moodSelect, charName, target))
+        : (basePickHtml || baseListHtml);
     return `<div class="igs-outfit-area" data-outfit-area="${esc(charName)}">${bar}${panel}</div>`;
 }
 
@@ -651,6 +679,11 @@ button.igs-wardrobe-name{min-width:0;padding:0;border:0;background:transparent;t
 .igs-wardrobe-list.is-tall .igs-wardrobe-item.is-picked .igs-outfit-thumb{outline:2px solid var(--igs-settings-accent);outline-offset:-2px}
 .igs-wardrobe-item.is-picked .igs-asset-tile-check{background:var(--igs-settings-accent);border-color:var(--igs-settings-accent)}
 .igs-wardrobe-item.is-picked .igs-asset-tile-check::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border-right:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(45deg)}
+.igs-outfit-slot.is-selectable{position:relative;width:100%;border-left:0;border-right:0;border-top:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.igs-outfit-slot.is-selectable:not(.is-picked) .igs-outfit-thumb{opacity:.72}
+.igs-outfit-slot.is-selectable .igs-asset-tile-check{top:50%;right:10px;margin-top:-9px}
+.igs-outfit-slot.is-picked .igs-asset-tile-check{background:var(--igs-settings-accent);border-color:var(--igs-settings-accent)}
+.igs-outfit-slot.is-picked .igs-asset-tile-check::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border-right:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(45deg)}
 /* 标题行的「多选」与 ＋ 并排靠右，做成文字按钮。 */
 .igs-source-filter-title>.igs-asset-select-toggle{margin-left:auto;height:24px;padding:0 4px;background:transparent;color:var(--igs-settings-ink-3);font-weight:400}
 .igs-source-filter-title>.igs-asset-select-toggle:hover,.igs-source-filter-title>.igs-asset-select-toggle:focus-visible{background:transparent;color:var(--igs-settings-ink);outline:none}

@@ -16,6 +16,26 @@ export const STATUS_HUD_AVATAR_SOURCE_IDS = Object.freeze(['upload', 'sprite']);
 export const STATUS_HUD_AVATAR_SHIFT_MAX = 60;
 export const STATUS_HUD_AVATAR_ZOOM_MIN = 50;
 export const STATUS_HUD_AVATAR_ZOOM_MAX = 250;
+// 每个角色自己的头像取景（跟随立绘时用）：{x,y,zoom}，存在根素材库 statusAvatarCrops[主名]；没设的角色用全局拉杆。
+export function normalizeAvatarCrop(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    return {
+        x: Math.round(clampNumber(raw.x, -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX, 0)),
+        y: Math.round(clampNumber(raw.y, -STATUS_HUD_AVATAR_SHIFT_MAX, STATUS_HUD_AVATAR_SHIFT_MAX, 0)),
+        zoom: Math.round(clampNumber(raw.zoom, STATUS_HUD_AVATAR_ZOOM_MIN, STATUS_HUD_AVATAR_ZOOM_MAX, 100)),
+    };
+}
+
+export function normalizeStatusAvatarCrops(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    for (const [name, value] of Object.entries(raw)) {
+        const crop = normalizeAvatarCrop(value);
+        if (String(name || '').trim() && crop) out[name] = crop;
+    }
+    return out;
+}
+
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
 export const STATUS_HUD_TABLES_MODE_IDS = Object.freeze(['auto', 'manual']);
@@ -293,7 +313,8 @@ export function buildStatusHudModel(input = {}) {
         // 跟随立绘且本页取得到说话人立绘时用立绘裁脸；否则当前服装设了头像时优先用它，未设时沿用角色头像。
         avatar: (spriteAvatar || resolveStatusAvatar({ [character]: outfitAvatarOf(sceneAssets.characterOutfits, sceneAssets.characterAliases, character, outfit) }, character)
             || resolveStatusAvatar(sceneAssets.statusAvatars, character)),
-        avatarCrop: spriteAvatar ? { x: settings.avatarShiftX, y: settings.avatarShiftY, zoom: settings.avatarZoom } : null,
+        avatarCrop: spriteAvatar ? (normalizeAvatarCrop((sceneAssets.statusAvatarCrops || {})[character])
+            || { x: settings.avatarShiftX, y: settings.avatarShiftY, zoom: settings.avatarZoom }) : null,
         avatarRadius: settings.avatarRadius,
         background: settings.background,
         barColor: settings.barColor,

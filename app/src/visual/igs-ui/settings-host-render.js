@@ -705,10 +705,12 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 characterDna: sceneAssets.characterDna || {},
                 characterOutfits: sceneAssets.characterOutfits || {},
                 outfitTabs: asyncState.outfitTabs || {},
+                moodSelect: asyncState.moodSelect || null,
                 sceneAssets,
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                statusAvatarCrops: (draft.bridge && draft.bridge.sceneAssets && draft.bridge.sceneAssets.statusAvatarCrops) || {},
                 // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
                 magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
                 // 角色声线只在开了「角色语气音」时显示；开了「台词朗读」时改显示朗读声音（两者二选一，朗读优先）。

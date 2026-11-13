@@ -6,7 +6,7 @@ import { SHORTCUT_ACTIONS, findShortcutConflicts, resolveShortcuts, shortcutLabe
 import { STAGE_SHAKE_INTENSITIES } from './stage-shake-runtime.js';
 import { CHAT_SHOW_BUBBLE_RADIUS_LEVELS, CHAT_SHOW_DIM_LEVELS, CHAT_SHOW_PROMPT_RULE } from './chat-show-runtime.js';
 import { CHAT_SFX_PRESET_LABELS } from './chat-sfx.js';
-import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions } from './settings-outfit-fields.js';
+import { SLOT_ICONS, menuItem, transferIcons, renderCharacterSlotTabs, renderReviewCard, renderRowMenu, slotActions, moodPickRow, moodSelectBar, moodPicking } from './settings-outfit-fields.js';
 import { MAGIC_HOUSES, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { resolveCharacterMagicHouse } from './magic-house.js';
 import { manualNameColor } from './character-name-color.js';
@@ -482,6 +482,11 @@ export function renderCharacterAssetList(characters, options = {}) {
             ? `<img loading="lazy" decoding="async" class="igs-status-avatar-thumb" src="${esc(avatarSrc)}" alt="" onerror="this.classList.add('igs-sprite-thumb-broken')">`
             : `<span class="igs-status-avatar-thumb igs-status-avatar-empty" aria-hidden="true">${STATUS_AVATAR_PLACEHOLDER_SVG}</span>`;
         const avatarHtml = `<div class="igs-char-info-value igs-status-avatar-row"><input class="igs-scene-url-input igs-status-avatar-url" data-status-avatar-char="${esc(charName)}" value="${avatarStored ? '' : esc(avatarUrl)}" placeholder="${avatarStored ? '已上传到本机，也可改填https://...' : 'https://... 或data:image/...'}">${transferIcons(avatarUrl, `${charName}-头像.png`, [`status-avatar-pick:${encSeg(charName)}`, '上传头像'])}<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-generate:${encSeg(charName)}" title="按角色设定生成Q版头像">${avatarUrl ? '重画Q版' : '生成Q版'}</button>${avatarUrl ? `<button type="button" class="igs-btn-mgr-icon" data-action="status-avatar-clear:${encSeg(charName)}" title="清除头像">${trash}</button>` : ''}</div>`;
+        const avatarCropHtml = `<button type="button" class="igs-settings-action igs-status-avatar-gen" data-action="status-avatar-crop:${encSeg(charName)}" title="头像来源选「跟随立绘」时，从立绘裁出的头像位置">调整取景</button>`;
+        const outfitSlots = Object.values((outfitMap[charName] && typeof outfitMap[charName] === 'object') ? outfitMap[charName] : {})
+            .flatMap((entry) => [entry && entry.base, ...Object.values((entry && entry.moods) || {})]);
+        const hasSprite = [...Object.values(moods || {}), ...outfitSlots].some((value) => typeof value === 'string' && value.trim());
+        const avatarCrop = Boolean(options.statusAvatarCrops && options.statusAvatarCrops[charName]);
         const houseHtml = magicHouse ? renderCharacterHouseRow(charName, magicHouse) : '';
         const nameColorHtml = renderCharacterNameColorRow(charName, options.sceneAssets);
         const voiceHtml = voiceRow ? renderCharacterVoiceRow(charName, voiceRow) : '';
@@ -534,8 +539,14 @@ export function renderCharacterAssetList(characters, options = {}) {
             const expandedBody = expanded ? renderSpriteSlotExpansion(charName, mood, url, moodGroups, { pencil, trash, resolveUrl: options.resolveUrl }) : '';
             return `<div class="igs-sprite-slot">${collapsedRow}${expandedBody}</div>`;
         }).join('');
+        const basePicking = open ? moodPicking(options.moodSelect, charName, '') : null;
+        const basePickHtml = basePicking
+            ? `<div class="igs-outfit-panel">${moodSelectBar(basePicking, moodEntries.length)}<div class="igs-btn-mgr-list">${moodEntries.map(([mood, url]) => moodPickRow(encSeg(charName), '', mood, url, basePicking.has(mood), options.resolveUrl)).join('') || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`
+            : '';
         const slotArea = open && renderCharacterSlotTabs({
             charName,
+            moodSelect: options.moodSelect,
+            basePickHtml,
             builtinImageSource: options.imageSourceMode === undefined || options.imageSourceMode === 'nai',
             baseMoods: moodEntries.map(([mood]) => mood),
             baseListHtml: `<div class="igs-outfit-panel"><div class="igs-btn-mgr-list">${moodRows || '<div class="igs-scene-empty">暂无情绪</div>'}</div></div>`,
@@ -557,6 +568,8 @@ export function renderCharacterAssetList(characters, options = {}) {
             + renderRowMenu([
                 menuItem(`scene-toggle-dna:${encSeg(charName)}`, dnaOpen ? '收起角色设定' : `角色设定${characterDnaFilled(dna) ? '' : '（外貌未填）'}`),
                 menuItem(`scene-set-user-char:${encSeg(charName)}`, isUserChar ? '取消User立绘' : '设为User立绘'),
+                hasSprite ? menuItem(`status-avatar-crop:${encSeg(charName)}`, '调整头像取景') : '',
+                avatarCrop ? menuItem(`status-avatar-crop-clear:${encSeg(charName)}`, '头像取景恢复默认') : '',
                 renderCharacterCreatureMenuItem(charName, dna),
                 folderSelect(charName, { menu: true }),
                 String((moods || {}).默认 || '').trim() ? menuItem(`scene-migrate-outfit:${encSeg(charName)}`, '原装迁成差分服装') : '',
@@ -570,6 +583,7 @@ export function renderCharacterAssetList(characters, options = {}) {
                 profile: [
                     `<div class="igs-char-info-row"><span class="igs-char-info-label">别名</span>${aliasesHtml}</div>`,
                     `<div class="igs-char-info-row"><span class="igs-char-info-label">状态栏头像</span>${avatarHtml}</div>`,
+                    hasSprite ? `<div class="igs-char-info-row"><span class="igs-char-info-label">立绘头像取景</span><div class="igs-char-info-value igs-status-avatar-row">${avatarCropHtml}</div></div>` : '',
                     nameColorHtml,
                     houseHtml,
                 ].join(''),
