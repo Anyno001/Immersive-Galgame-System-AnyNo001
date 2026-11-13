@@ -58,7 +58,7 @@ export function castDuoAttr(castPlan) {
 
 export function resolveCastCapacity(mode, stage = {}) {
     if (NARROW_MODES.has(mode)) return 2;
-    if (mode === 'web' || mode === 'fullscreen') {
+    if (mode === 'web' || mode === 'dock' || mode === 'fullscreen') {
         const width = Number(stage.width) || 0;
         const height = Number(stage.height) || 0;
         if (width > 0 && (width < NARROW_STAGE_WIDTH || (height > width))) return 2;

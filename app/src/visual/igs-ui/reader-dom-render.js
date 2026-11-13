@@ -1,4 +1,5 @@
 import { syncLive2dStage } from './live2d-stage.js';
+import { normalizeFrameRadius } from '../../schemas/reader-mode.js';
 import { magicHouseFor, magicHouseVars } from './dialog-theme-css-skins.js';
 import { mermaidToneVars } from './dialog-theme-mermaid.js';
 import { resolveSpeakerMagicHouse } from './magic-house.js';
@@ -1028,7 +1029,7 @@ function statusHudKey(root, snapshot, hud, radius) {
     // 资料菜单的「人物状态」项随扩展开关增减，开关必须进重建签名。
     const combat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     try {
-        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size] : null, optionsVisible, radius, combat]);
+        return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size, hudSettings.hiddenEntries] : null, optionsVisible, radius, combat]);
     } catch {
         return '';
     }
@@ -1209,7 +1210,10 @@ export function applyStatusHudToDom(root, snapshot) {
     const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
     // 「随身系统」项只在接了引擎且总开关开着时出现，名字跟随设置里的系统名。
     const origin = resolveOriginBinding({});
-    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : []), ...(origin ? ['origin'] : [])];
+    const hiddenEntries = Array.isArray(hudSettings?.hiddenEntries) ? hudSettings.hiddenEntries : [];
+    const items = ['map', 'diary', 'inventory', 'relationships', ...(hasFavorBar ? ['favor'] : []), ...(hasCombat ? ['combat'] : []), ...(origin ? ['origin'] : [])].filter(name => !hiddenEntries.includes(name));
+    // 入口全部隐藏时连展开箭头一起不放。
+    if (!items.length) arrow.remove?.();
     for (const [category, label] of items.map(name => [name, ({ map: '地图', diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度', combat: '人物状态', origin: origin ? origin.settings.sysName || '随身系统' : '' })[name]])) {
         const button = doc.createElement('button');
         button.type = 'button';
@@ -1364,6 +1368,16 @@ export function syncEmbeddedHostFrame(root, sizeText) {
 
 // 楼层被酒馆重绘或暂时隐藏时量到宽 0。这时不能按「不是手机」钉横屏，沿用上次钉好的比例；
 // 还没钉过就按窗口宽度判断。
+export function applyFrameRadius(root, radius) {
+    const value = normalizeFrameRadius(radius);
+    const host = root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
+    for (const el of [root, host]) {
+        if (!el || !el.style) continue;
+        if (value === null) el.style.removeProperty('--igs-frame-radius');
+        else el.style.setProperty('--igs-frame-radius', `${value}px`);
+    }
+}
+
 export function pinEmbeddedHostFrame(root, backgroundSize, mode, heightScale) {
     const host = root && typeof root.closest === 'function' ? root.closest('.igs-embedded-host') : null;
     if (host && typeof host.setAttribute === 'function') host.setAttribute('data-igs-frame-scale', String(normalizeEmbeddedHeightScale(heightScale)));
@@ -1604,6 +1618,7 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         frameState.mode = snapshot.mode;
     }
     pinEmbeddedHostFrame(root, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
+    applyFrameRadius(root, snapshot.readerSettings && snapshot.readerSettings.frameRadius);
 
     let deferCgFocus = false;
     if (bg && backgroundAssetUrl) {
@@ -2328,16 +2343,16 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
     }
     const controls = root.querySelector('.igs-controls');
     // 漫画模式的输入框样式写在对话框里，悬浮时一律放回去。
-    const floatInput = snapshot.mode !== 'embedded' && !comicActive && snapshot.readerSettings.inputPlacement === 'float';
+    const floatInput = snapshot.mode !== 'embedded' && snapshot.mode !== 'dock' && !comicActive && snapshot.readerSettings.inputPlacement === 'float';
     if (root.setAttribute) root.setAttribute('data-igs-input', floatInput ? 'float' : 'dialog');
     if (controls && dialog) {
         if (floatInput && controls.parentNode !== root) root.appendChild(controls);
         else if (!floatInput && controls.parentNode !== dialog) dialog.insertBefore(controls, dialog.querySelector('#igs-dialog-bar'));
     }
     if (controls) {
-        // 内嵌模式使用酒馆默认输入框；回读旧楼不提供输入区，其它模式仅在最新楼末页显示。
+        // 内嵌和全屏留输入框模式使用酒馆默认输入框；回读旧楼不提供输入区，其它模式仅在最新楼末页显示。
         const comicSent = isComicModeActive(snapshot.readerSettings) && current.comicInputSent && current.comicInputSent === comicContentKey(snapshot);
-        controls.style.display = snapshot.mode === 'embedded' || Number(current.turnOffset) > 0 ? 'none' : (isLastPage ? '' : 'none');
+        controls.style.display = snapshot.mode === 'embedded' || snapshot.mode === 'dock' || Number(current.turnOffset) > 0 ? 'none' : (isLastPage ? '' : 'none');
         if (comicSent) controls.setAttribute('data-igs-comic-sent', '1');
         else controls.removeAttribute('data-igs-comic-sent');
     }

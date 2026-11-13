@@ -1,4 +1,5 @@
 import { normalizeMyPhone } from './my-phone.js';
+import { normalizeFrameRadius } from '../../schemas/reader-mode.js';
 import { normalizeQuickActions } from '../../choices/option-sources.js';
 import { normalizePromptEntries } from '../../scene/prompt-entries.js';
 import { normalizeDlcFxSettings } from '../../scene/fx-registry.js';
@@ -289,10 +290,12 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         spriteDisplayScale: 100,
         showStatusLine: false,
         dblclickCgOnly: false,
+        dockCoverStatusBar: false,
         titleScreen: true,
         resumePrompt: 'title',
         dialogAutoHeight: false,
         embeddedHeight: 1,
+        frameRadius: null,
         // 场景在水下时对话框自动换成深海人鱼。
         underwaterSkin: true,
         mermaidTone: MERMAID_TONE_DEFAULT,
@@ -366,10 +369,12 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.imgBrightness = clampNumber(normalizeFiniteNumber(normalized.imgBrightness, base.imgBrightness), 10, 100);
     normalized.showStatusLine = normalizeBoolean(normalized.showStatusLine, false);
     normalized.dblclickCgOnly = normalizeBoolean(normalized.dblclickCgOnly, false);
+    normalized.dockCoverStatusBar = normalizeBoolean(normalized.dockCoverStatusBar, false);
     normalized.titleScreen = normalizeBoolean(normalized.titleScreen, true);
     normalized.resumePrompt = normalized.resumePrompt === 'simple' ? 'simple' : 'title';
     normalized.dialogAutoHeight = normalizeBoolean(normalized.dialogAutoHeight, false);
     normalized.embeddedHeight = [0.8, 1, 1.25, 1.5].includes(Number(normalized.embeddedHeight)) ? Number(normalized.embeddedHeight) : 1;
+    normalized.frameRadius = normalizeFrameRadius(normalized.frameRadius);
     normalized.underwaterSkin = normalizeBoolean(normalized.underwaterSkin, true);
     normalized.mermaidTone = normalizeMermaidTone(normalized.mermaidTone);
     normalized.mermaidAccent = normalizeMermaidAccent(normalized.mermaidAccent);

@@ -1671,7 +1671,10 @@ export function createCombatSession(options = {}) {
             }
             return deliverReportOnce(report);
         };
-        return paid.length && typeof ledger?.withPointsLock === 'function' ? ledger.withPointsLock(deliver) : deliver();
+        if (!paid.length || typeof ledger?.withPointsLock !== 'function') return deliver();
+        // 上次积分写入没落完会留待补记录，花积分前先补完；必须在积分锁外调用，补写自己也要拿这把锁。
+        const recover = typeof options.pointsRecover === 'function' ? Promise.resolve(options.pointsRecover()).catch(() => null) : Promise.resolve();
+        return recover.then(() => ledger.withPointsLock(deliver));
     }
     async function deliverReportOnce(report) {
         const existing = findReportFloor(getChat(), current.anchor.messageId, report.reportId);
@@ -1826,6 +1829,19 @@ export function createCombatSession(options = {}) {
         return ok();
     };
 
+    // 更晚的开战楼开打时，之前楼层没发战报的战斗（中途关闭、撤退后未发送）作废，存档与待发战报一并清掉。
+    function dropSuperseded(messageId) {
+        const anchorId = Number(current.anchor?.messageId);
+        if (!['battle', 'ended', 'send-failed'].includes(current.status) || !Number.isInteger(anchorId) || !(Number(messageId) > anchorId)) return false;
+        if (sending || findReportFloor(getChat(), anchorId, current.reportId) >= 0) return false;
+        clearSession();
+        if (current.combatId) setOutbox(current.combatId, null);
+        flipContext = null;
+        setState({ status: 'idle' });
+        notify();
+        return true;
+    }
+
     // 恢复：按会话记录（种子+动作序列）重放战斗，或回到待发送/已完成状态
     function resume() {
         const outbox = readOutbox();
@@ -1890,7 +1906,7 @@ export function createCombatSession(options = {}) {
     }
 
     return {
-        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, pickPurge, pickUpgrade, reroll, skip, restart, resume, reset, subscribe, state: snapshot,
+        prepare, start, act, autoPlay, abandon, pickChallengeAllies, setIntimateOptions, finish, retrySend, retryReward, loadFlip, flip, choose, pickCard, pickPurge, pickUpgrade, reroll, skip, restart, resume, reset, dropSuperseded, subscribe, state: snapshot,
         // 以下为写盘节流新增：立即落盘、写盘统计、释放监听器
         flushPersist,
         getPersistStats: () => ({ ...persist.stats, pending: persist.hasPending() }),

@@ -72,3 +72,26 @@ test('对局中刷新后按种子与动作序列恢复同一局', async () => {
     assert.equal(second.session.state().battle.turn, turn);
 });
 
+
+test('上一场撤退后未发战报，更晚的开战楼开打时旧战斗作废、新挑战进入大厅', async () => {
+    const storage = memoryStorage();
+    const first = makeSession({ storage });
+    await first.session.prepare(0);
+    first.session.start();
+    assert.ok(first.session.act({ type: 'escape' }).ok);
+    assert.equal(first.session.state().status, 'ended');
+    first.session.flushPersist();
+    first.chat.push({ is_user: true, mes: '继续' }, { is_user: false, mes: `又一场。\n[igs-challenge:夺枪|格斗|普通|体力]`, swipe_id: 0 });
+    const second = makeSession({ storage, chat: first.chat });
+    second.session.resume();
+    assert.ok(['ended', 'send-failed'].includes(second.session.state().status));
+    assert.equal(second.session.dropSuperseded(0), false);
+    assert.equal(second.session.dropSuperseded(2), true);
+    assert.equal(second.session.state().status, 'idle');
+    await second.session.prepare(2);
+    assert.equal(second.session.state().status, 'lobby');
+    assert.equal(second.session.state().anchor.messageId, 2);
+    const third = makeSession({ storage, chat: first.chat });
+    third.session.resume();
+    assert.notEqual(third.session.state().status, 'ended');
+});

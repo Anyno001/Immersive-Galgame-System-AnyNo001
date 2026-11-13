@@ -17,13 +17,10 @@ import { renderStatsHeroDashboard } from './stats-hero-card.js';
 
 // 提示词分组：每段可单独开关。「roll」是 CoC 沿用的旧段名，「dice」是 v0.39 的新段名，两者哪个存在就显示哪个。
 export const STAT_PROMPT_LABELS = Object.freeze({
-    source: '数值来源声明',
     protagonist: '主角状态',
     fame: '声望',
-    skills: '主角技能',
     perception: '主角感知',
     present: '在场角色',
-    sheets: '在场角色的本事',
     check: '本轮检定',
     roll: '本轮检定骰面',
     dice: '骰序与检定写法',

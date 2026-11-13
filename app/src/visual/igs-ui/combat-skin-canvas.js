@@ -92,3 +92,62 @@ export function canvasGhostWrap(doc, cardEl) {
     wrap.appendChild(inner);
     return { wrap, inner };
 }
+
+// 结算三选一的候选牌：用本皮肤手牌的放大牌标记，去掉绝对定位与扇形，改成 pick-card 按钮（不带 data-combat-act="card"，不会被当成出牌）。
+// html 是皮肤 cardHtml 以「已选中、费用足够」状态渲染的整张牌；这里只改根节点：去内联位置、换动作与标签、加已选 / 跳过 / 待定态。
+export function rewardCardMarkup(html, { index, chosen, dim, pending }) {
+    let out = String(html).replace(/^(<[a-z]+ [^>]*?) style="[^"]*"/, '$1');
+    out = out.replace(/data-combat-act="card" data-combat-id="[^"]*"/, `data-combat-act="pick-card" data-combat-id="${index}"`)
+        .replace(/^(<[a-z]+ [^>]*?)class="card /, `$1class="card rw-card${chosen ? ' is-chosen' : ''}${dim ? ' is-dim' : ''} `)
+        .replace(/ aria-label="/, ` aria-label="选择 `)
+        .replace(/ aria-disabled="true"/, '');
+    if (chosen) out = out.replace(/ aria-label="([^"]*)"/, ' aria-label="$1（已选定）"');
+    if (pending) out = out.replace(/^(<[a-z]+ )/, '$1aria-disabled="true" ');
+    return out;
+}
+// 候选牌排布容器：套皮肤的影子作用域（igs-cx-ghost 带 data-cx，吃到该皮肤的牌面样式，面板控制器的画布点击 / 拖拽只认 igs-cx-canvas，不会碰到），一行静态排布。
+// size 是放大牌的设计宽高；窄屏按可用宽度等比缩小（--rw-k 由 zoom 吃掉）。
+// 说明区（设计 px）：fs 字号、dw 可用宽、lh 行高、room 皮肤原高里容得下的行数。
+const REWARD_TEXT = {
+    comic: { port: { fs: 10, dw: 114, lh: 13.5, room: 2 }, land: { fs: 10, dw: 149, lh: 13.5, room: 2 } },
+    veil: { port: { fs: 10, dw: 96, lh: 13.5, room: 2 }, land: { fs: 11, dw: 124, lh: 14.9, room: 2 } },
+    ink: { port: { fs: 10, dw: 82, lh: 14.5, room: 2 }, land: { fs: 11, dw: 116, lh: 16, room: 2 } },
+    tech: { port: { fs: 10, dw: 108, lh: 13.5, room: 2 }, land: { fs: 10, dw: 132, lh: 13.5, room: 2 } },
+    mystic: { port: { fs: 13, dw: 109, lh: 19.5, room: 2 }, land: { fs: 13, dw: 142, lh: 19.5, room: 2 } },
+    'soft-a': { port: { fs: 11, dw: 115, lh: 16, room: 2 }, land: { fs: 12, dw: 140, lh: 17.4, room: 2 } },
+    'soft-c': { port: { fs: 11, dw: 115, lh: 16, room: 2 }, land: { fs: 12, dw: 140, lh: 17.4, room: 2 } },
+    'dark-a': { port: { fs: 11, dw: 124, lh: 15, room: 2 }, land: { fs: 12, dw: 152, lh: 17, room: 2 } },
+    'dark-b': { port: { fs: 11, dw: 124, lh: 15, room: 2 }, land: { fs: 12, dw: 152, lh: 17, room: 2 } },
+};
+export function rewardRowMarkup(key, orient, cards, size, vars = '', texts = []) {
+    // 按本行最长的说明定高：都放得下保持皮肤原高，放不下才按行数加高；同一行三张同高。
+    const tm = REWARD_TEXT[key]?.[orient === 'land' ? 'land' : 'port'];
+    const extra = !tm ? 0 : Math.max(0, ...texts.map((t) => Math.ceil(Math.max(0, Math.ceil([...String(t || '')].length / Math.max(1, Math.floor(tm.dw / tm.fs))) - tm.room) * tm.lh)));
+    const h = size.h + extra;
+    const land = orient === 'land';
+    const avail = size.avail ?? (land ? 460 : Math.max(240, canvasW(orient) - 56));
+    const n = Math.max(1, cards.length);
+    const k = Math.min(1, avail / (n * size.w + (n - 1) * 8));
+    return `<div class="igs-cx-ghost igs-cx-rw${land ? ' land' : ''}" data-cx="${key}" style="--rw-k:${k.toFixed(3)}"><div class="hand cx-rw-hand" style="${vars && !String(vars).endsWith(";") ? `${vars};` : vars}--rw-w:${size.w}px;--rw-h:${h}px">${cards.join('')}</div></div>`;
+}
+export const REWARD_ROW_CSS = `
+#igs-overlay .igs-cx-ghost.igs-cx-rw{position:relative;left:auto;top:auto;pointer-events:auto;z-index:auto;display:flex;justify-content:center;width:auto;max-width:100%;zoom:var(--rw-k,1);touch-action:auto;flex-direction:row;align-items:flex-start;gap:0;padding:0;margin:0;min-height:0;background:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw *{touch-action:auto;}
+#igs-overlay .igs-sfx-result .rs-ui:has(.igs-combat-loot-choices.is-full){left:14px;right:14px;width:auto;}
+#igs-overlay .igs-sfx-result.land .rs-ui:has(.igs-combat-loot-choices.is-full){left:auto;right:120px;width:560px;}
+#igs-overlay .igs-combat-loot:has(>.igs-combat-loot-choices.is-full)>.igs-combat-loot-row:not(.igs-combat-loot-choices):not(.ink-keep){display:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand{position:static;display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:8px;left:auto;top:auto;width:auto;height:auto;transform:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand>.card.card.card.card.card{position:relative;flex:none;left:auto;top:auto;bottom:auto;right:auto;width:var(--rw-w);height:var(--rw-h);margin:0;transform:none;rotate:none;opacity:1;filter:none;cursor:pointer;z-index:auto;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw .card.card.card.card.card :is(.fx,.desc,.ds){display:block;-webkit-line-clamp:unset;line-clamp:unset;overflow:visible;text-overflow:clip;white-space:normal;word-break:break-all;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw[data-cx="ink"] .card.card.card.card.card .name.n5{white-space:normal;font-size:11px;line-height:13px;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw[data-cx="ink"].land .card.card.card.card.card .name.n5{font-size:15px;line-height:17px;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw:is([data-cx="soft-a"],[data-cx="soft-c"])>.hand{align-items:stretch;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw:is([data-cx="soft-a"],[data-cx="soft-c"])>.hand>.card.card.card.card.card{height:auto;padding-bottom:10px;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw:is([data-cx="soft-a"],[data-cx="soft-c"]) .card.card.card.card.card .desc{position:static;margin-top:128px;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw.land:is([data-cx="soft-a"],[data-cx="soft-c"]) .card.card.card.card.card .desc{margin-top:142px;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw:is([data-cx="soft-a"],[data-cx="soft-c"]) .card.card.card.card.card .kws{position:static;margin-top:6px;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw:is([data-cx="soft-a"],[data-cx="soft-c"]) .card.card.card.card.card .kws:empty{display:none;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw:is([data-cx="soft-a"],[data-cx="soft-c"]) .card.card.card.card.card .kw{width:24px;height:24px;font-size:13px;background:var(--tc);color:#fff;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand>.card.card.card.card.card.is-dim{opacity:.55;}
+#igs-overlay .igs-cx-ghost.igs-cx-rw>.hand>.card.card.card.card.card.is-chosen{transform:translateY(-4px);}
+`;

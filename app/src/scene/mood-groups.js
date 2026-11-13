@@ -6,7 +6,7 @@ export const WEATHER_GROUPS_PLACEHOLDER = '{{weather_groups}}';
 // 表情分组预设：按「这张脸在台上起什么作用」分——8 档打底（每个大方向一张），
 // 12 档补关系互动，16 档补情绪大档，20 档补性格细节。默认是底图。
 // 动情进 20 档：不开 NSFW 时是全年龄版（含情注视），开了 NSFW 换成 actNsfw / tagsNsfw。
-// tier 是这一组从哪一档开始出现（0 为兜底，8/12/16/20 为档位）。
+// tier 是这一组从哪一档开始出现（0 为兜底，8/12/16/20/25 为档位）。
 // parent 是同方向的另一档，档位不够时按它回退；回退链最后都落到 8 档的组，垫底是不进档位的默认。
 // act 是这组的招牌动作，use 是这组该用在什么场面，两者都写进生图描述，避免组间混用和撞脸。
 // tags 是这组的英文表情标签，出图前硬合进 caption：写词插件常常漏写表情。
@@ -32,7 +32,7 @@ const PRESET_SOURCE = [
         words: ['害羞', '羞涩', '脸红', '羞耻', '扭捏', '不好意思'] },
     { label: '紧张', tier: 8, parent: '怀疑', act: '身体绷紧，眉头皱起，手不知往哪放',
         use: '怕做错事、等待结果、面对强势的人的时候', tags: 'nervous, worried, furrowed brow',
-        words: ['紧张', '焦虑', '不安', '忐忑', '担忧', '慌张', '害怕', '恐惧', '惊恐', '畏惧', '胆怯'] },
+        words: ['紧张', '焦虑', '不安', '忐忑', '慌张'] },
     { label: '思考', tier: 8, parent: '平和', act: '手托下巴，视线偏到一边，眉头轻蹙',
         use: '想事情、犹豫不决、回想过去的时候', tags: 'thinking, hand on own chin, looking to the side',
         words: ['思考', '沉思', '琢磨', '回忆', '疑惑', '困惑', '迷茫', '纠结', '犹豫', '若有所思'] },
@@ -44,13 +44,13 @@ const PRESET_SOURCE = [
         words: ['嫌弃', '厌恶', '反感', '排斥', '鄙视', '鄙夷', '不屑', '白眼', '冷哼'] },
     { label: '得意', tier: 12, parent: '喜悦', act: '抬起下巴，嘴角单边上扬，双手叉腰',
         use: '赢了、占了上风、逗到对方的时候', tags: 'smug, smirk, hands on own hips',
-        words: ['得意', '骄傲', '自豪', '自信', '傲慢', '炫耀', '嚣张', '挑衅', '坏笑', '捉弄', '狡黠', '嘲讽', '讥讽', '讽刺', '嗤笑', '讥笑', '冷笑', '揶揄', '戏谑', '阴阳怪气'] },
+        words: ['得意', '骄傲', '自豪', '自信', '傲慢', '炫耀', '嚣张', '挑衅', '嘲讽', '讥讽', '讽刺', '嗤笑', '讥笑', '冷笑', '揶揄', '戏谑', '阴阳怪气'] },
     { label: '冷淡', tier: 12, parents: ['平和', '嫌弃'], act: '视线移开不看对方，半垂着眼，面无表情',
         use: '好感度低、在生气不想理人、懒得回应的时候', tags: 'looking away, half-closed eyes, expressionless, cold',
         words: ['冷淡', '冷漠', '疏离', '无视', '敷衍', '爱答不理', '懒得理'] },
     { label: '大笑', tier: 16, parent: '喜悦', act: '张嘴大笑，眼睛眯成缝，身体前倾',
         use: '笑到失控、气氛最热的时候', tags: 'laughing, open mouth, closed eyes, leaning forward',
-        words: ['大笑', '狂喜', '兴奋', '雀跃', '激动', '欢呼', '畅快', '捧腹'] },
+        words: ['大笑', '狂喜', '欢呼', '畅快', '捧腹'] },
     { label: '哭泣', tier: 16, parent: '悲伤', act: '落泪，眼角和鼻尖发红，手抹眼泪',
         use: '忍不住哭出来、情绪崩溃的时候', tags: 'crying, tears, streaming tears, wiping tears, blush',
         words: ['哭泣', '落泪', '流泪', '哽咽', '大哭', '痛哭', '心痛', '悲痛', '痛苦', '崩溃'] },
@@ -73,6 +73,21 @@ const PRESET_SOURCE = [
         use: '告白前后、接吻前、距离一下子拉近的时候', tags: 'blush, half-closed eyes, parted lips, looking at viewer',
         actNsfw: '眼神迷离，呼吸略急，身体贴向对方', tagsNsfw: 'blush, half-closed eyes, parted lips, heavy breathing',
         words: ['动情', '情动', '迷离', '意乱情迷', '渴求', '燥热'] },
+    { label: '害怕', tier: 25, parent: '紧张', act: '身体缩起，眼睛睁大，手护在胸前，往后退半步',
+        use: '遇到危险、被吓到、面对恐怖事物的时候', tags: 'scared, wide-eyed, trembling, hands on own chest',
+        words: ['害怕', '恐惧', '惊恐', '畏惧', '胆怯', '惧怕', '发抖', '吓坏'] },
+    { label: '兴奋', tier: 25, parent: '喜悦', act: '眼睛发亮，双手握拳举在胸前，身体前倾',
+        use: '期待已久的事要发生、听到好消息忍不住的时候', tags: 'excited, sparkling eyes, open mouth, clenched hands',
+        words: ['兴奋', '雀跃', '激动', '跃跃欲试', '迫不及待', '亢奋'] },
+    { label: '担忧', tier: 25, parent: '紧张', act: '眉头微蹙，视线落在对方身上，手轻握在胸前',
+        use: '牵挂对方、对方受伤或遇到麻烦的时候', tags: 'worried, furrowed brow, frown, hand on own chest',
+        words: ['担忧', '担心', '牵挂', '挂念', '忧虑', '放心不下'] },
+    { label: '坚定', tier: 25, parent: '平和', act: '目光直视前方，嘴唇抿紧，下巴微抬，握紧拳头',
+        use: '下定决心、立誓、迎战的时候', tags: 'determined, serious, closed mouth, clenched hand, looking at viewer',
+        words: ['坚定', '决心', '决然', '毅然', '果断', '斗志', '不屈'] },
+    { label: '调皮', tier: 25, parent: '得意', act: '眨一只眼，吐舌头，手指比在脸旁',
+        use: '开玩笑、恶作剧、逗对方的时候', tags: 'playful, one eye closed, tongue out, smile',
+        words: ['调皮', '俏皮', '淘气', '顽皮', '坏笑', '捉弄', '狡黠', '恶作剧'] },
     { label: '默认', tier: 0, act: '无表情，面无表情，闭嘴，眼神平视，带一个轻量的日常小动作，身体放松',
         use: '没有明确情绪、刚出场、当背景的时候', tags: 'expressionless, closed mouth',
         words: ['无表情', '面无表情', '无语', '木然', '沉默', '默然', '麻木', '认真', '严肃', '发呆', '愣神', '呆滞'] },

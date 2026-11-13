@@ -4,6 +4,7 @@
 // 合成读 api.has(state, 名, 'combo:合成名')；读不到的环境（地点、时间、声望条）一律静默不生效。
 import { FAVOR_GATES, gateKey } from './stat-vocab.js';
 import { fameValue } from './stat-fame.js';
+import { hookGrudge } from './stat-habit.js';
 import { barsOf, clamp, withBars, withCharacter, withClock } from './stat-state.js';
 import { calcRow, getStatusDef, withCalc } from './stat-status-defs.js';
 import { applyStatusChange, hasStatus } from './stat-status.js';
@@ -192,7 +193,7 @@ function deadTraitHook(state, api) {
         // 控制狂：主角顺从（被迫、被支配）那一楼好感小升；主角拒绝其那一楼芥蒂小升。
         if (has('控制狂')) {
             if (here.has(name) && api.directives.some((d) => d.kind === 'stress' && !d.target && d.value === '上升' && FORCED.has(d.source))) next = moveDim(next, name, '好感', FAVOR_SMALL, '控制狂', ctx.changes);
-            if (reviewed(ctx, name, '拒绝')) next = moveDim(next, name, '芥蒂', GRUDGE_SMALL, '控制狂', ctx.changes);
+            if (reviewed(ctx, name, '拒绝')) next = moveDim(next, name, '芥蒂', hookGrudge(ctx, name, '拒绝', GRUDGE_SMALL), '控制狂', ctx.changes);
         }
         // 口嫌体正直：其被拒绝的那一楼，欲望不降反小升。
         if (has('口嫌体正直') && reviewed(ctx, name, '拒绝')) {

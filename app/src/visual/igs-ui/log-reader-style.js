@@ -174,6 +174,7 @@ ${ON} #igs-log[data-editing] .igs-log-av[data-picked]:not(.is-letter){box-shadow
 #igs-log-edit-bar span{min-width:0;margin-right:6px;overflow:hidden;text-overflow:ellipsis;color:var(--igs-log-sub);white-space:nowrap;}
 #igs-log-edit-bar button{flex:none;height:28px;min-width:52px;padding:0 12px;border:0;border-radius:999px;background:var(--igs-log-plate);color:inherit;font:inherit;cursor:pointer;white-space:nowrap;}
 #igs-log-edit-bar button[data-log-zoom]{min-width:36px;padding:0;font-size:16px;}
+#igs-log-edit-bar button[aria-pressed="true"]{box-shadow:inset 0 0 0 1.5px var(--igs-log-acc);color:var(--igs-log-acc);}
 #igs-log-edit-bar button:disabled{color:var(--igs-log-sub);cursor:default;}
 #igs-log-edit-bar button[data-log-edit="save"]{background:var(--igs-log-acc);color:rgb(var(--igs-log-veil));font-weight:600;}
 @media (prefers-reduced-motion:reduce){#igs-log .igs-fx-symbol,#igs-log .igs-fx-symbol *,#igs-log .igs-log-fl,#igs-log .igs-log-fade,#igs-log .igs-log-row.is-shake .igs-log-body,#igs-log .igs-log-flash.is-on{animation:none!important;}#igs-log .igs-log-fl{opacity:1;}}

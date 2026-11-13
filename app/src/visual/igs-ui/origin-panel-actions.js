@@ -221,7 +221,7 @@ export async function runOriginAction(name, el, ctx) {
     case 'shop-add': {
         const name2 = trim(await ask('商品名'));
         if (!name2) return { ok: true, cancelled: true };
-        const price = Math.max(0, intOr(await ask('价格，单位积分', '300'), 300));
+        const price = Math.max(0, intOr(await ask('价格，单位积分', '60'), 60));
         const desc = trim(await ask('说明'));
         const effect = trim(await ask('数值效果（可空），例如：魅力+10、好感+20'));
         return dispatch(OP.addShop({ name: name2, price, desc, effect }));

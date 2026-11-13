@@ -737,6 +737,48 @@ function pulseSpriteBeat(root, tone, reduced) {
     try { sprite.animate(frames.sort((a, b) => a.offset - b.offset).filter((f, i, a) => i === 0 || f.offset > a[i - 1].offset), { duration: 2400, easing: 'ease-out', composite: 'add' }); } catch { /* 无 WAAPI */ }
 }
 
+// 通知卡共用：标签 notify 与外部接口 playExternalNotify 走同一套节点、皮肤、古风与通知音。
+function showNotifyCard(ctx, effect, life, soundSettings, spam) {
+    const { state, layers, doc, options } = ctx;
+    // 古代背景是家仆通报：右侧滑入一张竖排纸条，朱印「禀」字打头，梆子两声。
+    const el = node(doc, (ctx.ancient ? 'igs-fx-notify is-ancient' : 'igs-fx-notify') + (ctx.worldSkin || ''));
+    if (ctx.ancient) el.appendChild(node(doc, 'igs-fx-notify-seal', '禀'));
+    if (effect.sender) el.appendChild(node(doc, 'igs-fx-notify-sender', effect.sender));
+    el.appendChild(node(doc, 'igs-fx-notify-text', effect.text));
+    // 广告只会发到手机上：古代带着随身手机也套广告样式。
+    if (spam) applySpamCard(doc, el, effect);
+    spawnNotice(state, layers.front, el, life);
+    sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), soundSettings, options);
+}
+
+// 世界观换音色：古代梆子沿用原值，西幻 / 科幻 / 末日用 fx-sfx 的 notify-<id>，现代与未知 id 退回 notify；换皮类名同理。
+function notifyEra(readerSettings) {
+    const ancient = Boolean(readerSettings && readerSettings._ancientEra === true);
+    const worldview = String((readerSettings && readerSettings._worldview) || '');
+    const skinned = Boolean(worldSkinOf(worldview));
+    return { ancient, worldview, notifySound: ancient ? 'notify-ancient' : skinned ? `notify-${worldview}` : 'notify', worldSkin: skinned ? ` is-${worldview}` : '' };
+}
+
+const EXTERNAL_NOTIFY_LIMIT = Object.freeze({ sender: 24, text: 80 });
+const clip = (value, max) => Array.from(text(value)).slice(0, max).join('');
+
+// 外部直接播一张通知卡：不经正文解析、不套广告卡、不写任何聊天数据。
+export function playExternalNotify(root, message, options = {}) {
+    const body = clip(message && message.text, EXTERNAL_NOTIFY_LIMIT.text);
+    if (!root || !body) return { played: 0 };
+    const readerSettings = options.readerSettings;
+    const settings = normalizeFxReaderSettings(readerSettings);
+    if (!enabledFxTagKinds(settings.fxTags).includes('notify')) return { played: 0 };
+    const layers = ensureFxLayers(root);
+    if (!layers) return { played: 0 };
+    const state = getState(root, options);
+    const era = notifyEra(readerSettings);
+    const ctx = { state, layers, doc: layers.doc, options, ...era };
+    const life = Math.round(FX_LIFETIME_MS.notify * (FX_HOLD_SCALE[settings.fxStyle.hold] || 1));
+    showNotifyCard(ctx, { sender: clip(message.sender, EXTERNAL_NOTIFY_LIMIT.sender), text: body }, life, settings.fxSound, false);
+    return { played: 1 };
+}
+
 function playEffect(effect, ctx) {
     const { state, layers, doc, snapshot, options, reduced, plan, root } = ctx;
     const base = effect.type === 'title'
@@ -779,15 +821,8 @@ function playEffect(effect, ctx) {
         const stack = persistent(layers.front, doc, 'igs-fx-favor-stack');
         spawn(state, stack, el, life);
     } else if (effect.type === 'notify') {
-        // 古代背景是家仆通报：右侧滑入一张竖排纸条，朱印「禀」字打头，梆子两声。
-        const el = node(doc, (ctx.ancient ? 'igs-fx-notify is-ancient' : 'igs-fx-notify') + (ctx.worldSkin || ''));
-        if (ctx.ancient) el.appendChild(node(doc, 'igs-fx-notify-seal', '禀'));
-        if (effect.sender) el.appendChild(node(doc, 'igs-fx-notify-sender', effect.sender));
-        el.appendChild(node(doc, 'igs-fx-notify-text', effect.text));
-        // 广告只会发到手机上：古代带着随身手机也套广告样式。
-        if ((!ctx.ancient || ctx.snapshot.readerSettings._carryPhone === true) && spamAllowed(ctx.snapshot.readerSettings)) applySpamCard(doc, el, effect);
-        spawnNotice(state, layers.front, el, life);
-        sound(state, ctx.notifySound || (ctx.ancient ? 'notify-ancient' : 'notify'), plan.sound, options);
+        const spam = (!ctx.ancient || ctx.snapshot.readerSettings._carryPhone === true) && spamAllowed(ctx.snapshot.readerSettings);
+        showNotifyCard(ctx, effect, life, plan.sound, spam);
     } else if (effect.type === 'delivery') {
         // 外卖 / 快递：顶部配送卡片；下单只响通知音，送到时按门铃「叮咚」。
         const el = renderDeliveryCard(doc, effect, ctx.worldSkin || '');
@@ -1276,14 +1311,8 @@ export function applyFxToDom(root, snapshot, options = {}) {
     }
     state.accent = accent;
     setFlag(motion, 'data-igs-fx-motion', plan.style.motion === 'snappy', 'snappy');
-    const ancient = Boolean(snapshot.readerSettings && snapshot.readerSettings._ancientEra === true);
+    const { ancient, worldview, notifySound, worldSkin } = notifyEra(snapshot.readerSettings);
     setFlag(motion, 'data-igs-fx-era', ancient, 'ancient');
-    // 世界观换音色：古代梆子沿用原值，西幻 / 科幻 / 末日用 fx-sfx 的 notify-<id>，现代与未知 id 退回 notify。
-    const worldview = String((snapshot.readerSettings && snapshot.readerSettings._worldview) || '');
-    const notifySound = ancient ? 'notify-ancient'
-        : worldSkinOf(worldview) ? `notify-${worldview}` : 'notify';
-    // 换皮类名：西幻 / 科幻 / 末日追加 is-<id>，古代与现代为空（古代沿用 is-ancient 分支）。
-    const worldSkin = worldSkinOf(worldview) ? ` is-${worldview}` : '';
     // 仙侠水墨皮肤：古代背景里再追加 is-xianxia，过场卡等换成泼墨静态外观。
     const xianxiaInk = ancient && String((snapshot.readerSettings && snapshot.readerSettings.dialogSkin) || '') === 'xianxia-ink' ? ' is-xianxia' : '';
     const rangeBefore = { flashback: (motion.getAttribute('data-igs-fx-flashback') != null), dream: (motion.getAttribute('data-igs-fx-dream') != null), letterbox: (motion.getAttribute('data-igs-fx-letterbox') != null), whisper: (motion.getAttribute('data-igs-fx-whisper') != null) };

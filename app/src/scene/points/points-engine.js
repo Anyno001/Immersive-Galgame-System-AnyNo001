@@ -31,7 +31,8 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
     }
     async function commit(held, record, { recovering = false, shouldStart = () => true } = {}) {
         if (!held.valid() || !shouldStart()) return fail('request-stale');
-        const before = held.db.read({ fresh: true, intent: record });
+        // 同一把锁里 fresh() 刚读过；任何写入都会作废共享缓存，写入队列判重另读新数据。
+        const before = held.db.read({ intent: record });
         if (!before.ok) return before;
         const present = before.rows.some(row => row.id === record.id);
         const active = activePointsAnchor(record.payload.anchor, chat());

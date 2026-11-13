@@ -938,7 +938,8 @@ async function runOutfitAction(match, ctx) {
     case 'scene-rename-outfit-mood':
     case 'scene-remove-outfit-mood': {
         const oldMood = decodeSeg(segs[2] || '');
-        if (!hasOwn(outfitSpriteSlots(entry), oldMood)) return rerenderSettings();
+        // 生成失败留下的空格子地址为空，outfitSpriteSlots 会把它滤掉；删除和改名要认它。
+        if (!hasOwn(outfitSpriteSlots(entry), oldMood) && !hasOwn(entry.moods || {}, oldMood)) return rerenderSettings();
         if (command === 'scene-remove-outfit-mood') {
             const remaining = { ...entry.moods };
             delete remaining[oldMood];

@@ -14,6 +14,8 @@ import { snapshotAssetLibrary } from '../../scene/asset-scope.js';
 import { collectImageReferences } from '../../media/image-references.js';
 import { writeZip } from '../../media/archive-zip.js';
 import { createArchiveDownload } from '../../media/archive-download.js';
+import { downloadCgEntry, downloadCgZip } from '../../media/cg-download.js';
+import { cgReasonText } from '../../media/cg-library.js';
 import { createTavernImageFiles } from '../../media/tavern-image-files.js';
 import { dataUrlBlob } from '../../media/image-identity.js';
 import { writeCheckedStorage } from '../../storage/checked-storage-write.js';
@@ -39,6 +41,8 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { collectPromptContext } from '../../host/prompt-context.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
+import { pickFaceBox } from './face-box-picker.js';
+import { normalizeFaceBox } from '../../generated-images/illustration/face-edit-plan.js';
 import { fxPromptsCopyText } from './fx-settings-fields.js';
 import { defaultPromptEntryMode, isPromptEntryKey, normalizePromptEntry } from '../../scene/prompt-entries.js';
 import { getLastPromptReport } from '../../scene/prompt-triggers.js';
@@ -69,6 +73,7 @@ import { BGM_ACTION_RE, handleBgmSettingsAction } from './bgm-settings-actions.j
 import { deleteTavernFont, loadCustomFonts, pickFontFile, saveCustomFonts, uploadFontFile } from '../../media/custom-fonts.js';
 import { recoverMediaOperation } from '../../media/tavern-media-http.js';
 import { normalizeSpriteHeads } from './fx-anchor.js';
+import { clearPromptCaptures, formatAllPromptCaptures, formatPromptCapture, listPromptCaptures } from '../../generated-images/image-prompt-capture.js';
 import { formatImageJobLogText } from '../../generated-images/image-job-log.js';
 import { addGeneratedAssetToLibrary, bindGeneratedBackground, bindGeneratedSprite, collectGeneratedImageIds, generatedAssetIdOf, isGeneratedAssetUrl, normalizeGeneratedLibrary, removeGeneratedLibraryEntry, renameGeneratedLibraryEntry, setGeneratedExpressionNote } from '../../scene/asset-match.js';
 import { resolveCharacterDna, normalizeCharacterDna, normalizeCharacterDnaMap, readCharacterDnaView, removeCharacterDna, renameCharacterDna } from '../../scene/character-dna.js';
@@ -122,6 +127,26 @@ const ASSET_UPLOAD_MIME = /^image\/(?:png|jpeg|webp|gif)$/i;
 function decodeSeg(value) {
     try { return decodeURIComponent(String(value == null ? '' : value)); }
     catch (error) { return String(value == null ? '' : value); }
+}
+
+// 脸框按底图 imageId 存在素材库根的 spriteFaceBoxes；相对原图宽高。
+async function askFaceBox({ settingsState, service, imageId, initial, persistSettingsDraft, editTarget }) {
+    // 挂在设置器遮罩根节点上：设置器重绘只改壳内节点，弹层不被抹掉。
+    const host = settingsProgressHost(globalThis) || settingsState.dom;
+    // 先用设置器已显示的那张（内存缓存，脸框按相对坐标存，分辨率无关）；没缓存才去酒馆文件夹读，后者较慢。
+    let url = '';
+    try { url = typeof service.resolveUrl === 'function' ? String(service.resolveUrl(`igs-gen:${imageId}`) || '') : ''; } catch { url = ''; }
+    if (!/^(?:data:|blob:|https?:)/i.test(url)) {
+        try { url = typeof service.getImageDataUrl === 'function' ? await service.getImageDataUrl(imageId) : ''; } catch { url = ''; }
+    }
+    const box = await pickFaceBox({ host, imageUrl: url, initial });
+    if (!box) return null;
+    const lib = draftAssetLibrary(settingsState, editTarget);
+    const previous = lib.spriteFaceBoxes;
+    lib.spriteFaceBoxes = { ...(previous && typeof previous === 'object' ? previous : {}), [imageId]: box };
+    const persisted = persistGeneratedLibrary(persistSettingsDraft);
+    if (operationFailed(persisted)) { lib.spriteFaceBoxes = previous; return null; }
+    return box;
 }
 
 function operationFailed(result) {
@@ -197,7 +222,7 @@ async function readSpriteAdoptionRecord(service, imageId, record, { waitMs = 200
 }
 
 const SCENE_ACTION = /^scene-(?:(?:add|remove|rename|set|toggle|pick)-(?:bg|bg-word|bg-url|time|time-url|weather|weather-url)|variant-(?:set|retry))$/;
-const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char|outfit-mood)|status-avatar-(?:pick|clear|set-url|generate)|scene-set-user-char|char-(?:generate|redraw)-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume))$/;
+const CHARACTER_ACTION = /^(?:scene-(?:add|remove|rename|set|toggle|pick)-(?:char|char-alias|mood|mood-url|dna-char|outfit-mood)|status-avatar-(?:pick|clear|set-url|generate)|scene-set-user-char|char-(?:generate|redraw)-sprite|outfit-generate-nude|char-expression-(?:prompt|set|retry|resume)|outfit-expression-(?:prompt|set|retry|resume)|char-face-box|outfit-face-box)$/;
 
 // 服装的适用场景可能指向另一边的场景：场景改名、删除时全局和本卡的服装都要跟上。
 function linkedCharacterOutfits(settingsState) {
@@ -422,6 +447,7 @@ async function paintThenWriteExpressions({ service, name, paintItems, writeLabel
         : null;
     if (paint && !paint.ok) return paint;
     if (paint && (paint.stopped || (signal && signal.aborted))) return paint;
+    if (!writeLabels.length) return paint || { ok: true, items: [] };
     const written = await service.generateExpressionSet({ name, basePrompt, moods: writeLabels, dna, outfit, note, nsfw, onProgress, signal,
         ...(shouldStart && { shouldStart }), ...(onOutfitDna && { onOutfitDna }) });
     if (!paint) return written;
@@ -513,7 +539,7 @@ function restoreGeneratedLibrary(sceneAssets, previousLibrary, persistSettingsDr
 }
 
 // 角色记一个档位；没记过按 8。用户取消返回 0。老存档记的 18 按 20 处理。
-export const MOOD_TIERS = [8, 12, 16, 20];
+export const MOOD_TIERS = [8, 12, 16, 20, 25];
 
 function normalizeMoodTier(value) {
     const picked = Number(value);
@@ -533,6 +559,7 @@ async function chooseMoodTier(dialogs, saved, name, { firstDefault = false } = {
         { value: '12', label: '12', note: '重要配角' },
         { value: '16', label: '16', note: '主要角色' },
         { value: '20', label: '20', note: '主角' },
+        { value: '25', label: '25', note: '全部表情' },
         { value: 'pick', label: '自选', note: '勾选要画的表情' },
     ];
     let raw;
@@ -795,6 +822,42 @@ async function deleteCgEntries(action, settingsState, options, dialogs, rerender
     return rerenderSettings();
 }
 
+// 单张存原件；「下选中」一张也直接存、多张打 zip；「打包全部」按当前排序的整个列表，不限本页。
+async function downloadCgFromSettings(action, settingsState, options, rerenderSettings) {
+    const asyncState = settingsState.asyncState;
+    const view = asyncState.imageCg || null;
+    const service = options.cgGallery;
+    const globalObj = options.global || globalThis;
+    if (!view || typeof service?.readOriginalBlob !== 'function') {
+        asyncState.imageCgStatus = 'CG库不可用';
+        return rerenderSettings();
+    }
+    let targets;
+    if (action.startsWith('image-cg-download:')) targets = [view.state.entries[Number(action.slice('image-cg-download:'.length))]].filter(Boolean);
+    else if (action === 'image-cg-download-selected') {
+        const selected = cgSelection(asyncState);
+        targets = view.state.entries.filter((entry) => selected.has(entry.key));
+        if (!targets.length) { asyncState.imageCgStatus = '先勾选要下载的CG。'; return rerenderSettings(); }
+    } else if (action === 'image-cg-download-all') targets = view.state.list.slice();
+    else return rerenderSettings();
+    if (!targets.length) { asyncState.imageCgStatus = '还没有可下载的CG。'; return rerenderSettings(); }
+    try {
+        if (targets.length === 1) {
+            const result = await downloadCgEntry(service, targets[0], globalObj);
+            asyncState.imageCgStatus = result?.ok ? `已下载${result.fileName}` : `下载失败：${cgReasonText(result?.reason)}`;
+        } else {
+            asyncState.imageCgStatus = `正在打包${targets.length}张原图…`;
+            rerenderSettings();
+            const result = await downloadCgZip(service, targets, globalObj);
+            asyncState.imageCgStatus = result.ok === false ? `打包失败：${cgReasonText(result.reason)}`
+                : `已打包${result.images}张${result.missing ? `，${result.missing}张原图读不到已跳过` : ''}。`;
+        }
+    } catch (error) {
+        asyncState.imageCgStatus = error?.name === 'AbortError' ? '' : `下载失败：${error?.message || '未知原因'}`;
+    }
+    return rerenderSettings();
+}
+
 async function removeCgOneByOne(service, targets) {
     const keys = [];
     let failed = 0;
@@ -867,6 +930,7 @@ const RISKY_ACTIONS = [
     ['live-platform-prompt-reset', () => '直播平台栏的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
+    ['image-prompt-capture-clear', () => '清空提示词捕获记录？'],
     ['purge-asset-cache', () => '清素材缓存？浏览器里缓存的图片与设置页缩略图都会清空；酒馆上的原图还在，下次查看会重新读取。'],
     ['image-cache-clear', () => '清空浏览器里缓存的图片？酒馆上的原图还在，下次查看会重新下载。'],
     ['mood-review-clear', () => '清空待确认的情绪词？'],
@@ -1968,7 +2032,7 @@ export async function handleSettingsAction(action, ctx) {
         let pickedLabels = null;
         if (customPick) {
             const pickSlots = outfitMode ? outfitSpriteSlots(outfitEntry) : (character || {});
-            const options = moodTierLabels(20, { nsfw, extra: allGroups.map((group) => group.label) })
+            const options = moodTierLabels(25, { nsfw, extra: allGroups.map((group) => group.label) })
                 .map((label) => ({ value: label, label: String(pickSlots[label] || '').trim() ? `${label}·有图` : label, note: String(pickSlots[label] || '').trim() ? '已有图，勾选也不会重画' : '' }));
             pickedLabels = typeof dialogs.pick === 'function' ? await dialogs.pick(`「${name}」要画哪些表情？`, options, []) : null;
             if (!pickedLabels || !pickedLabels.length) return rerenderSettings();
@@ -2065,6 +2129,27 @@ export async function handleSettingsAction(action, ctx) {
             showGeneratedNotice(globalObj, '没有已写好提示词但尚未出图的表情。');
             return rerenderSettings();
         }
+        const naiDraft = settingsState.draft.bridge?.autoIllustration?.nai || {};
+        const expressionRoute = ['full', 'face', 'director'].includes(naiDraft.expressionRoute) ? naiDraft.expressionRoute : naiDraft.directorEmotion === true ? 'director' : 'full';
+        const faceRoute = expressionRoute === 'face';
+        const directorStatus = faceRoute ? (typeof service.faceExpressionStatus === 'function' ? service.faceExpressionStatus() : { ok: false, reason: '当前图像来源不支持局部重绘' })
+            : typeof service.directorExpressionStatus === 'function' ? service.directorExpressionStatus({ enabled: expressionRoute === 'director' }) : null;
+        // 导演工具的底图：先取「默认」，没有再取「平和」；底图自己重画时不能拿它改它。
+        const directorBaseMood = ['默认', '平和'].find((label) => generatedAssetIdOf(String(slots[label] || ''))) || '';
+        const directorBaseId = directorBaseMood ? generatedAssetIdOf(String(slots[directorBaseMood])) : '';
+        // 还没有底图、但这批要画「平和」：先整张画「平和」，再拿它当底图走导演工具。
+        const bootstrapBase = Boolean(directorStatus && directorStatus.ok && !directorBaseId && !retry
+            && (resume ? resumeItems.some((item) => item.mood === '平和') : missingLabels.includes('平和')));
+        const directorReason = !directorStatus || !directorStatus.ok ? (directorStatus && directorStatus.reason) || ''
+            : retry && ['默认', '平和'].includes(mood) ? `「${mood}」是表情差分的底图，需要整张生成`
+            : !directorBaseId && !bootstrapBase ? '这套服装还没有「默认」或「平和」立绘'
+            : faceRoute && typeof service.paintFaceExpressions !== 'function' ? '当前图像来源不支持局部重绘' : '';
+        const useDirector = Boolean(directorStatus && directorStatus.ok && !directorReason);
+        const routeText = useDirector
+            ? (faceRoute ? (bootstrapBase ? '本次先整张生成「平和」作为底图，其余表情只重绘脸部。' : '本次只重绘脸部，其余部分与底图一致。')
+                : bootstrapBase ? '本次先整张生成「平和」作为底图，其余表情使用NAI导演工具。' : '本次使用NAI导演工具，在默认立绘上修改表情。')
+            : directorStatus && (faceRoute || directorReason !== '未开启「使用NAI导演工具」') ? `本次整张生成：${directorReason}。` : '';
+        if ((retry || resume) && routeText) showGeneratedNotice(globalObj, routeText, 'info');
         if (!retry && !resume) {
             const who = outfitName ? `「${name}」的服装「${outfitName}」` : `「${name}」`;
             if (!missingLabels.length) {
@@ -2075,7 +2160,8 @@ export async function handleSettingsAction(action, ctx) {
             }
             const paintNames = paintItems.map((item) => item.mood).join('、');
             const writeNames = writeLabels.join('、');
-            const confirmed = await dialogs.confirm(singleDefault
+            const confirmed = await dialogs.confirm((routeText ? `${routeText}
+` : '') + (singleDefault
                 ? `给${who}画1张「平和」，表情先共用。`
                 : !writeLabels.length
                 ? `${customPick ? '所选' : '这一档'}还有${paintItems.length}张已写好提示词、尚未出图：${paintNames}。将只补画这${paintItems.length}张，不重写提示词。`
@@ -2083,7 +2169,7 @@ export async function handleSettingsAction(action, ctx) {
                     ? (missingLabels.length === labels.length
                         ? `生成${who}的${missingLabels.length}张表情差分：${writeNames}。`
                         : `${customPick ? '所选' : '这一档'}还有${missingLabels.length}张尚未生成：${writeNames}。将只生成这${missingLabels.length}张，已有的${filledLabels.length}张保持不变。`)
-                    : `${customPick ? '所选' : '这一档'}还有${missingLabels.length}张尚未生成。其中${paintItems.length}张已有提示词，将直接补画：${paintNames}；另外${writeLabels.length}张需先编写提示词：${writeNames}。已有的${filledLabels.length}张保持不变。`);
+                    : `${customPick ? '所选' : '这一档'}还有${missingLabels.length}张尚未生成。其中${paintItems.length}张已有提示词，将直接补画：${paintNames}；另外${writeLabels.length}张需先编写提示词：${writeNames}。已有的${filledLabels.length}张保持不变。`));
             if (!confirmed) return rerenderSettings();
         }
         let result;
@@ -2133,9 +2219,57 @@ export async function handleSettingsAction(action, ctx) {
             return generationFailure(globalObj, dialogs, message, 'expression-generate-failed');
         };
         try {
-            const paintOnly = !retry && !writeLabels.length;
-            result = resume || paintOnly
-                ? await service.paintExpressionCaptions({ name, items: resumeItems, basePrompt, dna, outfit, nsfw, onProgress,
+            let baseMood = directorBaseMood, baseId = directorBaseId, baseResult = null;
+            if (useDirector && bootstrapBase) {
+                const onlyBase = (label) => label === '平和';
+                baseResult = resume
+                    ? await service.paintExpressionCaptions({ name, items: resumeItems.filter((item) => onlyBase(item.mood)), basePrompt, dna, outfit, nsfw, onProgress,
+                        signal: stopControl.signal, shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }) })
+                    : await paintThenWriteExpressions({ service, name, paintItems: paintItems.filter((item) => onlyBase(item.mood)),
+                        writeLabels: writeLabels.filter(onlyBase), basePrompt, dna, outfit, note: moodNote, nsfw, onProgress,
+                        signal: stopControl.signal, shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }) });
+                const baseItem = baseResult?.items?.find((item) => item.ok && item.mood === '平和' && item.imageId);
+                if (baseItem) { baseMood = '平和'; baseId = baseItem.imageId; }
+            }
+            const done = new Set(bootstrapBase ? ['平和'] : []);
+            const baseHalted = Boolean(baseResult && (baseResult.stopped || stopControl.signal.aborted));
+            const directorOn = useDirector && Boolean(baseId) && !baseHalted;
+            const wantedMoods = directorOn ? (retry ? [mood] : resume ? resumeItems.map((item) => item.mood) : missingLabels)
+                .filter((label) => !done.has(label)) : [];
+            const isBaseMood = (label) => label === '默认' || label === baseMood;
+            const directMoods = wantedMoods.filter((label) => !isBaseMood(label));
+            let faceBox = null, faceCancelled = false;
+            if (faceRoute && directMoods.length) {
+                const boxes = sceneAssets.spriteFaceBoxes || draftEffectiveAssets(settingsState).spriteFaceBoxes || {};
+                faceBox = normalizeFaceBox(boxes[baseId]);
+                if (!faceBox) {
+                    faceBox = await askFaceBox({ settingsState, service, imageId: baseId, initial: null, persistSettingsDraft, editTarget });
+                    faceCancelled = !faceBox;
+                }
+                if (faceCancelled && !(baseResult && baseResult.items?.some((item) => item.ok && item.imageId))) {
+                    stopControl.done(); progress.end(); restoreBusy();
+                    showGeneratedNotice(globalObj, '已取消选择脸部位置，未生成。', 'info');
+                    return rerenderSettings();
+                }
+            }
+            const directRequest = { name, moods: directMoods, baseImageId: baseId, nsfw, note: moodNote, onProgress,
+                signal: stopControl.signal, shouldStart: targetUnchanged };
+            const directed = !directMoods.length ? null
+                : faceCancelled ? { ok: true, items: [], unmapped: [], stopped: true }
+                : faceRoute ? (typeof service.paintFaceExpressions === 'function'
+                    ? await service.paintFaceExpressions({ ...directRequest, faceBox, dna }) : null)
+                : typeof service.paintDirectorExpressions === 'function' ? await service.paintDirectorExpressions(directRequest) : null;
+            // 导演工具整体失败（读不到底图等）不抛出：已画好的底图照样入库，失败原因随结果带回。
+            const directedFailed = Boolean(directed && !directed.ok);
+            const unmapped = directed ? new Set([...(directed.unmapped || []), ...wantedMoods.filter(isBaseMood)]) : null;
+            const rItems = (unmapped ? resumeItems.filter((item) => unmapped.has(item.mood)) : resumeItems).filter((item) => !done.has(item.mood));
+            const pItems = (unmapped ? paintItems.filter((item) => unmapped.has(item.mood)) : paintItems).filter((item) => !done.has(item.mood));
+            const wLabels = (unmapped ? writeLabels.filter((label) => unmapped.has(label)) : writeLabels).filter((label) => !done.has(label));
+            const needLegacy = retry ? (!unmapped || unmapped.size > 0) : resume ? rItems.length > 0 : pItems.length + wLabels.length > 0;
+            const paintOnly = !retry && !wLabels.length;
+            const legacy = !needLegacy || directedFailed || baseHalted || (directed && (directed.stopped || stopControl.signal.aborted)) ? null
+                : resume || paintOnly
+                ? await service.paintExpressionCaptions({ name, items: rItems, basePrompt, dna, outfit, nsfw, onProgress,
                     signal: stopControl.signal, shouldStart: targetUnchanged,
                     ...(onOutfitDna && { onOutfitDna }) })
                 : retry && savedCaption && typeof service.generateExpressionImage === 'function'
@@ -2147,15 +2281,25 @@ export async function handleSettingsAction(action, ctx) {
                     ? await service.generateExpressionImage({ name, mood, basePrompt, dna, outfit, nsfw, onProgress, signal: stopControl.signal,
                         shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }) })
                     : await paintThenWriteExpressions({
-                        service, name, paintItems, writeLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
+                        service, name, paintItems: pItems, writeLabels: wLabels, basePrompt, dna, outfit, note: moodNote, nsfw, onProgress, signal: stopControl.signal,
                         shouldStart: targetUnchanged, ...(onOutfitDna && { onOutfitDna }),
                     });
+            const parts = [baseResult, directedFailed
+                ? { ok: false, items: directMoods.map((label) => ({ mood: label, ok: false, error: directed.error || '导演工具表情失败' })), error: directed.error || '导演工具表情失败' }
+                : directed, legacy].filter(Boolean);
+            result = parts.length === 1 ? parts[0] : {
+                ok: parts.some((part) => (part.items || []).some((item) => item.ok)) || parts.every((part) => part.ok),
+                stopped: parts.some((part) => part.stopped),
+                items: parts.flatMap((part) => part.items || []),
+                error: (parts.find((part) => !part.ok) || {}).error || '' };
         } catch (error) {
             stopControl.done();
             return failed(error);
         }
         stopControl.done();
-        if (!result || !result.ok) return failed(result && result.error);
+        // 中途停止时已画好的图照样入库：只要有成功项就继续往下保存，不走失败分支。
+        const anyPainted = Boolean(result && (result.items || []).some((item) => item.ok && item.imageId));
+        if (!result || (!result.ok && !anyPainted)) return failed(result && result.error);
         if (!targetUnchanged()) return failed('角色、衣装或资料作用域已变化，原资料保持不变');
         const adoptedRecords = [];
         const verifiedSprites = new Set();
@@ -2344,6 +2488,17 @@ export async function handleSettingsAction(action, ctx) {
             current.position[device] = { x: 0, y: 0 };
             readerDraft.statusHud = current;
         }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('status-hud-toggle-entry:')) {
+        const id = normalizedAction.slice('status-hud-toggle-entry:'.length);
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeStatusHudSettings(readerDraft.statusHud);
+        const hiddenEntries = current.hiddenEntries.includes(id) ? current.hiddenEntries.filter((x) => x !== id) : [...current.hiddenEntries, id];
+        readerDraft.statusHud = { ...current, hiddenEntries };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 
@@ -3339,6 +3494,32 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'image-prompt-capture-copy-last' || normalizedAction === 'image-prompt-capture-copy-all' || normalizedAction === 'image-prompt-capture-clear') {
+        const st = settingsState.asyncState;
+        if (normalizedAction === 'image-prompt-capture-clear') {
+            st.imagePromptCaptureStatus = `已清空${clearPromptCaptures().removed}条记录。`;
+        } else {
+            const list = listPromptCaptures();
+            const last = normalizedAction === 'image-prompt-capture-copy-last';
+            const text = !list.length ? '' : last ? formatPromptCapture(list[0]) : formatAllPromptCaptures(list);
+            const root = options.global || globalThis;
+            const clipboard = root && root.navigator && root.navigator.clipboard;
+            if (!text) {
+                st.imagePromptCaptureStatus = '暂无记录可复制。';
+            } else if (clipboard && typeof clipboard.writeText === 'function') {
+                try {
+                    await clipboard.writeText(text);
+                    st.imagePromptCaptureStatus = last ? '已复制最近一条到剪贴板。' : '已复制全部记录到剪贴板。';
+                } catch (error) {
+                    st.imagePromptCaptureStatus = '复制失败：浏览器拒绝访问剪贴板，可展开记录后手动选中复制。';
+                }
+            } else {
+                st.imagePromptCaptureStatus = '当前环境不支持剪贴板，可展开记录后手动选中复制。';
+            }
+        }
+        return rerenderSettings();
+    }
+
     if (normalizedAction === 'image-log-refresh' || normalizedAction === 'image-log-clear' || normalizedAction === 'image-log-copy') {
         const log = options.imageJobLog;
         if (!log || typeof log.list !== 'function') {
@@ -3436,6 +3617,10 @@ export async function handleSettingsAction(action, ctx) {
         resetCgView(settingsState.asyncState);
         settingsState.asyncState.imageCgStatus = '';
         return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('image-cg-download')) {
+        return downloadCgFromSettings(normalizedAction, settingsState, options, rerenderSettings);
     }
 
     if (normalizedAction === 'image-cg-select-all' || normalizedAction.startsWith('image-cg-toggle:') || normalizedAction.startsWith('image-cg-delete:') || normalizedAction === 'image-cg-delete-selected' || normalizedAction === 'image-cg-delete-all') {
@@ -4364,6 +4549,24 @@ export async function handleSettingsAction(action, ctx) {
         }
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    if (/^(?:char|outfit)-face-box:/.test(normalizedAction)) {
+        const outfitMode = normalizedAction.startsWith('outfit-');
+        const segs = normalizedAction.slice(`${outfitMode ? 'outfit' : 'char'}-face-box:`.length).split(':');
+        const charName = decodeSeg(segs[0] || '');
+        const outfitName = outfitMode ? decodeSeg(segs[1] || '') : '';
+        const mood = decodeSeg(segs[outfitMode ? 2 : 1] || '');
+        const assets = draftAssetLibrary(settingsState, editTarget);
+        const slotUrl = outfitMode ? outfitSpriteSlots(assets.characterOutfits?.[charName]?.[outfitName])[mood] : assets.characters?.[charName]?.[mood];
+        const imageId = generatedAssetIdOf(String(slotUrl || ''));
+        const globalObj = options.global || globalThis;
+        const service = options.generatedAssets;
+        if (!imageId || !service) return rerenderSettings();
+        const saved = normalizeFaceBox((assets.spriteFaceBoxes || {})[imageId]);
+        const box = await askFaceBox({ settingsState, service, imageId, initial: saved, persistSettingsDraft, editTarget });
+        if (box) showGeneratedNotice(globalObj, '脸部位置已保存。', 'info');
         return rerenderSettings();
     }
 

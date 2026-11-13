@@ -1627,14 +1627,17 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     // 发送属于会话，不随面板关闭取消；失败可重开重发，升级奖励在重开时领取。
+    // 发送成功才关闭；失败留在结算页显示原因，否则重开仍是同一结算页、点发送又静默失败，形成循环。
     function sendAndLeave(fn) {
         if (pending) return { ok: false, reason: 'combat-busy' };
-        let job;
-        try { job = Promise.resolve(fn()); } catch { job = Promise.resolve({ ok: false, reason: 'combat-action-threw' }); }
-        job = job.catch(() => ({ ok: false, reason: 'combat-action-threw' }));
-        leaving = true;
-        try { close(); } finally { leaving = false; }
-        return job;
+        const my = token;
+        return runAsync('send', fn).then((r) => {
+            if (r?.ok === true && my === token && root) {
+                leaving = true;
+                try { close(); } finally { leaving = false; }
+            }
+            return r;
+        });
     }
 
     async function runAsync(kind, fn) {
@@ -2348,8 +2351,9 @@ export function createCombatPanelController(doc, options = {}) {
         if (!overlay || !doc?.createElement) return { ok: false, reason: 'missing-combat-container' };
         const s = session();
         if (!s) return { ok: false, reason: 'combat-session-unavailable' };
-        const cur0 = s.state();
         messageId = Number.isInteger(openOptions.messageId) ? openOptions.messageId : null;
+        if (messageId !== null && typeof s.dropSuperseded === 'function') s.dropSuperseded(messageId);
+        const cur0 = s.state();
         followUp = ['auto', 'abandon'].includes(openOptions.then) ? openOptions.then : '';
         preview = openOptions.preview && typeof openOptions.preview === 'object' ? openOptions.preview : null;
         historyOpen = openOptions.history === true;

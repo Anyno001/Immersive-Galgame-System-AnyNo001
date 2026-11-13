@@ -135,12 +135,25 @@ export function prepareCharacterCaption(input = {}) {
             return fail('DNA_TEMPLATE_UNRESOLVED', '身份资料不能包含递归令牌');
         const pos = expanded.v4_prompt.caption.char_captions[b.captionIndex];
         const neg = expanded.v4_negative_prompt.caption.char_captions[b.captionIndex];
-        // 替换回调保真 $、权重与标点；只替换原模板，不再扫描替换产物。
-        pos.char_caption = pos.char_caption.replace(`<<dna:${b.token}>>`, () => identity.subject);
         const outfit = outfits.value.characters.find(c => c.captionIndex === b.captionIndex);
-        if (outfit) pos.char_caption = pos.char_caption.replace(`<<outfit:${b.token}>>`, () =>
-            b.framing === 'half_body' && ['sprite', 'derived'].includes(selected.value?.purpose)
-                ? outfit.descriptionHalfBody || outfit.description : outfit.description);
+        const portrait = ['sprite', 'derived'].includes(selected.value?.purpose);
+        const outfitText = outfit ? (b.framing === 'half_body' && portrait
+            ? outfit.descriptionHalfBody || outfit.description : outfit.description) : null;
+        // 仅表情差分把表情动作词排在外貌衣装前（防截断）；默认立绘保持原顺序，免得外貌被挤后导致长相变样。
+        const dnaSlot = `<<dna:${b.token}>>`, outfitSlot = `<<outfit:${b.token}>>`;
+        const hasOutfit = outfitText != null && pos.char_caption.includes(outfitSlot);
+        if (selected.value?.purpose === 'derived' && pos.char_caption.trimStart().startsWith(dnaSlot)) {
+            const rest = pos.char_caption.replace(dnaSlot, '').replace(hasOutfit ? outfitSlot : '\u0000', '')
+                .split(',').map(s => s.trim()).filter(Boolean).join(', ');
+            const subject = identity.subject.trim();
+            const head = subject.match(/^(?:\s*(?:\d+\+?(?:girls?|boys?|others?)|solo|multiple (?:girls|boys))\s*(?:,|$))+/i)?.[0] || '';
+            pos.char_caption = [head.replace(/,\s*$/, '').trim(), rest, subject.slice(head.length).trim(),
+                hasOutfit ? outfitText : ''].filter(Boolean).join(', ');
+        } else {
+            // 替换回调保真 $、权重与标点；只替换原模板，不再扫描替换产物。
+            pos.char_caption = pos.char_caption.replace(dnaSlot, () => identity.subject);
+            if (outfitText != null) pos.char_caption = pos.char_caption.replace(outfitSlot, () => outfitText);
+        }
         if (neg) neg.char_caption = neg.char_caption.replace(`<<dna_uc:${b.token}>>`, () => identity.negative);
         const { correction, outfit: selectedOutfit, ...binding } = b;
         characters.push({ ...binding, source: candidate ? 'candidate' : view.source,

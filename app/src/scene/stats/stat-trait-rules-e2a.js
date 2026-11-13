@@ -4,6 +4,7 @@
 // 状态读取统一走 stat-status.js 的 hasStatus。
 // 公众人物：声望条正由声望重做批改写，本批不读不改 stat-fame.js，不做「归属于自己的声望条」判断，只做不依赖声望的数值效果。
 import { barsOf, withBars, withCharacter } from './stat-state.js';
+import { hookGrudge } from './stat-habit.js';
 import { shiftStress } from './stat-strain.js';
 import { calcRow, getStatusDef, withCalc } from './stat-status-defs.js';
 import { applyStatusChange, hasStatus } from './stat-status.js';
@@ -162,7 +163,7 @@ function e2aTags(state, api) {
                 next = bumpDim(api, next, name, '好感', FAVOR_SMALL, '女王');
                 if (queen) next = bumpDim(api, next, name, '欲望', DESIRE_BIG, '女王様');
             }
-            if (reviewed(name, '拒绝')) next = queen ? bumpDim(api, next, name, '欲望', DESIRE_SMALL, '女王様') : bumpDim(api, next, name, '芥蒂', GRUDGE_SMALL, '女王');
+            if (reviewed(name, '拒绝')) next = queen ? bumpDim(api, next, name, '欲望', DESIRE_SMALL, '女王様') : bumpDim(api, next, name, '芥蒂', hookGrudge(ctx, name, '拒绝', GRUDGE_SMALL), '女王');
         }
         // 御姐：主角压力上升「大」及以上那一楼其在场，主角压力额外小降（照顾）。
         if (!hero && near && bigStress && has(name, '御姐')) next = moveStress(next, HERO, -STRESS_SMALL, '御姐', ctx.changes, 'trait');

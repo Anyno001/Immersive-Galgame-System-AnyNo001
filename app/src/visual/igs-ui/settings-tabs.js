@@ -88,24 +88,18 @@ const IMAGE_SOURCE_TEMPLATE = `
     <div class="igs-settings-sub" data-image-source="nai"{{sourceNaiHidden}}>
       <div class="igs-source-filter-grid">
         {{autoNaiEndpointField}}{{autoNaiKeyField}}
-        {{autoNaiModelField}}{{autoNaiEffortField}}{{autoNaiSizeField}}
-        {{autoNaiTransportField}}
-      </div>
-      {{autoNaiQuotaPanel}}
-      {{modelProfileImageRow}}
-      <div class="igs-settings-sub" data-image-feature="nai-transparency"{{sourceBuiltinHidden}}>
-        {{naiSpriteTransparentField}}
+        {{autoNaiModelField}}{{autoNaiEffortField}}
       </div>
       <div class="igs-settings-result" data-result="nai-models">{{autoNaiModelsMessage}}</div>
+      {{modelProfileImageRow}}
       <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai"{{advancedNaiOpen}}>
-        <summary>采样参数</summary>
+        <summary>高级</summary>
         <div class="igs-source-filter-grid">
+          {{autoNaiSizeField}}{{autoNaiTransportField}}
           {{autoNaiStepsField}}{{autoNaiScaleField}}
           {{autoNaiSamplerField}}
         </div>
-      </details>
-      <details class="igs-settings-sub igs-settings-advanced" data-advanced="nai-queue"{{autoNaiQueueOpen}}>
-        <summary>间隔与排队</summary>
+        {{autoNaiQuotaPanel}}
         <div class="igs-settings-sub">{{autoNaiIntervalFields}}</div>
         <div class="igs-settings-sub">{{autoNaiCloudQueueFields}}</div>
       </details>
@@ -115,12 +109,6 @@ const IMAGE_SOURCE_TEMPLATE = `
         <summary>识别与等待</summary>
         <div class="igs-source-filter-grid">{{adapterField}}{{pollIntervalField}}{{pollAttemptsField}}</div>
       </details>
-    </div>
-    <div class="igs-settings-sub" data-image-source="dbgen"{{sourceDbgenHidden}}>
-      {{dbgenSpriteTransparentField}}
-    </div>
-    <div class="igs-settings-sub" data-image-feature="consistency"{{sourceConsistencyHidden}}>
-      <div class="igs-source-filter-grid">{{consistencyStrengthField}}{{consistencyModelField}}</div>
     </div>
     <div class="igs-settings-row"><button class="igs-settings-action" data-action="test-image" type="button">{{imageTestActionLabel}}</button><button class="igs-settings-action" data-action="open-dbgen-settings" type="button"{{sourceDbgenHidden}}>插件设置</button></div>
     <div class="igs-settings-result" data-result="image">{{imageTestHelp}}</div>
@@ -190,6 +178,17 @@ const IMAGE_LOGS_TEMPLATE = `
       <div class="igs-source-filter-grid">{{imageLogRetainDaysField}}{{imageLogMaxEntriesField}}</div>
     </details>
   </div>
+  <div class="igs-source-filter">
+    <div class="igs-source-filter-title">提示词捕获</div>
+    <div class="igs-source-filter-note">记录每次发给NAI的完整请求，保留最近8条；数据库生图由插件发送，不在此记录。</div>
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="image-prompt-capture-copy-last" type="button">复制最近一条</button>
+      <button class="igs-settings-action" data-action="image-prompt-capture-copy-all" type="button">复制全部</button>
+      <button class="igs-settings-action" data-action="image-prompt-capture-clear" type="button">清空</button>
+    </div>
+    <div class="igs-settings-result" data-result="image-prompt-capture">{{imagePromptCaptureStatus}}</div>
+    <div class="igs-prompt-capture-list" data-image-prompt-capture-list>{{imagePromptCaptureList}}</div>
+  </div>
 </div>
 `.trim();
 
@@ -209,6 +208,10 @@ const IMAGE_CG_TEMPLATE = `
         <button class="igs-settings-action" data-action="image-cg-select-all" type="button">全选</button>
         <button class="igs-settings-action" data-action="image-cg-delete-selected" type="button">删选中</button>
         <button class="igs-settings-action is-danger" data-action="image-cg-delete-all" type="button">删全部</button>
+      </div>
+      <div class="igs-cg-actions-row"><span class="igs-cg-actions-label">下载</span>
+        <button class="igs-settings-action" data-action="image-cg-download-selected" type="button">下选中</button>
+        <button class="igs-settings-action" data-action="image-cg-download-all" type="button">打包全部</button>
       </div>
     </div>
     <div class="igs-settings-result" data-result="image-cg">{{imageCgStatus}}</div>
@@ -596,7 +599,9 @@ const ORIGIN_TEMPLATE = `
       <div class="igs-source-filter-grid">{{originSysNameField}}{{originPersonalityField}}{{originFourthWallField}}</div>
       <div class="igs-settings-full">{{originPersonaTextField}}</div>
       <div class="igs-source-filter-grid">{{originBindToField}}{{originRpChatField}}</div>
-      <div class="igs-settings-section">{{originAutoEconField}}{{originChatToStoryField}}</div>
+      <div class="igs-source-filter-grid">{{originEconStyleField}}</div>
+      <div class="igs-settings-full">{{originEconTextField}}</div>
+      <div class="igs-settings-section">{{originChatToStoryField}}</div>
       <div class="igs-source-filter-note">绑定对象填「宿主」时系统为用户派发任务；填角色名时系统归该角色，用户旁观，对话页改为角色与系统的私聊。</div>
     </div>
     <div class="igs-source-filter">

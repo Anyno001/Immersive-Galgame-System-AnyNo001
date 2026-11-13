@@ -69,10 +69,13 @@ export function renderPromptKindsPanel({ nai, sourceMode, checkbox, advancedOpen
         return perfItem(more, `prompt-kind-${id}`, artistSelectionAvailable ? renderArtistSelector(nai, id, sourceMode) : rowName(LABEL.get(id)),
             { detail: editable + builtinBlock(BUILTIN_VIEW[id] || []) });
     };
-    const group = (title, body) => `<div class="igs-source-filter"><div class="igs-source-filter-title">${esc(title)}</div>${body}</div>`;
-    return group('通用', checkbox(`${base}.enabled`, conf.enabled, '分区画师串')
+    // 每组一个折叠区，展开状态记在 advancedOpen['prompt-group-<key>']，默认收起。
+    const group = (key, title, body) => `<details class="igs-settings-sub igs-settings-advanced" data-advanced="prompt-group-${key}"${advancedOpen(`prompt-group-${key}`) ? ' open' : ''}>`
+        + `<summary>${esc(title)}</summary><div class="igs-settings-sub">${body}</div></details>`;
+    return group('common', '通用', checkbox(`${base}.enabled`, conf.enabled, '分区画师串')
         + (artistSelectionAvailable ? renderGlobalArtistRow(nai, sourceMode, artistLibraryState) : '')
         + (slots.common || ''))
-        + GROUPS.map(([title, ids, slot]) => group(title, (slot && slots[slot] || '') + ids.map((id) => (SLOT_BEFORE[id] && slots[SLOT_BEFORE[id]] || '') + card(id)).join('')
-            + (slot === 'character' ? perfItem(more, 'prompt-kind-form', rowName('变身'), { detail: builtinBlock(FORM_VIEW) }) : ''))).join('');
+        + GROUPS.map(([title, ids, slot]) => group(slot, title, (slot && slots[slot] || '') + ids.map((id) => (SLOT_BEFORE[id] && slots[SLOT_BEFORE[id]] || '') + card(id)).join('')
+            + (slot === 'character' ? perfItem(more, 'prompt-kind-form', rowName('变身'), { detail: builtinBlock(FORM_VIEW) }) : ''))).join('')
+        + (slots.inpaint ? group('inpaint', '局部重绘', slots.inpaint) : '');
 }

@@ -47,14 +47,14 @@ test('数据库回放：swipe、删中间楼、重算和重开只派生当前积
     game.user(); const first = game.ai('第一笔' + blk('积分|+30|甲'));
     await check(30);
     assert.equal((await game.engine.dispatch({ type: 'buy', name: '凝神丹' })).ok, true);
-    await check(-170);
+    await check(-10);
     game.newSwipe(first, '第二版本' + blk('积分|+10|乙'));
-    await check(-190);
+    await check(-30);
     assert.equal(game.bag().凝神丹, 1);
     game.selectSwipe(first, 0);
-    await check(-170);
+    await check(-10);
     game.user(); game.ai('后续收入' + blk('积分|+7|丙'));
-    await check(-163);
+    await check(-3);
     game.ctx.chat.splice(first, 1); game.emit('msg_deleted', game.ctx.chat.length);
     await check(7);
     assert.equal(game.bag().凝神丹, undefined);
@@ -104,7 +104,7 @@ test('数据库队列：并发重试同一意图只发布一次事件与通知',
     assert.ok(results.every((result) => result.ok), JSON.stringify(results));
     assert.equal(events.filter((event) => event.type === 'op').length, 1);
     assert.equal(game.notes.filter((note) => note.kind === 'gacha').length, 1);
-    assert.equal(game.state().points, 200);
+    assert.equal(game.state().points, 440);
     assert.equal(h.store.read().raw.ops.length, 1);
 });
 

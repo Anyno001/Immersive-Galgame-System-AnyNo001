@@ -269,6 +269,7 @@ export function createCombatServices(options = {}) {
                 pointsSpendingGate,
                 // 敌人模板 M7 盗金：开战时剧情货币余额快照（只读，不并入积分钱包）。
                 purse: () => (typeof options.getCurrency === 'function' ? options.getCurrency() : null),
+                pointsRecover: () => (points().pending().record ? points().retry() : null),
                 buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,
@@ -292,6 +293,8 @@ export function createCombatServices(options = {}) {
         } else if (resumeWaitLength >= 0 && getChat().length !== resumeWaitLength && session.state().status === 'idle') {
             resumeSession();
         }
+        // 开战楼之后已经接着玩（有更晚的楼层、没有战报楼）：没发战报的旧战斗作废，不再挂「返回战斗」。
+        try { session.dropSuperseded?.(getChat().length - 1); } catch { /* 作废失败保留原状 */ }
         return session;
     }
 
@@ -1609,6 +1612,7 @@ export function createCombatServices(options = {}) {
         }
         if (!located.ok) return Promise.resolve({ ok: false, reason: located.reason });
         if (located.challenge === true && located.start?.intimate !== true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
+        if (PREPARE_BUSY_STATUSES.includes(state.status) && typeof activeSession.dropSuperseded === 'function' && activeSession.dropSuperseded(floor)) state = activeSession.state();
         if (PREPARE_BUSY_STATUSES.includes(state.status)) return Promise.resolve({ ok: false, reason: 'combat-busy' });
         if (state.combatId === located.combatId && PREPARE_DONE_STATUSES.includes(state.status)) return Promise.resolve({ ok: true, unchanged: true, session: state });
         let prepared;

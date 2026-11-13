@@ -223,6 +223,7 @@ export function effectiveSceneAssets(sceneAssets, scopeKey) {
         characterMoodTiers: characterField('characterMoodTiers'),
         // 隐藏哪几套跟着这张卡走：卡里写过某角色（含清空）就以卡为准，不随借来的角色写回原卡。
         hiddenOutfits: over('hiddenOutfits'),
+        spriteFaceBoxes: over('spriteFaceBoxes'),
         generated: {
             scenes: stack([generated.scenes, cardGenerated.scenes]),
             characters: characterField('characters', generated, cardGenerated),
@@ -248,7 +249,7 @@ export function normalizeAssetCards(sceneAssets) {
             characterAliases: plain(card.characterAliases),
             characterDna: plain(card.characterDna),
             characterOutfits: plain(card.characterOutfits),
-            ...Object.fromEntries(['characterSpriteNotes', 'characterMoodNotes', 'characterMoodTiers', 'hiddenOutfits']
+            ...Object.fromEntries(['characterSpriteNotes', 'characterMoodNotes', 'characterMoodTiers', 'hiddenOutfits', 'spriteFaceBoxes']
                 .filter(field => Object.hasOwn(card, field)).map(field => [field, plain(card[field])])),
             ...(Object.hasOwn(card, 'characterSeeds') && { characterSeeds: normalizeCharacterSeeds(card.characterSeeds) }),
             ...(Object.hasOwn(card, 'characterDefaultOutfits') && {

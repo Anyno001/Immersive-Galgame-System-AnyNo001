@@ -3,6 +3,7 @@ import { SETTINGS_THEME_BASE, SETTINGS_THEME_OPTIONS, getSettingsThemePalette, s
 import { OUTFIT_SETTINGS_STYLE_TEXT } from './settings-outfit-fields.js';
 import { SETTINGS_NOTICE_STYLE_TEXT } from './settings-notice.js';
 import { SETTINGS_DIALOG_STYLE_TEXT } from './settings-dialog.js';
+import { FACE_PICKER_STYLE_TEXT } from './face-box-picker.js';
 import { STATUS_HUD_POSITION_STYLE_TEXT } from './status-hud-position-fields.js';
 import { STATS_HERO_CARD_STYLE_TEXT } from './stats-hero-card-style.js';
 
@@ -149,6 +150,7 @@ ${THEMED.map(([value, palette]) => `${themeSelector(value)}::before{opacity:${pa
 .igs-segmented-btn.is-active{background:var(--igs-settings-raised);color:var(--igs-settings-ink);text-shadow:none}
 #igs-unified-settings .igs-segmented-field .igs-segmented{display:grid;grid-template-columns:repeat(var(--igs-segment-count,3),minmax(0,1fr))}
 #igs-unified-settings .igs-segmented-field .igs-segmented>.igs-segmented-btn{width:100%;min-width:0;max-width:none;flex:1 1 0;justify-self:stretch;margin:0}
+@media (max-width:640px){#igs-unified-settings .igs-open-mode-field .igs-segmented{height:auto;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:2px}}
 .igs-switch{height:38px;display:flex;align-items:center;gap:10px;border:0;background:var(--igs-settings-field);color:var(--igs-settings-ink-2);border-radius:var(--igs-settings-radius-control);padding:0 12px;cursor:pointer;text-align:left;font:inherit;font-size:13px;transition:background-color .14s ease,color .14s ease}
 .igs-switch:hover,.igs-switch:focus-visible{background:var(--igs-settings-highlight);color:var(--igs-settings-ink);outline:none}
 .igs-switch-note,.igs-segmented-btn-note{margin-left:6px;font-size:11px;font-weight:400;color:var(--igs-settings-ink-4)}
@@ -414,6 +416,7 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-perf-item-head{display:flex;align-items:center;gap:10px;min-width:0}
 .igs-perf-item-head>.igs-switch{flex:0 1 auto;min-width:0}
 .igs-perf-item-head>.igs-settings-field{flex:1 1 auto;min-width:0}
+@media (max-width:520px){.igs-perf-item-head:has(.igs-settings-range){flex-wrap:wrap}.igs-perf-item-head:has(.igs-settings-range)>.igs-settings-field{flex-basis:100%}}
 .igs-perf-item-head>.igs-perf-item-label{flex:1 1 auto;min-width:0;height:38px;display:flex;align-items:center;padding:0 12px 0 40px;/* 40 = 开关轨道30 + 间距10（演出行内开关无内边距），无开关行的名称与有开关行左对齐 */font-size:13px;color:var(--igs-settings-ink-2)}
 .igs-perf-item-icon{flex:0 0 18px;width:18px;height:18px;margin:0 16px 0 -34px;color:var(--igs-settings-ink-2)}
 .igs-perf-item-hint{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--igs-settings-ink-4)}
@@ -453,6 +456,10 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-image-log-item.is-warn .igs-image-log-level{color:#c08a1e}
 .igs-image-log-item.is-error{background:rgba(214,69,69,.08)}
 .igs-image-log-item.is-error .igs-image-log-level{color:#d64545}
+.igs-prompt-capture-list{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.igs-prompt-capture-item{padding:4px 6px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);color:var(--igs-settings-ink)}
+.igs-prompt-capture-item summary{cursor:pointer;overflow-wrap:anywhere}
+.igs-prompt-capture-text{margin:6px 0 0;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,Consolas,monospace;line-height:1.5;user-select:text}
 .igs-image-log-empty{padding:10px 4px;opacity:.6}
 .igs-body-format textarea[data-path="bridge.virtualRegex.replacement"]{min-height:132px}
 .igs-settings-row{display:flex;gap:10px;align-items:center;min-width:0}
@@ -551,6 +558,9 @@ details.igs-perf-more>summary{cursor:pointer;user-select:none}
 .igs-image-cg-failed{display:flex;align-items:center;justify-content:center;text-align:center;color:var(--igs-settings-ink-3);cursor:pointer}
 .igs-image-cg-view:focus-visible,.igs-image-cg-delete:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
 .igs-image-cg-delete{align-self:flex-start;min-height:28px;padding:0 8px;border:0;border-radius:6px;background:rgba(220,60,60,.18);color:inherit;cursor:pointer}
+.igs-image-cg-ops{display:flex;gap:4px}
+.igs-image-cg-download{min-height:28px;padding:0 8px;border:0;border-radius:6px;background:var(--igs-settings-paper);color:inherit;cursor:pointer}
+.igs-image-cg-download:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
 .igs-review-link.is-primary{color:var(--igs-settings-accent);font-weight:500}
 .igs-review-actions .igs-review-link:hover,.igs-review-actions .igs-review-link:focus-visible{background:var(--igs-settings-highlight)}
 .igs-mood-review-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:2px 4px 2px 8px;border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-highlight);font-size:12px;color:var(--igs-settings-ink-2);white-space:nowrap}
@@ -738,5 +748,6 @@ ${GUARDED_FIELD}:focus{background-color:var(--igs-settings-highlight)!important}
 `;
 
 export function getSettingsStyleText() {
-    return `${SETTINGS_HOST_GUARD_STYLE_TEXT}\n${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}\n${STATS_HERO_CARD_STYLE_TEXT}`;
+    return `${SETTINGS_HOST_GUARD_STYLE_TEXT}\n${SETTINGS_STYLE_TEXT}\n${ORIGIN_SETTINGS_STYLE_TEXT}\n${OUTFIT_SETTINGS_STYLE_TEXT}\n${SETTINGS_NOTICE_STYLE_TEXT}\n${SETTINGS_DIALOG_STYLE_TEXT}
+${FACE_PICKER_STYLE_TEXT}\n${STATUS_HUD_POSITION_STYLE_TEXT}\n${SETTINGS_SECTION_RESET_STYLE_TEXT}\n${SETTINGS_TOUCH_STYLE_TEXT}\n${STATS_HERO_CARD_STYLE_TEXT}`;
 }

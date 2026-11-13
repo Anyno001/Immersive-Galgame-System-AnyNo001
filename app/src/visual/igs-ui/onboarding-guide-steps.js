@@ -43,13 +43,13 @@ export const ONBOARDING_STEPS = Object.freeze([
     }),
     step({
         id: 'navAssets', page: 'dash', target: navGroup(2), nav: true, navGroup: 2,
-        title: '素材与生图',
-        body: '你的素材都在这里管理，API也在这里配置。',
+        title: '素材',
+        body: '角色立绘、衣柜、背景与CG都在这里管理。',
     }),
     step({
         id: 'navFormat', page: 'dash', target: navGroup(3), nav: true, navGroup: 3,
-        title: '格式处理',
-        body: '这里可以单独修改生图模型，以及对正文格式的要求。',
+        title: 'API与提示词',
+        body: '这里配置生图API，也可以单独修改生图模型、提示词，以及对正文格式的要求。',
     }),
     step({
         id: 'navPlay', page: 'dash', target: navGroup(4), nav: true, navGroup: 4,

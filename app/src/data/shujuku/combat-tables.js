@@ -645,7 +645,8 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                         }
                     }
                     for (let at = queue.length - 1; at >= 0; at -= 1) if (finished.has(queue[at])) queue.splice(at, 1);
-                    if (inserted > 0) {
+                    // 数据库插件的 insertRow 已自行刷新合并数据与世界书并保存聊天；不进世界书的积分 / Origin 记录不再整套重刷。
+                    if (inserted > 0 && batch.some(({ item }) => item.options?.refresh !== false)) {
                         try {
                             if (!(await client.refresh()).ok && !failure) failure = { reason: 'combat-table-refresh-failed' };
                         } catch {

@@ -17,12 +17,13 @@ export const KEY_RETRY_DAYS = 2;
 export const keyGrade = (check) => (check.success ? (check.tier === '大成功' ? '大成功' : '成功') : (check.tier === '大失败' ? '大失败' : '失败'));
 
 // 送礼按「开心」结算；近期送过一次同类礼物收益减半，两次及以上不再加分。
-export function applyGift(character, gift, { random, coef = 1, floorRoom, dailyMax, scale = null } = {}) {
+// damp：习惯倍率，与同类礼物递减取较小者（不叠乘）。
+export function applyGift(character, gift, { random, coef = 1, floorRoom, dailyMax, scale = null, damp = 1 } = {}) {
     const key = `送礼:${gift}`;
     const repeats = character.recent.filter((item) => item === key).length;
     const recent = [...character.recent, key].slice(-RECENT_MAX);
     if (repeats >= 2) return { character: { ...character, recent }, change: null };
-    const result = applyDim(character, '好感', '开心', { random, coef: repeats ? coef / 2 : coef, floorRoom, scale, ...(dailyMax !== undefined ? { dailyMax } : {}) });
+    const result = applyDim(character, '好感', '开心', { random, coef: coef * Math.min(repeats ? 0.5 : 1, damp), floorRoom, scale, ...(dailyMax !== undefined ? { dailyMax } : {}) });
     return { character: { ...result.character, recent }, change: result.change };
 }
 

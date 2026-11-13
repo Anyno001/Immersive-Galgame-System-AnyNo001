@@ -49,7 +49,7 @@ import { createTurnIndexPanel, positionLabel } from './turn-index-panel.js';
 import { createGenerationStrip } from './generation-strip.js';
 import { createMissedHint, detectMissedAssets } from './missed-assets.js';
 import { createStatsChip } from './stats-chip.js';
-import { cancelFxEffects, playStatsFeedbackWithHud } from './fx-runtime.js';
+import { cancelFxEffects, playExternalNotify, playStatsFeedbackWithHud } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
@@ -167,7 +167,7 @@ import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './l
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
-import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame, watchTitleEmbeddedFrame } from './reader-dom-render.js';
+import { applyReaderSnapshotToDom, applyToolbarState, buildFallbackReaderOverlay, buildFallbackSettingsOverlay, normalizeReaderStableLayers, pinEmbeddedHostFrame, applyFrameRadius, watchTitleEmbeddedFrame } from './reader-dom-render.js';
 
 const CHARACTER_COLLECTIONS = ['characters', 'characterOutfits', 'characterDna', 'characterAliases', 'statusAvatars'];
 // 窄屏阅读模式一批里逐行推进：出字完等朗读起声（最多 LOG_TTS_START_MS）、念完（最多 LOG_TTS_MAX_MS），行间停 LOG_ROW_GAP_MS。
@@ -742,6 +742,15 @@ export function createIgsReaderHost(options = {}) {
             if (!overlay || !readerSettings) return false;
             const hud = snapshot.content && snapshot.content.statusHud;
             return playStatsFeedbackWithHud(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
+        },
+        // 对外通知卡（IGS.api.notify.show）：阅读器没开直接返回，不排队、不补播。
+        playExternalNotify(message) {
+            const current = state.activeReader;
+            const snapshot = current && current.snapshot;
+            const overlay = current && current.dom && current.dom.overlay;
+            const readerSettings = snapshot && snapshot.readerSettings;
+            if (!overlay || !readerSettings) return { played: 0, reason: 'reader-closed' };
+            return playExternalNotify(overlay, message, { readerSettings, reducedMotion: prefersReducedMotion() });
         },
         getReaderSnapshotContract() {
             return {
@@ -1886,6 +1895,7 @@ export function createIgsReaderHost(options = {}) {
         } else if (current.snapshot) {
             const reader = current.snapshot.readerSettings || {};
             pinEmbeddedHostFrame(current.dom.overlay, reader._cgBackgroundSize, current.snapshot.mode, reader.embeddedHeight);
+            applyFrameRadius(current.dom.overlay, reader.frameRadius);
         }
     }
 
@@ -3200,7 +3210,15 @@ export function createIgsReaderHost(options = {}) {
                 try { base = floor.assets.sprite(row.speaker, '', outfit).url || ''; } catch (_) { base = ''; }
             }
             const ownMood = row.mood && raw !== base;
-            if (url) found = { url: resolveReaderAssetUrl(url, current), adjustKey: ownMood ? `${id}::${row.mood}` : id };
+            // 取景按情绪组存（同组情绪共用一个取景）；legacyKey 是旧版按单个情绪存的键，没调过组取景时沿用。
+            if (url) {
+                found = {
+                    url: resolveReaderAssetUrl(url, current),
+                    adjustKey: id,
+                    groupKey: ownMood ? `${id}::${row.moodGroup || row.mood}` : '',
+                    legacyKey: ownMood ? `${id}::${row.mood}` : '',
+                };
+            }
         }
         if (!found) {
             const status = resolveStatusAvatar(assets.statusAvatars, row.key);
@@ -3454,7 +3472,14 @@ ${row.key}`;
             onPlay: (i) => logSpeak(i),
             onReplay: (i) => { if (state.activeReader === current) jumpReaderSegment(i); },
             onSceneRow: (i) => logSceneRow(current, i),
-            onSaveAdjust: (adjust) => saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } }),
+            unified: Boolean(rs._sceneAssets && rs._sceneAssets.unifiedSpriteLayout === true),
+            onSaveAdjust: (adjust, unified) => {
+                // 「统一」与立绘设置的「统一角色立绘位置」是同一个开关。
+                if (typeof unified === 'boolean' && unified !== Boolean(rs._sceneAssets && rs._sceneAssets.unifiedSpriteLayout === true)) {
+                    saveBridgePatch((bridge) => ({ sceneAssets: { ...(bridge.sceneAssets || {}), unifiedSpriteLayout: unified } }));
+                }
+                return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), adjust } });
+            },
         });
         log.revealing = result.revealing;
     }
@@ -5219,6 +5244,8 @@ ${row.key}`;
         });
         const keydownHandler = (event) => {
             // 全屏阅读器里的 Esc 归 IGS：酒馆在 document 上把 Esc 当「中止生成」，不能让它冒泡过去。
+            // 全屏留输入框：焦点在酒馆输入区时，按键全部归酒馆。
+            if (state.activeReader && state.activeReader.mode === 'dock' && event.target?.closest?.('#form_sheld')) return;
             if (event.key === 'Escape' && state.activeReader && !isEmbeddedReaderMode(state.activeReader.mode)) {
                 claimReaderEscape(event);
             }
@@ -5894,8 +5921,10 @@ ${row.key}`;
             && !floorEntry && !panelOpen && pageIsIntimateRise(pageNow);
         syncIntimateLaunch(overlay, launchable ? { skin, onLaunch: () => launchIntimate(current, snapshot, floor, Number(messageId)) } : null);
         // 悬浮「返回战斗」：有未打完的战斗、没有面板开着、原位置没有小标签时显示（小标签与它指向同一件事，不重复）。
-        const unfinished = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
+        // 本楼有更晚的开战标签时，旧的未发送战斗会被新战斗顶替，不再提示返回。
+        const unfinishedRaw = combatSettings.enabled && !showTag && !anyPanelOpen(current.dom)
             ? unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null) : null;
+        const unfinished = unfinishedRaw && floorEntry && Number(floorEntry.messageId) > Number(unfinishedRaw.anchor.messageId) ? null : unfinishedRaw;
         syncCombatResume(overlay, unfinished ? { kind: unfinished.kind, skin, onResume: () => resumeCombatFromReader() } : null);
         // 开战标签翻到末页即自动打开对阵界面（战斗与日常挑战相同）；只记成功打开的，地图、资料或构筑面板开着时不记，等下一次渲染再弹。
         // 设置页「返回战斗」：同一开战楼有未结束会话时，不论是否自动打开过、在哪一页，都直接续打（2 分钟内有效）。
@@ -6056,6 +6085,7 @@ ${row.key}`;
         // 主界面盖着时不走正文渲染，原地切到内嵌的 overlay 拿不到内嵌类名，钉框会直接跳过。
         if (isEmbeddedReaderMode(snapshot.mode) && overlay.classList) overlay.classList.add('igs-mode-embedded');
         pinEmbeddedHostFrame(overlay, snapshot.readerSettings && snapshot.readerSettings._cgBackgroundSize, snapshot.mode, snapshot.readerSettings && snapshot.readerSettings.embeddedHeight);
+        applyFrameRadius(overlay, snapshot.readerSettings && snapshot.readerSettings.frameRadius);
         if (!current.stopTitleFrameWatch && isEmbeddedReaderMode(snapshot.mode)) {
             current.stopTitleFrameWatch = watchTitleEmbeddedFrame(overlay, () => {
                 const live = current.snapshot;

@@ -7,6 +7,7 @@ import { schemeTemplates, schemeTemplateDefaults, performanceTags } from '../pro
 import { buildCreatureAssetSlot } from '../creature-sprite.js';
 import { creatureFacts, CREATURE_ASSET_RULE } from '../prompt-tasks/creature.js';
 import { creatureOf } from '../../scene/creature-profile.js';
+import { mergePromptTags } from '../../scene/character-dna.js';
 
 const ASSET_TASK = [
     '任务：阅读视觉小说正文，为「需要生成的素材」清单里的每一项写英文 tag。素材分两类：',
@@ -140,7 +141,7 @@ export function buildAssetSlot(item, { transparent = false, whiteBackground = fa
     const matte = matteGroundTags(ground);
     // 资料式立绘的固定取景、底色及排除项属于程序模板；自定义词只追加，不替掉这些片段。
     const fixed = customSprite
-        ? joinTags(applyTemplate(t.sprite, { tags, matte: '' }), applyTemplate(defaults.sprite, { tags: '', matte }))
+        ? mergePromptTags(applyTemplate(t.sprite, { tags, matte: '' }), applyTemplate(defaults.sprite, { tags: '', matte }))
         : applyTemplate(t.sprite, { tags, matte });
     // 演绎档位（仅灵动）的正负追加词。
     const performance = performanceTags(scheme);

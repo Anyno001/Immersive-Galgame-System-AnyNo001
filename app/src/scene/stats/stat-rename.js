@@ -17,6 +17,30 @@ export function canonPersonName(renames, name) {
 }
 
 // 两份档案并成一人：各项数值相加（两个名字各自从 0 记起），其余以现用名那份为准，缺的用旧名补。
+// 习惯、踩雷日期、当日扣分账：不让现用名那份整个覆盖旧名。habit 取 n 较大、日期较晚；mineLast 取较晚日；mineDay 同日相加。
+function mergeHabit(old, cur) {
+    const out = {};
+    if (plain(old.habit) || plain(cur.habit)) {
+        const habit = { ...(plain(old.habit) ? old.habit : {}) };
+        for (const [k, e] of Object.entries(plain(cur.habit) ? cur.habit : {})) {
+            const o = habit[k];
+            habit[k] = o ? { n: Math.max(Number(o.n) || 0, Number(e.n) || 0), day: Math.max(Number(o.day) || 0, Number(e.day) || 0) } : e;
+        }
+        out.habit = habit;
+    }
+    if (plain(old.mineLast) || plain(cur.mineLast)) {
+        const last = { ...(plain(old.mineLast) ? old.mineLast : {}) };
+        for (const [k, v] of Object.entries(plain(cur.mineLast) ? cur.mineLast : {})) last[k] = Math.max(Number(last[k]) || 0, Number(v) || 0);
+        out.mineLast = last;
+    }
+    if (plain(old.mineDay) || plain(cur.mineDay)) {
+        const a = plain(old.mineDay) ? old.mineDay : {};
+        const b = plain(cur.mineDay) ? cur.mineDay : {};
+        out.mineDay = a.day === b.day ? { day: a.day, lost: (Number(a.lost) || 0) + (Number(b.lost) || 0) } : (Number(b.day) || 0) >= (Number(a.day) || 0) && b.day !== undefined ? b : a;
+    }
+    return out;
+}
+
 function mergeCharacter(old, cur) {
     const dims = { ...old.dims };
     for (const [k, v] of Object.entries(cur.dims || {})) dims[k] = clamp((Number(dims[k]) || 0) + (Number(v) || 0), dimMin(k), DIM_MAX);
@@ -26,6 +50,7 @@ function mergeCharacter(old, cur) {
         unlocked: [...new Set([...(old.unlocked || []), ...(cur.unlocked || [])])],
         lastSeenDay: Math.max(Number(old.lastSeenDay) || 0, Number(cur.lastSeenDay) || 0),
         heart: Math.max(Number(old.heart) || 0, Number(cur.heart) || 0),
+        ...mergeHabit(old, cur),
         ...(romance === undefined ? {} : { romance }),
     };
 }

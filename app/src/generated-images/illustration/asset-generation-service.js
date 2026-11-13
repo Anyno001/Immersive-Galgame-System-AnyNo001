@@ -3,7 +3,12 @@ import { requireMediaCache } from '../../media/media-cache-owner.js';
 import { createAssetRecordCache } from '../../media/asset-record-cache.js';
 import { IMAGE_FIELDS, isImageData } from '../../media/image-identity.js';
 import { imageBackendMethod } from '../backend-methods.js';
+import { moodPresetTags, resolvePresetGroup } from '../../scene/mood-groups.js';
+import { findOpaqueBounds } from '../../media/alpha-matte.js';
 import { isImageSeed, resolveImageSeed } from '../image-seed.js';
+import { FACE_PRESERVE_TAGS, eyeColorTags, blendFaceInto, buildFaceMask, planFaceCrop } from './face-edit-plan.js';
+import { buildCharacterDnaPromptParts, mergePromptTags } from '../../scene/character-dna.js';
+import { isConsistencyModelValid, isConsistencyStrengthValid, normalizeConsistencyModel, normalizeConsistencyStrength } from './auto-illustration-settings.js';
 import { characterGenerationSeed, sceneGenerationSeed } from '../../scene/generation-seeds.js';
 
 import { numberParagraphs } from './marker-placer.js';
@@ -101,6 +106,8 @@ export function createAssetGenerationService(deps) {
     const { messageHost, llm, nai, store, getSettings, getPromptScheme, events } = deps;
     const writePrompt = imageBackendMethod(nai, 'writePrompt');
     const generateCaption = imageBackendMethod(nai, 'generateCaption');
+    const emotionPaint = imageBackendMethod(nai, 'emotion');
+    const faceEditPaint = imageBackendMethod(nai, 'edit');
     const describeTask = signal => nai?.describe?.(imageTaskState({ signal })?.config, { signal }) || { via: 'nai', ready: { ok: true } };
     const taskBackend = signal => ({ describe: () => describeTask(signal) });
     const externalSource = signal => ['dbgen', 'extension', 'baibai'].includes(describeTask(signal).mode);
@@ -1773,6 +1780,374 @@ export function createAssetGenerationService(deps) {
             ...(image.identityContext && { identityContext: structuredClone(image.identityContext) }) };
     }
 
+    const DIRECTOR_EMOTIONS = { 平和: 'neutral', 喜悦: 'happy', 愤怒: 'angry', 悲伤: 'sad', 惊讶: 'surprised', 害羞: 'shy',
+        紧张: 'nervous', 思考: 'thinking', 爱恋: 'love', 嫌弃: 'disgusted', 得意: 'smug', 冷淡: 'bored', 大笑: 'laughing',
+        哭泣: 'sad', 不满: 'irritated', 无奈: 'tired', 心虚: 'embarrassed', 委屈: 'hurt', 怀疑: 'confused',
+        害怕: 'scared', 兴奋: 'excited', 担忧: 'worried', 坚定: 'determined', 调皮: 'playful' };
+
+    function directorEmotionOf(mood, nsfw) {
+        const label = String(mood || '').trim();
+        if (!label || label === '默认' || label === '裸体') return null;
+        const group = resolvePresetGroup(label) || label;
+        if (group === '默认' || group === '裸体') return null;
+        const emotion = group === '动情' ? (nsfw ? 'aroused' : 'love') : DIRECTOR_EMOTIONS[group];
+        if (!emotion) return null;
+        const extra = [group === '哭泣' ? 'tears, crying' : '', moodPresetTags(group, { nsfw })].filter(Boolean).join(', ');
+        return { emotion, extra };
+    }
+
+    function loadImageElement(dataUrl) {
+        return new Promise((resolve, reject) => {
+            const el = new (deps.global?.Image || globalThis.Image)();
+            el.onload = () => resolve(el);
+            el.onerror = () => reject(new Error('原图读取失败'));
+            el.src = dataUrl;
+        });
+    }
+
+    // 带透明通道的原图先铺白底再转 PNG；同时留下原图的透明度，出图后套回去，不再走自动抠图。
+    async function flattenForDirector(dataUrl) {
+        const doc = deps.global?.document || globalThis.document;
+        if (!doc?.createElement) throw new Error('当前环境无法处理图片');
+        const img = await loadImageElement(dataUrl);
+        const width = img.naturalWidth || img.width, height = img.naturalHeight || img.height;
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const pixels = ctx.getImageData(0, 0, width, height).data;
+        const alpha = new Uint8ClampedArray(width * height);
+        let transparent = false;
+        for (let i = 0; i < alpha.length; i += 1) {
+            alpha[i] = pixels[i * 4 + 3];
+            if (alpha[i] < 255) transparent = true;
+        }
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, width, height);
+        return { base64: canvas.toDataURL('image/png').replace(/^data:[^,]*,/, ''), width, height,
+            alpha: transparent ? alpha : null };
+    }
+
+    // 边缘重新抠：导演工具会让发丝挪动几个像素，直接套原透明度会在发梢留下毛刺。
+    // 原图实心内部保持不透明；轮廓附近 3 像素内按白底反推透明度，颜色取邻近实心像素校正，离实心区太远的一律透明。
+    function refineDirectorEdge(data, alpha, width, height) {
+        const R = 3;
+        const next = new Uint8ClampedArray(alpha.length);
+        const solid = i => alpha[i] === 255;
+        for (let y = 0; y < height; y += 1) {
+            for (let x = 0; x < width; x += 1) {
+                const i = y * width + x, o = i * 4;
+                const inner = solid(i) && (x === 0 || solid(i - 1)) && (x === width - 1 || solid(i + 1))
+                    && (y === 0 || solid(i - width)) && (y === height - 1 || solid(i + width));
+                if (inner) { next[i] = 255; continue; }
+                let n = 0, rr = 0, gg = 0, bb = 0;
+                for (let dy = -R; dy <= R; dy += 1) {
+                    const yy = y + dy;
+                    if (yy < 0 || yy >= height) continue;
+                    for (let dx = -R; dx <= R; dx += 1) {
+                        const xx = x + dx;
+                        if (xx < 0 || xx >= width) continue;
+                        const j = yy * width + xx;
+                        if (!solid(j)) continue;
+                        const q = j * 4;
+                        if (Math.min(data[q], data[q + 1], data[q + 2]) > 235) continue;
+                        n += 1; rr += data[q]; gg += data[q + 1]; bb += data[q + 2];
+                    }
+                }
+                if (!n) { next[i] = 0; continue; }
+                const ref = [rr / n, gg / n, bb / n];
+                const refMin = Math.min(...ref);
+                const own = Math.min(data[o], data[o + 1], data[o + 2]);
+                // 浅色前景（白衣、白发）和白底分不开，沿用原图透明度。
+                const k = 255 - refMin < 40 ? alpha[i] / 255
+                    : Math.max(0, Math.min(1, (255 - own) / (255 - refMin)));
+                if (k < 0.06) { next[i] = 0; continue; }
+                next[i] = Math.round(k * 255);
+                for (let c = 0; c < 3; c += 1) {
+                    data[o + c] = k > 0.35 ? (data[o + c] - 255 * (1 - k)) / k : ref[c];
+                }
+            }
+        }
+        for (let i = 0; i < next.length; i += 1) data[i * 4 + 3] = next[i];
+    }
+
+    // 清白底残影：导演工具挪了手臂等部位后，原轮廓里空出来的地方是白底，按原透明度会留成白色剪影。
+    // 从原图透明处出发，沿新图里连成片的近白像素往里清，碰到线稿或有颜色的像素就停；清掉区域边上的浅色像素做 1 像素过渡。
+    function clearDirectorWhiteGhost(raw, data, alpha, width, height) {
+        const nearWhite = (i) => {
+            const o = i * 4, r = raw[o], g = raw[o + 1], b = raw[o + 2];
+            return Math.min(r, g, b) >= 236 && Math.max(r, g, b) - Math.min(r, g, b) <= 14;
+        };
+        const cleared = new Uint8Array(alpha.length);
+        const queue = new Int32Array(alpha.length);
+        let head = 0, tail = 0;
+        for (let i = 0; i < alpha.length; i += 1) if (alpha[i] === 0) { cleared[i] = 1; queue[tail++] = i; }
+        while (head < tail) {
+            const i = queue[head++], x = i % width;
+            const near = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, i - width, i + width];
+            for (const j of near) {
+                if (j < 0 || j >= alpha.length || cleared[j] || !nearWhite(j)) continue;
+                cleared[j] = 1; data[j * 4 + 3] = 0; queue[tail++] = j;
+            }
+        }
+        for (let i = 0; i < alpha.length; i += 1) {
+            if (cleared[i] || data[i * 4 + 3] === 0) continue;
+            const x = i % width;
+            const touches = (x > 0 && cleared[i - 1]) || (x < width - 1 && cleared[i + 1])
+                || (i >= width && cleared[i - width]) || (i + width < alpha.length && cleared[i + width]);
+            if (!touches) continue;
+            const o = i * 4, own = Math.min(raw[o], raw[o + 1], raw[o + 2]);
+            if (own > 200) data[o + 3] = Math.round(data[o + 3] * Math.max(0, Math.min(1, (255 - own) / 55)));
+        }
+    }
+
+    // 按原图透明度还原并裁掉透明留白：不依赖自动抠图开关，尺寸与默认立绘一致。
+    // 半透明边缘按铺白底的比例去掉白色；接近纯白的边缘像素视为底色直接去掉，避免错位时漏出白边。
+    async function restoreDirectorAlpha(dataUrl, flat) {
+        const doc = deps.global?.document || globalThis.document;
+        const img = await loadImageElement(dataUrl);
+        const { width, height, alpha } = flat;
+        const returnedWidth = img.naturalWidth || img.width, returnedHeight = img.naturalHeight || img.height;
+        if (returnedWidth !== width || returnedHeight !== height)
+            report('info', `导演工具返回尺寸 ${returnedWidth}x${returnedHeight}，原图 ${width}x${height}，已缩放对齐`);
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, width, height);
+        const frame = ctx.getImageData(0, 0, width, height);
+        const data = frame.data;
+        const raw = new Uint8ClampedArray(data);
+        refineDirectorEdge(data, alpha, width, height);
+        clearDirectorWhiteGhost(raw, data, alpha, width, height);
+        ctx.putImageData(frame, 0, 0);
+        const bounds = findOpaqueBounds(frame);
+        if (!bounds) return canvas.toDataURL('image/png');
+        const out = doc.createElement('canvas');
+        out.width = bounds.width; out.height = bounds.height;
+        out.getContext('2d').drawImage(canvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+        return out.toDataURL('image/png');
+    }
+
+    // 返回本次能否走导演工具；不能时带上原因，供生成前提示。
+    function directorExpressionStatus({ enabled } = {}) {
+        try {
+            if ((typeof enabled === 'boolean' ? enabled : readSettings().auto.nai.expressionRoute === 'director') !== true) return { ok: false, reason: '未开启「使用NAI导演工具」' };
+            if (typeof emotionPaint !== 'function') return { ok: false, reason: '当前图像来源不支持导演工具' };
+            const capability = nai?.describeEmotion?.();
+            if (capability?.supported !== true) return { ok: false, reason: capability?.message || '当前图像来源不支持导演工具' };
+            return { ok: true, reason: '' };
+        } catch (error) { return { ok: false, reason: (error && error.message) || '无法读取导演工具设置' }; }
+    }
+
+    function supportsDirectorExpressions() {
+        return directorExpressionStatus().ok;
+    }
+
+    async function paintDirectorExpressions({ name, moods, baseImageId, nsfw = false, note = '', onProgress, signal, shouldStart } = {}) {
+        const labels = (Array.isArray(moods) ? moods : []).map(item => String(item || '').trim()).filter(Boolean);
+        const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
+        const unmapped = [], plan = [];
+        for (const mood of labels) {
+            const hit = directorEmotionOf(mood, nsfw === true);
+            if (hit) plan.push({ mood, ...hit }); else unmapped.push(mood);
+        }
+        if (!plan.length) return { ok: true, items: [], unmapped, stopped: false };
+        if (typeof emotionPaint !== 'function') return { ok: false, error: '当前图像来源不能使用导演工具' };
+        // 只读需要的那一张：全部字段会把原图、透明图、遮罩等文件全从酒馆读一遍。
+        const startedAt = Date.now();
+        let source = '';
+        try { source = (await store.getImage(baseImageId, { fields: ['originalDataUrl'], original: true }))?.originalDataUrl || ''; } catch { source = ''; }
+        if (!source) {
+            try { source = (await store.getImage(baseImageId, { fields: ['dataUrl'] }))?.dataUrl || ''; } catch { source = ''; }
+        }
+        if (!source) return { ok: false, error: '找不到默认立绘原图' };
+        const readAt = Date.now();
+        let flat;
+        try { flat = await flattenForDirector(source); }
+        catch (error) { return { ok: false, error: (error && error.message) || '原图处理失败' }; }
+        report('info', `导演工具准备：读取底图 ${secs(readAt - startedAt)}，铺白底 ${secs(Date.now() - readAt)}（${flat.width}x${flat.height}）`);
+        const items = [];
+        let halted = false;
+        for (let i = 0; i < plan.length; i += 1) {
+            const { mood, emotion, extra } = plan[i];
+            if (halted || stopped()) { items.push({ mood, ok: false, error: '已停止' }); continue; }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: plan.length, mood });
+            let painted;
+            try {
+                const tags = [extra, String(note || '').trim()].filter(Boolean).join(', ');
+                painted = await emotionPaint({ prompt: tags ? `${emotion};;${tags}` : emotion,
+                    width: flat.width, height: flat.height, imageBase64: flat.base64,
+                    ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
+            } catch (error) { painted = { ok: false, error: (error && error.message) || '导演工具表情失败' }; }
+            if (stopped()) painted = { ok: false, reason: 'stale-target', error: '目标已变化，未接收迟到图片' };
+            if (!painted?.ok || !painted.dataUrl) {
+                if (painted?.stopGeneration) halted = true;
+                items.push({ mood, ok: false, error: painted?.error || '导演工具表情失败',
+                    ...(painted?.reason && { reason: painted.reason }), ...(painted?.stopGeneration && { stopGeneration: true }) });
+                continue;
+            }
+            const imageId = newId();
+            // 默认立绘是透明底时直接套回原图透明度；不透明的老图才走自动抠图。
+            let output = painted.dataUrl;
+            if (flat.alpha) {
+                try { output = await restoreDirectorAlpha(painted.dataUrl, flat); }
+                catch { output = painted.dataUrl; }
+            }
+            const image = await buildSpriteImageRecord(imageId, output, Boolean(flat.alpha) && output !== painted.dataUrl, now());
+            image.directorSource = baseImageId;
+            let saved;
+            try { saved = await persistGeneratedImage(image); }
+            catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+            if (saved?.ok === false) {
+                const failure = saved.saveError ? { ...saved, error: saved.error || saved.saveError } : saved;
+                const quota = isQuotaError(saved.saveError) || /quota|存储.*满|空间不足/i.test(recoveryFailureText(failure));
+                halted = true;
+                items.push({ mood, ok: false, reason: saved.cancelled === true ? 'cancelled' : 'image-save-failed', stopGeneration: true,
+                    error: saved.cancelled === true ? '已停止' : quota ? IMAGE_STORAGE_FULL_MESSAGE : `图片没存上：${recoveryFailureText(failure)}` });
+                continue;
+            }
+            rememberImage(imageId, image.dataUrl);
+            items.push({ mood, ok: true, imageId, name });
+        }
+        return { ok: true, items, unmapped, stopped: halted || stopped() };
+    }
+
+    function faceExpressionStatus() {
+        try {
+            if (typeof faceEditPaint !== 'function') return { ok: false, reason: '当前图像来源不支持局部重绘' };
+            // 按「重绘模型」检查，与实际发送一致；立绘模型（如 V5 Curated）没有重绘版本也不影响只改脸部。
+            const editModel = normalizeConsistencyModel(readSettings().auto.consistencyModel);
+            if (!isConsistencyModelValid(editModel)) return { ok: false, reason: '重绘模型无效，请在「局部重绘」里重新选择' };
+            const capability = nai?.describeEdit?.(undefined, { model: editModel });
+            if (capability?.supported !== true) return { ok: false, reason: capability?.message || '当前图像来源不支持局部重绘' };
+            return { ok: true, reason: '' };
+        } catch (error) { return { ok: false, reason: (error && error.message) || '无法读取局部重绘设置' }; }
+    }
+
+    function drawRegion(img, width, height, sx, sy, sw, sh, white) {
+        const doc = deps.global?.document || globalThis.document;
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (white) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, width, height);
+        return { canvas, ctx };
+    }
+
+    function pngFromRgba(data, width, height) {
+        const doc = deps.global?.document || globalThis.document;
+        const canvas = doc.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        const frame = ctx.createImageData(width, height);
+        frame.data.set(data);
+        ctx.putImageData(frame, 0, 0);
+        return canvas.toDataURL('image/png');
+    }
+
+    // 只改脸部：脸框内局部重绘，椭圆外逐像素保持底图；透明度沿用底图，不跑抠图。
+    async function paintFaceExpressions({ name, moods, baseImageId, faceBox, dna, nsfw = false, note = '', onProgress, signal, shouldStart } = {}) {
+        const labels = (Array.isArray(moods) ? moods : []).map(item => String(item || '').trim()).filter(Boolean);
+        const stopped = () => Boolean(signal?.aborted) || (typeof shouldStart === 'function' && shouldStart() !== true);
+        const unmapped = [], plan = [];
+        for (const mood of labels) {
+            const hit = directorEmotionOf(mood, nsfw === true);
+            if (hit) plan.push({ mood, ...hit }); else unmapped.push(mood);
+        }
+        if (!plan.length) return { ok: true, items: [], unmapped, stopped: false };
+        if (typeof faceEditPaint !== 'function') return { ok: false, error: '当前图像来源不能局部重绘' };
+        // 读当前显示的那张（与选脸窗口同一张）：脸框坐标按它算，抠过/裁过边的原图尺寸不同会错位。
+        let source = '';
+        try { source = (await store.getImage(baseImageId, { fields: ['dataUrl'], original: true }))?.dataUrl || ''; } catch { source = ''; }
+        if (!source) {
+            try { source = (await store.getImage(baseImageId, { fields: ['originalDataUrl'], original: true }))?.originalDataUrl || ''; } catch { source = ''; }
+        }
+        if (!source) return { ok: false, error: '找不到默认立绘' };
+        let img, fullData, width, height, crop;
+        try {
+            img = await loadImageElement(source);
+            width = img.naturalWidth || img.width; height = img.naturalHeight || img.height;
+            fullData = drawRegion(img, width, height, 0, 0, width, height, false).ctx.getImageData(0, 0, width, height).data;
+            crop = planFaceCrop(width, height, faceBox);
+        } catch (error) { return { ok: false, error: (error && error.message) || '原图处理失败' }; }
+        if (!crop) return { ok: false, error: '脸部位置无效' };
+        const work = crop.work;
+        const sourceDataUrl = drawRegion(img, work, work, crop.x, crop.y, crop.side, crop.side, true).canvas.toDataURL('image/png');
+        const maskDataUrl = pngFromRgba(buildFaceMask(crop), work, work);
+        const strength = normalizeConsistencyStrength(readSettings(signal).auto.consistencyStrength);
+        if (!isConsistencyStrengthValid(strength)) return { ok: false, error: '重绘强度需在0.1到1之间' };
+        // 显式带「重绘模型」：否则发送时按 imageKind 取立绘分类模型，与能力检查用的全局模型不一致。
+        const editModel = normalizeConsistencyModel(readSettings(signal).auto.consistencyModel);
+        if (!isConsistencyModelValid(editModel)) return { ok: false, error: '重绘模型无效，请在「局部重绘」里重新选择' };
+        // 框外原图已锁长相，每档随机种子；DNA 只取触发词与身份，不带性格。
+        const dnaParts = dna ? buildCharacterDnaPromptParts(dna) : { positive: '', negative: '' };
+        const fullDna = dna ? normalizeCharacterDna(dna) : null;
+        const dnaFace = fullDna ? mergePromptTags([fullDna.triggerWords, fullDna.identity]) : '';
+        // 遮罩盖住整张脸，眼色只能靠提示词：从 DNA（含各景别）取眼色词加权，排在表情后面。
+        const eyes = fullDna ? eyeColorTags(fullDna.triggerWords, fullDna.identity,
+            ...Object.values(fullDna.views || {}).map((view) => view?.subject)).join(', ') : '';
+        const items = [];
+        let halted = false;
+        for (let i = 0; i < plan.length; i += 1) {
+            const { mood, emotion, extra } = plan[i];
+            if (halted || stopped()) { items.push({ mood, ok: false, error: '已停止' }); continue; }
+            reportExpressionProgress(onProgress, { phase: 'paint', done: i + 1, total: plan.length, mood });
+            let painted;
+            try {
+                const face = mergePromptTags(`${emotion} expression`, extra);
+                const rest = mergePromptTags(dnaFace, String(note || '').trim(), FACE_PRESERVE_TAGS);
+                const prompt = [`1.3::${face}::`, eyes && `1.25::${eyes}::`, rest].filter(Boolean).join(', ');
+                const sentTitle = `脸部重绘发出去（${name}·${mood}）：模型 ${editModel}，强度 ${strength}`;
+                const sentParts = Math.max(1, Math.ceil(prompt.length / 520));
+                for (let k = 0; k < sentParts; k += 1) {
+                    report('info', `${sentParts === 1 ? sentTitle : `${sentTitle} ${k + 1}/${sentParts}`}
+${prompt.slice(k * 520, (k + 1) * 520)}`);
+                }
+                painted = await faceEditPaint({ sourceDataUrl, maskDataUrl, prompt, negative: dnaParts.negative, width: work, height: work,
+                    strength, model: editModel, slotArtist: true, promptKind: 'expression', imageKind: 'sprite',
+                    ...(signal && { signal }), ...(shouldStart && { shouldStart }) });
+            } catch (error) { painted = { ok: false, error: (error && error.message) || '脸部重绘失败' }; }
+            if (stopped()) painted = { ok: false, reason: 'stale-target', error: '目标已变化，未接收迟到图片' };
+            if (!painted?.ok || !painted.dataUrl) {
+                if (painted?.stopGeneration) halted = true;
+                items.push({ mood, ok: false, error: painted?.error || '脸部重绘失败',
+                    ...(painted?.reason && { reason: painted.reason }), ...(painted?.stopGeneration && { stopGeneration: true }) });
+                continue;
+            }
+            let output;
+            try {
+                const result = await loadImageElement(painted.dataUrl);
+                const back = drawRegion(result, crop.side, crop.side, 0, 0, result.naturalWidth || result.width, result.naturalHeight || result.height, false);
+                const merged = new Uint8ClampedArray(fullData);
+                blendFaceInto(merged, width, crop, back.ctx.getImageData(0, 0, crop.side, crop.side).data);
+                output = pngFromRgba(merged, width, height);
+            } catch (error) {
+                items.push({ mood, ok: false, error: (error && error.message) || '脸部合成失败' });
+                continue;
+            }
+            const imageId = newId();
+            // 不走抠图：底图透明度已原样保留。
+            const stamp = now();
+            const image = { schemaVersion: GENERATED_IMAGE_SCHEMA_VERSION, id: imageId, type: 'sprite', originalDataUrl: output, workingDataUrl: '',
+                dataUrl: output, alphaMaskDataUrl: '', matteCrop: null, revision: 1, createdAt: stamp, updatedAt: stamp, faceSource: baseImageId };
+            let saved;
+            try { saved = await persistGeneratedImage(image); }
+            catch (error) { saved = { ...(error?.result || {}), ok: false, saveError: error }; }
+            if (saved?.ok === false) {
+                const failure = saved.saveError ? { ...saved, error: saved.error || saved.saveError } : saved;
+                const quota = isQuotaError(saved.saveError) || /quota|存储.*满|空间不足/i.test(recoveryFailureText(failure));
+                halted = true;
+                items.push({ mood, ok: false, reason: saved.cancelled === true ? 'cancelled' : 'image-save-failed', stopGeneration: true,
+                    error: saved.cancelled === true ? '已停止' : quota ? IMAGE_STORAGE_FULL_MESSAGE : `图片没存上：${recoveryFailureText(failure)}` });
+                continue;
+            }
+            rememberImage(imageId, image.dataUrl);
+            items.push({ mood, ok: true, imageId, name });
+        }
+        return { ok: true, items, unmapped, stopped: halted || stopped() };
+    }
+
     function reportExpressionProgress(onProgress, event) {
         if (typeof onProgress === 'function') onProgress(event);
     }
@@ -2616,6 +2991,7 @@ export function createAssetGenerationService(deps) {
         prepareExternalSpriteDna,
         generateExpressionSet: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionSet),
         generateExpressionImage: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateExpressionImage),
+        paintDirectorExpressions, supportsDirectorExpressions, directorExpressionStatus, paintFaceExpressions, faceExpressionStatus,
         paintExpressionCaptions: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, paintExpressionCaptions),
         generateCharacterSprite: request => withExternalSpriteDna(request, generateCharacterSprite),
         generateCharacterAvatar: request => withExternalSpriteDna({ ...request, requireDna: Boolean(deps.captureCharacterDnaTarget) }, generateCharacterAvatar),
@@ -2651,11 +3027,11 @@ export function createAssetGenerationService(deps) {
             pendingFloors.clear();
         },
     };
-    for (const method of ['generateExpressionSet', 'generateExpressionImage', 'paintExpressionCaptions',
+    for (const method of ['generateExpressionSet', 'generateExpressionImage', 'paintExpressionCaptions', 'paintDirectorExpressions', 'paintFaceExpressions',
         'generateCharacterSprite', 'generateCharacterAvatar', 'generateSceneVariants', 'writeWardrobePrompt',
         'paintWardrobeReference', 'importAssetImage', 'readStoredImage', 'readStoredImageRecord', 'getImagePrompt', 'writeStoredImage']) {
         const execute = service[method];
-        const generation = method.startsWith('generate') || ['paintExpressionCaptions', 'paintWardrobeReference', 'writeWardrobePrompt'].includes(method);
+        const generation = method.startsWith('generate') || ['paintExpressionCaptions', 'paintDirectorExpressions', 'paintFaceExpressions', 'paintWardrobeReference', 'writeWardrobePrompt'].includes(method);
         service[method] = (...args) => {
             const objectInput = args[0] && typeof args[0] === 'object';
             const linked = linkRecoverySignals([objectInput && args[0].signal, recoveryController.signal]);
@@ -2670,16 +3046,21 @@ export function createAssetGenerationService(deps) {
                 ...(target && { shouldStart: target.shouldStart }) });
             const captured = generation && typeof llm?.runImageTask === 'function';
             const run = async guarded => {
+                const enteredAt = Date.now();
                 // 存储空间明显装不下这一批时不发任何请求，免得出完图才发现存不下。
                 const planned = generation ? plannedImageCount(method, args[0]) : 0;
                 if (planned) {
                     const room = await checkImageStorageRoom(deps.global || globalThis, planned);
                     if (!room.ok) return { ...room, stopGeneration: true };
                 }
+                const roomAt = Date.now();
                 if (generation && method !== 'writeWardrobePrompt' && typeof nai?.waitUntilReady === 'function') {
                     const ready = await nai.waitUntilReady(guarded);
                     if (!ready.ok) return ready;
                 }
+                // 开工前的准备超过 3 秒才记一笔，方便排查「点了很久才开始」。
+                if (generation && Date.now() - enteredAt > 3000)
+                    report('info', `开始生成前等待：存储检查 ${secs(roomAt - enteredAt)}，就绪检查 ${secs(Date.now() - roomAt)}`);
                 const perform = () => execute(...(objectInput && captured ? [guarded, ...args.slice(1)] : args));
                 const readOnly = ['readStoredImage', 'readStoredImageRecord', 'getImagePrompt'].includes(method);
                 return recoverOperation(perform, {

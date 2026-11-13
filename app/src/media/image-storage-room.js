@@ -12,6 +12,7 @@ export const SETTINGS_STORAGE_FULL_MESSAGE = '浏览器本地存储已满，新�
 const COUNTERS = {
     generateExpressionSet: (request) => (Array.isArray(request?.moods) ? request.moods.length : 0) || 1,
     paintExpressionCaptions: (request) => (Array.isArray(request?.items) ? request.items.length : 0) || 1,
+    paintDirectorExpressions: (request) => (Array.isArray(request?.moods) ? request.moods.length : 0) || 1,
     generateExpressionImage: () => 1,
     generateCharacterSprite: () => 1,
     generateCharacterAvatar: () => 1,

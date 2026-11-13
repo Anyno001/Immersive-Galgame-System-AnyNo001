@@ -3,11 +3,11 @@ import { cardTextHtml, partHtml } from './combat-card-text.js';
 export { cardTextHtml } from './combat-card-text.js';
 import { CARD_TYPE_LABELS, describeEffects, describeKeywords, portraitSilhouetteSvg } from './combat-card-art.js';
 import { intentDamageText, intentIconsHtml, intentTip } from './combat-intent.js';
-import { KEYWORD_NAME_TIPS, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
+import { KEYWORD_NAME_TIPS, rewardHandView, isItemSelection, isSkillSelection, selectedItemView, selectedSkillView, skillSelection } from './combat-panel-model.js';
 import { LIVE_ICONS } from './danmaku-icons.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { isCanvasSkin } from './combat-skin-canvas.js';
-import { CANVAS_BATTLE } from './combat-skin-registry.js';
+import { CANVAS_BATTLE, CANVAS_REWARD } from './combat-skin-registry.js';
 import { CHALLENGE_LABELS } from '../../combat/challenge-labels.js';
 import { CHALLENGE_ACHIEVEMENTS } from '../../combat/challenge-history.js';
 import { INTIMATE_ENDING_LINE } from '../../scene/intimate-duel.js';
@@ -114,6 +114,8 @@ const REASON_TEXT = Object.freeze({
     'combat-reroll-used': '本场已经重抽过',
     'combat-reroll-unavailable': '本场不能重抽',
     'combat-points-insufficient': '积分不足',
+    'points-intent-pending': '上一笔积分还没记完，请稍后重新发送',
+    'points-settlement-pending': '有积分操作尚未确认，请稍后重新发送',
     'combat-card-upgrade-none': '卡组里没有可升级的牌',
     'combat-card-upgrade-used': '本场已升级',
     'combat-card-upgrade-expired': '升级机会已过期',
@@ -149,8 +151,9 @@ export function generationCauseText(reason) {
     return reason ? GENERATION_CAUSE_TEXT[reason] || '档案校验未通过' : '';
 }
 
-const btn = (act, label, { id = '', primary = false, disabled = false, pressed } = {}) =>
-    `<button type="button" class="igs-combat-btn${primary ? ' is-primary' : ''}" data-combat-act="${esc(act)}"${id ? ` data-combat-id="${esc(id)}"` : ''}${pressed === undefined ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`}${disabled ? ' aria-disabled="true"' : ''}>${esc(label)}</button>`;
+// full：可见文字缩短时的完整说法，写进 aria-label 与 title。
+const btn = (act, label, { id = '', primary = false, disabled = false, pressed, full = '' } = {}) =>
+    `<button type="button" class="igs-combat-btn${primary ? ' is-primary' : ''}" data-combat-act="${esc(act)}"${id ? ` data-combat-id="${esc(id)}"` : ''}${full ? ` aria-label="${esc(full)}" title="${esc(full)}"` : ''}${pressed === undefined ? '' : ` aria-pressed="${pressed ? 'true' : 'false'}"`}${disabled ? ' aria-disabled="true"' : ''}>${esc(label)}</button>`;
 
 // 回合操作图标按钮：图标是程序常量；文字只放在 aria-label / title，可访问名称与原文字按钮一致。
 const iconBtn = (act, label, icon, { primary = false, disabled = false } = {}) =>
@@ -536,9 +539,13 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
 // 规则 v6 卡牌槽三选一：选定的战利品带 choices 时，在下方列出候选，点选其一（可改选），或跳过。
-function lootChoicesHtml(f, pending) {
+function lootChoicesHtml(f, pending, v = {}) {
     const slot = f.done ? f.cards.find((c) => c.chosen)?.slot : null;
     if (!slot || slot.kind !== 'card' || !Array.isArray(slot.choices) || !slot.choices.length) return '';
+    if (isCanvasSkin(v.skin) && CANVAS_REWARD[v.skin]) {
+        const views = slot.choices.map((_, i) => rewardHandView(rewardCardView(slot, i), rewardCardMarks(slot, i)));
+        return `<div class="igs-combat-loot-row igs-combat-loot-choices is-full" style="--n:${slot.choices.length}">${CANVAS_REWARD[v.skin](views, { orient: v.orient === 'land' ? 'land' : 'port', chosen: f.card, dim: f.card === 'skip', pending })}</div>`;
+    }
     const cards = slot.choices.map((card, i) => {
         const marks = rewardCardMarks(slot, i);
         const view = rewardCardView(slot, i);
@@ -558,10 +565,14 @@ function lootChoicesHtml(f, pending) {
 function purgeButton(f, pending) {
     const p = f.purge;
     if (!p) return '';
-    if (!p.available) return btn('purge-open', p.reason === 'combat-points-insufficient' ? `删牌 · 积分不足（需${p.cost}）` : `删牌 · ${combatReasonText(p.reason)}`, { disabled: true });
+    if (!p.available) {
+        const full = p.reason === 'combat-points-insufficient' ? `删牌 · 积分不足（需${p.cost}）` : `删牌 · ${combatReasonText(p.reason)}`;
+        return btn('purge-open', p.reason === 'combat-points-insufficient' ? '删牌·积分不足' : full, { disabled: true, full });
+    }
     const name = (p.cards || []).find((c) => c.copyId === p.pick)?.name;
     const label = p.pick === 'skip' ? '删牌：不删' : name ? `删牌：${name}` : `删一张牌（消耗${p.cost}积分）`;
-    return btn('purge-open', label, { primary: f.needPurge === true, disabled: pending });
+    const short = p.pick === 'skip' || name ? label : p.cost > 0 ? `删牌·${p.cost}积分` : '删牌·免费';
+    return btn('purge-open', short, { primary: f.needPurge === true, disabled: pending, full: label });
 }
 
 // 删牌浮层：盖在整个面板上（不进结算画布，各皮肤一致），卡组里的牌逐张列出（同名牌不合并）与「不删」；点遮罩或「关闭」收起。
@@ -605,10 +616,13 @@ function purgeSheetHtml(v) {
 function upgradeButton(f, pending) {
     const u = f.upgrade;
     if (!u) return '';
-    if (!u.available) return btn('upgrade-open', `升级 · ${combatReasonText(u.reason)}`, { disabled: true });
+    if (!u.available) {
+        const full = `升级 · ${combatReasonText(u.reason)}`;
+        return btn('upgrade-open', full, { disabled: true, full });
+    }
     const name = (u.cards || []).find((c) => c.copyId === u.pick)?.name;
     const label = u.pick === 'skip' ? '升级：不升' : name ? `升级：${name}` : '免费升级一张牌';
-    return btn('upgrade-open', label, { primary: f.needUpgrade === true, disabled: pending });
+    return btn('upgrade-open', u.pick === 'skip' || name ? label : '免费升级', { primary: f.needUpgrade === true, disabled: pending, full: label });
 }
 
 // 升级浮层：与删牌浮层同一外观，只列可升级的副本。点一张牌先看详情（升级前后的费用与效果并列），再点「升级这张」才记入选择；「不升」直接记入。
@@ -673,8 +687,8 @@ function lootHtml(v) {
     const pause = f.cards.some((c) => struck.has(c.position) && c.slot?.rarity === 'mythic');
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
-        ? btn('reroll', r.cost > 0 ? `重新抽取（消耗${r.cost}积分）` : '重新抽取（免费）', { disabled: pending || !r.available }) : '';
-    const choices = lootChoicesHtml(f, pending);
+        ? btn('reroll', r.cost > 0 ? `重抽·${r.cost}积分` : '重抽·免费', { disabled: pending || !r.available, full: r.cost > 0 ? `重新抽取（消耗${r.cost}积分）` : '重新抽取（免费）' }) : '';
+    const choices = lootChoicesHtml(f, pending, v);
     const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
     const tools = `${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`

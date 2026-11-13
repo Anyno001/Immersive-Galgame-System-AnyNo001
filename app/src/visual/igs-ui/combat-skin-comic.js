@@ -7,7 +7,7 @@ import { portraitSilhouetteSvg } from './combat-card-art.js';
 import { skinIntentHtml } from './combat-intent.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
-import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, handLayout, handVars, ringVars } from './combat-skin-canvas.js';
+import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, handLayout, handVars, ringVars, rewardCardMarkup, rewardRowMarkup } from './combat-skin-canvas.js';
 import { COMBAT_SKIN_COMIC_CONCEPT_CSS } from './combat-skin-comic-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -387,3 +387,8 @@ ${C}.land :is(.skill i,.item i,.mst){font-size:12px;min-width:16px;height:16px;l
 `;
 
 export const COMBAT_SKIN_COMIC_STYLE_TEXT = `${COMBAT_SKIN_COMIC_CONCEPT_CSS}${COMIC_WIRING_CSS}`;
+
+// 结算三选一：候选牌用本皮肤放大牌的完整卡面，一行静态排布。
+const REWARD_SIZE = { port: { w: 132, h: 208 }, land: { w: 174, h: 273 }, avail: { port: 362, land: 560 } };
+export const rewardRowHtml = (views, { orient, chosen, dim, pending }) => rewardRowMarkup('comic', orient, views.map((view, index) => rewardCardMarkup(
+    cardHtml(view, 0, [{ left: 0, z: 1, tx: 0, rot: '0' }], { selected: view.inst }, [], 99), { index, chosen: chosen === index, dim, pending })), { ...REWARD_SIZE[orient], avail: REWARD_SIZE.avail?.[orient] }, handVars(CFG.hand[orient]), views.map((v) => v.fxText));

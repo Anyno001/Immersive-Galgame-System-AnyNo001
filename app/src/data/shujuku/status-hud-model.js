@@ -19,6 +19,9 @@ export const STATUS_HUD_AVATAR_ZOOM_MAX = 250;
 export const STATUS_HUD_BACKGROUND_IDS = Object.freeze(['none', 'dialog']);
 export const STATUS_HUD_BAR_COLOR_IDS = Object.freeze(['color', 'grayscale']);
 export const STATUS_HUD_TABLES_MODE_IDS = Object.freeze(['auto', 'manual']);
+// 状态栏资料入口：可逐项隐藏，与工具栏「按钮管理」的显示开关同一用法；名单里的项不显示。
+export const STATUS_HUD_ENTRY_ITEMS = Object.freeze([['map', '地图'], ['diary', '日记'], ['inventory', '物品'], ['relationships', '人际关系'], ['favor', '好感度'], ['combat', '人物状态'], ['origin', '随身系统']]);
+const STATUS_HUD_ENTRY_IDS = STATUS_HUD_ENTRY_ITEMS.map(([id]) => id);
 // NSFW 黑幕强度：只调边缘暗角渐变的中心/边缘透明度，
 // 背景图本身不加模糊、压暗或去饱和滤镜。
 export const NSFW_VEIL_LEVEL_IDS = Object.freeze(['light', 'medium', 'strong']);
@@ -126,6 +129,7 @@ export function normalizeStatusHudSettings(raw) {
         tables: normalizeStatusHudTables(src.tables),
         tablesMode: resolveStatusHudTablesMode(src),
         position: normalizeStatusHudPosition(src.position),
+        hiddenEntries: Array.isArray(src.hiddenEntries) ? STATUS_HUD_ENTRY_IDS.filter((id) => src.hiddenEntries.includes(id)) : [],
     };
 }
 

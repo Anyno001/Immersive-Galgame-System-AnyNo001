@@ -31,8 +31,10 @@ function sameNode(a, b) {
 function patchChildren(parent, next, active) {
     let cur = parent.firstChild;
     let incoming = next.firstChild;
+    const transient = (node) => node && node.nodeType === 1 && node.hasAttribute('data-igs-transient');
     while (incoming) {
         const following = incoming.nextSibling;
+        while (transient(cur)) cur = cur.nextSibling;
         if (cur && sameNode(cur, incoming)) {
             patchNode(cur, incoming, active);
             cur = cur.nextSibling;
@@ -43,7 +45,8 @@ function patchChildren(parent, next, active) {
     }
     while (cur) {
         const following = cur.nextSibling;
-        parent.removeChild(cur);
+        // 临时弹层（选脸窗口等）不属于模板，重绘时留着。
+        if (!transient(cur)) parent.removeChild(cur);
         cur = following;
     }
 }
@@ -78,10 +81,11 @@ function patchNode(cur, next, active) {
         if (cur !== active && cur.value !== next.textContent) cur.value = next.textContent;
         return;
     }
+    // 选中项要在合并前算：合并会把 next 的节点搬进页面，之后再数会少项错位。
+    const picked = tag === 'SELECT'
+        ? Array.from(next.querySelectorAll('option')).findIndex((option) => option.hasAttribute('selected')) : -1;
     patchChildren(cur, next, active);
     if (tag === 'SELECT') {
-        const options = Array.from(next.querySelectorAll('option'));
-        const picked = options.findIndex((option) => option.hasAttribute('selected'));
         const index = picked >= 0 ? picked : 0;
         if (cur.selectedIndex !== index) cur.selectedIndex = index;
     }

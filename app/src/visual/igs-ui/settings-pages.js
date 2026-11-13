@@ -21,7 +21,7 @@ export const SETTINGS_CATEGORIES = Object.freeze([
 ]);
 
 // 侧边栏小组标题：键为该组第一个分类 id。
-export const SETTINGS_NAV_GROUPS = Object.freeze({ style: '阅读体验', chars: '素材与生图', prompt: '格式处理', stats: '玩法与数据' });
+export const SETTINGS_NAV_GROUPS = Object.freeze({ style: '阅读体验', chars: '素材', ai: 'API与提示词', stats: '玩法与数据' });
 
 // [页面 id, 子页名, 所属分类]
 export const SETTINGS_PAGES = Object.freeze([

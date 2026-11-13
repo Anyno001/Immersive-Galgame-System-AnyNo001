@@ -7,7 +7,7 @@ import { composeStatsHud, dropUserFavor, protagonistStatMetrics, overlayStatsMet
 import { buildStatsPrompt } from '../src/scene/stats/stat-prompt.js';
 import { createStatsState } from '../src/scene/stats/stat-state.js';
 import { settleFloorText } from '../src/scene/stats/stat-settle.js';
-import { applyFxToDom, cancelFxEffects, playStatsFeedback, playStatsFeedbackWithHud } from '../src/visual/igs-ui/fx-runtime.js';
+import { applyFxToDom, cancelFxEffects, playStatsFeedback, playStatsFeedbackWithHud, playExternalNotify } from '../src/visual/igs-ui/fx-runtime.js';
 import { createStatsLedger, currentStatsState, deleteFloorsFrom } from '../src/scene/stats/stat-ledger.js';
 import { settleFloor } from '../src/scene/stats/stat-ledger-settle.js';
 import { FakeEl, makeStage, makeTimers } from './helpers/fake-dom.js';
@@ -195,12 +195,12 @@ test('生产失败恢复：分段购买不发货且共享余额拒读，原意�
     const recovered = await runtime.engine.retrySave();
     assert.equal(recovered.ok, true, JSON.stringify(recovered));
     assert.equal(runtime.engine.getState().bag.find((item) => item.name === '凝神丹').count, 1);
-    assert.equal((await h.services.readSharedPoints()).balance, 300);
+    assert.equal((await h.services.readSharedPoints()).balance, 460);
     const count = h.db.calls.insertRow;
     assert.equal((await runtime.engine.retrySave()).ok, true);
     await runtime.engine.whenSaved();
     assert.equal(h.db.calls.insertRow, count);
-    assert.equal(runtime.engine.getState().points, 300);
+    assert.equal(runtime.engine.getState().points, 460);
 });
 
 test('积分结算基础：待扣款持久化并阻止新消费，重建服务重试只结算原记录', async t => {
@@ -445,3 +445,17 @@ async function segmentedExchange(h) {
         lock: task => h.services.withPointsLock(task), wallet: () => h.services.readSharedPoints() });
 }
 
+
+// ---------- 对外通知卡 ----------
+test('外部通知卡：空文本不播，正常播出带发件人与截断文本', () => {
+    const root = makeStage();
+    const timers = makeTimers();
+    const opts = { readerSettings: { fxTags: { enabled: true, notify: true } }, schedule: timers.schedule, clear: timers.clear, reducedMotion: false };
+    assert.deepEqual(playExternalNotify(root, { sender: '小雪', text: '  ' }, opts), { played: 0 });
+    assert.deepEqual(playExternalNotify(root, { sender: '小雪', text: '到楼下了'.repeat(40) }, opts), { played: 1 });
+    const card = root.querySelector('.igs-fx-notify');
+    assert.ok(card);
+    assert.equal(card.querySelector('.igs-fx-notify-sender').textContent, '小雪');
+    assert.equal(Array.from(card.querySelector('.igs-fx-notify-text').textContent).length, 80);
+    cancelFxEffects(root);
+});

@@ -517,6 +517,7 @@ export function renderCharacterAssetList(characters, options = {}) {
             ]);
             const slotMenu = renderRowMenu([
                 canPrompt ? menuItem(`char-expression-prompt:${c}:${m}`, '提示词') : '',
+                imageId && (mood === '默认' || mood === '平和') ? menuItem(`char-face-box:${c}:${m}`, '调整脸部位置') : '',
                 menuItem(`char-mood-url-ask:${c}:${m}`, rawUrl && !imageId ? '修改网址' : '填写网址'),
                 menuItem(`scene-rename-mood:${c}:${m}`, '重命名'),
                 menuItem(`scene-remove-mood:${c}:${m}`, '删除', ' is-danger'),
@@ -948,6 +949,19 @@ export function renderPinnedButtons(pinnedValue, hiddenValue, orderValue, dialog
     }).join('');
     const head = `<div class="igs-btn-mgr-legend">右侧图标依次为：显示、常驻${splitMode ? '、放在对话框下' : ''}</div>`;
     return `<details class="igs-settings-advanced" data-advanced="toolbar-buttons"${open ? ' open' : ''}><summary>按钮管理（${order.length}个）</summary><div class="igs-btn-mgr-list">${head}${rows}</div></details>`;
+}
+
+
+// 状态栏资料入口的显示开关：沿用工具栏「按钮管理」的行与眼睛图标，只有显示一项。
+export function renderStatusHudEntryToggles(items, hiddenValue, open = false) {
+    const hidden = Array.isArray(hiddenValue) ? hiddenValue : [];
+    const eyeOn = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const eyeOff = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    const rows = items.map(([id, label]) => {
+        const isHidden = hidden.includes(id);
+        return `<div class="igs-btn-mgr-row${isHidden ? ' is-hidden-btn' : ''}"><span class="igs-btn-mgr-label">${esc(label)}</span><button type="button" class="igs-btn-mgr-icon${isHidden ? '' : ' is-on'}" data-action="status-hud-toggle-entry:${esc(id)}" title="显示/隐藏">${isHidden ? eyeOff : eyeOn}</button></div>`;
+    }).join('');
+    return `<details class="igs-settings-advanced" data-advanced="status-hud-entries"${open ? ' open' : ''}><summary>资料入口（${items.length}个）</summary><div class="igs-btn-mgr-list">${rows}</div></details>`;
 }
 
 

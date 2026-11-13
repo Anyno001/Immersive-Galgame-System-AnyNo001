@@ -39,6 +39,9 @@ export const legacyTierOf = (favorMode) => (favorMode === 'hard' ? 'legacyHard' 
 // 鲜明档每日上限随阶段递减；阶段倍率按 from 取。
 export const vividDailyMax = (favor) => (favor <= 25 ? 15 : favor <= 50 ? 12 : favor <= 75 ? 10 : 8);
 export const vividCoef = (favor) => (favor <= 25 ? 1 : favor <= 50 ? 0.8 : favor <= 75 ? 0.6 : 0.4);
+// 好感、信任下降的每日上限；当日已用额度记在 daily.gained 的这两个键下，跨天随 resetDaily 清零。
+export const FAVOR_DROP_DAILY_MAX = 20;
+export const FAVOR_DROP_KEY = '好感下降';
 export const HEART_FULL = 5;
 export const HEART_BURST_GAIN = 5;
 export const HEART_BURST_NOTE = '心意满溢';
@@ -149,7 +152,7 @@ export function downgradeStrength(directive) {
 // 新三档的好感结算。AI 只给方向与强度档，数值全在这里查表。
 // 鲜明＝强度基础值 × 阶段倍率 + 心意槽（不掷骰）；普通＝基础值 + d100（失败减半，至少 1）；困难＝现行方向表。负向三档共用强度表。
 // 返回 { character, change, burst }；心意槽在鲜明档的好感结算里读写，特质「引起注意」在任何档位都会加槽，状态栏在困难档不显示。
-export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, floorRoom, dailyMax, rev = 0, scale = null } = {}) {
+export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, floorRoom, dailyMax, rev = 0, scale = null, damp = 1, dropExempt = false } = {}) {
     const coef = coef0 * unit(scale, 'up');
     const from = Number(character.dims.好感) || 0;
     const heart0 = Math.max(0, Math.min(HEART_FULL - 1, Math.round(Number(character.heart) || 0)));
@@ -169,6 +172,10 @@ export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, fl
         delta = FAVOR_NEG_BASE[level];
         rows.push(calcRow(`${rowTag(level)} 基础`, delta));
         if (unit(scale, 'down') !== 1) { delta = -guardDrop('好感', scaleAmount(-delta, unit(scale, 'down'))); rows.push(calcRow('特质倍率', unit(scale, 'down'))); }
+        if (damp < 1) delta = -Math.max(1, Math.round(-delta * damp));
+        // 负向每日上限（背叛、谎言揭穿的那一楼不受限）。
+        const dropLeft = Math.max(0, FAVOR_DROP_DAILY_MAX - (character.daily.gained[FAVOR_DROP_KEY] || 0));
+        if (!dropExempt && -delta > dropLeft) { delta = -dropLeft; capped = CHANGE_CAP.daily; rows.push(calcRow('今日下降剩余额度', dropLeft)); }
         if (vivid) heart = level === '小' ? Math.max(0, heart0 - 2) : 0;
     } else {
         const daily = character.daily;
@@ -235,6 +242,7 @@ export function applyFavorTier(character, d, { tier, random, coef: coef0 = 1, fl
     const bigUsed = vivid && positive && level === '大';
     let daily = character.daily;
     if (gain || bigUsed) daily = { ...daily, ...(bigUsed ? { bigUsed: true } : {}), gained: gain ? { ...daily.gained, 好感: (daily.gained.好感 || 0) + gain } : daily.gained };
+    if (!positive && from > to) daily = { ...daily, gained: { ...daily.gained, [FAVOR_DROP_KEY]: (daily.gained[FAVOR_DROP_KEY] || 0) + (from - to) } };
     const next = { ...character, dims: to === from ? character.dims : { ...character.dims, 好感: to }, daily };
     if (vivid) next.heart = heart;
     rows.push(calcRow('结果', to - from));
@@ -306,21 +314,29 @@ export function applyJealousy(character, d, opts) {
 export const TRUST_FLOOR_MAX = 6;
 export const TRUST_DAILY_MAX = 10;
 export const TRUST_WOUND_DAYS = 3;
+export const TRUST_DROP_DAILY_MAX = 20;
+export const TRUST_DROP_KEY = '信任下降';
 export const trustStrength = (directive) => (FAVOR_STRENGTHS.includes(directive && directive.strength) ? directive.strength : '小');
 
 // 新三档下的信任：上升按强度表（受伤期间减半，至少 1），单楼 6、每日 10，不掷骰；下降按强度表，不设上限，重大下降记受伤天数。
-export function applyTrustTier(character, d, { coef = 1, floorRoom = TRUST_FLOOR_MAX, scale = null } = {}) {
+export function applyTrustTier(character, d, { coef = 1, floorRoom = TRUST_FLOOR_MAX, scale = null, damp = 1, dropExempt = false } = {}) {
     const from = Number(character.dims.信任) || 0;
     const level = trustStrength(d);
     const up = d.value === '上升';
     let delta;
+    let capped = null;
     if (up) {
         const wounded = Number(character.trustWound) > 0;
         const raw = Math.max(1, Math.round(TRUST_UP_BASE[level] * coef * unit(scale, 'up')));
         const base = wounded ? Math.max(1, Math.floor(raw / 2)) : raw;
         const gained = character.daily.gained.信任 || 0;
         delta = Math.max(0, Math.min(base, floorRoom, amplifyLimit(TRUST_DAILY_MAX, unit(scale, 'up')) - gained));
-    } else delta = unit(scale, 'down') !== 1 ? -guardDrop('信任', scaleAmount(-TRUST_DOWN_BASE[level], unit(scale, 'down'))) : TRUST_DOWN_BASE[level];
+    } else {
+        delta = unit(scale, 'down') !== 1 ? -guardDrop('信任', scaleAmount(-TRUST_DOWN_BASE[level], unit(scale, 'down'))) : TRUST_DOWN_BASE[level];
+        if (damp < 1) delta = -Math.round(-delta * damp);
+        const dropLeft = Math.max(0, TRUST_DROP_DAILY_MAX - (character.daily.gained[TRUST_DROP_KEY] || 0));
+        if (!dropExempt && -delta > dropLeft) { delta = -dropLeft; capped = CHANGE_CAP.daily; }
+    }
     const to = clamp(from + delta, DIM_MIN, DIM_MAX);
     const wound = !up && level === '重大';
     let next = character;
@@ -328,33 +344,54 @@ export function applyTrustTier(character, d, { coef = 1, floorRoom = TRUST_FLOOR
         const gain = Math.max(0, to - from);
         const daily = gain ? { ...character.daily, gained: { ...character.daily.gained, 信任: (character.daily.gained.信任 || 0) + gain } } : character.daily;
         next = { ...character, dims: { ...character.dims, 信任: to }, daily };
+        if (to < from) next = { ...next, daily: { ...next.daily, gained: { ...next.daily.gained, [TRUST_DROP_KEY]: (next.daily.gained[TRUST_DROP_KEY] || 0) + (from - to) } } };
     }
     if (wound) next = { ...next, trustWound: TRUST_WOUND_DAYS };
-    return { character: next, change: { dim: '信任', value: d.value, from, to, roll: null } };
+    return { character: next, change: { dim: '信任', value: d.value, from, to, roll: null, ...(capped ? { capped } : {}) } };
 }
 
 // ---- 芥蒂分强度（strengthRev ≥ 1 的新楼，三档好感成长共用） ----
 export const GRUDGE_DOWN_DAILY_MAX = 10;
 // 下降（化解）当日已用额度记在 daily.gained 的这个键下，跨天随 resetDaily 清零。
 export const GRUDGE_DOWN_KEY = '芥蒂下降';
+// 上升（小、中档）的单楼与每日上限；当日已用额度记在 GRUDGE_UP_KEY 下，大、重大档不受限但计入当日。
+export const GRUDGE_FLOOR_MAX = 5;
+export const GRUDGE_UP_DAILY_MAX = 10;
+export const GRUDGE_UP_KEY = '芥蒂上升';
 export const grudgeStrength = (directive) => (FAVOR_STRENGTHS.includes(directive && directive.strength) ? directive.strength : '小');
 
-// 上升按强度表，不掷骰、不设单楼与每日上限；下降按强度表，每日最多 -10。重大下降是否成立由 capMajorStrength 在上游处理。
-export function applyGrudgeTier(character, d, { scale = null } = {}) {
+// 上升按强度表，不掷骰；「小」「中」单楼最多 +5、每日最多 +10，「大」「重大」不受限但计入当日；下降按强度表，每日最多 -10。重大下降是否成立由 capMajorStrength 在上游处理。
+// floorRoom：本楼该角色芥蒂上升的剩余单楼额度（由结算传入）；damp：习惯倍率。
+export function applyGrudgeTier(character, d, { scale = null, damp = 1, floorRoom = GRUDGE_FLOOR_MAX } = {}) {
     const from = Number(character.dims.芥蒂) || 0;
     const level = grudgeStrength(d);
     const up = d.value === '上升';
     let delta;
-    if (up) delta = scaleAmount(GRUDGE_UP_BASE[level], unit(scale, 'up'));
-    else {
+    let capped = null;
+    const rows = [];
+    if (up) {
+        delta = scaleAmount(GRUDGE_UP_BASE[level], unit(scale, 'up'));
+        if (damp < 1) delta = Math.round(delta * damp);
+        if (level === '小' || level === '中') {
+            const dailyLeft = Math.max(0, amplifyLimit(GRUDGE_UP_DAILY_MAX, unit(scale, 'up')) - (character.daily.gained[GRUDGE_UP_KEY] || 0));
+            const floorLeft = Math.max(0, floorRoom);
+            if (delta > Math.min(floorLeft, dailyLeft)) {
+                rows.push(calcRow(`${d.value}·${level} 基础`, GRUDGE_UP_BASE[level]));
+                if (floorLeft <= dailyLeft) rows.push(calcRow('单楼剩余额度', floorLeft)); else { capped = CHANGE_CAP.daily; rows.push(calcRow('今日剩余额度', dailyLeft)); }
+                delta = Math.min(floorLeft, dailyLeft);
+            }
+        }
+    } else {
         const used = character.daily.gained[GRUDGE_DOWN_KEY] || 0;
         delta = -Math.max(0, Math.min(-GRUDGE_DOWN_BASE[level], GRUDGE_DOWN_DAILY_MAX - used));
     }
     const to = clamp(from + delta, DIM_MIN, DIM_MAX);
     let next = character;
     if (to !== from) {
-        const daily = up ? character.daily : { ...character.daily, gained: { ...character.daily.gained, [GRUDGE_DOWN_KEY]: (character.daily.gained[GRUDGE_DOWN_KEY] || 0) + (from - to) } };
+        const key = up ? GRUDGE_UP_KEY : GRUDGE_DOWN_KEY;
+        const daily = { ...character.daily, gained: { ...character.daily.gained, [key]: (character.daily.gained[key] || 0) + Math.abs(to - from) } };
         next = { ...character, dims: { ...character.dims, 芥蒂: to }, daily };
     }
-    return { character: next, change: { dim: '芥蒂', value: d.value, from, to, roll: null } };
+    if (rows.length) rows.push(calcRow('结果', to - from));
+    return { character: next, change: { dim: '芥蒂', value: d.value, from, to, roll: null, ...(rows.length ? { calc: rows, capped } : {}) } };
 }

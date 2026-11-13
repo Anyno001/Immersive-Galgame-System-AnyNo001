@@ -124,7 +124,7 @@ export function createCgConsistencyService(deps) {
         if (nai?.describe?.(undefined, meta).mode && nai.describe(undefined, meta).mode !== 'nai')
             return failure('consistency-builtin-only', '角色一致性模板重绘属于内置 NAI 功能，当前外部来源的普通生成不受影响');
         if (!isConsistencyModelValid(selectedModel)) return failure('consistency-model-invalid',
-            '一致性重绘模型必须为 V4.5 Inpainting 或 V5 Inpainting，请在生图设置中重新选择');
+            '重绘模型必须为 V4.5 Inpainting 或 V5 Inpainting，请在「画师与模型 › 局部重绘」中重新选择');
         const cap = nai?.describeEdit?.(undefined, inheritImageTaskLease(meta, { model: selectedModel }));
         if (cap?.supported && (cap.infillModelNegotiation !== 1 || cap.model !== selectedModel))
             return failure('dbgen-infill-model-required', '内置图像来源未确认所选重绘模型');
@@ -157,7 +157,7 @@ export function createCgConsistencyService(deps) {
             return failure('consistency-unavailable', '内置一致性预检来源未接入，未发送请求');
         task.strength = captured ? normalizeConsistencyStrength(captured.consistencyStrength) : strength();
         if (!isConsistencyStrengthValid(task.strength)) return failure('consistency-strength-invalid',
-            '一致性重绘强度必须为 0.1–1，请在生图设置中重新选择；原设置未被改写');
+            '重绘强度必须为 0.1–1，请在「画师与模型 › 局部重绘」中重新选择；原设置未被改写');
         guard(task);
         const record = await store.getSlotRecord(`${task.target.key}|${task.target.slot}`);
         guard(task);

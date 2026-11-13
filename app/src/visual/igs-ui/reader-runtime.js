@@ -6,11 +6,13 @@ import { installReaderFullscreen, exitDocumentFullscreen } from './reader-fullsc
 export { exitDocumentFullscreen } from './reader-fullscreen.js';
 
 export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
-    if (current.runtime && current.runtime.mode === snapshot.mode && current.runtime.root === root) {
+    const cover = snapshot.mode === 'dock' && Boolean(snapshot.readerSettings && snapshot.readerSettings.dockCoverStatusBar);
+    if (current.runtime && current.runtime.mode === snapshot.mode && current.runtime.root === root && Boolean(current.runtime.cover) === cover) {
         return;
     }
     const prevMode = current.runtime && current.runtime.mode;
-    if (prevMode === 'fullscreen' && snapshot.mode !== 'fullscreen') {
+    const prevNative = prevMode === 'fullscreen' || Boolean(current.runtime && current.runtime.cover);
+    if (prevNative && snapshot.mode !== 'fullscreen' && !cover) {
         exitDocumentFullscreen(current.runtime.doc);
     }
     clearReaderModeRuntime(current);
@@ -22,6 +24,7 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     const runtime = {
         cleanup: [],
         mode: snapshot.mode,
+        cover,
         win,
         doc,
         root,
@@ -38,6 +41,10 @@ export function applyReaderModeRuntime(root, snapshot, current, ctx = {}) {
     }
     if (snapshot.mode === 'web') {
         applyWebReaderRuntime(root, runtime);
+        return;
+    }
+    if (snapshot.mode === 'dock') {
+        applyDockReaderRuntime(root, runtime);
         return;
     }
     if (snapshot.mode === 'fullscreen') {
@@ -124,7 +131,7 @@ function applyInlineReaderRuntime(root, mode, runtime, current) {
     root.style.zIndex = '2147483000';
     root.style.width = mode === 'pc' ? 'min(900px,calc(100vw - 32px))' : 'min(480px,calc(100vw - 32px))';
     root.style.height = mode === 'pc' ? 'min(540px,calc(100dvh - 32px))' : 'min(680px,calc(100dvh - 32px))';
-    root.style.borderRadius = mode === 'pc' ? '18px' : '22px';
+    root.style.borderRadius = mode === 'pc' ? 'var(--igs-frame-radius,18px)' : 'var(--igs-frame-radius,22px)';
     root.style.boxShadow = '0 20px 64px rgba(0,0,0,0.42)';
     root.style.overflow = 'hidden';
 
@@ -509,6 +516,40 @@ function applyWebReaderRuntime(root, runtime) {
         doc.documentElement.style.overflow = savedHtmlOverflow;
         if (typeof win.scrollTo === 'function') win.scrollTo(0, savedScrollY);
     });
+}
+
+// 全屏留输入框：阅读器从页顶铺到酒馆输入区（#form_sheld，含 QR 栏）上沿，下方露出酒馆自己的输入框。
+// 键盘弹起、QR 栏换行时跟着输入区上沿重新量。勾选「盖住手机状态栏」时整页进浏览器全屏，输入区仍留在底部。
+function applyDockReaderRuntime(root, runtime) {
+    const win = runtime.win || {};
+    const doc = runtime.doc;
+    if (!doc || !root || !root.style) return;
+    const form = typeof doc.getElementById === 'function' ? doc.getElementById('form_sheld') : null;
+    const sync = () => {
+        const viewH = Number(win.visualViewport && win.visualViewport.height) || Number(win.innerHeight) || 0;
+        const rect = form && typeof form.getBoundingClientRect === 'function' ? form.getBoundingClientRect() : null;
+        const formTop = rect && rect.height > 0 && rect.top > 0 ? rect.top : viewH;
+        const height = Math.max(0, Math.round(Math.min(formTop, viewH || formTop)));
+        if (height > 0) root.style.height = `${height}px`;
+        syncOrientationClass(root, win);
+    };
+    sync();
+    if (win.visualViewport) {
+        addEventListenerWithCleanup(win.visualViewport, 'resize', sync, runtime);
+        addEventListenerWithCleanup(win.visualViewport, 'scroll', sync, runtime);
+    }
+    addEventListenerWithCleanup(win, 'resize', sync, runtime);
+    addEventListenerWithCleanup(win, 'orientationchange', sync, runtime);
+    const Observer = win.ResizeObserver;
+    if (form && typeof Observer === 'function') {
+        const observer = new Observer(sync);
+        observer.observe(form);
+        addRuntimeCleanup(runtime, () => observer.disconnect());
+    }
+    addRuntimeCleanup(runtime, () => {
+        root.style.height = '';
+    });
+    if (runtime.cover) addRuntimeCleanup(runtime, installReaderFullscreen(runtime, sync));
 }
 
 // iPad / 安卓平板点输入框时，系统把布局视口往上卷来露出输入框，贴在 top:0 的整层阅读器就被顶出屏幕。

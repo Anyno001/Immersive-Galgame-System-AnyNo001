@@ -1,4 +1,5 @@
 import { normalizePhoneWallpaper } from './my-phone.js';
+import { normalizeFrameRadius } from '../../schemas/reader-mode.js';
 import { normalizeNaiEffort } from '../../generated-images/nai-effort.js';
 import { normalizeNaiCloudQueue } from '../../generated-images/nai-cloud-queue-settings.js';
 import { normalizeCreatureDisplaySettings } from '../../scene/creature-profile.js';
@@ -42,6 +43,8 @@ export function normalizeSettingsValue(path, value) {
         return normalizeNaiCloudQueue({ [key]: value })[key];
     }
     if (path === 'bridge.autoIllustration.nai.effort') return normalizeNaiEffort(value);
+    if (path === 'bridge.autoIllustration.nai.directorEmotion') return value === true || value === 'true';
+    if (path === 'bridge.autoIllustration.nai.expressionRoute') return ['full', 'face', 'director'].includes(value) ? value : 'full';
     if (path === 'bridge.autoIllustration.nai.minIntervalEnabled') return value === true || value === 'true';
     if (path === 'bridge.autoIllustration.nai.minIntervalMs') {
         const n = value === '' || value == null ? NaN : Number(value);
@@ -114,6 +117,7 @@ export function normalizeSettingsValue(path, value) {
         if (path === 'readerSettings.statusHud.nsfwCgPortraitShift' || path === 'readerSettings.statusHud.nsfwCgPortraitZoom') return Number(value);
         if (/^readerSettings\.statusHud\.position\.(pc|mobile)\.[xy]$/.test(path)) return normalizeStatusHudPercent(value);
         if (/^readerSettings\.statusHud\.avatar(ShiftX|ShiftY|Zoom)$/.test(path)) return Number(value);
+        if (path === 'readerSettings.frameRadius') return normalizeFrameRadius(value);
         if (path === 'readerSettings.dialogFontWeight') return [300, 400, 500, 700].includes(Number(value)) ? Number(value) : null;
         if (/^readerSettings\.waitStage\.(enabled|games|voice)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.waitStage.lineSeconds') return Math.min(16, Math.max(3, Math.round(Number(value) || 6)));
@@ -158,7 +162,7 @@ export function normalizeSettingsValue(path, value) {
     if (/^bridge\.autoIllustration\.(nsfwEnabled|interludeEnabled|backfillOldFloors|assets\.(spriteEnabled|outfitAutoGenerate|backgroundEnabled|strictMatch))$/.test(path)) {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
-    if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|templates\.(background|backgroundNegative|sprite|spriteNegative|nsfwExtra))$/.test(path)) {
+    if (/^bridge\.autoIllustration\.assets\.(spriteSize|backgroundSize|cgSize|templates\.(background|backgroundNegative|sprite|spriteNegative|nsfwExtra))$/.test(path)) {
         return String(value || '');
     }
     if (/^bridge\.autoIllustration\.assets\.anchored(Width|Height)$/.test(path)) {

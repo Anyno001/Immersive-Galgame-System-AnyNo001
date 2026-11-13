@@ -252,6 +252,7 @@ function renderOutfitPanel(charName, name, entry, baseMoods, sceneAssets, icons,
         ]);
         const slotMenu = acts.inline + transferIcons(raw, `${charName}-${name}-${mood}-立绘.png`, [`scene-pick-outfit-mood:${c}:${o}:${encSeg(mood)}`, `上传${mood}立绘`]) + renderRowMenu([
             canPrompt ? menuItem(`outfit-expression-prompt:${c}:${o}:${encSeg(mood)}`, '提示词') : '',
+            imageId && (mood === '默认' || mood === '平和') ? menuItem(`outfit-face-box:${c}:${o}:${encSeg(mood)}`, '调整脸部位置') : '',
             menuItem(`outfit-mood-url-ask:${c}:${o}:${encSeg(mood)}`, raw && !imageId ? '修改网址' : '填写网址'),
             mood === '默认' ? '' : menuItem(`scene-rename-outfit-mood:${c}:${o}:${encSeg(mood)}`, '重命名'),
             menuItem(`scene-remove-outfit-mood:${c}:${o}:${encSeg(mood)}`, '删除', ' is-danger'),
@@ -312,6 +313,8 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
     const resumeAction = target ? `outfit-expression-resume:${c}:${o}` : `char-expression-resume:${c}`;
     const slots = target ? outfitSpriteSlots(map[target]) : plain(sceneAssets?.characters?.[charName]);
     const hasSprite = Object.values(slots).some(value => typeof value === 'string' && value.trim());
+    // 表情差分的底图：先「默认」后「平和」，必须是生成图。
+    const faceMood = ['默认', '平和'].find((label) => String(slots[label] || '').trim().startsWith('igs-gen:')) || '';
     const spriteMood = Object.hasOwn(slots, '默认') ? '默认' : Object.hasOwn(slots, '平和') ? '平和' : Object.keys(slots)[0] || '平和';
     const needsViews = builtinImageSource && characterDnaNeedsViews(sceneAssets?.characterDna?.[charName]);
     const spriteAction = needsViews ? `char-generate-sprite:${c}` : target
@@ -332,10 +335,11 @@ export function renderCharacterSlotTabs({ charName, baseMoods, baseListHtml, bas
                 ? menuItem(`scene-set-default-outfit:${c}:${o}`, '设为默认') : '',
             menuItem(`ui-toggle-open:${encSeg(metaKey)}`, isOpen(metaKey) ? '收起服装设置' : '服装设置（衣柜、别名…）'),
             menuItem(`scene-hide-outfit:${c}:${o}`, hidden(target) ? '在本卡恢复显示' : '在本卡隐藏这套'),
+            faceMood ? menuItem(`outfit-face-box:${c}:${o}:${encSeg(faceMood)}`, '调整脸部位置') : '',
             menuItem(`scene-rename-outfit:${c}:${o}`, '重命名这套'),
             menuItem(`scene-remove-outfit:${c}:${o}`, '删除这套', ' is-danger'),
         ], `「${target}」的操作`)
-        : renderRowMenu(baseMenuItems, '角色立绘的操作');
+        : renderRowMenu([...baseMenuItems, faceMood ? menuItem(`char-face-box:${c}:${encSeg(faceMood)}`, '调整脸部位置') : ''], '角色立绘的操作');
     const bar = `<div class="igs-outfit-tabs" role="tablist" data-outfit-tabs="${esc(charName)}">${tabs}`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add" data-action="scene-add-outfit:${c}" title="添加服装">+服装</button>`
         + `<button type="button" class="igs-outfit-tab igs-outfit-tab-add igs-outfit-tab-mood" data-action="${target ? `scene-add-outfit-mood:${c}:${o}` : `scene-add-mood:${c}`}">+情绪</button>`

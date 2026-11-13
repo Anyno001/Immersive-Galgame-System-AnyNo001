@@ -90,6 +90,7 @@ export function normalizeAutoIllustrationSettings(value) {
             maxPerFloor: clampInt(assets.maxPerFloor, 1, 16, 2),
             spriteSize: str(assets.spriteSize, '832x1216') || '832x1216',
             backgroundSize: str(assets.backgroundSize, '1216x832') || '1216x832',
+            cgSize: str(assets.cgSize, '').trim(),
             anchoredWidth: clampInt(assets.anchoredWidth, 0, 100000, 0),
             anchoredHeight: clampInt(assets.anchoredHeight, 0, 100000, 0),
             templates: normalizeTemplates(assets.templates),
@@ -124,6 +125,8 @@ export function normalizeAutoIllustrationSettings(value) {
             artistLibrary: normalizeArtistLibrary(nai.artistLibrary),
             timeoutMs: clampInt(nai.timeoutMs, 10000, 300000, NAI_DEFAULT_SETTINGS.timeoutMs),
             minIntervalEnabled: nai.minIntervalEnabled === true || nai.minIntervalEnabled === 'true',
+            directorEmotion: nai.directorEmotion === true || nai.directorEmotion === 'true',
+            expressionRoute: ['full', 'face', 'director'].includes(nai.expressionRoute) ? nai.expressionRoute : (nai.directorEmotion === true || nai.directorEmotion === 'true' ? 'director' : 'full'),
             minIntervalMs: clampInt(nai.minIntervalMs, 0, 60000, NAI_DEFAULT_SETTINGS.minIntervalMs),
             cloudQueue: normalizeNaiCloudQueue(nai.cloudQueue),
             // 草稿首次归档会追加此标记；归一化保持相同顺序，避免无修改关闭重写存储。

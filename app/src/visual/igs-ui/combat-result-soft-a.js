@@ -102,7 +102,7 @@ ${S} .igs-combat-loot-origin{font-size:12px;color:var(--txt2);-webkit-line-clamp
 ${S} .igs-combat-loot-card.is-chosen .igs-combat-loot-face::after{content:"已选";margin-top:2px;height:18px;line-height:18px;padding:0 8px;border-radius:999px;background:var(--mint);color:var(--ink);font-size:12px;font-weight:700;}
 ${S} .igs-combat-loot-back{background:#fffaf2;border:2px dashed #d8cdbd;box-shadow:none;border-radius:inherit;}
 ${S} .igs-combat-loot-back::after{width:16px;height:16px;background:#eadfcf;border-radius:3px;}
-${S} .igs-combat-loot-tools{margin-top:8px;}
+${S} .igs-combat-loot-tools{display:flex;gap:8px;margin-top:8px;}
 ${S} .igs-combat-actions{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-top:16px;margin-bottom:0;}
 ${S}.land .igs-combat-actions{margin-top:20px;}
 ${S} .igs-combat-loot ~ .igs-combat-actions{margin-top:8px;}

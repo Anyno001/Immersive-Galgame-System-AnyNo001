@@ -257,7 +257,7 @@ export function statusPromptLines(state, cat, present) {
             if (!e || !STATUS_INJECT_SRC.includes(e.src) || e.inject === false) continue;
             const text = statusInjectText(getStatusDef(key), name, e.toward);
             if (!text) continue;
-            lines.push(`${text}。`);
+            lines.push(`当前${text}。`);
         }
         // 旧特质五项（无实体、已故、失忆、不眠、附身）：剧情或手动挂上的才注入；开场评定（auto）视同人设已写，不注入。
         const traits = cat && plain(cat.traits) && plain(cat.traits[name]) ? cat.traits[name] : {};

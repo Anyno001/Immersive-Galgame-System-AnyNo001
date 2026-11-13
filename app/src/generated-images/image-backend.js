@@ -1,3 +1,4 @@
+import { resolveNaiAugmentEndpoint } from './nai-official-client.js';
 import { isImageSeed, resolveImageSeed } from './image-seed.js';
 import { normalizeAutoIllustrationSettings } from './illustration/auto-illustration-settings.js';
 import { resolveNaiNativeEndpoint } from './request-builders/nai-v4-builder.js';
@@ -50,7 +51,7 @@ function reportNaiTiming(report, method, enteredAt, readyAt, result) {
     if (t.responseDoneAt && t.doneAt) parts.push(`队列收尾 ${secs(t.doneAt - t.responseDoneAt)}`);
     parts.push(`合计 ${secs((t.doneAt || Date.now()) - enteredAt)}`);
     if (t.params) parts.push(`参数 ${t.params}`);
-    report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
+    report('info', `NAI 计时（${method === 'edit' ? '局部重绘' : method === 'emotion' ? '导演工具' : '生图'}${result?.ok ? '' : '·失败'}）：${parts.join('，')}`);
 }
 
 // call(started, signal)：插件真正开始时调 started()；不支持的入口在调用时就算开始。
@@ -319,6 +320,8 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
             frozen.seed = resolveImageSeed(frozen.seed);
             let prepared = input;
             if (slotArtist) ({ slot: prepared, naiSettings: frozen } = withSlotArtist(input, frozen, meta, base ? frozen : undefined));
+            // 局部重绘读 prompt / negative：分区画师串拼进 scene / sceneUc 后写回。
+            if (slotArtist && method === 'edit') prepared = inheritImageTaskLease(prepared, { ...prepared, prompt: prepared.scene, negative: prepared.sceneUc });
             if (input?.captionMode === 'final') {
                 const selected = artistFor(meta, base ? frozen : undefined);
                 const artist = meta.artist !== undefined ? meta.artist : selected
@@ -332,7 +335,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 ...(isUrgentImageSignal(meta.signal, input?.signal, settings?.signal, guarded.signal) ? { priority: 'urgent' }
                     : meta.paintPriority === 'high' && { priority: 'high' }),
             };
-            const result = await retryRun('nai', () => nai[method](method === 'edit' ? { ...prepared, ...controls } : prepared,
+            const result = await retryRun('nai', () => nai[method](method === 'edit' || method === 'emotion' ? { ...prepared, ...controls } : prepared,
                 { ...frozen, ...controls, onQueueEvent: (level, message) => report?.(level, message),
                     onSlow: () => report?.('info', 'NAI 仍在处理同一次请求，继续接收原结果') }), guarded,
             result => {
@@ -933,6 +936,16 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 && { providedPromptContext: 1 }) };
     }
 
+    function describeEmotion(bridgeOverride, request = {}) {
+        const base = describe(bridgeOverride, request);
+        if (base.mode !== 'nai') return { supported: false, reason: 'director-unsupported', message: '导演工具仅支持内置 NAI' };
+        if (!nai || typeof nai.emotion !== 'function') return { supported: false, reason: 'director-unsupported', message: '当前 NAI 客户端不支持导演工具' };
+        if (!base.ready.ok) return { supported: false, reason: 'backend-unavailable', message: base.ready.error };
+        const naiSettings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
+        if (!resolveNaiAugmentEndpoint(naiSettings.endpoint)) return { supported: false, reason: 'director-unsupported', message: 'NAI地址是自定义路径，无法推算导演工具地址；请填写域名、/v1 或以 /ai/generate-image 结尾的地址' };
+        return { supported: true, reason: '', message: '', via: 'nai' };
+    }
+
     // 一致性任务只拿脱敏配置租约与实际画师，不读取或保存上游凭据。
     async function getEditConfig(meta = {}) {
         const capability = describeEdit(undefined, meta);
@@ -977,7 +990,11 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         const settings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
         if (Object.hasOwn(request, 'model')) settings.model = request.model;
         try {
-            const result = await sendNai('edit', final ? { ...request, caption: prepared.caption, captionMode: 'final' } : request, settings, request);
+            // 表情差分「只改脸部」：request.slotArtist 为真时套分区画师串（CG 一致性重绘不传，行为不变）。
+            const slotArtist = !final && request.slotArtist === true;
+            const result = await sendNai('edit', final ? { ...request, caption: prepared.caption, captionMode: 'final' }
+                : slotArtist ? inheritImageTaskLease(request, { ...request, scene: request.prompt || '', sceneUc: request.negative || '' }) : request,
+            settings, request, slotArtist);
             if (result?.ok && final && !result.sentPrompt)
                 return { ok: false, reason: 'PROMPT_MODE_CONFLICT', error: '定稿重绘缺少实际发送快照' };
             return result && result.ok && result.dataUrl
@@ -991,6 +1008,41 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                 ...(result?.failure && { failure: result.failure }), error: result?.error || '局部重绘失败' };
         } catch (error) {
             return { ok: false, reason: 'edit-failed', error: `局部重绘失败：${(error && error.message) || error}` };
+        }
+    }
+
+    // request：{ prompt, width, height, imageBase64 }；不记录原图。
+    async function emotion(request = {}, bridgeOverride) {
+        const capability = describeEmotion(bridgeOverride, request);
+        if (!capability.supported) return { ok: false, reason: capability.reason, error: capability.message };
+        if (!request.imageBase64) return { ok: false, reason: 'invalid-emotion-request', error: '缺少原图' };
+        const settings = normalizeAutoIllustrationSettings(readBridge(bridgeOverride, request).autoIllustration).nai;
+        // 画师串贴在情绪名后面：分区「表情差分」优先，没开分区或该栏为空用全局画师串。
+        const rawArtist = artistFor({ promptKind: 'expression' }, settings)?.positive || globalArtist(settings).positivePrompt;
+        // 导演工具不认 V4 权重写法，带上会返回 500：去掉「1.2::」「::」与括号，只留画师名。
+        const artist = String(rawArtist || '').replace(/-\d+(?:\.\d+)?::[^:]*?(?:::|$)/g, ',')
+            .replace(/\d+(?:\.\d+)?::/g, '').replace(/::/g, ',')
+            .replace(/[{}\[\]()]/g, '').replace(/;;/g, ',').split(',').map(part => part.trim()).filter(Boolean).join(', ');
+        const [emotionName, ...rest] = String(request.prompt || '').split(';;');
+        const tags = [artist, rest.join(';;')].map(part => String(part || '').trim()).filter(Boolean).join(', ');
+        const sent = { ...request, prompt: tags ? `${emotionName};;${tags}` : emotionName };
+        if (artist) report?.('info', `导演工具：已附加画师串（去掉权重符号后提示词共${sent.prompt.length}字）`);
+        try {
+            let result = await sendNai('emotion', sent, settings, sent);
+            // 带画师串时服务端报错：去掉画师串重发一次，确认是不是画师串导致。
+            const failedStatus = Number(result?.status) || Number((/HTTP (\d{3})/.exec(String(result?.error || '')) || [])[1]);
+            if (artist && !result?.ok && !result?.stopGeneration && failedStatus >= 500) {
+                report?.('error', `导演工具带画师串返回 HTTP ${failedStatus}，已去掉画师串重试`);
+                const plain = { ...request, prompt: String(request.prompt || '') };
+                result = await sendNai('emotion', plain, settings, plain);
+            }
+            return result && result.ok && result.dataUrl
+                ? { ok: true, dataUrl: result.dataUrl }
+                : { ok: false, reason: result?.reason || 'emotion-failed',
+                    ...(result?.stopGeneration && { stopGeneration: true }),
+                    ...(result?.failure && { failure: result.failure }), error: result?.error || '导演工具表情失败' };
+        } catch (error) {
+            return { ok: false, reason: 'emotion-failed', error: `导演工具表情失败：${(error && error.message) || error}` };
         }
     }
 
@@ -1027,6 +1079,7 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
     const guardedGenerateForReader = (request = {}, opts = {}) => guardDbgenTask(request,
         guarded => generateForReader(guarded, opts));
     const guardedEdit = (request = {}, bridge) => guardDbgenTask(request, guarded => edit(guarded, bridge));
+    const guardedEmotion = (request = {}, bridge) => guardDbgenTask(request, guarded => emotion(guarded, bridge));
     const guardedGetEditConfig = (meta = {}) => runImageTask(taskRuntime, meta, async (guarded, lease) => {
         if (describe(undefined, guarded).mode === 'nai') {
             const ready = await waitUntilReady(guarded);
@@ -1036,9 +1089,9 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
         return !config.ok || !lease ? config : inheritImageTaskLease(config, { ...config,
             isCurrent: () => taskRuntime.isCurrent(lease.token) === true && config.isCurrent() === true });
     });
-    return { describe, supportsCharacterTemplates, describeEdit, waitUntilReady, recoveryGlobal,
+    return { describe, supportsCharacterTemplates, describeEdit, describeEmotion, waitUntilReady, recoveryGlobal,
         runImageTask: (meta, execute) => runImageTask(taskRuntime, meta, execute),
-        getEditConfig: guardedGetEditConfig, edit: guardedEdit,
+        getEditConfig: guardedGetEditConfig, edit: guardedEdit, emotion: guardedEmotion,
         generate: guardedGenerate, generateForReader: guardedGenerateForReader, testForReader, probeDbgen,
         writePrompt: guardedWritePrompt, writeFloorPrompts: guardedWriteFloorPrompts,
         generateCaption: guardedGenerateCaption, waitSourceFloorPrompts,
