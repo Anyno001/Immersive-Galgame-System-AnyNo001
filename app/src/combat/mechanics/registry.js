@@ -2,8 +2,8 @@
 // 已有算子留在 schema.js / engine.js / rules.js 原位。本文件不引用其他战斗模块，避免循环依赖。
 export const MECHANIC_UNIT_KINDS = Object.freeze(['deck', 'skill']);
 export const HOOK_POINTS = Object.freeze([
-    'turn-start-before', 'turn-start-after', 'turn-end-before', 'turn-end-after',
-    'play-before', 'play-after', 'draw', 'create', 'exhaust', 'shuffle', 'debuff-applied',
+    'turn-start-before', 'turn-start-ready', 'turn-start-after', 'turn-end-before', 'turn-end-after',
+    'play-before', 'play-after', 'draw', 'draw-card', 'create', 'exhaust', 'shuffle', 'debuff-applied',
     'damage-before', 'damage-after', 'hp-loss-before', 'hp-loss-after', 'defeated',
     // 一次出手（出牌、技能单位出手、人物技能）结算完：{ unit, kind: 'card' | 'skill' | 'hero-skill', card?, skill?, effects }。
     'action-after',

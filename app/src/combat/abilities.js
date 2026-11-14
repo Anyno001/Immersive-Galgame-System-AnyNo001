@@ -33,12 +33,12 @@ export const ROLE_DEFAULT_PREFS = Object.freeze({
 
 // 相对主角的强弱档：offset 是等级偏移区间，mod 是能力修正，ally 是同伴档位。
 export const REL_TIERS = Object.freeze({
-    outclassed: Object.freeze({ label: '远逊', offset: Object.freeze([-6, -4]), mod: -2, ally: 'support' }),
-    weaker: Object.freeze({ label: '稍弱', offset: Object.freeze([-3, -2]), mod: -1, ally: 'support' }),
-    even: Object.freeze({ label: '相当', offset: Object.freeze([-1, 1]), mod: 0, ally: 'peer' }),
-    stronger: Object.freeze({ label: '稍强', offset: Object.freeze([2, 3]), mod: 1, ally: 'ace' }),
-    formidable: Object.freeze({ label: '强敌', offset: Object.freeze([4, 6]), mod: 2, ally: 'ace' }),
-    overwhelming: Object.freeze({ label: '碾压', offset: Object.freeze([7, 12]), mod: 3, ally: 'legend' }),
+    outclassed: Object.freeze({ label: '远逊', offset: Object.freeze([-6, -4]), mod: -2, ally: 'support', combat: Object.freeze({ hp: 0.5, damage: 0.5, speed: 0.85 }) }),
+    weaker: Object.freeze({ label: '稍弱', offset: Object.freeze([-3, -2]), mod: -1, ally: 'support', combat: Object.freeze({ hp: 0.75, damage: 0.75, speed: 0.93 }) }),
+    even: Object.freeze({ label: '相当', offset: Object.freeze([-1, 1]), mod: 0, ally: 'peer', combat: Object.freeze({ hp: 1, damage: 1, speed: 1 }) }),
+    stronger: Object.freeze({ label: '稍强', offset: Object.freeze([2, 3]), mod: 1, ally: 'ace', combat: Object.freeze({ hp: 1, damage: 1, speed: 1 }) }),
+    formidable: Object.freeze({ label: '强敌', offset: Object.freeze([4, 6]), mod: 2, ally: 'ace', combat: Object.freeze({ hp: 1, damage: 1, speed: 1 }) }),
+    overwhelming: Object.freeze({ label: '碾压', offset: Object.freeze([7, 12]), mod: 3, ally: 'legend', combat: Object.freeze({ hp: 1, damage: 1, speed: 1 }) }),
 });
 export const DEFAULT_REL_TIER = 'even';
 const REL_KEY_BY_LABEL = Object.freeze(Object.fromEntries(Object.entries(REL_TIERS).map(([key, tier]) => [tier.label, key])));

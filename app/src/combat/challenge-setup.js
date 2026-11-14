@@ -1,5 +1,5 @@
 // 日常挑战适配层：数值侧快照 → 引擎 setup，引擎结局 → 挑战结局。纯函数，不读写存储；引擎本身不改。
-import { COMBAT_RULES, combatSpeedFor, scaleEnemyStats } from './rules.js';
+import { COMBAT_RULES, combatSpeedFor, enemySpeedFor, scaleEnemyStats } from './rules.js';
 import { skillFromTemplate } from './card-templates.js';
 import { DOMAIN_CARDS, buildChallengeDeck } from './challenge-cards.js';
 import { CHALLENGE_FOES, pickFoe } from './challenge-foes.js';
@@ -78,7 +78,7 @@ export function buildChallengeSetup({ start, state, user, allies = start?.allies
             ...extra.units,
             {
                 id: CHALLENGE_FOE_ID, name: start.counterpart || start.foeName || foe.name, side: 'enemy', kind: 'skill', maxHp: thick.hp, damageScale: thick.damageScale,
-                speed: combatSpeedFor({ tier: thick.engineTier, id: foeKey }),
+                speed: enemySpeedFor(combatSpeedFor({ tier: thick.engineTier, id: foeKey })),
                 skills: foe.skills.map(([name, template], index) => ({ id: `${foeKey}-s${index + 1}`, name, ...skillFromTemplate(template, thick.damageCap) })),
             },
         ],

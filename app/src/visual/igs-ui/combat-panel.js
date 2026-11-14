@@ -441,6 +441,10 @@ export function createCombatPanelController(doc, options = {}) {
             if (Object.keys(tints).length) view.tints = tints;
         }
         if (cur.status === 'send-failed' || cur.status === 'done') view.report = cur.report ? { result: cur.report.result } : null;
+        if (cur.status === 'send-failed') {
+            view.reportDelivered = cur.reportDelivered === true;
+            if (cur.settlementError) view.settlementError = cur.settlementError;
+        }
         // 胜利翻牌：读取中、读取失败、读到 offer 时追加 flip；没有 offer 时不追加（视图形状不变）。
         if ((cur.status === 'ended' || cur.status === 'send-failed') && cur.flip && cur.flip.status !== 'none') view.flip = cur.flip;
         view.encounter = cur.start?.encounter || cur.start?.event || cur.record?.encounter || '';
@@ -2063,8 +2067,9 @@ export function createCombatPanelController(doc, options = {}) {
         // 拖牌松手后浏览器补发的 click 不当作点选。
         if (dragClickUntil && Date.now() < dragClickUntil) { dragClickUntil = 0; event.preventDefault?.(); return; }
         // 牌面上带加成 / 减益的数字：弹出（再点收起）加成详情，不选中、不打出这张牌；点面板其他地方先收起详情。
+        // 选目标时单位身上的状态片与资源项不拦截点击，整块照常作为目标（悬停仍弹注释）。
         const tipAnchor = event.target?.closest?.('[data-scale-tip]');
-        if (tipAnchor && root?.contains?.(tipAnchor)) {
+        if (tipAnchor && root?.contains?.(tipAnchor) && !tipAnchor.closest?.('[data-combat-act="target"]')) {
             event.preventDefault?.();
             if (scaleTip?.anchor === tipAnchor) {
                 if (scaleTip.hover) delete scaleTip.hover;

@@ -567,7 +567,10 @@ function pendingHtml(v) {
         const list = items.map((p) => chip(`${p.character || p.characterId || ''} · ${PENDING_KIND[p.kind] || p.kind}${p.skill || p.className ? ` ${p.skill || p.className}` : ''}`)).join('');
         parts.push(row('待整理', list + (v.readonly ? '' : btn('retry-growth', v.pending === 'growth' ? '整理中' : '重试', { disabled: Boolean(v.pending) }))));
     }
-    if (v.sendFailed) parts.push(row('战报', chip('未发送') + btn('retry-send', v.pending === 'send' ? '发送中' : '重新发送', { primary: true, disabled: Boolean(v.pending) })));
+    if (v.sendFailed) {
+        const delivered = v.reportDelivered === true;
+        parts.push(row('战报', chip(delivered ? '待结算' : '未发送') + btn('retry-send', v.pending === 'send' ? (delivered ? '结算中' : '发送中') : (delivered ? '重试结算' : '重新发送'), { primary: true, disabled: Boolean(v.pending) })));
+    }
     return parts.length ? `<section class="igs-deck-pending">${parts.join('')}</section>` : '';
 }
 

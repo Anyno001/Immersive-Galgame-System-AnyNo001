@@ -36,7 +36,7 @@ export const APPLY_STATUSES = Object.freeze({
     plated: Object.freeze({ max: 14, value: 3 }),
     recoil: Object.freeze({ max: 1, value: 6 }),
     bramble: Object.freeze({ max: 10, value: 1 }),
-    juggernaut: Object.freeze({ max: 5, value: 4 }),
+    juggernaut: Object.freeze({ max: 8, value: 4 }),
     cover: Object.freeze({ max: 1, value: 4 }),
     'share-block': Object.freeze({ max: 1, value: 10 }),
     // 规则 v5 P3 战士（forge.js）。
@@ -72,7 +72,7 @@ export const APPLY_STATUSES = Object.freeze({
     flux: Object.freeze({ max: 4, value: 3 }),
     'arc-storm': Object.freeze({ max: 1, value: 12 }),
     'lock-on': Object.freeze({ debuff: true, max: 2, value: 5 }),
-    'storm-heart': Object.freeze({ max: 1, value: 9 }),
+    'storm-heart': Object.freeze({ max: 2, value: 9 }),
     'static-shell': Object.freeze({ max: 1, value: 8 }),
     'arc-boost': Object.freeze({ max: 6, value: 2 }),
     'arc-core': Object.freeze({ max: 2, value: 6 }),
@@ -83,7 +83,7 @@ export const APPLY_STATUSES = Object.freeze({
     'doom-touch': Object.freeze({ max: 4, value: 3 }),
     'doom-reap': Object.freeze({ max: 1, value: 12 }),
     'soul-feast': Object.freeze({ max: 3, value: 3 }),
-    'soul-blight': Object.freeze({ max: 6, value: 2 }),
+    'soul-blight': Object.freeze({ max: 9, value: 2 }),
     'void-draw': Object.freeze({ max: 1, value: 6 }),
     'void-guard': Object.freeze({ max: 6, value: 2 }),
     'craft-might': Object.freeze({ max: 1, value: 8 }),
@@ -123,6 +123,12 @@ export const APPLY_STATUSES = Object.freeze({
     // 规则 v6 固定卡（fixed-tally.js）：连环（每回合第 3 张攻击牌打出后复制进手牌）、乘隙（施加易伤时抽牌）。
     juggle: Object.freeze({ max: 2, value: 9 }),
     'rend-draw': Object.freeze({ max: 2, value: 6.5 }),
+    'strike-auto': Object.freeze({ max: 1, value: 15 }),
+    'dex-decay': Object.freeze({ max: 3, value: -6 }),
+    'focus-decay': Object.freeze({ max: 3, value: -8 }),
+    'retain-save': Object.freeze({ max: 1, value: 12 }),
+    'deva-flow': Object.freeze({ max: 1, value: 30 }),
+    reality: Object.freeze({ max: 1, value: 12 }),
     // 规则 v6 固定卡（fixed-pile.js）：狱火（玩家阶段抽到攻击牌即免费打出）。
     'draw-strike': Object.freeze({ max: 1, value: 15 }),
     // 敌人模板特性（foe-traits.js）。

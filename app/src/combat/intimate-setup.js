@@ -1,4 +1,4 @@
-import { COMBAT_RULES, combatSpeedFor } from './rules.js';
+import { COMBAT_RULES, combatSpeedFor, enemySpeedFor } from './rules.js';
 import { createBattle, applyAction } from './engine.js';
 import { CHALLENGE_FOE_ID, CHALLENGE_HERO_ID, foeThickness, willFor } from './challenge-setup.js';
 import { buildIntimateDeck } from './intimate-cards.js';
@@ -27,7 +27,7 @@ export function buildIntimateSetup({ start, state, user, position = 'receive', p
             { id: CHALLENGE_HERO_ID, name: user?.name || '我', side: 'ally', kind: 'deck', maxHp: willFor(state?.bars), speed: COMBAT_RULES.defaultSpeed, deck, catalog },
             {
                 id: CHALLENGE_FOE_ID, name: partner || '对方', side: 'enemy', kind: 'skill', maxHp: thick.hp, damageScale: thick.damageScale,
-                speed: combatSpeedFor({ tier: thick.engineTier, id: 'intimate' }), skills: foeSkills,
+                speed: enemySpeedFor(combatSpeedFor({ tier: thick.engineTier, id: 'intimate' })), skills: foeSkills,
             },
         ],
         challenge: {

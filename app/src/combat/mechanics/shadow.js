@@ -11,7 +11,7 @@ const FIRST_MAX = 20;
 const BURST_EVERY = 3;
 const CARRION_PCT = 0.2;
 const HONE_MODES = Object.freeze(['edge', 'fan', 'keep', 'first']);
-const HONE_AMOUNT = Object.freeze({ edge: 6, first: 10 });
+const HONE_AMOUNT = Object.freeze({ edge: 6, first: 13 });
 const HONE_TEXT = Object.freeze({
     edge: (n) => `暗刃伤害 +${n}`,
     fan: () => '暗刃改为攻击全体敌人',
@@ -32,6 +32,10 @@ function shivCard(shiv) {
         id: SHIV_ID, name: SHIV_NAME, type: 'attack', cost: 0, rarity: 'basic', skillRef: SHIV_NAME,
         ...(shiv.keep ? { retain: true } : {}),
         effects: [{ op: 'damage', amount: SHIV_BASE + (shiv.edge || 0), hits: 1, target: shiv.fan ? 'all-enemies' : 'enemy' }, { op: 'exhaust-self' }],
+        ...(shiv.upgradable ? { upgraded: { effects: [
+            { op: 'damage', amount: SHIV_BASE + (shiv.edge || 0) + 3, hits: 1, target: shiv.fan ? 'all-enemies' : 'enemy' },
+            { op: 'exhaust-self' },
+        ] } } : {}),
     };
 }
 
@@ -137,11 +141,40 @@ registerMechanic({
 registerMechanic({
     key: 'shadow-shiv', family: 'shadow', archetypes: ['assassin'], unitKinds: ['deck'],
     ops: {
+        'discard-shivs': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'upgraded'], path, state);
+                if (effect.upgraded !== undefined && typeof effect.upgraded !== 'boolean') kit.addIssue(state, kit.joinPath(path, 'upgraded'), 'expected-boolean');
+                return { op: 'discard-shivs', ...(effect.upgraded === true ? { upgraded: true } : {}) };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                const pile = ctx.state.piles[unit.id];
+                let count = 0;
+                for (const inst of pile.hand.slice()) {
+                    if (inst === ctx.inst || !pile.hand.includes(inst)) continue;
+                    kit.discardCard(ctx, unit, inst);
+                    count += 1;
+                }
+                if (!count || !unit.alive || ctx.state.outcome) return;
+                const res = kit.resOf(ctx, unit);
+                const next = { ...(res.shiv || {}), upgradable: true };
+                if (!writeShiv(ctx, unit, kit, next)) return;
+                res.shiv = next;
+                let made = 0;
+                for (let n = 0; n < count; n += 1) {
+                    if (kit.addTempCard(ctx, unit, { cardId: SHIV_ID, upgraded: effect.upgraded === true }, 'hand')) made += 1;
+                }
+                kit.emit(ctx, { type: 'shiv', unitId: unit.id, count: made, discarded: count });
+            },
+            value: e => 10 + (e.upgraded ? 6 : 0),
+            describe: e => `弃掉其余全部手牌，每实际弃掉 1 张，将 1 张${e.upgraded ? '升级的' : ''}暗刃加入手牌`,
+            brief: () => '弃牌造刃',
+        },
         // A05 暗刃：把 N 张暗刃临时牌加入手牌（每回合临时牌张数有上限）。
         shiv: {
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount'], path, state);
-                return { op: 'shiv', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 3) };
+                return { op: 'shiv', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 4) };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
                 if (unit.kind !== 'deck') return;
@@ -157,8 +190,9 @@ registerMechanic({
         },
         // 暗刃强化：增伤、群攻、保留、首刃，改写本单位暗刃定义，手中暗刃随之变化。
         'hone-shiv': {
-            attribute: effect => effect.mode === 'first'
-                ? { ability: 'str', key: 'amount', tier: 'normal', timing: 'static', max: HONE_AMOUNT.first } : null,
+            attribute: (effect, card) => effect.mode === 'first'
+                ? { ability: 'str', key: 'amount', tier: 'normal', timing: 'static',
+                    max: ['template-v1:shiv-first', 'template-v1:phantom-blades'].includes(card?.upgradeModel) ? HONE_AMOUNT.first : 10 } : null,
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'mode', 'amount'], path, state);
                 const at = (key) => kit.joinPath(path, key);

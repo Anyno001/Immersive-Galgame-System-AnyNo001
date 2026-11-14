@@ -8,6 +8,7 @@ import { mechanicReporters, statusDef, statusLabel } from './mechanics/registry.
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
 import { IMPLANT_CARDS, cardsAddedOf, cardsLostOf, goldLostOf } from './mechanics/foe-heist.js';
 import { CURSE_LABELS } from './mechanics/foe-curse.js';
+import { powerName } from './power-state.js';
 
 export const REPORT_RESULT = Object.freeze({ victory: 'win', defeat: 'lose', escape: 'escape' });
 // detail 档位 -> 每回合最多写几条出手。
@@ -131,19 +132,24 @@ function describeAction(action, units) {
     const reacted = (action.reactions || []).map(nameOf);
     if (reacted.length) parts.push(`${reacted.join('、')}随即应变`);
     const tail = parts.length ? `，${[...new Set(parts)].join('、')}` : '';
-    return `${nameOf(action.actorId)} 以「${sanitize(action.skill)}」出手${tail}`;
+    return action.power
+        ? `${nameOf(action.actorId)} 的「${sanitize(action.skill)}」触发${tail}`
+        : `${nameOf(action.actorId)} 以「${sanitize(action.skill)}」出手${tail}`;
 }
 
 const emptyEffect = () => ({ hpLoss: 0, blocked: 0, heal: 0, block: 0, statuses: [], warded: [], junk: [], notes: [], defeated: false });
 const ACTION_EVENT_TYPES = new Set(['card', 'skill', 'hero-skill', 'item']);
 
 // 把事件流整理成回合列表：每回合含出手列表、倒下名单、撤离者、觉醒。
-export function collectTurns(events, units = {}) {
+export function collectTurns(events, units = {}, catalog = {}) {
     const turns = [];
     const hpNow = Object.fromEntries(Object.entries(units).map(([id, unit]) => [id, unit.maxHp]));
     const lastHitBy = new Map(); // 单位 -> 最后打到它的出手
     let turn = null;
     let action = null;
+    const triggered = new Map();
+    const scopes = [];
+    const sourceKey = (kind, unitId, id) => `${kind}|${unitId}|${id}`;
     const currentTurn = () => {
         if (!turn) {
             turn = { index: turns.length + 1, actions: [], escape: null };
@@ -151,17 +157,41 @@ export function collectTurns(events, units = {}) {
         }
         return turn;
     };
-    const effectOn = (id) => {
-        if (!action.targets.has(id)) action.targets.set(id, emptyEffect());
-        return action.targets.get(id);
+    const effectOn = (id, owner = action) => {
+        if (!owner.targets.has(id)) owner.targets.set(id, emptyEffect());
+        return owner.targets.get(id);
     };
-    // 事件是否来自当前出手者的出手。
-    const fromCurrentAction = (event) => action && ACTION_EVENT_TYPES.has(event.source?.kind) && event.source.unitId === action.actorId;
+    const ownerOf = (event) => {
+        const source = event.source;
+        if (source?.kind === 'power' || source?.kind === 'buff') return triggered.get(sourceKey(source.kind, source.unitId, source.id)) || null;
+        if (source) return action && ACTION_EVENT_TYPES.has(source.kind) && source.unitId === action.actorId ? action : null;
+        return scopes.at(-1)?.owner || null;
+    };
+    const fromCurrentAction = (event) => Boolean(ownerOf(event));
     for (const event of Array.isArray(events) ? events : []) {
         if (event.type === 'turn-start' && event.side === 'ally') {
             turn = null;
             action = null;
+            triggered.clear();
+            scopes.length = 0;
             currentTurn();
+            continue;
+        }
+        if (event.type === 'power-trigger' || event.type === 'buff-trigger') {
+            const kind = event.type === 'power-trigger' ? 'power' : 'buff';
+            const id = event.cardId || event.buffId;
+            const owner = { actorId: event.unitId, skill: event.name || powerName({ units, catalog }, event.unitId, id),
+                power: true, targets: new Map(), reactions: [], desperate: false };
+            const key = sourceKey(kind, event.unitId, id);
+            triggered.set(key, owner);
+            const current = currentTurn();
+            (current.powers ||= []).push(owner);
+            if (event.scoped) scopes.push({ key, owner });
+            continue;
+        }
+        if (event.type === 'power-resolved' || event.type === 'buff-resolved') {
+            const key = sourceKey(event.type === 'power-resolved' ? 'power' : 'buff', event.unitId, event.cardId || event.buffId);
+            if (scopes.at(-1)?.key === key) scopes.pop();
             continue;
         }
         if (ACTION_EVENT_TYPES.has(event.type)) {
@@ -171,33 +201,42 @@ export function collectTurns(events, units = {}) {
             currentTurn().actions.push(action);
             continue;
         }
+        const owner = ownerOf(event);
         if (event.type === 'damage') {
             if (event.target in hpNow) hpNow[event.target] = Math.max(0, hpNow[event.target] - (event.hpLoss || 0));
             if (!fromCurrentAction(event)) continue;
             if (event.overkill) {
-                action.whipped = true;
+                owner.whipped = true;
                 continue;
             }
-            const effect = effectOn(event.target);
+            const effect = effectOn(event.target, owner);
             effect.hpLoss += event.hpLoss || 0;
             effect.blocked += event.blocked || 0;
-            lastHitBy.set(event.target, action);
+            lastHitBy.set(event.target, owner);
         } else if (event.type === 'heal') {
             if (event.target in hpNow) hpNow[event.target] += event.amount || 0;
-            if (fromCurrentAction(event)) effectOn(event.target).heal += event.amount || 0;
+            if (owner) effectOn(event.target, owner).heal += event.amount || 0;
         } else if (event.type === 'block') {
-            if (fromCurrentAction(event)) effectOn(event.target).block += event.amount || 0;
+            if (owner) effectOn(event.target, owner).block += event.amount || 0;
         } else if (event.type === 'status') {
             if (fromCurrentAction(event)) {
-                const effect = effectOn(event.target);
+                const effect = effectOn(event.target, owner);
                 if (!effect.statuses.includes(event.status)) effect.statuses.push(event.status);
             }
         } else if (event.type === 'artifact') {
             if (fromCurrentAction(event)) {
-                const effect = effectOn(event.target);
+                const effect = effectOn(event.target, owner);
                 if (!effect.warded.includes(event.status)) effect.warded.push(event.status);
             }
+        } else if (event.type === 'draw' || event.type === 'energy') {
+            if (owner?.power && event.count > 0) effectOn(event.unitId, owner).notes.push(`抽了 ${event.count} 张牌`);
+            if (owner?.power && event.amount > 0) effectOn(event.unitId, owner).notes.push(`获得 ${event.amount} 点能量`);
         } else if (event.type === 'card-created') {
+            if (owner?.power) {
+                const name = catalog[event.unitId]?.[event.cardId]?.name || TOKEN_CARDS[event.cardId]?.name || event.cardId;
+                effectOn(event.unitId, owner).notes.push(`生成「${name}」`);
+                continue;
+            }
             // 技能单位往对面牌堆塞状态牌：事件只带承受方，按当前出手者与对立阵营归因。
             const card = TOKEN_CARDS[event.cardId];
             const victim = units[event.unitId];
@@ -220,14 +259,21 @@ export function collectTurns(events, units = {}) {
         } else if (event.type === 'curse-chosen') {
             // M7 二选一诅咒：玩家回合开始时的抉择不属于任何出手，记在回合上。
             currentTurn().curses = [...(turn.curses || []), { unitId: event.unitId, status: event.status }];
+        } else if (event.type === 'effect-ignored') {
+            (currentTurn().ignoredEffects ||= []).push({
+                unitId: event.source?.unitId || event.unitId,
+                name: powerName({ units, catalog }, event.source?.unitId || event.unitId, event.source?.id) || '未知来源',
+                op: event.op, reason: event.reason,
+            });
         } else {
             // 规则 v5 机制事件：交给登记了 report 的机制，只能给当前出手追加短句；未知事件仍忽略。
             const reporters = mechanicReporters();
-            if (!reporters.length || !action) continue;
+            const reporting = owner || action;
+            if (!reporters.length || !reporting) continue;
             const kit = {
-                units, actorId: action.actorId, fromCurrentAction: fromCurrentAction(event),
+                units, actorId: reporting.actorId, fromCurrentAction: fromCurrentAction(event),
                 note: (targetId, text) => {
-                    if (targetId != null && text) effectOn(targetId).notes.push(String(text));
+                    if (targetId != null && text) effectOn(targetId, reporting).notes.push(String(text));
                 },
             };
             for (const report of reporters) report(event, kit);
@@ -251,6 +297,13 @@ function actionScore(action, firstAction, finalAction) {
     return score;
 }
 
+function describeIgnoredEffects(turns, units) {
+    return turns.flatMap(turn => (turn.ignoredEffects || []).map(effect => {
+        const reason = effect.reason === 'unit-kind' ? '不适用于该单位类型' : '未知算子';
+        return `${sanitize(units[effect.unitId]?.name || effect.unitId)}的「${sanitize(effect.name)}」效果未结算（${sanitize(effect.op)}：${reason}）`;
+    }));
+}
+
 // 一回合的文字：觉醒、挑出重要度最高的若干出手（保持原顺序）、倒下者、撤离。
 function describeTurn(turn, units, maxActions, firstAction, finalAction) {
     const picked = turn.actions
@@ -266,6 +319,8 @@ function describeTurn(turn, units, maxActions, firstAction, finalAction) {
     }
     for (const c of turn.curses || []) lines.push(`${sanitize(units[c.unitId]?.name || c.unitId)} 承受了「${CURSE_LABELS[c.status] || sanitize(c.status)}」`);
     lines.push(...picked.map(({ action }) => `${describeAction(action, units)}${action.desperate ? '（绝境反击）' : ''}`));
+    lines.push(...(turn.powers || []).map(power => describeAction(power, units)));
+    lines.push(...describeIgnoredEffects([turn], units));
     for (const id of turn.fallen || []) lines.push(`${sanitize(units[id]?.name || id)} 力竭倒下`);
     if (turn.escape) lines.push(`${sanitize(units[turn.escape]?.name || turn.escape)} 带领众人撤离`);
     return lines.length ? `第${turn.index}回合：${lines.join('；')}。` : '';
@@ -275,7 +330,7 @@ function describeTurn(turn, units, maxActions, firstAction, finalAction) {
 function defeatedIds(turns) {
     const ids = [];
     for (const turn of turns) {
-        for (const action of turn.actions) for (const [id, effect] of action.targets) if (effect.defeated) ids.push(id);
+        for (const action of [...turn.actions, ...(turn.powers || [])]) for (const [id, effect] of action.targets) if (effect.defeated) ids.push(id);
         ids.push(...(turn.fallen || []));
     }
     return ids;
@@ -284,7 +339,10 @@ function defeatedIds(turns) {
 function describeFolded(turns, units) {
     const names = [...new Set(defeatedIds(turns))].map((id) => sanitize(units[id]?.name || id));
     const fallen = names.length ? `，${names.join('、')} 先后倒下` : '';
-    return `第${turns[0].index}–${turns.at(-1).index}回合：双方反复交锋${fallen}。`;
+    const powers = [...new Set(turns.flatMap(turn => (turn.powers || []).map(power => `${sanitize(units[power.actorId]?.name || power.actorId)}的「${sanitize(power.skill)}」`)))];
+    const ongoing = powers.length ? `，${powers.join('、')}持续触发` : '';
+    const ignored = [...new Set(describeIgnoredEffects(turns, units))];
+    return `第${turns[0].index}–${turns.at(-1).index}回合：双方反复交锋${ongoing}${fallen}${ignored.length ? `；${ignored.join('；')}` : ''}。`;
 }
 
 // 终局双方伤势一行。
@@ -299,7 +357,7 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     if (!result) return { ok: false, reason: 'combat-not-finished' };
     const units = state.units;
     const maxActions = REPORT_DETAIL[detail] || REPORT_DETAIL.normal;
-    const turns = collectTurns(events, units).filter((turn) => turn.actions.length || turn.fallen || turn.escape || turn.awaken || turn.curses);
+    const turns = collectTurns(events, units, state.catalog).filter((turn) => turn.actions.length || turn.powers?.length || turn.ignoredEffects?.length || turn.fallen || turn.escape || turn.awaken || turn.curses);
     const allActions = turns.flatMap((turn) => turn.actions);
     const firstAction = allActions[0];
     const finalAction = result === 'win'

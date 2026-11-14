@@ -8,7 +8,7 @@
 //   cards 与 catalog 只在真正写入（成长、费用修正、临时牌）时才复制对应层级。
 // - 效果、技能、被动这类静态定义不再深拷贝，引擎对它们只读。
 // 行为、数值与事件流与 v0.39.0 一致。
-import { COMBAT_RULES, TOKEN_CARDS, estimateEffectsValue, isCompatibleRulesVersion } from './rules.js';
+import { COMBAT_RULES, TOKEN_CARDS, estimateBattleEffectsValue, isCompatibleRulesVersion } from './rules.js';
 import { BUS_FILTERS, DEFEAT_CAUSES, damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
 import { isInscription } from './mechanics/inscription.js';
 import { CURSE_CHOICE_KIND, openCurseOffer, takeCurse } from './mechanics/foe-curse.js';
@@ -22,8 +22,10 @@ import { SCRIPT_CONDITION_MAX, isScriptCondition } from './script-conditions.js'
 import { INSERT_MAX, INTERRUPT_EVENTS, INTERRUPT_MAX, INTERRUPT_SEQ_MAX, INTERRUPT_THEN, REBIRTH_CLEAR, SKILL_USES_MAX, SLEEP_HURT_MODES, SLEEP_SHED_MAX, STATUSES, normalizeEffect, normalizeEnemyTemplate, normalizeKinFields } from './schema.js';
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
-import { ATTRIBUTE_POLICY_VERSION, canAttributeSift, validAttributePolicy } from './attribute-policy.js';
+import { canAttributeSift, validAttributePolicy, validAttributeRules } from './attribute-policy.js';
 import { attributeAmount } from './card-attributes.js';
+import { powerName, powerCardSource, updatePowerStatuses } from './power-state.js';
+import { CARD_UPGRADE_RULES, upgradedCardFace } from './card-upgrade.js';
 export { targetSpec };
 
 export const ENGINE_VERSION = 1;
@@ -95,7 +97,7 @@ function shuffle(holder, list) {
 }
 
 // stacks 大于 0 才保留该状态，否则删除。
-function setStatus(unit, status, stacks, attribute) {
+function setStatus(unit, status, stacks, attribute, powerSource, signed = false) {
     const previous = unit.statuses[status] || 0;
     const stored = unit.res?.attributeStatuses?.[status];
     if (stored || (attribute?.timing === 'deferred' && stacks > previous)) {
@@ -124,7 +126,8 @@ function setStatus(unit, status, stacks, attribute) {
         if (!Object.keys(unit.res.attributeStatuses).length) delete unit.res.attributeStatuses;
         if (!Object.keys(unit.res).length) delete unit.res;
     }
-    if (stacks > 0) unit.statuses[status] = stacks;
+    updatePowerStatuses(unit, status, previous, stacks, powerSource);
+    if (stacks > 0 || (signed && status === 'dexterity' && stacks < 0)) unit.statuses[status] = stacks;
     else delete unit.statuses[status];
 }
 const statusSources = (unit, status) => unit.res?.attributeStatuses?.[status]
@@ -161,7 +164,13 @@ function addStatus(ctx, unit, status, stacks, source, attribute = null) {
         emit(ctx, { type: 'artifact', source, target: unit.id, status });
         return;
     }
-    setStatus(unit, status, (unit.statuses[status] || 0) + stacks, attribute);
+    setStatus(unit, status, (unit.statuses[status] || 0) + stacks, attribute, ctx.state.rulesVersion >= 7 ? powerCardSource(ctx.state, source) : null, status === 'dexterity' && unit.statuses.dexterity < 0);
+    if (ctx.state.rulesVersion >= 7 && ctx.state.activeUnitId === unit.id && stacks > 0
+        && isDebuff(status) && (DECAYING_STATUSES.includes(status) || statusDef(status)?.decay)) {
+        const res = resOf(ctx, unit);
+        res.freshDebuffs ||= [];
+        if (!res.freshDebuffs.includes(status)) res.freshDebuffs.push(status);
+    }
     emit(ctx, { type: 'status', source, target: unit.id, status, stacks });
     // 规则 v6 G5b：获得状态后（被动可按 status 过滤）。
     if (ctx.state.rulesVersion >= 6) fireBus(ctx, unit, 'status-gained', null, { status });
@@ -306,7 +315,7 @@ function validateUnit(unit, path, attributeRules) {
     if (unit.side === 'enemy' && unit.kind !== 'skill') return fail('enemy-must-use-skills');
     if (unit.template !== undefined && (unit.side !== 'enemy' || unit.kind !== 'skill'
         || !normalizeEnemyTemplate(unit.template).ok)) return fail('invalid-template');
-    if (attributeRules && unit.kind === 'deck' && !validAttributePolicy(unit.attributePolicy)) return fail('invalid-attribute-policy');
+    if (attributeRules && unit.kind === 'deck' && !validAttributePolicy(unit.attributePolicy, attributeRules)) return fail('invalid-attribute-policy');
     if (!intInRange(unit.maxHp, 1, 9999)) return fail('invalid-hp');
     if (unit.hp !== undefined && !intInRange(unit.hp, 1, unit.maxHp)) return fail('invalid-hp');
     const badScale = unit.damageScale !== undefined && !(typeof unit.damageScale === 'number' && unit.damageScale > 0 && unit.damageScale <= 5);
@@ -347,8 +356,10 @@ function itemsInvalid(items) {
 function validateSetup(setup) {
     if (!setup || typeof setup !== 'object' || !Array.isArray(setup.units)) return { reason: 'invalid-setup' };
     if (setup.rulesVersion !== undefined && !isCompatibleRulesVersion(setup.rulesVersion)) return { reason: 'rules-version-mismatch', detail: { expected: COMBAT_RULES.version, actual: setup.rulesVersion } };
-    if (setup.attributeRules !== undefined && (setup.attributeRules !== ATTRIBUTE_POLICY_VERSION || setup.rulesVersion !== 6)) return { reason: 'invalid-attribute-rules' };
-    if (setup.hpLossRules !== undefined && (setup.hpLossRules !== 1 || setup.rulesVersion !== 6)) return { reason: 'invalid-hp-loss-rules' };
+    if (setup.attributeRules !== undefined && !validAttributeRules(setup.attributeRules, setup.rulesVersion)) return { reason: 'invalid-attribute-rules' };
+    if (setup.hpLossRules !== undefined && (setup.hpLossRules !== 1 || !(setup.rulesVersion >= 6))) return { reason: 'invalid-hp-loss-rules' };
+    if (setup.cardUpgradeRules !== undefined && (setup.cardUpgradeRules !== CARD_UPGRADE_RULES || !(setup.rulesVersion >= 7))) return { reason: 'invalid-card-upgrade-rules' };
+    if (setup.exhaustRules !== undefined && (setup.exhaustRules !== 1 || !(setup.rulesVersion >= 7))) return { reason: 'invalid-exhaust-rules' };
     if (setup.awaken !== undefined && awakenInvalid(setup.awaken)) return { reason: 'invalid-awaken' };
     if (setup.items !== undefined && itemsInvalid(setup.items)) return { reason: 'invalid-items' };
     if (setup.overkill !== undefined && typeof setup.overkill !== 'boolean') return { reason: 'invalid-setup' };
@@ -1054,10 +1065,14 @@ function fireBus(ctx, unit, trigger, aimId, extra = {}) {
         const key = `${unit.id}|${kind}|${entry.id}`;
         if (guard?.has(key)) return;
         ctx.state.busTriggers = (ctx.state.busTriggers || 0) + 1;
-        emit(ctx, { type: kind === 'passive' ? 'passive' : 'buff-trigger', unitId: unit.id, ...eventExtra, trigger });
+        const named = kind === 'buff' && ctx.state.rulesVersion >= 7 ? { name: powerName(ctx.state, unit.id, entry.id), scoped: true } : {};
+        emit(ctx, { type: kind === 'passive' ? 'passive' : 'buff-trigger', unitId: unit.id, ...eventExtra, trigger, ...named });
         guard?.add(key);
         runEffects(ctx, unit, effects, aimId, { unitId: unit.id, kind, id: entry.id });
         guard?.delete(key);
+        if (kind === 'buff' && ctx.state.rulesVersion >= 7) {
+            emit(ctx, { type: 'buff-resolved', unitId: unit.id, buffId: entry.id });
+        }
     };
     for (const passive of passives) run('passive', passive, passive.effects, { passiveId: passive.id });
     for (const buff of buffs) run('buff', buff, buff.then, { buffId: buff.id });
@@ -1085,14 +1100,26 @@ function resOf(ctx, unit) {
 }
 // 规则 v5 B08 加演（D8）：登记后，本单位这次出手结束时行动值归 0 并立即再出手一次，期间其他单位不行动；每场一次。
 // 记在 res.encore（ready / used），由 endPlayerTurn 与 runAutoPhase 消费；v3/v4 没有 res，登记与消费都不发生。
-function grantEncore(ctx, unit) {
+function grantEncore(ctx, unit, repeatable = false) {
     const res = resOf(ctx, unit);
+    if (res && repeatable) {
+        res.extraTurns = Math.min(20, (res.extraTurns || 0) + 1);
+        emit(ctx, { type: 'encore-ready', unitId: unit.id, repeatable: true });
+        return true;
+    }
     if (!res || res.encore) return false;
     res.encore = 'ready';
     emit(ctx, { type: 'encore-ready', unitId: unit.id });
     return true;
 }
 function takeEncore(ctx, unit) {
+    if (unit.alive && !ctx.state.outcome && unit.res?.extraTurns > 0) {
+        unit.res.extraTurns -= 1;
+        if (!unit.res.extraTurns) delete unit.res.extraTurns;
+        unit.av = 0;
+        emit(ctx, { type: 'encore', unitId: unit.id, repeatable: true });
+        return true;
+    }
     if (unit.res?.encore !== 'ready' || !unit.alive || ctx.state.outcome) return false;
     unit.res.encore = 'used';
     unit.av = 0;
@@ -1102,7 +1129,7 @@ function takeEncore(ctx, unit) {
 const engineKit = (targets) => ({
     emit, dealDamage, addStatus, setStatus, statusSources, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, attributeAmount, resOf, ownCatalog, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
-    discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateEffectsValue, handLimit: COMBAT_RULES.handLimit,
+    discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateBattleEffectsValue, handLimit: COMBAT_RULES.handLimit,
     // 敌人模板 M7 偷牌（mechanics/foe-heist.js）：长期卡组至少保留的张数，偷到只剩这么多时不再偷。
     deckMin: COMBAT_RULES.deckMin,
     // 敌人模板 M6（mechanics/foe-afflict.js）：往对方牌堆塞内置状态牌（foreign 为真时不算对方自己生成）。
@@ -1111,6 +1138,7 @@ const engineKit = (targets) => ({
     grantEncore,
     // 规则 v5 P5b 预燃（mechanics/inscription.js）：免费打出，与狡黠同一流程。
     freePlay: slyPlay,
+    autoPlayCard,
     // 规则 v5 E04 应变：技能单位重选意图；E08 时滞：请求在本次玩家动作结算完后结束玩家回合。
     replanIntent: (ctx, unit) => {
         if (unit?.kind === 'skill' && unit.alive && !ctx.state.outcome) planIntent(ctx, unit);
@@ -1285,7 +1313,14 @@ function applyEffect(ctx, unit, effect, aimId, source) {
             return;
         default:
             // 已登记机制的算子：只在 v5 战斗、且单位类型被允许时结算；v3/v4 重放与未知算子照旧不做任何事。
-            if (!(state.rulesVersion >= 5) || !opAllowedFor(effect.op, unit.kind)) return;
+            if (!(state.rulesVersion >= 5) || !opAllowedFor(effect.op, unit.kind)) {
+                // 规则 v7：被跳过的算子发 effect-ignored 事件（只发事件，不改结算），战报与审计可见；旧战斗事件流不变。
+                if (state.rulesVersion >= 7) {
+                    emit(ctx, { type: 'effect-ignored', unitId: unit.id, op: effect.op, reason: opHandler(effect.op) ? 'unit-kind' : 'unknown-op',
+                        ...(source ? { source: { unitId: source.unitId, kind: source.kind, id: source.id } } : {}) });
+                }
+                return;
+            }
             opHandler(effect.op).apply(ctx, unit, effect, aimId, source, engineKit(targets));
     }
 }
@@ -1352,6 +1387,8 @@ function drawCards(ctx, unit, amount) {
         const inst = pile.draw.pop();
         pile.hand.push(inst);
         drawnInsts.push(inst);
+        runHooks(ctx, 'draw-card', { unit, inst });
+        if (!unit.alive || ctx.state.outcome) break;
     }
     if (drawnInsts.length) {
         emit(ctx, { type: 'draw', unitId: unit.id, count: drawnInsts.length });
@@ -1475,11 +1512,14 @@ function slyPlay(ctx, unit, inst, card, tag = 'sly') {
     ctx.chosen = saved.chosen;
 }
 
-function exhaustCard(ctx, unit, inst, fireTriggers = true) {
+function exhaustCard(ctx, unit, inst, reason = 'effect') {
+    const realExhaust = reason !== 'power-play';
+    const modern = ctx.state.exhaustRules === 1;
     ctx.state.piles[unit.id].exhaust.push(inst);
-    emit(ctx, { type: 'exhaust', unitId: unit.id, inst });
-    if (fireTriggers) fireBus(ctx, unit, 'exhaust', null, { cardType: cardView(ctx.state, inst)?.type });
-    runHooks(ctx, 'exhaust', { unit, inst });
+    if (modern) ownCard(ctx, inst).realExhaust = realExhaust;
+    emit(ctx, { type: 'exhaust', unitId: unit.id, inst, ...(modern ? { reason, realExhaust } : {}) });
+    if (realExhaust) fireBus(ctx, unit, 'exhaust', null, { cardType: cardView(ctx.state, inst)?.type });
+    if (!modern || realExhaust) runHooks(ctx, 'exhaust', { unit, inst, ...(modern ? { reason, realExhaust } : {}) });
 }
 
 // 生成一张临时牌放进 where（hand/draw/discard）；手牌满了改放弃牌堆。每回合有张数上限。
@@ -1662,6 +1702,10 @@ function takeSkillTurn(ctx, unit) {
 function startUnitTurn(ctx, unit) {
     const state = ctx.state;
     if (state.outcome || !unit.alive) return;
+    if (state.rulesVersion >= 7) {
+        state.activeUnitId = unit.id;
+        if (unit.res) delete unit.res.freshDebuffs;
+    }
     const before = { unit, clearBlock: true };
     runHooks(ctx, 'turn-start-before', before);
     if (state.outcome || !unit.alive) return;
@@ -1686,8 +1730,9 @@ function startUnitTurn(ctx, unit) {
         unit.energy = unit.energyPerTurn;
         unit.heroSkillUsed = false;
         if (unit.traitSkillsUsed) unit.traitSkillsUsed = [];
-        if (unit.id === state.controlledId && state.items) state.items.used = false;
+        if (state.rulesVersion < 7 && unit.id === state.controlledId && state.items) state.items.used = false;
     }
+    runHooks(ctx, 'turn-start-ready', { unit });
     let extraDraw = 0;
     const queued = unit.nextTurn || [];
     unit.nextTurn = [];
@@ -1710,8 +1755,9 @@ function startUnitTurn(ctx, unit) {
     for (const power of unit.powers || []) {
         if (!unit.alive || state.outcome) return;
         if (power.at !== 'turn-end') {
-            emit(ctx, { type: 'power-trigger', unitId: unit.id, cardId: power.id });
+            emit(ctx, { type: 'power-trigger', unitId: unit.id, cardId: power.id, ...(state.rulesVersion >= 7 ? { name: powerName(state, unit.id, power.id), trigger: 'turn-start', scoped: true } : {}) });
             runEffects(ctx, unit, power.effects, null, { unitId: unit.id, kind: 'power', id: power.id });
+            if (state.rulesVersion >= 7) emit(ctx, { type: 'power-resolved', unitId: unit.id, cardId: power.id });
         }
     }
     fireBus(ctx, unit, 'turn-start', null);
@@ -1744,7 +1790,7 @@ function keepExtra(ctx, unit, kept, rest) {
     if (!Object.keys(unit.res).length) delete unit.res;
     const worth = (inst) => {
         const card = cardView(ctx.state, inst);
-        return card && !card.unplayable ? estimateEffectsValue(card.effects) : null;
+        return card && !card.unplayable ? estimateBattleEffectsValue(card.effects) : null;
     };
     const picks = rest.map((inst) => [inst, worth(inst)]).filter(([, value]) => value !== null).sort((a, b) => b[1] - a[1]).slice(0, extra);
     for (const [inst] of picks) {
@@ -1763,8 +1809,9 @@ function endUnitTurn(ctx, unit) {
     for (const power of unit.powers || []) {
         if (power.at !== 'turn-end') continue;
         if (!unit.alive || ctx.state.outcome) return;
-        emit(ctx, { type: 'power-trigger', unitId: unit.id, cardId: power.id });
+        emit(ctx, { type: 'power-trigger', unitId: unit.id, cardId: power.id, ...(ctx.state.rulesVersion >= 7 ? { name: powerName(ctx.state, unit.id, power.id), trigger: 'turn-end', scoped: true } : {}) });
         runEffects(ctx, unit, power.effects, null, { unitId: unit.id, kind: 'power', id: power.id });
+        if (ctx.state.rulesVersion >= 7) emit(ctx, { type: 'power-resolved', unitId: unit.id, cardId: power.id });
     }
     fireBus(ctx, unit, 'turn-end', null);
     if (!unit.alive) return;
@@ -1774,10 +1821,19 @@ function endUnitTurn(ctx, unit) {
         delete unit.turnCostMod;
         delete unit.replayNext;
     }
-    if (unit.buffs?.length) unit.buffs = unit.buffs.map((buff) => ({ ...buff, turns: buff.turns - 1 })).filter((buff) => buff.turns > 0);
-    for (const status of DECAYING_STATUSES) if (unit.statuses[status] > 0) setStatus(unit, status, unit.statuses[status] - 1);
+    if (unit.buffs?.length) unit.buffs = unit.buffs.map((buff) => buff.permanent ? buff : ({ ...buff, turns: buff.turns - 1 }))
+        .filter((buff) => buff.permanent || buff.turns > 0);
+    const fresh = ctx.state.rulesVersion >= 7 ? unit.res?.freshDebuffs || [] : [];
+    for (const status of DECAYING_STATUSES) if (unit.statuses[status] > 0 && !fresh.includes(status)) setStatus(unit, status, unit.statuses[status] - 1);
     if (ctx.state.rulesVersion >= 5) {
-        for (const status of Object.keys(unit.statuses)) if (statusDef(status)?.decay) setStatus(unit, status, unit.statuses[status] - 1);
+        for (const status of Object.keys(unit.statuses)) if (statusDef(status)?.decay && !fresh.includes(status)) setStatus(unit, status, unit.statuses[status] - 1);
+    }
+    if (ctx.state.rulesVersion >= 7) {
+        delete ctx.state.activeUnitId;
+        if (unit.res) {
+            delete unit.res.freshDebuffs;
+            if (!Object.keys(unit.res).length) delete unit.res;
+        }
     }
     if (unit.alive) runHooks(ctx, 'turn-end-after', { unit });
 }
@@ -1785,15 +1841,18 @@ function endUnitTurn(ctx, unit) {
 // ---------- 打牌 ----------
 
 // 付费、移出手牌并开始结算。X 费牌花光能量，按能量数重复结算。
-function playCard(ctx, unit, inst, aimId) {
+function playCard(ctx, unit, inst, aimId, automatic = false) {
     const state = ctx.state;
     const pile = state.piles[unit.id];
     const card = cardView(state, inst);
-    const spent = card.cost === 'X' ? unit.energy : card.cost;
-    let runs = card.cost === 'X' ? spent : 1;
-    pile.hand.splice(pile.hand.indexOf(inst), 1);
+    const spent = automatic ? 0 : card.cost === 'X' ? unit.energy : card.cost;
+    const signatureX = card.cost === 'X' && card.effects.some(effect => ['evoke-x', 'dirge'].includes(effect.op));
+    const xSpent = automatic ? unit.energy : spent;
+    let runs = card.cost === 'X' && !signatureX ? xSpent : 1;
+    const index = pile.hand.indexOf(inst);
+    if (index >= 0) pile.hand.splice(index, 1);
     unit.energy -= spent;
-    emit(ctx, { type: 'card', unitId: unit.id, inst, cardId: card.id, name: card.name, skillRef: card.skillRef || card.name, targetId: aimId ?? null, cost: spent });
+    emit(ctx, { type: 'card', unitId: unit.id, inst, cardId: card.id, name: card.name, skillRef: card.skillRef || card.name, targetId: aimId ?? null, cost: spent, ...(automatic ? { automatic: true } : {}) });
     const replayIndex = (unit.replayNext || []).findIndex((item) => !item.cardType || item.cardType === card.type);
     if (replayIndex >= 0) {
         const [replay] = unit.replayNext.splice(replayIndex, 1);
@@ -1813,9 +1872,42 @@ function playCard(ctx, unit, inst, aimId) {
         if (before.runs !== runs && Number.isInteger(before.runs) && before.runs >= 1) runs = Math.min(before.runs, PLAY_RUNS_MAX);
         exhaustOnPlay = before.exhaust === true;
     }
-    state.play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: aimId ?? null, runs, run: 0, index: 0, exhaust: exhaustOnPlay };
+    const play = { unitId: unit.id, inst, cardId: card.id, effects: card.effects, targetId: aimId ?? null, runs, run: 0, index: 0, exhaust: exhaustOnPlay,
+        ...(automatic ? { automatic: true } : {}), ...(signatureX ? { xSpent } : {}) };
+    state.play = play;
     if (unit.attributePolicy && unit.id === state.controlledId) state.play.active = true;
     resolvePlay(ctx);
+    return play;
+}
+
+// 自动出牌复用正式出牌与触发链；内层选牌交给策略，外层选牌仍可挂起。
+function autoPlayCard(ctx, unit, inst, times = 1, exhaust = false) {
+    const state = ctx.state;
+    const card = cardView(state, inst);
+    if (!card || card.unplayable || (ctx.autoDepth || 0) >= 4 || !unit.alive || state.outcome) return false;
+    const saved = { play: state.play, inst: ctx.inst, exhaust: ctx.exhaust, recur: ctx.recur, chosen: ctx.chosen };
+    const pile = state.piles[unit.id];
+    for (const key of ['hand', 'draw', 'discard', 'exhaust']) {
+        const index = pile[key].indexOf(inst);
+        if (index >= 0) pile[key].splice(index, 1);
+    }
+    ctx.autoDepth = (ctx.autoDepth || 0) + 1;
+    let spent = exhaust;
+    for (let n = 0; n < times && unit.alive && !state.outcome; n += 1) {
+        const foes = livingIds(state, opposite(unit.side));
+        const aim = effectsNeedTarget(card.effects) ? foes[rollInt(state, foes.length)] : effectsPickAlly(card.effects) ? unit.id : null;
+        if (effectsNeedTarget(card.effects) && !foes.length) break;
+        ctx.chosen = null;
+        const play = playCard(ctx, unit, inst, aim, true);
+        spent ||= play.exhaust;
+    }
+    if (spent || card.type === 'power') exhaustCard(ctx, unit, inst, spent ? 'effect' : 'power-play');
+    else pile.discard.push(inst);
+    ctx.autoDepth -= 1;
+    if (saved.play) state.play = saved.play;
+    else delete state.play;
+    Object.assign(ctx, { inst: saved.inst, exhaust: saved.exhaust, recur: saved.recur, chosen: saved.chosen });
+    return true;
 }
 
 const playEffect = (play, index) => {
@@ -1838,7 +1930,7 @@ function resolvePlay(ctx) {
     const play = state.play;
     const unit = state.units[play.unitId];
     const source = { unitId: unit.id, kind: 'card', id: play.cardId };
-    const isHero = unit.id === state.controlledId;
+    const isHero = unit.id === state.controlledId && !play.automatic;
     ctx.inst = play.inst;
     ctx.exhaust = play.exhaust;
     ctx.recur = play.recur;
@@ -1894,7 +1986,9 @@ function finishPlay(ctx) {
     const recur = state.rulesVersion >= 5 ? ctx.recur : null;
     ctx.recur = null;
     const pile = state.piles[unit.id];
-    if (card.type === 'power' || ctx.exhaust) exhaustCard(ctx, unit, play.inst, card.type !== 'power');
+    if (play.automatic) play.exhaust = ctx.exhaust;
+    else if (card.type === 'power' || ctx.exhaust) exhaustCard(ctx, unit, play.inst,
+        card.type === 'power' && !(state.exhaustRules === 1 && ctx.exhaust) ? 'power-play' : 'self');
     else if (recur === 'hand' && pile.hand.length < COMBAT_RULES.handLimit) {
         pile.hand.push(play.inst);
         emit(ctx, { type: 'recur', unitId: unit.id, inst: play.inst, to: 'hand' });
@@ -1981,14 +2075,14 @@ function validateItem(state, unit, itemId, aimId) {
     const item = (state.items?.list || []).find((entry) => entry.itemId === itemId);
     if (!item) return { reason: 'item-unavailable' };
     if (item.count <= 0) return { reason: 'item-empty' };
-    if (state.items.used) return { reason: 'item-used' };
+    if (state.rulesVersion < 7 && state.items.used) return { reason: 'item-used' };
     return validateTarget(state, unit, item.effects, aimId);
 }
 
 function useItem(ctx, unit, itemId, aimId) {
     const item = ctx.state.items.list.find((entry) => entry.itemId === itemId);
     item.count -= 1;
-    ctx.state.items.used = true;
+    if (ctx.state.rulesVersion < 7) ctx.state.items.used = true;
     emit(ctx, { type: 'item', unitId: unit.id, itemId, name: item.name, targetId: aimId ?? null });
     // M8：结算前的道具钩子（单目标道具转向带遭遇分组的背击单位）。
     runHooks(ctx, 'item-before', { unit, itemId, aimId: aimId ?? null });
@@ -2274,6 +2368,8 @@ export function createBattle(setup, seed) {
         ...(setup.foeCap !== undefined || setup.rulesVersion >= 6 ? { foeCap: setup.foeCap ?? COMBAT_RULES.maxFoesOnField } : {}),
         ...(setup.crowd !== undefined ? { crowd: setup.crowd } : {}),
         ...(setup.hpLossRules === 1 ? { hpLossRules: 1 } : {}),
+        ...(setup.cardUpgradeRules === CARD_UPGRADE_RULES ? { cardUpgradeRules: CARD_UPGRADE_RULES } : {}),
+        ...(setup.exhaustRules === 1 ? { exhaustRules: 1 } : {}),
         ...(setup.trackHpLoss === true ? { hpLost: {}, ...(setup.rewardOwner ? { rewardOwner: setup.rewardOwner } : {}) } : {}),
         ...(setup.awaken ? { awaken: { type: setup.awaken.type, line: setup.awaken.line || '', used: false } } : {}),
         ...(setup.items?.length ? { items: { used: false, list: setup.items.map((item) => ({ itemId: item.itemId, name: typeof item.name === 'string' ? item.name : item.itemId, count: item.count, effects: deepCopy(item.effects) })) } } : {}),
@@ -2315,7 +2411,11 @@ export function createBattle(setup, seed) {
         // 洗牌后把「固有」牌挪到牌堆顶（抽牌从末尾取）；固有牌多于首回合抽牌数时，超出的部分顺延到下回合再抽。
         const shuffled = shuffle(state, deck);
         // 规则 v5 P5b 御准：带该刻印的牌也按固有处理。
-        const innate = shuffled.filter((inst) => defs[state.cards[inst].cardId]?.innate || (state.rulesVersion >= 5 && state.cards[inst].inscription === 'sovereign'));
+        const innate = shuffled.filter((inst) => {
+            const entry = state.cards[inst];
+            const card = defs[entry.cardId];
+            return (entry.upgraded && state.cardUpgradeRules === CARD_UPGRADE_RULES ? upgradedCardFace(card) : card)?.innate || (state.rulesVersion >= 5 && entry.inscription === 'sovereign');
+        });
         const drawPile = innate.length ? [...shuffled.filter((inst) => !innate.includes(inst)), ...innate] : shuffled;
         state.piles[def.id] = { draw: drawPile, hand: [], discard: [], exhaust: [] };
         const overflow = innate.length - (def.draw ?? COMBAT_RULES.drawPerTurn);

@@ -17,13 +17,13 @@ function modeField(effect, path, state, kit, allowed, fallback) {
 }
 const typeField = (effect, path, state, kit) => (effect.cardType === undefined ? {} : { cardType: kit.enumField(effect.cardType, kit.joinPath(path, 'cardType'), state, CARD_TYPES) });
 
-// 从某个牌堆移到手牌（手牌满时进弃牌堆）。
-function moveToHand(ctx, unit, kit, inst, from) {
+// 回手受手牌上限约束；置顶写入 draw 末端，与抽牌方向一致。
+function moveFromPile(ctx, unit, kit, inst, from, destination = 'hand') {
     const pile = pileOf(ctx, unit);
     const index = pile[from].indexOf(inst);
     if (index < 0) return;
     pile[from].splice(index, 1);
-    const to = pile.hand.length >= kit.handLimit ? 'discard' : 'hand';
+    const to = destination === 'top' ? 'draw' : pile.hand.length >= kit.handLimit ? 'discard' : 'hand';
     pile[to].push(inst);
     kit.emit(ctx, { type: 'fetch', unitId: unit.id, inst, from, to });
 }
@@ -60,7 +60,7 @@ registerMechanic({
                     const card = kit.cardView(ctx.state, inst);
                     return card && (!effect.cardType || card.type === effect.cardType) && costOk(card);
                 });
-                for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveToHand(ctx, unit, kit, inst, 'draw');
+                for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveFromPile(ctx, unit, kit, inst, 'draw');
             },
             value: (e) => e.amount * 5,
             describe: (e, kit) => `从抽牌堆检索 ${e.amount} 张${e.cost === undefined ? '' : `${e.cost} 费的`}${kit.typed(e.cardType)}加入手牌`,
@@ -68,11 +68,12 @@ registerMechanic({
         },
         retrieve: {
             validate(effect, path, state, kit) {
-                kit.checkKnownFields(effect, ['op', 'amount', 'from', 'cardType'], path, state);
+                kit.checkKnownFields(effect, ['op', 'amount', 'from', 'to', 'cardType'], path, state);
                 return {
                     op: 'retrieve',
                     amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 2, 1),
                     from: kit.enumField(effect.from, kit.joinPath(path, 'from'), state, ['discard', 'exhaust'], 'discard'),
+                    ...(effect.to === undefined ? {} : { to: kit.enumField(effect.to, kit.joinPath(path, 'to'), state, ['hand', 'top']) }),
                     ...typeField(effect, path, state, kit),
                 };
             },
@@ -81,11 +82,12 @@ registerMechanic({
                     const card = kit.cardView(ctx.state, inst);
                     return card && !card.unplayable && (!effect.cardType || card.type === effect.cardType);
                 });
-                for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveToHand(ctx, unit, kit, inst, effect.from);
+                const to = ctx.state.rulesVersion >= 7 && effect.to === 'top' ? 'top' : 'hand';
+                for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveFromPile(ctx, unit, kit, inst, effect.from, to);
             },
-            value: (e) => e.amount * (e.from === 'exhaust' ? 7 : 4.5),
-            describe: (e, kit) => `从${PILE_NAME[e.from]}取回 ${e.amount} 张${kit.typed(e.cardType)}加入手牌`,
-            brief: (e) => `取回${e.amount}`,
+            value: (e) => e.amount * (e.from === 'exhaust' ? 7 : 4.5) * (e.to === 'top' ? 0.5 : 1),
+            describe: (e, kit) => `从${PILE_NAME[e.from]}取回 ${e.amount} 张${kit.typed(e.cardType)}${e.to === 'top' ? '放到抽牌堆顶' : '加入手牌'}`,
+            brief: (e) => `${e.to === 'top' ? '回顶' : '取回'}${e.amount}`,
         },
         topdeck: {
             validate(effect, path, state, kit) {
@@ -149,7 +151,7 @@ registerMechanic({
                 const from = kit.enumField(effect.from, at, state, ['self', 'choose'], 'self');
                 if (from === 'choose' && kit.scope !== 'top') return kit.addIssue(state, at, 'choose-not-top-level');
                 if (from === 'self' && !kit.scope) return kit.addIssue(state, at, 'card-only');
-                return { op: 'copy-next', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 2, 1), from };
+                return { op: 'copy-next', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 3, 1), from };
             },
             choice: handChoice(null, () => 1),
             apply(ctx, unit, effect, aimId, source, kit) {
@@ -241,7 +243,7 @@ registerMechanic({
     report(event, kit) {
         if (event.unitId !== kit.actorId) return;
         const text = {
-            fetch: event.from === 'draw' ? '检索出一张牌' : '取回一张牌',
+            fetch: event.to === 'draw' ? '把弃牌放到抽牌堆顶' : event.from === 'draw' ? '检索出一张牌' : '取回一张牌',
             topdeck: '把一张牌放回牌堆顶',
             discover: '从三张候选中挑出一张牌',
             transform: '令一张手牌变形',

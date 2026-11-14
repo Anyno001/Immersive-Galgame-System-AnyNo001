@@ -22,6 +22,8 @@ export const COMBAT_HIT_STYLE_TEXT = `
 ${C} .igs-combat-unit[${R}="hit"] .igs-combat-portrait{animation:igs-combat-struck ${COMBAT_HIT_REACT_MS}ms cubic-bezier(.3,.7,.4,1) both;}
 ${C} .igs-combat-unit[${R}="guard"] .igs-combat-portrait{animation:igs-combat-guarded ${COMBAT_HIT_REACT_MS}ms ease-out both;}
 ${C} .igs-combat-unit[${R}="heal"] .igs-combat-portrait{animation:igs-combat-healed ${COMBAT_HIT_REACT_MS}ms ease-out both;}
+${C} :is(.igs-combat-unit,.cx-unit)[${R}="power"] :is(.igs-combat-portrait,.face,.mface,.art,.igs-combat-power){animation:igs-combat-powered ${COMBAT_HIT_REACT_MS}ms ease-out both;}
+@keyframes igs-combat-powered{0%,100%{filter:none;}35%{filter:brightness(1.5) drop-shadow(0 0 6px var(--igs-cb-power));}}
 @keyframes igs-combat-struck{0%{translate:0 0;filter:brightness(1.9) saturate(.4);}18%{translate:-7px 1px;filter:brightness(1.3) sepia(.5) hue-rotate(-30deg) saturate(2.4);}36%{translate:6px -1px;}54%{translate:-4px 0;}72%{translate:2px 0;}100%{translate:0 0;filter:none;}}
 @keyframes igs-combat-guarded{0%{translate:0 0;filter:brightness(1.6);}30%{translate:0 3px;}100%{translate:0 0;filter:none;}}
 @keyframes igs-combat-healed{0%{scale:1;filter:none;}35%{scale:1.03;filter:brightness(1.3) saturate(1.3);}100%{scale:1;filter:none;}}
@@ -31,6 +33,7 @@ ${C} .igs-combat-float.is-overkill{color:rgba(214,214,226,.86);font-size:17px;fo
 
 ${C} .igs-combat-float:is(.is-guard,.is-block){color:color-mix(in srgb,var(--igs-cb-skill) 55%,#fff);font-size:15px;font-size:clamp(12px,3cqmin,20px);}
 ${C} .igs-combat-float.is-heal{color:color-mix(in srgb,var(--igs-cb-life) 55%,#fff);}
+${C} .igs-combat-float.is-power{max-width:180px;white-space:normal;text-align:center;overflow-wrap:anywhere;color:color-mix(in srgb,var(--igs-cb-power) 60%,#fff);font-size:13px;line-height:1.3;}
 ${C} .igs-combat-float.is-reduced{animation-name:igs-combat-float-still;}
 @keyframes igs-combat-float{0%{opacity:0;transform:translateY(10px) scale(.7);}14%{opacity:1;transform:translateY(-4px) scale(1.14);}28%{transform:translateY(-8px) scale(1);}78%{opacity:1;}100%{opacity:0;transform:translateY(-34px) scale(.96);}}
 @keyframes igs-combat-float-still{0%,100%{opacity:0;}12%,80%{opacity:1;}}

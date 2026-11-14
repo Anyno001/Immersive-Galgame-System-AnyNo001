@@ -52,7 +52,7 @@ registerMechanic({
         smith: {
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount'], path, state);
-                return { op: 'smith', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 10) };
+                return { op: 'smith', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 14) };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
                 forge(ctx, unit, kit, (prev) => ({ value: Math.min(FORGE_MAX, prev.value + effect.amount) }));
@@ -60,6 +60,20 @@ registerMechanic({
             value: (e) => 8 + e.amount * 2,
             describe: (e) => `锻造 ${e.amount}：锻刃伤害 +${e.amount}（本场首次锻造把锻刃加入手牌）`,
             brief: (e) => `锻${e.amount}`,
+        },
+        'blade-double': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'target'], path, state);
+                return { op: 'blade-double', target: kit.enumField(effect.target, kit.joinPath(path, 'target'), state, ['enemy'], 'enemy') };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                const [target] = kit.targets();
+                if (!target?.alive) return;
+                const res = kit.resOf(ctx, unit);
+                res.bladeDouble = [...new Set([...(res.bladeDouble || []), target.id])];
+            },
+            value: () => 8,
+            describe: () => '本回合锻刃对指定敌人造成的攻击伤害翻倍', brief: () => '锻刃倍伤',
         },
         'hone-blade': {
             validate(effect, path, state, kit) {
@@ -81,6 +95,8 @@ registerMechanic({
         },
     },
     modifiers: {
+        'outgoing-mult': (attacker, target, value, origin, info) =>
+            info?.card?.id === BLADE_ID && attacker?.res?.bladeDouble?.includes(target?.id) ? value * 2 : value,
         // W04 焚身：技能牌 0 费（X 费牌不受影响）。
         'card-cost': (state, owner, view) => (st(owner, 'pyre') && view.type === 'skill' ? 0 : view.cost),
     },
@@ -90,10 +106,10 @@ registerMechanic({
             const { unit, card } = payload;
             if (st(unit, 'pyre') && card.type === 'skill' && typeof card.cost === 'number') payload.exhaust = true;
         },
-        // W04 余烬：每消耗一张非能力牌获得等于层数的格挡。
+        // 真实消耗按原因触发；无标记旧局保留排除能力牌的历史规则。
         exhaust(ctx, { unit, inst }, kit) {
             const stacks = st(unit, 'ember');
-            if (!stacks || !unit.alive || kit.cardView(ctx.state, inst)?.type === 'power') return;
+            if (!stacks || !unit.alive || (ctx.state.exhaustRules !== 1 && kit.cardView(ctx.state, inst)?.type === 'power')) return;
             kit.gainBlock(ctx, unit, stacks, statusSource(unit, 'ember'));
         },
         // W06 嗜血：本回合攻击牌对敌方造成的实际失血按同量回复出手者。
@@ -106,6 +122,7 @@ registerMechanic({
         },
         'turn-end-after'(ctx, { unit }, kit) {
             if (st(unit, 'bloodthirst')) kit.setStatus(unit, 'bloodthirst', 0);
+            if (unit.res?.bladeDouble) delete unit.res.bladeDouble;
         },
     },
     report(event, kit) {

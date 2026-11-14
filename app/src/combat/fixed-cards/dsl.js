@@ -1,6 +1,6 @@
 // 规则 v6 固定卡表的编写工具：效果简写、卡牌构造、按 IGS 预算窗口缩放数值（只改数值，不改效果结构）。
 // 只引用 rules.js 与机制登记表；卡表数据在同目录 <职业>.js，汇总与校验在 index.js。
-import { COMBAT_RULES, estimateCardValue, rarityWindow } from '../rules.js';
+import { COMBAT_RULES, estimateCardValue, evaluateCardBudget, rarityWindow } from '../rules.js';
 import { APPLY_STATUSES } from '../mechanics/apply-status.js';
 
 export const atk = (amount, hits = 1, target = 'enemy') => ({ op: 'damage', amount, hits, target });
@@ -60,32 +60,43 @@ function scaleList(effects, m, wide = false) {
     });
 }
 
-// [lo, hi] 内的全部缩放候选，离 target 近的在前；原值已在窗口内时排第一。先只缩强度字段，落不进再连同次要数值。
+function numericDistance(before, after) {
+    if (typeof before === 'number') return Math.abs(after - before) / Math.max(1, Math.abs(before));
+    if (!before || typeof before !== 'object') return 0;
+    return Object.keys(before).reduce((total, key) => total + numericDistance(before[key], after[key]), 0);
+}
+
+// 优先保留手写值，其余候选按数值改动幅度排序，求解中心只用于同幅度时择优。
 function fitCandidates(card, effects, lo, hi, target) {
     const valueOf = (list) => estimateCardValue({ ...card, effects: list });
     const inside = (v) => v >= lo - 1e-9 && v <= hi + 1e-9;
     const found = new Map();
-    if (inside(valueOf(effects))) found.set(JSON.stringify(effects), { list: effects, score: -1 });
+    if (inside(valueOf(effects))) found.set(JSON.stringify(effects), { list: effects, distance: 0, score: 0 });
     for (const wide of [false, true]) {
         for (let i = 4; i <= 120; i += 1) {
             const list = scaleList(effects, i * 0.025, wide);
             const v = valueOf(list);
             const key = JSON.stringify(list);
-            if (inside(v) && !found.has(key)) found.set(key, { list, score: Math.abs(v - target) });
+            if (inside(v) && !found.has(key)) found.set(key, { list, distance: numericDistance(effects, list), score: Math.abs(v - target) });
         }
         if (found.size) break;
     }
-    return [...found.values()].sort((a, b) => a.score - b.score).map((item) => item.list);
+    return [...found.values()].sort((a, b) => a.distance - b.distance || a.score - b.score).map((item) => item.list);
 }
 
 // 编写期记录：升级版无论怎样缩放都落不进窗口、只好去掉升级的卡（ID、本体估值、升级允许区间；核对脚本与测试要求为空）。
 export const DROPPED_UPGRADES = [];
+// 编写期记录：每张固定卡的卡表手写值与落窗后的定义（只读，供标定脚本对照「手写值 → 落窗值」）。
+export const FIT_TRACE = [];
 
 // 本体落进稀有度窗口；升级版落在「比本体更优」与放宽上限之间。按本体候选逐个找能配上的升级版，
-// 先用卡表写的升级效果，再退回以本体效果放大；都配不上时去掉升级。本体本身落不进窗口时原样返回，由逐张校验报出。
+// 仅调整数值，不以本体替代手写升级效果。无解时记录丢失升级，由标定检查拒绝交付。
 export function fitCard(card) {
+    // 来源定义只允许被校验，不能因预算冲突改写；无效标记由 schema 拒收。
+    if (card.sourceModel !== undefined || card.upgradeModel !== undefined) return card;
     const window = rarityWindow(card.cost, card.rarity);
     if (!window || !card.effects.length) return card;
+    if (evaluateCardBudget(card).ok) return card;
     const bases = fitCandidates(card, card.effects, window.min, window.max, window.target);
     if (!bases.length) return card;
     if (!card.upgraded) return { ...card, effects: bases[0] };
@@ -93,17 +104,14 @@ export function fitCard(card) {
     const upWindow = rarityWindow(upCost, card.rarity);
     if (!upWindow) return { ...card, effects: bases[0] };
     const upHi = upWindow.max * COMBAT_RULES.upgradeAllowance;
-    const sources = card.upgraded.effects ? [card.upgraded.effects, null] : [null];
-    for (const fixedSource of sources) {
-        for (const effects of bases) {
-            const lo = estimateCardValue({ ...card, effects }) - window.budget + upWindow.budget + 0.01;
-            const [up] = fitCandidates({ ...card, cost: upCost }, fixedSource || effects, lo, upHi, Math.min(upHi, Math.max(lo, upWindow.target)));
-            if (!up) continue;
-            const upgraded = card.upgraded.cost === undefined ? {} : { cost: upCost };
-            if (JSON.stringify(up) !== JSON.stringify(effects)) upgraded.effects = up;
-            if (upgraded.cost === undefined && upgraded.effects === undefined) continue;
-            return { ...card, effects, upgraded };
-        }
+    for (const effects of bases) {
+        const lo = estimateCardValue({ ...card, effects }) - window.budget + upWindow.budget + 0.01;
+        const [up] = fitCandidates({ ...card, cost: upCost }, card.upgraded.effects ?? effects, lo, upHi, Math.min(upHi, Math.max(lo, upWindow.target)));
+        if (!up) continue;
+        const upgraded = card.upgraded.cost === undefined ? {} : { cost: upCost };
+        if (JSON.stringify(up) !== JSON.stringify(effects)) upgraded.effects = up;
+        if (upgraded.cost === undefined && upgraded.effects === undefined) continue;
+        return { ...card, effects, upgraded };
     }
     const baseValue = estimateCardValue({ ...card, effects: bases[0] });
     DROPPED_UPGRADES.push({
@@ -127,5 +135,8 @@ export function card(cls, no, name, type, cost, rarity, effects, up, flags = {})
         ...flags, model: 'fixed',
     };
     const upgraded = upgradeOf(up);
-    return fitCard(upgraded ? { ...base, upgraded } : base);
+    const raw = upgraded ? { ...base, upgraded } : base;
+    const fitted = fitCard(raw);
+    FIT_TRACE.push({ id: base.id, raw, fitted });
+    return fitted;
 }

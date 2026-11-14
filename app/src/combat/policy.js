@@ -1,7 +1,7 @@
 // 电脑侧决策：同伴（AI 控制的卡牌单位）怎么出牌、敌人下回合出什么技能、「选牌」类效果的自动选择。
 // 纯函数，不改 state。随机数由调用方给（chooseSkillIntent 的 roll）。
 import { canPlay, cardView, conditionHolds, effectsNeedTarget, estimateBlock, estimateDamage, livingIds, opposite, weakestId } from './battle-state.js';
-import { estimateEffectsValue } from './rules.js';
+import { estimateBattleEffectsValue } from './rules.js';
 import { isScriptCondition, scriptConditionHolds } from './script-conditions.js';
 
 // 前几个回合优先打出能力牌。
@@ -96,7 +96,7 @@ export function chooseAllyPlay(state, unitId) {
     if (strike) return playFor(state, unit, strike, weakest);
 
     if (!(state.rulesVersion >= 4)) return playFor(state, unit, playable[0], weakest);
-    const valued = bestBy(playable, (card) => perCost(card, estimateEffectsValue(usableEffects(state, unit, card))));
+    const valued = bestBy(playable, (card) => perCost(card, estimateBattleEffectsValue(usableEffects(state, unit, card))));
     return valued ? playFor(state, unit, valued, weakest) : null;
 }
 
@@ -105,8 +105,8 @@ export function pickCards(state, insts, count, mode) {
     const valueOf = (inst) => {
         const card = cardView(state, inst);
         if (!card) return 0;
-        const value = card.unplayable ? -5 : estimateEffectsValue(card.effects);
-        return mode === 'discard' && card.onDiscard ? value - estimateEffectsValue(card.onDiscard) : value;
+        const value = card.unplayable ? -5 : estimateBattleEffectsValue(card.effects);
+        return mode === 'discard' && card.onDiscard ? value - estimateBattleEffectsValue(card.onDiscard) : value;
     };
     return insts
         .map((inst, index) => ({ inst, index, value: valueOf(inst) }))

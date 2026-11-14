@@ -53,6 +53,7 @@ const FLOAT_TEXT = Object.freeze({
     block: (m) => `+${m.amount} 格挡`,
     heal: (m) => `+${m.amount}`,
     ko: () => '击倒',
+    power: (m) => m.text || '能力触发',
 });
 
 // 飘字：每条变化一个 span，挂在单位块里、立绘上方，按序号错开上浮（--i）；击倒也写在受击单位上（战斗面板不在画面中间出命中标签）。返回挂上的节点。
@@ -81,8 +82,8 @@ export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, r
 }
 
 export const COMBAT_HIT_REACT_ATTR = 'data-igs-combat-react';
-const REACT_ORDER = ['ko', 'damage', 'overkill', 'guard', 'heal', 'block'];
-const REACT_KIND = Object.freeze({ ko: 'hit', damage: 'hit', overkill: 'hit', guard: 'guard', block: 'guard', heal: 'heal' });
+const REACT_ORDER = ['ko', 'damage', 'overkill', 'guard', 'heal', 'block', 'power'];
+const REACT_KIND = Object.freeze({ ko: 'hit', damage: 'hit', overkill: 'hit', guard: 'guard', block: 'guard', heal: 'heal', power: 'power' });
 
 // 受击反馈：单位块挂 data-igs-combat-react（hit / guard / heal），样式按它做一次抖动或泛光，到时移除；减少动态效果时不加。返回反馈类别。
 export function reactUnit(unitEl, marks, { reduced = false, schedule } = {}) {
@@ -94,8 +95,9 @@ export function reactUnit(unitEl, marks, { reduced = false, schedule } = {}) {
     unitEl.removeAttribute?.(COMBAT_HIT_REACT_ATTR);
     void unitEl.offsetWidth;
     unitEl.setAttribute?.(COMBAT_HIT_REACT_ATTR, react);
+    const generation = unitEl.getAttributeNode?.(COMBAT_HIT_REACT_ATTR);
     const later = typeof schedule === 'function' ? schedule : (f, t) => setTimeout(f, t);
-    later(() => { if (unitEl.getAttribute?.(COMBAT_HIT_REACT_ATTR) === react) unitEl.removeAttribute?.(COMBAT_HIT_REACT_ATTR); }, COMBAT_HIT_REACT_MS);
+    later(() => { if (unitEl.getAttribute?.(COMBAT_HIT_REACT_ATTR) === react && (!generation || unitEl.getAttributeNode?.(COMBAT_HIT_REACT_ATTR) === generation)) unitEl.removeAttribute?.(COMBAT_HIT_REACT_ATTR); }, COMBAT_HIT_REACT_MS);
     return react;
 }
 

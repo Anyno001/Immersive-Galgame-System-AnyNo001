@@ -4,6 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COMBAT_TABLE_SPECS, createCachedTableClient, createCombatTables } from '../src/data/shujuku/combat-tables.js';
 import { createCombatServices } from '../src/core/combat-services.js';
+import { CARD_BUDGET_V1, evaluateCardBudget } from '../src/combat/rules.js';
+import { createCombatLedger } from '../src/combat/ledger.js';
+import { normalizeCard, normalizeLedgerEntry, normalizeProfile } from '../src/combat/schema.js';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -100,3 +103,53 @@ test('空导出（数据库尚未载入）不进缓存：载入后的下一次�
     assert.equal(api.calls.insert.length, 0);
 });
 
+test('D2 旧预算定义经表读回不改卡面，新写入仍严格校验且非法旧数据保留诊断', async () => {
+    const api = fakeApi();
+    const tables = await ready(api);
+    const card = { id: 'legacy-conversion', name: '旧盾连击', type: 'attack', cost: 1, rarity: 'common', effects: [
+        ...Array.from({ length: 3 }, () => ({ op: 'damage-from-block', target: 'enemy' })),
+        { op: 'self-damage', amount: 10 },
+    ] };
+    assert.equal(evaluateCardBudget(card, CARD_BUDGET_V1).ok, true);
+    assert.equal(evaluateCardBudget(card).reason, 'over-budget');
+    assert.equal(normalizeCard(card).ok, false);
+    const profile = { kind: 'class', v: 1, id: 'legacy-class', className: '旧盾士', archetype: 'warrior',
+        classPassive: { id: 'legacy-passive', name: '护身', trigger: 'battle-start', effects: [{ op: 'block', amount: 3, target: 'self' }] },
+        classPool: [card] };
+    const oldProfile = normalizeProfile(profile, { stored: true });
+    const entry = { ...ledger('legacy-learn'), type: 'learn', payload: { card } };
+    const oldEntry = normalizeLedgerEntry(entry, { stored: true });
+    assert.equal(oldProfile.ok, true, JSON.stringify(oldProfile.errors));
+    assert.equal(oldEntry.ok, true, JSON.stringify(oldEntry.errors));
+    assert.equal(normalizeProfile(profile).ok, false);
+    assert.equal(normalizeLedgerEntry(entry).ok, false);
+    assert.equal(normalizeProfile({ ...profile, unexpected: true }, { stored: true }).ok, false);
+    assert.equal((await tables.append('profile', { id: profile.id, name: profile.className, kind: 'class',
+        className: profile.className, version: 1, createdAt: 1, definition: oldProfile.value })).ok, true);
+    assert.equal((await tables.append('ledger', oldEntry.value)).ok, true);
+    const book = createCombatLedger({ tables, chat: [] });
+    const before = JSON.stringify(api.tables);
+    const snapshot = await book.read();
+    assert.equal(snapshot.ok, true);
+    assert.deepEqual(snapshot.profiles.get(profile.id).profile, oldProfile.value);
+    assert.deepEqual(snapshot.entries.find(row => row.id === entry.id), oldEntry.value);
+    assert.equal(snapshot.diagnostics.some(row => /combat-(profile|entry)-invalid/.test(row.code)), false);
+    assert.equal(JSON.stringify(api.tables), before);
+    const writes = api.calls.insert.length;
+    const denied = await book.append({ ...entry, id: 'new-legacy-learn' });
+    assert.equal(denied.ok, false);
+    assert.equal(denied.rejected[0].errors.some(error => error.reason === 'over-budget'), true);
+    assert.equal(api.calls.insert.length, writes);
+    for (const [id, amount, reason] of [['under', 1, 'under-budget'], ['over', 99, 'over-budget']]) {
+        const bad = { ...entry, id: `bad-${id}`, payload: { card: { ...card, effects: [{ op: 'damage', amount, target: 'enemy' }] } } };
+        assert.equal(normalizeLedgerEntry(bad, { stored: true }).ok, false);
+        assert.equal((await book.append(bad)).rejected[0].errors.some(error => error.reason === reason), true);
+        assert.equal((await tables.append('ledger', bad)).ok, true);
+    }
+    const diagnosed = await createCombatLedger({ tables, chat: [] }).read();
+    assert.deepEqual(diagnosed.entries.map(row => row.id), [entry.id]);
+    assert.deepEqual(diagnosed.diagnostics.filter(row => row.code === 'combat-entry-invalid').map(row => row.id), ['bad-under', 'bad-over']);
+    const current = { ...entry, id: 'current-learn', payload: { card: { ...card, id: 'current-card',
+        effects: [{ op: 'damage', amount: 12, target: 'enemy' }] } } };
+    assert.equal((await book.append(current)).ok, true);
+});

@@ -143,6 +143,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             manual: manualOf(manualTarget()),
             pendingGeneration: pendingOf(),
             sendFailed: ss?.status === 'send-failed',
+            reportDelivered: ss?.reportDelivered === true,
             protagonist: protagonistOf(), canRetryProtagonist: typeof options.retryProtagonist === 'function',
             canEnsureTables: typeof options.ensureTables === 'function',
             canRebuild: typeof options.regenerateDeck === 'function',

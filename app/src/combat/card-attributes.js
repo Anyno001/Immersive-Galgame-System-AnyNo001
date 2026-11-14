@@ -28,7 +28,7 @@ export function attributeCardView(card, unit) {
         let out = { ...effect };
         for (const key of ['then', 'a', 'b']) if (Array.isArray(effect[key])) out[key] = walk(effect[key], `${at}.${key}`);
         const declared = opHandler(effect.op)?.attribute;
-        const rule = builtInSpec(effect) ?? (typeof declared === 'function' ? declared(effect) : declared);
+        const rule = builtInSpec(effect) ?? (typeof declared === 'function' ? declared(effect, card) : declared);
         if (!rule) return out;
         if (!validAttributeSpec(rule)) throw new Error('invalid-attribute-spec');
         const ability = cardAbility(policy, archetype, rule.ability);

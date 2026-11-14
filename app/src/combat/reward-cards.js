@@ -1,10 +1,11 @@
 // 奖励副本标记：不修改卡定义；战前定刻印，战后仅按已知失血兑现升级。
 import { hash32, randomInt } from './random.js';
 import { INSCRIPTION_KEYS, inscribable, inscribedView } from './mechanics/inscription.js';
+import { upgradedCardFace } from './card-upgrade.js';
 
 export const rewardUpgradable = (card) => !!card && card.rarity !== 'signature' && !!card.upgraded;
 const cardsOf = (slot) => Array.isArray(slot.choices) ? slot.choices : [slot.card];
-const upgradedView = (card, upgraded) => upgraded && card?.upgraded ? { ...card, ...card.upgraded } : card;
+const upgradedView = (card, upgraded) => upgraded ? upgradedCardFace(card) : card;
 
 export function planRewardMarks(cards, seed, count) {
     const marks = cards.map(() => ({}));

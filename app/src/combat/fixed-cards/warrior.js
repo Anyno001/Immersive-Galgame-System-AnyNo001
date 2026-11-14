@@ -40,7 +40,7 @@ export const WARRIOR_CARDS = Object.freeze([
     c(32, '火幕', 's', 2, 'u', [blk(12), ap('bramble', 4)], [blk(16), ap('bramble', 6)]),
     c(33, '旧日祭礼', 's', 1, 'u', [lose(2), energy(2), ex()], [energy(2), ex()]),
     c(34, '乱阵', 's', 1, 'c', [op('autoplay', { from: 'draw', amount: 1, exhaust: true }), draw(1)], [op('autoplay', { from: 'draw', amount: 1 }), draw(1)]),
-    c(35, '铁额', 'a', 1, 'c', [atk(9), op('retrieve', { amount: 1, from: 'discard' })], [atk(12), op('retrieve', { amount: 1, from: 'discard' })]),
+    c(35, '铁额', 'a', 1, 'c', [atk(9), op('retrieve', { amount: 1, from: 'discard', to: 'top' })], [atk(12), op('retrieve', { amount: 1, from: 'discard', to: 'top' })]),
     c(36, '嗜斩成狂', 'p', 2, 'r', [ap('draw-strike', 1)], [ap('draw-strike', 1), blk(5)]),
     c(37, '血御', 'a', 1, 'u', [lose(2), atk(15)], [lose(2), atk(20)]),
     c(38, '彼岸长啸', 'a', 3, 'u', [aoe(18)], [aoe(24)]),

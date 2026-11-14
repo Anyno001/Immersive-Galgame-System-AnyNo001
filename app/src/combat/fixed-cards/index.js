@@ -9,6 +9,7 @@ import { BARD_CARDS } from './bard.js';
 import { GUARDIAN_CARDS } from './guardian.js';
 import { RANGER_CARDS } from './ranger.js';
 import { GENERAL_CARDS } from './general.js';
+import { sourceFixedCard } from '../card-source-models.js';
 
 const deepFreeze = (value) => {
     if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -18,14 +19,18 @@ const deepFreeze = (value) => {
     return value;
 };
 
-export const FIXED_CLASS_CARDS = deepFreeze({
+export const LEGACY_FIXED_CLASS_CARDS = deepFreeze({
     warrior: [...WARRIOR_CARDS], assassin: [...ASSASSIN_CARDS], mage: [...MAGE_CARDS], summoner: [...SUMMONER_CARDS],
     priest: [...PRIEST_CARDS], bard: [...BARD_CARDS], guardian: [...GUARDIAN_CARDS], ranger: [...RANGER_CARDS],
 });
-export const FIXED_GENERAL_CARDS = deepFreeze([...GENERAL_CARDS]);
+export const LEGACY_FIXED_GENERAL_CARDS = deepFreeze([...GENERAL_CARDS]);
+export const FIXED_CLASS_CARDS = deepFreeze(Object.fromEntries(Object.entries(LEGACY_FIXED_CLASS_CARDS)
+    .map(([key, cards]) => [key, cards.map(sourceFixedCard)])));
+export const FIXED_GENERAL_CARDS = deepFreeze(LEGACY_FIXED_GENERAL_CARDS.map(sourceFixedCard));
 
-const BY_ID = new Map([...Object.values(FIXED_CLASS_CARDS).flat(), ...FIXED_GENERAL_CARDS].map((card) => [card.id, card]));
-const FIXED_ID = /^fx-([a-z]+)-\d+$/;
+const BY_ID = new Map([...Object.values(LEGACY_FIXED_CLASS_CARDS).flat(), ...LEGACY_FIXED_GENERAL_CARDS,
+    ...Object.values(FIXED_CLASS_CARDS).flat(), ...FIXED_GENERAL_CARDS].map((card) => [card.id, card]));
+const FIXED_ID = /^fx-([a-z]+)-\d+(?:-s1)?$/;
 
 // 按 ID 取固定卡定义；不是固定卡 ID 时为 null。
 export const fixedCard = (id) => (typeof id === 'string' ? BY_ID.get(id) ?? null : null);
@@ -34,6 +39,9 @@ export const isFixedCardId = (id) => fixedCard(id) !== null;
 export const fixedCardGroup = (id) => (isFixedCardId(id) ? FIXED_ID.exec(id)[1] : null);
 // 本职业固定池（未知原型为空数组）。
 export const fixedClassPool = (archetype) => (typeof archetype === 'string' && Object.hasOwn(FIXED_CLASS_CARDS, archetype) ? FIXED_CLASS_CARDS[archetype] : []);
+// 历史起始卡组与待选记录仍允许旧 ID；新候选只从 fixedClassPool 取。
+export const compatibleFixedClassPool = (archetype) => (typeof archetype === 'string' && Object.hasOwn(LEGACY_FIXED_CLASS_CARDS, archetype)
+    ? [...new Map([...LEGACY_FIXED_CLASS_CARDS[archetype], ...fixedClassPool(archetype)].map(card => [card.id, card])).values()] : []);
 
 const asDefs = (list) => Object.fromEntries(list.map((card) => [card.id, card]));
 // 开战快照用的造牌池：class 为本职业固定池，general 为无色池（按 ID 索引的定义表）。

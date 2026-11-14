@@ -12,6 +12,7 @@ import { CANVAS_STYLE_TEXT } from './combat-skin-registry.js';
 import { INTIMATE_DUEL_STYLE_TEXT } from './intimate-duel-style.js';
 import { INTIMATE_DUEL_FX_STYLE_TEXT } from './intimate-duel-fx.js';
 import { COMBAT_ENTRY_SKIN_STYLE_TEXT } from './combat-entry-skin-style.js';
+import { COMBAT_POWER_STYLE_TEXT } from './combat-power-badges.js';
 
 // 战斗面板与卡组构筑面板共用的视觉 token：墨色、填充、圆角、字体取自 ui-material，与资料页、地图、设置一致；
 // 语义色沿用状态栏数值条色板（reader-dom-render 的 STATUS_HUD_COLOR_VARS），类型只用色点与图标着色区分，不铺整块底色。
@@ -325,6 +326,8 @@ ${C} .igs-combat-unit-badges>.igs-combat-block{max-width:100%;box-sizing:border-
 ${C} .igs-combat-statuses{display:flex;flex-wrap:wrap-reverse;justify-content:flex-end;gap:3px;max-width:100%;max-height:33px;overflow:hidden;pointer-events:none;}
 ${C} .igs-combat-statuses span{height:15px;padding:0 5px;border-radius:var(--igs-cb-r-s);background:var(--igs-cb-veil);color:var(--igs-cb-ink-soft);font-size:11px;font-weight:500;line-height:15px;white-space:nowrap;font-variant-numeric:tabular-nums;text-shadow:none;}
 ${C} .igs-combat-statuses b{color:var(--igs-cb-ink);font-weight:700;}
+/* 带注释的状态片与资源项：悬停或点按弹出 .igs-combat-scale-tip；外层容器不接收指针，这里单独打开。 */
+${C} :is(.igs-combat-statuses,.igs-cx-canvas) [data-status][data-scale-tip],${C} .cx-res[data-scale-tip]{pointer-events:auto;cursor:help;}
 /* 规则 v5 主战者资源条：我方一排末尾独占一行、居中；每项为深色小底加图形与数值，无描边。法珠 16px 一颗，10 槽约 178px，竖屏 320px 宽仍放得下。 */
 ${C} .igs-combat-hero:has(>.igs-combat-res){flex-wrap:wrap;row-gap:6px;}
 ${C} .igs-combat-hero>.igs-combat-res{order:9;flex:0 0 100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px 6px;min-width:0;}
@@ -825,6 +828,7 @@ ${COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT}
 ${COMBAT_ENTRY_SKIN_STYLE_TEXT}
 ${COMBAT_PANEL_LAYOUT_STYLE_TEXT}
 ${CANVAS_STYLE_TEXT}
+${COMBAT_POWER_STYLE_TEXT}
 ${C} :is(.igs-combat-unit,.cx-unit)[data-swap="out"]{animation:igs-combat-swap-out 520ms var(--igs-cb-ease) var(--swap-t,0ms) both;pointer-events:none;}
 ${C} :is(.igs-combat-unit,.cx-unit)[data-swap="in"]{animation:igs-combat-swap-in 620ms cubic-bezier(.2,.9,.25,1.15) var(--swap-t,0ms) both;}
 @keyframes igs-combat-swap-out{0%{opacity:.4;translate:0 0;}100%{opacity:0;translate:0 18%;}}

@@ -23,6 +23,15 @@ registerMechanic({
         'play-before'(ctx, { unit, card }, kit) {
             if (card?.type === 'attack' && st(unit, 'first-strike') && !((unit.turnStats?.attack || 0) > 0)) kit.resOf(ctx, unit).primed = true;
         },
+        'damage-before'(ctx, { source, kind }, kit) {
+            if (!(ctx.state.rulesVersion >= 7) || kind !== 'attack' || !ACTION_KINDS.has(source?.kind)) return;
+            const attacker = ctx.state.units[source.unitId];
+            if (!attacker) return;
+            // 记录本次出手已用于伤害的层数；单位资源随挂起选牌保存。
+            const res = kit.resOf(ctx, attacker);
+            const window = res.attackWindow || (res.attackWindow = { vigor: 0 });
+            window.vigor = Math.max(window.vigor, st(attacker, 'vigor'));
+        },
         'damage-after'(ctx, { source, kind }) {
             if (kind === 'attack' && ACTION_KINDS.has(source?.kind) && source.unitId != null) {
                 if (!ctx.attackedBy) ctx.attackedBy = new Set();
@@ -30,12 +39,17 @@ registerMechanic({
             }
         },
         'action-after'(ctx, { unit }, kit) {
-            if (unit.res?.primed) {
+            const window = unit.res?.attackWindow;
+            if (unit.res?.primed || window) {
                 delete unit.res.primed;
+                delete unit.res.attackWindow;
                 if (!Object.keys(unit.res).length) delete unit.res;
             }
-            if (!ctx.attackedBy?.delete(unit.id)) return;
-            if (st(unit, 'vigor')) kit.setStatus(unit, 'vigor', 0);
+            const attacked = ctx.attackedBy?.delete(unit.id);
+            if (!attacked && !window) return;
+            if (ctx.state.rulesVersion >= 7) {
+                if (window?.vigor) kit.setStatus(unit, 'vigor', Math.max(0, st(unit, 'vigor') - window.vigor));
+            } else if (st(unit, 'vigor')) kit.setStatus(unit, 'vigor', 0);
             if (st(unit, 'overpower')) kit.setStatus(unit, 'overpower', st(unit, 'overpower') - 1);
             else if (st(unit, 'empower')) kit.setStatus(unit, 'empower', st(unit, 'empower') - 1);
         },

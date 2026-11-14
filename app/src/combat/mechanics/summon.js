@@ -6,6 +6,7 @@ import { registerMechanic } from './registry.js';
 
 export const SOUL_ID = 'summon-soul';
 export const SOUL_NAME = '魂';
+const SOURCE_SOUL_ID = 'signature-soul';
 const MINION_MAX = 99;
 const DOOM_CAP_PCT = 0.5;
 const st = (unit, key) => unit?.statuses?.[key] || 0;
@@ -59,6 +60,7 @@ const minionDamage = (owner, target, effect) => {
 // 随从攻击（S02、S03）：随从不在时无效；伤害 = 基础 + 骨甲层数（+ 随从当前或最大生命），目标易伤 ×1.5，不吃主人的攻击力与虚弱。
 function minionStrike(ctx, owner, effect, targets, kit) {
     if (!minionOf(owner)) return;
+    if (Number.isInteger(owner.res.rattleAttacks)) owner.res.rattleAttacks += 1;
     kit.emit(ctx, { type: 'minion-strike', unitId: owner.id });
     for (const target of targets) {
         if (!target?.alive || ctx.state.outcome) continue;
@@ -96,6 +98,18 @@ function writeSoul(ctx, unit, kit) {
     if (!known) kit.ownCatalog(ctx, unit.id)[SOUL_ID] = soulCard();
     return true;
 }
+function sourceSouls(ctx, unit, amount, upgraded, kit) {
+    const known = ctx.state.catalog[unit.id]?.[SOURCE_SOUL_ID];
+    if (known && known.name !== SOUL_NAME) return;
+    if (!known) kit.ownCatalog(ctx, unit.id)[SOURCE_SOUL_ID] = {
+        id: SOURCE_SOUL_ID, name: SOUL_NAME, type: 'skill', cost: 0, rarity: 'basic', skillRef: SOUL_NAME,
+        effects: [{ op: 'draw', amount: 2 }, { op: 'exhaust-self' }],
+        upgraded: { effects: [{ op: 'draw', amount: 3 }, { op: 'exhaust-self' }] },
+    };
+    let count = 0;
+    for (let n = 0; n < amount; n += 1) if (kit.addTempCard(ctx, unit, { cardId: SOURCE_SOUL_ID, upgraded }, 'draw')) count += 1;
+    if (count) kit.emit(ctx, { type: 'soul', unitId: unit.id, count, to: 'draw' });
+}
 const junkCard = (cardId) => typeof cardId === 'string' && /^(status-|curse-)/.test(cardId);
 
 const areaFactor = (target) => (target === 'all-enemies' ? 1.4 : target === 'random-enemy' ? 0.85 : 1);
@@ -120,8 +134,94 @@ registerMechanic({
         { key: 'craft-might', label: '匠力' },
         { key: 'craft-guard', label: '匠盾' },
     ],
-    lossKinds: ['doom', 'minion-bond', 'soul-blight'],
+    lossKinds: ['doom', 'minion-bond', 'soul-blight', 'spirit'],
     ops: {
+        'spirit-loss': {
+            attribute: { ability: 'damage', key: 'amount', tier: 'normal', timing: 'static' },
+            validate(e, path, state, kit) {
+                kit.checkKnownFields(e, ['op', 'amount', 'target'], path, state);
+                return { op: e.op, amount: kit.intField(e.amount, kit.joinPath(path, 'amount'), state, 1, 20),
+                    target: kit.enumField(e.target, kit.joinPath(path, 'target'), state, ['enemy'], 'enemy') };
+            },
+            apply(ctx, unit, e, aim, source, kit) {
+                for (const target of kit.targets()) kit.dealDamage(ctx, target, e.amount, source, 'spirit', false);
+            },
+            value: e => e.amount * 1.5,
+            damage: e => e.amount,
+            estimateDamage: (e, kit) => kit.aimId === kit.target?.id ? e.amount : 0,
+            describe: (e, kit) => `使指定敌人失去 ${kit.fmt(e.amount)} 点生命（无视格挡）`,
+            brief: e => `失血${e.amount}`,
+        },
+        'soul-draw': {
+            validate(e, path, state, kit) {
+                kit.checkKnownFields(e, ['op', 'amount'], path, state);
+                return { op: e.op, amount: kit.intField(e.amount, kit.joinPath(path, 'amount'), state, 1, 8) };
+            },
+            apply(ctx, unit, e, aim, source, kit) { sourceSouls(ctx, unit, e.amount, false, kit); },
+            value: e => e.amount * 6,
+            describe: e => `将 ${e.amount} 张魂（0 费，抽 2 张牌后消耗；升级抽 3 张）随机加入抽牌堆`,
+            brief: e => `入堆魂${e.amount}`,
+        },
+        dirge: {
+            validate(e, path, state, kit) {
+                kit.checkKnownFields(e, ['op', 'amount', 'upgraded'], path, state);
+                if (e.upgraded !== undefined && typeof e.upgraded !== 'boolean') kit.addIssue(state, kit.joinPath(path, 'upgraded'), 'expected-boolean');
+                return { op: e.op, amount: kit.intField(e.amount, kit.joinPath(path, 'amount'), state, 1, 6), ...(e.upgraded === true ? { upgraded: true } : {}) };
+            },
+            apply(ctx, unit, e, aim, source, kit) {
+                const count = Math.min(20, ctx.state.play?.xSpent ?? 0);
+                for (let n = 0; n < count && unit.alive && !ctx.state.outcome; n += 1) summon(ctx, unit, e.amount, kit);
+                sourceSouls(ctx, unit, count, e.upgraded === true, kit);
+            },
+            value: e => 2 * (e.amount * 1.5 + (e.upgraded ? 10 : 6)),
+            describe: e => `按本次投入 X 点能量召唤 ${e.amount} 共 X 次，并将 X 张${e.upgraded ? '升级的' : ''}魂随机加入抽牌堆`,
+            brief: () => 'X召魂',
+        },
+        rattle: {
+            attribute: { ability: 'cha', key: 'amount', tier: 'support', timing: 'static' },
+            validate(e, path, state, kit) {
+                kit.checkKnownFields(e, ['op', 'amount', 'target'], path, state);
+                return { op: e.op, amount: kit.intField(e.amount, kit.joinPath(path, 'amount'), state, 1, 40), target: kit.enumField(e.target, kit.joinPath(path, 'target'), state, ['enemy'], 'enemy') };
+            },
+            apply(ctx, unit, e, aim, source, kit) {
+                const hits = Math.min(20, 1 + (unit.res?.rattleAttacks || 0));
+                for (let n = 0; n < hits && unit.alive && !ctx.state.outcome; n += 1) minionStrike(ctx, unit, e, kit.targets(), kit);
+            },
+            value: e => e.amount * 2.7,
+            damage: e => e.amount * 20,
+            estimateDamage: (e, kit) => e.target === 'enemy' && kit.aimId !== kit.target?.id ? 0
+                : minionDamage(kit.attacker, kit.target, e) * Math.min(20, 1 + (kit.attacker?.res?.rattleAttacks || 0)),
+            describe: e => `随从对指定敌人造成 ${e.amount} 点伤害，本回合此前每攻击一次再多打一段（至多 20 段）`,
+            brief: () => '随从连段',
+        },
+        'bind-doom': {
+            validate(e, path, state, kit) {
+                kit.checkKnownFields(e, ['op', 'amount', 'target'], path, state);
+                return { op: e.op, amount: kit.intField(e.amount, kit.joinPath(path, 'amount'), state, 1, 8), target: kit.enumField(e.target, kit.joinPath(path, 'target'), state, ['enemy'], 'enemy') };
+            },
+            apply(ctx, unit, e, aim, source, kit) {
+                const [target] = kit.targets();
+                if (target?.alive) (kit.resOf(ctx, unit).doomLinks ||= []).push({ targetId: target.id, amount: e.amount, id: source.id });
+            },
+            value: e => e.amount * 3,
+            describe: e => `本回合每打出一张牌，都对本次指定的敌人施加 ${e.amount} 灾厄`,
+            brief: () => '本回合缚厄',
+        },
+        'doom-all': {
+            validate(e, path, state, kit) {
+                kit.checkKnownFields(e, ['op', 'amount', 'target'], path, state);
+                const target = kit.enumField(e.target, kit.joinPath(path, 'target'), state, ['all-enemies'], 'all-enemies');
+                return { op: e.op, amount: kit.intField(e.amount, kit.joinPath(path, 'amount'), state, 1, 60), target };
+            },
+            apply(ctx, unit, e, aim, source, kit) {
+                const foes = foesOf(ctx.state, unit);
+                for (const foe of foes) if (foe.alive && !ctx.state.outcome) kit.addStatus(ctx, foe, 'doom', e.amount, source);
+                for (const foe of foes) if (foe.alive && !ctx.state.outcome && st(foe, 'doom') >= foe.hp) kit.defeatUnit(ctx, foe, source, 'doom');
+            },
+            value: e => e.amount * 1.68 + 3,
+            describe: e => `对全体敌人施加 ${e.amount} 灾厄，然后立即击倒灾厄不低于生命的敌人（此即时判定不受精英／首领半血限制）`,
+            brief: () => '全体灾厄处决',
+        },
         summon: {
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount'], path, state);
@@ -175,7 +275,7 @@ registerMechanic({
         soul: {
             validate(effect, path, state, kit) {
                 kit.checkKnownFields(effect, ['op', 'amount'], path, state);
-                return { op: 'soul', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 3) };
+                return { op: 'soul', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 4) };
             },
             apply(ctx, unit, effect, aimId, source, kit) {
                 if (unit.kind !== 'deck' || !kit.resOf(ctx, unit) || !writeSoul(ctx, unit, kit)) return;
@@ -189,6 +289,16 @@ registerMechanic({
         },
     },
     hooks: {
+        'battle-start'(ctx, payload, kit) {
+            const tracks = effects => (effects || []).some(e => e.op === 'rattle' || tracks(e.then) || tracks(e.a) || tracks(e.b));
+            for (const id of ctx.state.order) {
+                const unit = ctx.state.units[id];
+                if (unit?.kind === 'deck' && Object.values(ctx.state.catalog[id] || {}).some(card => tracks(card.effects) || tracks(card.upgraded?.effects))) kit.resOf(ctx, unit).rattleAttacks = 0;
+            }
+        },
+        'turn-start-before'(ctx, { unit }) {
+            if (Number.isInteger(unit.res?.rattleAttacks)) unit.res.rattleAttacks = 0;
+        },
         // S01：主人受到的未格挡攻击伤害先扣随从生命，超出部分由主人承受；非攻击伤害与失去生命不挡。
         'hp-loss-before'(ctx, pre, kit) {
             if (pre.kind !== 'attack' || !minionOf(pre.target)) return;
@@ -196,18 +306,23 @@ registerMechanic({
         },
         // S04：本单位回合结束时生命不高于灾厄判定值即倒下。
         'turn-end-after'(ctx, { unit }, kit) {
+            if (unit.res?.doomLinks) delete unit.res.doomLinks;
             const threshold = unit.alive && st(unit, 'doom') ? doomThreshold(unit) : 0;
             if (threshold <= 0 || unit.hp > threshold) return;
             kit.emit(ctx, { type: 'doom', unitId: unit.id, doom: st(unit, 'doom'), threshold });
             kit.dealDamage(ctx, unit, unit.hp, statusSource(unit, 'doom'), 'doom', false);
         },
         'play-after'(ctx, { unit, card, targetId }, kit) {
+            for (const link of unit.res?.doomLinks || []) {
+                const foe = ctx.state.units[link.targetId];
+                if (foe?.alive && unit.alive && !ctx.state.outcome) kit.addStatus(ctx, foe, 'doom', link.amount, { unitId: unit.id, kind: 'buff', id: link.id });
+            }
             const touch = st(unit, 'doom-touch');
             const target = targetId != null ? ctx.state.units[targetId] : null;
             if (touch && target?.alive && target.side !== unit.side) kit.addStatus(ctx, target, 'doom', touch, statusSource(unit, 'doom-touch'));
             const guard = card?.ethereal ? st(unit, 'void-guard') : 0;
             if (guard && unit.alive) statusBlock(ctx, unit, guard, 'void-guard', kit);
-            if (card?.id !== SOUL_ID || !unit.alive || ctx.state.outcome) return;
+            if (![SOUL_ID, SOURCE_SOUL_ID].includes(card?.id) || !unit.alive || ctx.state.outcome) return;
             const feast = st(unit, 'soul-feast');
             if (feast) summon(ctx, unit, feast, kit);
             const blight = st(unit, 'soul-blight');

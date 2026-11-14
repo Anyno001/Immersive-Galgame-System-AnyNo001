@@ -14,6 +14,7 @@ import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { CHALLENGE_LABELS, challengeStatusName, intimateLabelsOf } from '../../combat/challenge-labels.js';
 import { briefRegistered, statusLabel } from '../../combat/mechanics/registry.js';
 import { CURSE_CHOICE_KIND, CURSE_LABELS, curseDetail } from '../../combat/mechanics/foe-curse.js';
+import { powerName } from '../../combat/power-state.js';
 
 // 卡牌属性性能显示：换算过的卡给出带增减标记的描述片段；固定卡与旧战斗不带字段，形状与旧版一致。
 // 带标记的数字附 tip（要求属性、倍率与「原值 → 现值（差值）」，点数字由面板弹出）；scaleNote 是同样内容的整句，并入卡牌 aria-label 供读屏。
@@ -309,12 +310,53 @@ export function resourceView(res) {
     return Object.keys(out).length ? out : null;
 }
 
+export function activePowers(state, unitId) {
+    const unit = state.units[unitId];
+    const grouped = new Map();
+    const add = (ownerId, cardId, meta, effects, count = 1) => {
+        const name = powerName(state, ownerId, cardId);
+        const key = `${ownerId}|${name}`;
+        const item = grouped.get(key) || { id: cardId, name, count: 0, details: [] };
+        item.count += count;
+        const text = describeEffects(effects);
+        const detail = [meta, text].filter(Boolean).join('：');
+        if (detail && !item.details.includes(detail)) item.details.push(detail);
+        grouped.set(key, item);
+    };
+    for (const power of unit.powers || []) {
+        add(unitId, power.id, power.at === 'turn-end' ? '回合结束' : '回合开始', power.effects);
+    }
+    for (const buff of unit.buffs || []) {
+        if (!(buff.turns > 0)) continue;
+        add(unitId, buff.id, `${describeTrigger(buff.trigger, buff.cardType, buff)} · 剩余 ${buff.turns} 回合`, buff.then);
+    }
+    for (const [status, sources] of Object.entries(unit.res?.powerStatuses || {})) {
+        if (!(unit.statuses[status] > 0)) continue;
+        const counts = new Map();
+        for (const source of sources) {
+            if (!source.cardId || !(source.stacks > 0)) continue;
+            const key = `${source.ownerId}|${source.cardId}`;
+            const entry = counts.get(key) || { ...source, stacks: 0 };
+            entry.stacks += source.stacks;
+            counts.set(key, entry);
+        }
+        for (const source of counts.values()) {
+            const name = powerName(state, source.ownerId, source.cardId);
+            const existing = grouped.get(`${source.ownerId}|${name}`);
+            add(source.ownerId, source.cardId, '生效中', [{ op: 'apply-status', status, stacks: source.stacks, target: 'self' }], existing ? 0 : 1);
+        }
+    }
+    return [...grouped.values()].map(({ details, ...item }) => ({ ...item, text: details.join('；') }));
+}
+
 export function unitView(state, id, challenge = false) {
     const u = state.units[id];
     const res = resourceView(u.res);
+    const powers = activePowers(state, id);
     return {
         id, name: u.name, side: u.side, kind: u.kind, hp: Math.max(0, u.hp), maxHp: u.maxHp, block: u.block, alive: u.alive,
         controlled: id === state.controlledId, statuses: statusList(u.statuses, challenge),
+        ...(powers.length ? { powers } : {}),
         intent: u.side === 'enemy' ? intentView(state, id, challenge) : null,
         // 敌人外观格位（setup 带 art 时）：面板据此在通用敌人图集里取图；我方与旧战斗不带该字段。
         ...(u.side === 'enemy' && typeof u.art === 'string' && u.art ? { art: u.art } : {}),
@@ -331,6 +373,10 @@ export function pendingChoice(state) {
     if (!(p && p.unitId === state.controlledId && Array.isArray(p.options))) return null;
     const choice = { kind: p.kind, count: p.count, options: p.options.slice() };
     if (p.kind === CURSE_CHOICE_KIND && Array.isArray(p.offer)) choice.curses = p.offer.map((o, i) => ({ id: p.options[i], name: CURSE_LABELS[o.status] || o.status, text: curseDetail(o) }));
+    if (p.kind === 'draw-play') choice.candidates = p.options.map(inst => {
+        const card = cardView(state, inst);
+        return { id: inst, name: card?.name || inst, text: describeEffects(card?.effects || []) };
+    });
     return choice;
 }
 
@@ -384,6 +430,7 @@ export function unitDetailView(state, unitId) {
         add('被动', passives.filter((p) => p.source !== 'affix').map((p) => passiveItem(p)));
         add('常驻效果', passives.filter((p) => p.source === 'affix').map((p) => passiveItem(p)));
     }
+    add('持续能力', activePowers(state, unitId).map(power => ({ name: power.name, meta: power.count > 1 ? `叠加 ${power.count} 份` : '', text: power.text })));
     const phases = (u.phases || []).slice(u.phasesApplied || 0);
     add('阶段', phases.map((ph) => ({ name: ph.hpAtMostPct !== undefined ? `生命不高于 ${ph.hpAtMostPct}%` : `生命低于 ${ph.hpBelowPct}%`, meta: '',
         text: [...(ph.addSkills || []), ...(ph.passives || [])].map((x) => x.name).filter(Boolean).join('、') })));
@@ -631,6 +678,7 @@ export function combatFxSource(events, state, { start = false, foe = '', title =
     };
     for (const e of events || []) {
         if (e.type === 'card' || e.type === 'skill' || e.type === 'hero-skill' || e.type === 'item') action = { actor: e.unitId, name: e.name };
+        else if (e.type === 'power-trigger' || e.type === 'buff-trigger') action = { actor: e.unitId, name: e.name || powerName(state, e.unitId, e.cardId || e.buffId) };
         else if (e.type === 'awaken') action = { actor: e.unitId, name: AWAKEN_TYPE_NAMES[e.awakenType] || '' };
         else if (e.type === 'turn-start') action = null;
         else if (e.type === 'damage' && e.kind === 'attack') {
@@ -738,6 +786,7 @@ export function combatHitMarks(events) {
         } else if (e.type === 'heal' && e.amount > 0) add(e.target, { kind: 'heal', amount: e.amount });
         else if (e.type === 'block' && e.amount > 0) add(e.target, { kind: 'block', amount: e.amount });
         else if (e.type === 'defeated') add(e.unitId, { kind: 'ko' }, lastStrike.get(e.unitId));
+        else if (e.type === 'power-trigger' || e.type === 'buff-trigger') add(e.unitId, { kind: 'power', text: e.name || e.cardId || e.buffId });
     }
     return [...groups].map(([unitId, marks]) => ({ unitId, marks }));
 }

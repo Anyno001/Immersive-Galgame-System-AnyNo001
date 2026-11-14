@@ -8,6 +8,8 @@ import { skinIntentHtml } from './combat-intent.js';
 import { enemyArtKeyFor } from '../../combat/enemy-art.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { ITEM_ICON_SVG, SKILL_ICON_SVG, battlePick, canvasW, ringVars, rewardCardMarkup, rewardRowMarkup } from './combat-skin-canvas.js';
+import { powerBadgesHtml } from './combat-power-badges.js';
+import { statusChipAttrs } from './combat-status-tips.js';
 import { COMBAT_SKIN_MYSTIC_CONCEPT_CSS } from './combat-skin-mystic-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -135,11 +137,11 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const ring = ringVars(i, f, n, L);
     const it = u.intent;
     const intent = skinIntentHtml(it);
-    const sts = `${u.block ? `<em class="blk">${ICON.shield}<b>${esc(u.block)}</b></em>` : ''}${u.statuses.map((s) => `<em class="st">${esc(s.label)} <b>${esc(s.stacks)}</b></em>`).join('')}`;
+    const sts = `${u.block ? `<em class="blk">${ICON.shield}<b>${esc(u.block)}</b></em>` : ''}${u.statuses.map((s) => `<em class="st"${statusChipAttrs(s)}>${esc(s.label)} <b>${esc(s.stacks)}</b></em>`).join('')}`;
     const ok = pick.pickable(u);
     return `<div class="foe k-${esc(enemyArtKeyFor({ art: u.art, name: u.name }))}${ring.front ? ' front' : ''}${ring.rear ? ' rear' : ''} ${unitCls(u, ok)}"${unitData(u)} style="${ring.style};--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>`
         + `<div class="art">${foeArt(pics[u.name], arts[u.name], u.name)}</div><div class="head">${intent}`
-        + `<div class="row2"><div class="nl"><span class="nm">${esc(u.name)}${u.tier ? `<i class="elite">${u.tier === 'boss' ? '首领' : '精英'}</i>` : ''}</span><span class="hpn cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span></div>${hpBar(u, false)}<span class="sts">${sts}</span></div></div></div>`;
+        + `<div class="row2"><div class="nl"><span class="nm">${esc(u.name)}${u.tier ? `<i class="elite">${u.tier === 'boss' ? '首领' : '精英'}</i>` : ''}</span><span class="hpn cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span></div>${hpBar(u, false)}<span class="sts">${sts}</span>${powerBadgesHtml(u)}</div></div></div>`;
 }
 
 function leadHtml(hero, v, pick) {
@@ -147,16 +149,16 @@ function leadHtml(hero, v, pick) {
     const ok = pick.pickable(hero);
     const aw = b.awaken && !b.awaken.used && b.awaken.usable && !b.outcome ? b.awaken : null;
     const awBtn = aw ? `<span class="aw cx-awaken" data-combat-act="awaken" data-awaken="${esc(aw.type)}" role="button" tabindex="0" title="${esc(`觉醒·${aw.label}：${aw.text}`)}" aria-label="${esc(`觉醒·${aw.label}${aw.line ? `『${aw.line}』` : ''}：${aw.text}，不消耗能量，每场一次`)}">觉醒</span>` : '';
-    const chips = `${hero.block ? `<span class="chip">${ICON.shield}<b>${esc(hero.block)}</b></span>` : ''}${hero.statuses.map((s) => `<span class="chip">${esc(s.label)} <b>${esc(s.stacks)}</b></span>`).join('')}`;
+    const chips = `${hero.block ? `<span class="chip">${ICON.shield}<b>${esc(hero.block)}</b></span>` : ''}${hero.statuses.map((s) => `<span class="chip"${statusChipAttrs(s)}>${esc(s.label)} <b>${esc(s.stacks)}</b></span>`).join('')}`;
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face"${unitAct(hero, ok)}><span class="pic">${face((v.portraits || {})[hero.name], hero.name)}</span><svg viewBox="-50 -50 100 100" class="tk" aria-hidden="true">${dots(46, 40, 2.4, '#8c7d4e')}</svg>${awBtn}</div>`
-        + `<div class="info"><div class="n"><span class="nmw">${esc(hero.name)}</span><span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, true)}<div class="chips">${chips}</div>${resourceBarHtml(hero.res, { row: 'chips', item: 'chip' })}</div></div>`;
+        + `<div class="info"><div class="n"><span class="nmw">${esc(hero.name)}</span><span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>${hpBar(hero, true)}<div class="chips">${chips}${powerBadgesHtml(hero)}</div>${resourceBarHtml(hero.res, { row: 'chips', item: 'chip' })}</div></div>`;
 }
 
 function mateHtml(u, v, pick) {
     const ok = pick.pickable(u);
     return `<div class="mate ${unitCls(u, ok)}"${unitData(u)}${unitAct(u, ok)}><div class="mface">${face((v.portraits || {})[u.name], u.name)}</div>`
-        + `<div class="mn">${esc(u.name)}</div>${hpBar(u, true)}</div>`;
+        + `<div class="mn">${esc(u.name)}</div>${hpBar(u, true)}${powerBadgesHtml(u, { compact: true })}</div>`;
 }
 
 function trackHtml(b, v) {

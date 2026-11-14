@@ -3,7 +3,7 @@
 // 常量数组均冻结只读。字段范围、文案与规则常量原样来自 v0.39.0，不要顺手调整玩法。
 import {
     ALLY_SKILL_CAP_MAX, BASIC_CARDS, BASIC_DEFEND_ID, BASIC_STRIKE_ID, COMBAT_RULES, SKILL_COUNT_MAX, TOKEN_KEYS,
-    cardCopyLimit, evaluateCardBudget,
+    cardCopyLimit, evaluateCardBudget, evaluateStoredCardBudget,
 } from './rules.js';
 import { hashString } from './random.js';
 import { BATTLE_POINTS_RANGE, BATTLE_POINT_TIERS, battlePoints, weakBattlePoints } from './points.js';
@@ -15,13 +15,15 @@ import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 import { rewardUpgradable } from './reward-cards.js';
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TREASURE_SLOT_MAX } from './gear-slots.js';
-import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
+import { compatibleFixedClassPool, fixedCard, isFixedCardId } from './fixed-cards/index.js';
 import { RELIC_MODELS, isCombatModel, relicById } from './relics/index.js';
 import { winPointsBonus } from './relics/off-combat.js';
 import { BIAS_CATEGORIES, TRAIT_FLIPS, biasCategoryOf, traitFlipIssue } from './trait-reward-bias.js';
 import { CLASS_PASSIVE_VERSION } from './class-passives.js';
 import { CARD_ARCHETYPES } from './attribute-policy.js';
 import { SCRIPT_CONDITION_MAX, isScriptCondition } from './script-conditions.js';
+import { UPGRADE_FIELDS, UPGRADE_FLAGS } from './card-upgrade.js';
+import { SOURCE_CARD_MODELS, TEMPLATE_UPGRADE_MODEL_KEYS, sourceCardMatches, templateUpgradeMatches } from './card-source-models.js';
 import { DEATH_SPAWN_LIMIT, KIN_DEF_FIELDS, KIN_FIELDS, KIN_LIMIT, kitEffects, kitKinRefs, validKinKey } from './kin.js';
 // 规则 v5 机制登记入口：先于 reserveBuiltins 完成登记，机制占用内置名时在此抛错。
 import './mechanics/index.js';
@@ -170,8 +172,8 @@ function objectField(value, path, state) {
 }
 
 // 跑一个校验器：有问题返回 { ok:false, errors }，否则 { ok:true, value }。
-function runValidator(validate, input) {
-    const state = { errors: [] };
+function runValidator(validate, input, { stored = false } = {}) {
+    const state = { errors: [], cardBudget: stored === true ? evaluateStoredCardBudget : evaluateCardBudget };
     const value = validate(input, '', state);
     return state.errors.length ? { ok: false, errors: state.errors } : { ok: true, value, errors: [] };
 }
@@ -318,7 +320,7 @@ function validateEffect(effect, path, state, depth = 0, scope) {
             return { op, amount: intField(effect.amount, at('amount'), state, 1, 3), from: pickMode(effect.from, at('from'), state, PICK_MODES, scope), to: enumField(effect.to, at('to'), state, PILES, 'hand') };
         case 'create':
             checkKnownFields(effect, ['op', 'card', 'amount', 'to'], path, state);
-            return { op, card: enumField(effect.card, at('card'), state, TOKEN_KEYS), amount: intField(effect.amount, at('amount'), state, 1, 3, 1), to: enumField(effect.to, at('to'), state, PILES, 'hand') };
+            return { op, card: enumField(effect.card, at('card'), state, TOKEN_KEYS), amount: intField(effect.amount, at('amount'), state, 1, 4, 1), to: enumField(effect.to, at('to'), state, PILES, 'hand') };
         case 'repeat-last':
             checkKnownFields(effect, ['op', 'amount'], path, state);
             return { op, amount: intField(effect.amount, at('amount'), state, 1, 2, 1) };
@@ -327,7 +329,7 @@ function validateEffect(effect, path, state, depth = 0, scope) {
             return { op, amount: intField(effect.amount, at('amount'), state, 1, 2, 1), ...(effect.cardType === undefined ? {} : { cardType: enumField(effect.cardType, at('cardType'), state, CARD_TYPES) }) };
         case 'grow':
             checkKnownFields(effect, ['op', 'amount'], path, state);
-            return scope ? { op, amount: intField(effect.amount, at('amount'), state, 1, 5) } : addIssue(state, path, 'card-only');
+            return scope ? { op, amount: intField(effect.amount, at('amount'), state, 1, 10) } : addIssue(state, path, 'card-only');
         case 'cost-mod':
             checkKnownFields(effect, ['op', 'amount', 'mode', 'scope'], path, state);
             return { op, amount: intField(effect.amount, at('amount'), state, -3, -1), mode: pickMode(effect.mode, at('mode'), state, PICK_MODES, scope), scope: enumField(effect.scope, at('scope'), state, COST_SCOPES, 'turn') };
@@ -374,7 +376,7 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     if (!objectField(card, path, state)) return;
     const errorsBefore = state.errors.length;
     const at = (key) => joinPath(path, key);
-    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance', 'model', 'archetype'], path, state);
+    checkKnownFields(card, ['id', 'name', 'type', 'cost', 'rarity', 'effects', 'upgraded', 'flavor', 'skillRef', ...CARD_FLAGS, 'onDiscard', 'replay', 'radiance', 'model', 'archetype', 'sourceModel', 'upgradeModel', 'upgradeReason'], path, state);
     const name = textField(card.name, at('name'), state, 20);
     const unplayable = card.unplayable === true;
     const result = {
@@ -407,16 +409,36 @@ function validateCardEntry(card, path, state, rarities = RARITIES) {
     }
     if (card.upgraded !== undefined && !unplayable && objectField(card.upgraded, at('upgraded'), state)) {
         const upPath = at('upgraded');
-        checkKnownFields(card.upgraded, ['cost', 'effects'], upPath, state);
+        checkKnownFields(card.upgraded, UPGRADE_FIELDS, upPath, state);
         const upgraded = {};
         if (card.upgraded.cost !== undefined) upgraded.cost = enumField(card.upgraded.cost, joinPath(upPath, 'cost'), state, CARD_COSTS);
         if (card.upgraded.effects !== undefined) upgraded.effects = arrayField(card.upgraded.effects, joinPath(upPath, 'effects'), state, 1, 4, validateTopEffect);
-        if (card.upgraded.cost === undefined && card.upgraded.effects === undefined) addIssue(state, upPath, 'empty-upgrade');
+        for (const flag of UPGRADE_FLAGS) {
+            if (card.upgraded[flag] === undefined) continue;
+            if (typeof card.upgraded[flag] !== 'boolean') addIssue(state, joinPath(upPath, flag), 'expected-boolean');
+            else upgraded[flag] = card.upgraded[flag];
+        }
+        if (card.upgraded.onDiscard !== undefined) upgraded.onDiscard = arrayField(card.upgraded.onDiscard,
+            joinPath(upPath, 'onDiscard'), state, 0, 2, validateEffect);
+        if (!Object.keys(upgraded).length) addIssue(state, upPath, 'empty-upgrade');
         result.upgraded = upgraded;
+    }
+    if (card.sourceModel !== undefined) {
+        result.sourceModel = enumField(card.sourceModel, at('sourceModel'), state, Object.keys(SOURCE_CARD_MODELS));
+        if (state.errors.length === errorsBefore && !sourceCardMatches(result)) addIssue(state, at('sourceModel'), 'source-model-mismatch');
+    }
+    if (card.upgradeReason !== undefined) {
+        result.upgradeReason = textField(card.upgradeReason, at('upgradeReason'), state, 80);
+        if (card.upgradeModel === undefined) addIssue(state, at('upgradeReason'), 'upgrade-model-required');
+    }
+    if (card.upgradeModel !== undefined) {
+        result.upgradeModel = enumField(card.upgradeModel, at('upgradeModel'), state, TEMPLATE_UPGRADE_MODEL_KEYS);
+        if (card.sourceModel !== undefined || (state.errors.length === errorsBefore && !templateUpgradeMatches(result)))
+            addIssue(state, at('upgradeModel'), 'upgrade-model-mismatch');
     }
     // 结构都合法时再做数值预算校验。
     if (state.errors.length === errorsBefore) {
-        const budget = evaluateCardBudget(result);
+        const budget = state.cardBudget(result);
         if (!budget.ok) addIssue(state, joinPath(path, budget.path), budget.reason, budget.detail);
     }
     return result;
@@ -715,7 +737,7 @@ function validateHeroSkill(skill, path, state) {
         description: textField(skill.description, at('description'), state, 80, ''),
     };
     if (state.errors.length === errorsBefore) {
-        const budget = evaluateCardBudget({ cost: COMBAT_RULES.heroSkillCost, rarity: 'personal', effects: result.effects });
+        const budget = state.cardBudget({ cost: COMBAT_RULES.heroSkillCost, rarity: 'personal', effects: result.effects });
         if (!budget.ok) addIssue(state, joinPath(path, budget.path), budget.reason, budget.detail);
     }
     return result;
@@ -735,7 +757,7 @@ function validateTraitSkill(skill, path, state, rarity) {
         description: textField(skill.description, at('description'), state, 80, ''),
     };
     if (state.errors.length === errorsBefore) {
-        const budget = evaluateCardBudget({ cost: result.cost, rarity, effects: result.effects });
+        const budget = state.cardBudget({ cost: result.cost, rarity, effects: result.effects });
         if (!budget.ok) addIssue(state, joinPath(path, budget.path), budget.reason, budget.detail);
     }
     return result;
@@ -963,7 +985,7 @@ function validateProfile(profile, path, state) {
     if (kind === 'enemy') return validateEnemyProfile(profile, path, state);
 }
 
-export const normalizeProfile = (input) => runValidator(validateProfile, input);
+export const normalizeProfile = (input, options) => runValidator(validateProfile, input, options);
 export const normalizeCard = (input) => runValidator((card, path, state) => validateCardEntry(card, path, state), input);
 export const normalizeEffect = (input) => runValidator(validateEffect, input);
 export const normalizeEnemyTemplate = (input) => runValidator(validateEnemyTemplate, input);
@@ -1025,7 +1047,7 @@ export function validateStarterDeck(deckCharacter, classProfile) {
     const signatureIds = new Set((deckCharacter.signatureCards || []).map((card) => card.id));
     for (const id of personalIds) if (classIds.has(id) || BASIC_CARDS[id]) errors.push({ path: 'personalPool', reason: 'id-collision', cardId: id });
     for (const id of signatureIds) if (classIds.has(id) || personalIds.has(id) || BASIC_CARDS[id]) errors.push({ path: 'signatureCards', reason: 'id-collision', cardId: id });
-    const fixedIds = new Set(fixedClassPool(classProfile.archetype).map((card) => card.id));
+    const fixedIds = new Set(compatibleFixedClassPool(classProfile.archetype).map((card) => card.id));
     const v6 = deckCharacter.starterDeck.some((id) => fixedIds.has(id));
     const shape = { basicAttack: 0, basicDefend: 0, classCards: 0, personalCards: 0 };
     const counts = new Map();
@@ -1631,7 +1653,7 @@ function validateLedgerEntry(entry, path, state) {
     return result;
 }
 
-export const normalizeLedgerEntry = (input) => runValidator(validateLedgerEntry, input);
+export const normalizeLedgerEntry = (input, options) => runValidator(validateLedgerEntry, input, options);
 
 // 属性记录里可加点的属性：六维 + 自由点。
 const ATTRIBUTE_ABILITIES = Object.freeze([...ABILITY_KEYS, 'free']);

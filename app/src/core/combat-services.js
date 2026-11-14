@@ -294,6 +294,7 @@ export function createCombatServices(options = {}) {
             resumeSession();
         }
         // 开战楼之后已经接着玩（有更晚的楼层、没有战报楼）：没发战报的旧战斗作废，不再挂「返回战斗」。
+        try { session.reconcileDelivered?.().catch(() => {}); } catch { /* 保留未确认结算供重试 */ }
         try { session.dropSuperseded?.(getChat().length - 1); } catch { /* 作废失败保留原状 */ }
         return session;
     }

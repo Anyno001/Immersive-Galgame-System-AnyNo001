@@ -35,6 +35,7 @@ function shiftRadiance(ctx, unit, delta, kit) {
     if (mend && unit.alive && !ctx.state.outcome) kit.heal(ctx, unit, mend, statusSource(unit, 'halo-mend'));
     // 规则 v6 G5b：消耗圣辉后（每次消耗触发一次，不按点数）。
     if (moved < 0 && ctx.state.rulesVersion >= 6) kit.fireBus(ctx, unit, 'radiance-spent', null);
+    kit.fireBus(ctx, unit, 'radiance-shift', null);
     return moved;
 }
 

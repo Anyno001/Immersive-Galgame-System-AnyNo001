@@ -40,3 +40,4 @@ import './relic-counter.js';
 import './relic-cards.js';
 // 规则 v6 被动修正（G5c，出伤加值、易伤 / 虚弱倍率、失血减免与上限、首次格挡翻倍）。
 import './relic-modify.js';
+import './card-signatures.js';

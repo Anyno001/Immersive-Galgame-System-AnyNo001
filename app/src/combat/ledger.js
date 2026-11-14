@@ -35,7 +35,7 @@ import { equippedGear, placeGear, removeGear, slotGearList } from './gear-slots.
 import { STOCK_TYPES, stockPlan } from './inventory-writes.js';
 import { INSCRIPTION_LABELS, inscribable } from './mechanics/inscription.js';
 import { IMPLANT_CARDS } from './mechanics/foe-heist.js';
-import { fixedCard, fixedClassPool, isFixedCardId } from './fixed-cards/index.js';
+import { compatibleFixedClassPool, fixedCard, isFixedCardId } from './fixed-cards/index.js';
 import { isRelicPassive } from './relics/draw.js';
 import { heldOffCombat, offCombatModel, refsHeld, relicRefKey } from './relics/off-combat.js';
 import { allCleanOf, freeRerollOf, traitWinKey } from './trait-reward-bias.js';
@@ -131,7 +131,7 @@ export function normalizeSnapshot(read) {
     // 档案：同一 ID 取版本号最大的一条
     const profiles = new Map();
     for (const row of read.profile || []) {
-        const parsed = normalizeProfile(row?.definition);
+        const parsed = normalizeProfile(row?.definition, { stored: true });
         if (!parsed.ok || parsed.value.id !== row.id) {
             diagnostics.push({ code: 'combat-profile-invalid', id: row?.id ?? null, errors: (parsed.errors || []).slice(0, 5) });
             continue;
@@ -145,7 +145,7 @@ export function normalizeSnapshot(read) {
     const ids = new Set();
     for (const row of read.ledger || []) {
         if (isOriginRecord(row) || isPointsRecord(row)) continue;
-        const parsed = normalizeLedgerEntry(row);
+        const parsed = normalizeLedgerEntry(row, { stored: true });
         if (!parsed.ok) {
             diagnostics.push({ code: 'combat-entry-invalid', id: row?.id ?? null, errors: parsed.errors.slice(0, 5) });
             continue;
@@ -427,7 +427,8 @@ function dropCopy(state, cardId) {
 // 同模型并卡（规则 v5 P5a）：卡牌的机制字段（不含名称、ID、风味与技能出处）按键排序序列化；
 // 带 merge 标记的新记录在角色已持有同模型的牌时并为那张牌的一张副本，不新建目录条目。旧记录不带标记，重放不变。
 // 规则 v6 的 model 只在 fixed 时写入，随机牌键值不变；固定卡与效果相同的随机牌不并卡。
-const CARD_MODEL_KEYS = Object.freeze(['type', 'cost', 'rarity', 'effects', 'upgraded', 'retain', 'innate', 'ethereal', 'unplayable', 'sly', 'onDiscard', 'replay', 'radiance', 'model', 'archetype']);
+// 显式来源与组件规则参与身份；缺省不写键，历史未标记卡的并卡键保持不变。
+const CARD_MODEL_KEYS = Object.freeze(['type', 'cost', 'rarity', 'effects', 'upgraded', 'retain', 'innate', 'ethereal', 'unplayable', 'sly', 'onDiscard', 'replay', 'radiance', 'model', 'archetype', 'sourceModel', 'upgradeModel', 'upgradeReason']);
 const canonical = (value) => (Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
     : value && typeof value === 'object' ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`
     : JSON.stringify(value ?? null));
@@ -1204,7 +1205,7 @@ const handlers = Object.freeze({
             if (reason) return `combat-card-draw-free-${reason}`;
         }
         if (state.pendingDraw) return 'combat-card-draw-pending';
-        const own = new Set(fixedClassPool(state.classProfile?.archetype).map((card) => card.id));
+        const own = new Set(compatibleFixedClassPool(state.classProfile?.archetype).map((card) => card.id));
         const fixed = payload.choices.filter((card) => isFixedCardId(card.id));
         if (fixed.length !== payload.choices.length - 1 || fixed.some((card) => !own.has(card.id))) return 'combat-card-draw-choices-invalid';
         state.cardDraws += 1;

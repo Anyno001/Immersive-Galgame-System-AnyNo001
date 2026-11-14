@@ -47,7 +47,8 @@ export function tallyOf(state, unit, source, targetId) {
     const stats = unit?.turnStats;
     const tally = unit?.res?.tally;
     switch (source) {
-        case 'exhausted': return (pile?.exhaust || []).filter((inst) => typeOf(state, inst) !== 'power').length;
+        case 'exhausted': return (pile?.exhaust || []).filter((inst) => state.exhaustRules === 1
+            ? state.cards[inst]?.realExhaust === true : typeOf(state, inst) !== 'power').length;
         case 'exhausted-turn': return tally?.turnExhausts || 0;
         case 'hp-losses': return tally?.hpLosses || 0;
         case 'hp-losses-turn': return tally?.turnHpLosses || 0;
@@ -212,7 +213,7 @@ registerMechanic({
         },
         exhaust(ctx, { unit, inst }) {
             const tally = unit?.res?.tally;
-            if (tally && typeOf(ctx.state, inst) !== 'power') tally.turnExhausts += 1;
+            if (tally && (ctx.state.exhaustRules === 1 || typeOf(ctx.state, inst) !== 'power')) tally.turnExhausts += 1;
         },
         'turn-start-before'(ctx, { unit }) {
             const tally = unit?.res?.tally;

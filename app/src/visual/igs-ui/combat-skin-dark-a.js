@@ -8,6 +8,8 @@ import { portraitSilhouetteSvg } from './combat-card-art.js';
 import { skinIntentHtml } from './combat-intent.js';
 import { enemyArtTopOf } from './combat-enemy-art.js';
 import { battlePick, canvasW, SKILL_ICON_SVG, ITEM_ICON_SVG, rewardCardMarkup, rewardRowMarkup } from './combat-skin-canvas.js';
+import { powerBadgesHtml } from './combat-power-badges.js';
+import { statusChipAttrs } from './combat-status-tips.js';
 import { COMBAT_SKIN_DARK_A_CONCEPT_CSS } from './combat-skin-dark-a-concept-style.js';
 import { KEYWORD_CHAR, KEYWORD_NAME_TIPS, cardMainKeyword, cardValueDelta } from './combat-panel-model.js';
 
@@ -85,7 +87,7 @@ const unitAct = (u, pickable) => (pickable ? ` data-combat-act="target" data-com
 const unitCls = (u, pickable) => `cx-unit${u.alive ? '' : ' is-down'}${pickable ? ' is-targetable' : ''}`;
 const unitData = (u) => ` data-unit="${esc(u.id)}" data-side="${esc(u.side)}"`;
 const pctOf = (u) => (u.maxHp ? Math.round((u.hp / u.maxHp) * 100) : 0);
-const sc = (s) => `<span class="sc ${pol(s)}">${esc(s.label)}<b>${esc(s.stacks)}</b></span>`;
+const sc = (s) => `<span class="sc ${pol(s)}"${statusChipAttrs(s)}>${esc(s.label)}<b>${esc(s.stacks)}</b></span>`;
 const blkChip = (n) => `<span class="sc blk">${ICON.shield}<b>${esc(n)}</b></span>`;
 
 // 概念稿 place()：敌人圆环（--w 已含远小近大的缩放）。
@@ -158,7 +160,7 @@ function foeHtml(u, i, f, n, L, v, pick) {
     const aim = ok ? (pick.card || pick.skill ? ' target' : ' pickable') : '';
     return `<div class="foe${i === f ? ' front' : ''}${aim} ${unitCls(u, ok)}"${unitData(u)} style="${ringStyle(i, f, n, L)};--atop:${enemyArtTopOf(arts[u.name])}"${unitAct(u, ok)}>${intent}`
         + `<div class="plate"><span class="nm">${esc(u.name)}</span><span class="hpn cx-hp-value">${esc(u.hp)}/${esc(u.maxHp)}</span>`
-        + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pctOf(u)}%"><i></i></div>${sts ? `<span class="sts">${sts}</span>` : ''}</div>`
+        + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pctOf(u)}%"><i></i></div>${sts ? `<span class="sts">${sts}</span>` : ''}${powerBadgesHtml(u)}</div>`
         + `<div class="art">${foeArt(pics[u.name], arts[u.name], u.name)}</div></div>`;
 }
 
@@ -181,7 +183,7 @@ function leadHtml(hero, v, pick) {
     return `<div class="lead ${unitCls(hero, ok)}"${unitData(hero)}>`
         + `<div class="face cx-face"${unitAct(hero, ok)}>${face(pics[hero.name], hero.name)}${awBtn}</div>`
         + `<div class="info"><div class="n">${esc(hero.name)}${hero.controlled ? '<u class="ctl">操控</u>' : ''}<span class="hp"><b class="cx-hp-cur">${esc(hero.hp)}</b>/${esc(hero.maxHp)}</span></div>`
-        + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pct}%"><i></i></div><div class="chips">${chips}</div>${resourceBarHtml(hero.res, { row: 'chips', item: 'sc' })}`
+        + `<div class="hpbar cx-hp" style="--igs-combat-hp:${pct}%"><i></i></div><div class="chips">${chips}${powerBadgesHtml(hero)}</div>${resourceBarHtml(hero.res, { row: 'chips', item: 'sc' })}`
         + `<div class="ecg"><svg viewBox="0 0 240 26" preserveAspectRatio="none"><defs><clipPath id="hpc"><rect x="0" y="-5" width="${(pct * 2.4).toFixed(1)}" height="40"/></clipPath></defs><path d="${EC}" stroke="#3d454b"/><path d="${EC}" stroke="#cf2f3a" clip-path="url(#hpc)"/></svg></div></div></div>`;
 }
 
@@ -190,7 +192,7 @@ function mateHtml(u, v, pick) {
     // 头像右下角只放一枚记号：有格挡写「护」，否则取第一个状态的首字。
     const first = u.block ? { text: `护${u.block}`, p: 'good' } : u.statuses[0] ? { text: `${u.statuses[0].label.slice(0, 1)}${u.statuses[0].stacks}`, p: pol(u.statuses[0]) } : null;
     return `<div class="mate ${unitCls(u, ok)}"${unitData(u)}${unitAct(u, ok)}><div class="mface">${face((v.portraits || {})[u.name], u.name)}${first ? `<u class="mb ${first.p}">${esc(first.text)}</u>` : ''}</div>`
-        + `<div class="mn">${esc(u.name)}</div><div class="mbar cx-hp" style="--igs-combat-hp:${pctOf(u)}%"><i></i></div></div>`;
+        + `<div class="mn">${esc(u.name)}</div><div class="mbar cx-hp" style="--igs-combat-hp:${pctOf(u)}%"><i></i></div>${powerBadgesHtml(u, { compact: true })}</div>`;
 }
 
 function trackHtml(b, v) {

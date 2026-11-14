@@ -1,6 +1,8 @@
 import { extractCombatStart } from '../../scene/combat-directives.js';
 import { parseChallengeStart } from '../../scene/challenge-directives.js';
 import { normalizeCombatExpansionSettings } from './combat-settings.js';
+import { COMBAT_UNFINISHED_STATUSES } from '../../combat/session-state.js';
+export { COMBAT_UNFINISHED_STATUSES } from '../../combat/session-state.js';
 
 // 开战楼入口：只在扩展开启、当前楼是最新 AI 楼、翻到末页、正文含有效开战标签（位置不限）时显示。
 // 翻到这一页即自动打开战斗面板：同一开战楼（chatId + messageId + swipeId + tagHash）只自动打开一次，
@@ -76,12 +78,10 @@ export function syncCombatEntry(overlay, entry, { onOpen, onFail, seen, skin } =
 
 // 持久会话里「未结束」的战斗：已开打但还没发送战报（战斗中、已分胜负待发送、发送失败）。
 // 胜负已发送（done）、跳过、放弃、托管结束、失效（stale）、对阵界面未开打（lobby）都不算。
-export const COMBAT_UNFINISHED_STATUSES = Object.freeze(['battle', 'ended', 'send-failed']);
-
 export function unfinishedCombatState(session) {
     try {
         const st = session && typeof session.state === 'function' ? session.state() : null;
-        return st && COMBAT_UNFINISHED_STATUSES.includes(st.status) && st.anchor ? st : null;
+        return st && st.resumable !== false && COMBAT_UNFINISHED_STATUSES.includes(st.status) && st.anchor ? st : null;
     } catch (error) { return null; }
 }
 

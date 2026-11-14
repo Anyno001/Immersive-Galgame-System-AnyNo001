@@ -5,6 +5,7 @@ import { inscribedView } from './mechanics/inscription.js';
 import { attributeAmount, attributeCardView } from './card-attributes.js';
 import { shivFirstBonus } from './mechanics/shadow.js';
 import { intentKinds } from './intent-kinds.js';
+import { upgradedCardFace } from './card-upgrade.js';
 // 规则 v5 机制登记入口：导入即登记，保证估算与结算前机制已就位。
 import './mechanics/index.js';
 // 规则 v6 G5c 虚弱 / 易伤百分比（relic-modify 由登记入口最后导入，其钩子排在其他机制之后）。
@@ -53,7 +54,7 @@ export function cardFaceView(def, entry, owner, rulesVersion, state = null) {
     const lifted = entry.upgraded && upgraded && !(rulesVersion >= 5 && state && owner && damageModifiers('card-upgrade').some((mod) => mod.fn(state, owner) === false));
     let view = !lifted
         ? { ...base, inst, upgraded: false }
-        : { ...base, inst, upgraded: true, cost: upgraded.cost ?? def.cost, effects: upgraded.effects ?? def.effects };
+        : { ...upgradedCardFace(def, state ? state.cardUpgradeRules ?? 0 : undefined), inst, upgraded: true };
     if (entry.grow) {
         view = {
             ...view,
@@ -228,7 +229,8 @@ export function conditionHolds(state, unit, when, targetId, cardInst) {
         case 'hand-gte':
             return (state.piles?.[unit.id]?.hand?.length || 0) >= when.value;
         case 'exhausted-gte':
-            return (state.piles?.[unit.id]?.exhaust || []).filter((inst) => cardView(state, inst)?.type !== 'power').length >= when.value;
+            return (state.piles?.[unit.id]?.exhaust || []).filter((inst) => state.exhaustRules === 1
+                ? state.cards[inst]?.realExhaust === true : cardView(state, inst)?.type !== 'power').length >= when.value;
         default:
             return v6ConditionHolds(state, unit, when, targetId);
     }
@@ -305,7 +307,7 @@ function damageEstimate(state, attacker, target, effects, aimId, card, attacks) 
             const handler = opHandler(effect?.op);
             if (handler?.estimateDamage) {
                 const before = attacks?.length;
-                const kit = { state, attacker, target, aimId, computeDamage, conditionHolds, attributeAmount, estimate: (list) => damageEstimate(state, attacker, target, list, aimId, attacker?.attributePolicy ? card : undefined, attacks) };
+                const kit = { state, attacker, target, aimId, card, computeDamage, conditionHolds, attributeAmount, estimate: (list) => damageEstimate(state, attacker, target, list, aimId, attacker?.attributePolicy ? card : undefined, attacks) };
                 const damage = Math.max(0, Number(handler.estimateDamage(effect, kit)) || 0);
                 total += damage;
                 if (attacks && attacks.length === before && damage > 0) attacks.push({ damage, hits: 1, target: targetSpec(effect) });

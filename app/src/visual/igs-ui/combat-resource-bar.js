@@ -1,6 +1,7 @@
 // 规则 v5 主战者资源条（法珠与专注、心境与乐势、圣辉、锻造、随从）：初始方案与九套画布皮肤共用这份标记。
-// 每项是图形加数值，名称只在 aria-label / title；外壳类由调用方传入（画布皮肤传自己的状态片类），底色、字号与颜色随皮肤。
+// 每项是图形加数值，名称与机制说明在 data-scale-tip（悬停或点按弹出）与 aria-label；外壳类由调用方传入（画布皮肤传自己的状态片类），底色、字号与颜色随皮肤。
 import { esc } from './reader-value-utils.js';
+import { RESOURCE_TIPS } from './combat-status-tips.js';
 
 const GLYPHS = Object.freeze({
     focus: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/>',
@@ -28,18 +29,24 @@ const orbHtml = (o) => (o
 // r 为面板视图的 res（combat-panel-model.js 的 resourceView）；没有可显示资源时返回空串。
 export function resourceBarHtml(r, { row = 'igs-combat-res', item = 'igs-combat-res-item' } = {}) {
     if (!r) return '';
-    const cell = (key, label, body, attrs = '') => `<span class="${item} cx-res" data-res="${key}"${attrs} role="img" aria-label="${esc(label)}" title="${esc(label)}">${body}</span>`;
+    const cell = (key, label, body, attrs = '', tips = [RESOURCE_TIPS[key]]) => {
+        const text = [label, ...tips.filter(Boolean)].join('\n');
+        return `<span class="${item} cx-res" data-res="${key}"${attrs} role="img" tabindex="0" aria-label="${esc(text)}" data-scale-tip="${esc(text)}">${body}</span>`;
+    };
     const parts = [];
     const focus = r.focus !== undefined ? `${icon('focus')}<b>${esc(r.focus)}</b>` : '';
     if (r.orbs) {
         const names = r.orbs.list.map((o) => ORB_NAMES[o.kind]).join('、');
         const label = `法珠 ${r.orbs.list.length}/${r.orbs.slots}${names ? `：${names}` : ''}${r.focus !== undefined ? `，专注 ${r.focus}` : ''}`;
-        parts.push(cell('orbs', label, `<span class="cx-orbs">${Array.from({ length: r.orbs.slots }, (_, i) => orbHtml(r.orbs.list[i])).join('')}</span>${focus}`));
+        const kinds = [...new Set(r.orbs.list.map((o) => o.kind))].map((kind) => RESOURCE_TIPS[`orb:${kind}`]);
+        const tips = [RESOURCE_TIPS.orbs, ...(r.focus !== undefined ? [RESOURCE_TIPS.focus] : []), ...kinds];
+        parts.push(cell('orbs', label, `<span class="cx-orbs">${Array.from({ length: r.orbs.slots }, (_, i) => orbHtml(r.orbs.list[i])).join('')}</span>${focus}`, '', tips));
     } else if (focus) parts.push(cell('focus', `专注 ${r.focus}`, focus));
     if (r.stance) {
         const pips = r.momentum !== undefined ? `<span class="cx-pips">${Array.from({ length: MOMENTUM_GOAL }, (_, i) => `<i${i < r.momentum ? ' class="is-on"' : ''}></i>`).join('')}</span>` : '';
         const label = `心境 ${STANCE_NAMES[r.stance]}${r.momentum !== undefined ? `，乐势 ${r.momentum}/${MOMENTUM_GOAL}` : ''}`;
-        parts.push(cell('stance', label, `${icon(r.stance)}${pips}`, ` data-stance="${esc(r.stance)}"`));
+        const tips = [RESOURCE_TIPS[`stance:${r.stance}`], ...(r.momentum !== undefined ? [RESOURCE_TIPS.momentum] : [])];
+        parts.push(cell('stance', label, `${icon(r.stance)}${pips}`, ` data-stance="${esc(r.stance)}"`, tips));
     }
     if (r.radiance !== undefined) parts.push(cell('radiance', `圣辉 ${r.radiance}`, `${icon('radiance')}<b>${esc(r.radiance)}</b>`));
     if (r.forge !== undefined) parts.push(cell('forge', `锻造 ${r.forge}`, `${icon('forge')}<b>${esc(r.forge)}</b>`));

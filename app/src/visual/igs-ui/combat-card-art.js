@@ -7,7 +7,7 @@ import { describeRegistered, statusLabel } from '../../combat/mechanics/registry
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { STATUS_CARD_TEXT } from '../../combat/mechanics/status-cards.js';
 import { INSCRIPTION_LABELS, INSCRIPTION_VALUES as IV, isInscription } from '../../combat/mechanics/inscription.js';
-import { STATUS_TIPS } from './combat-status-tips.js';
+import { markTip } from './combat-status-tips.js';
 
 // 卡面与立绘占位的纯函数：效果与关键字说明（含可点注释的片段）、卡图纹样（combat-card-motifs.js）、无立绘时的 SVG 剪影。
 // SVG 只来自程序常量与数值，不含任何档案文本；同一张卡永远得到同一张图。
@@ -218,7 +218,7 @@ export function describeEffectParts(effects, marks, base, { root = 'effects', of
         const w = piece.match(/^\u0003(\d+)\u0004$/);
         if (w) {
             const [key, word] = words[Number(w[1])];
-            const tip = key.startsWith('status:') ? STATUS_TIPS[key.slice(7)] : KEYWORD_TIPS[key];
+            const tip = markTip(key) ?? KEYWORD_TIPS[key];
             parts.push(tip ? { text: word, tip } : { text: word });
             continue;
         }

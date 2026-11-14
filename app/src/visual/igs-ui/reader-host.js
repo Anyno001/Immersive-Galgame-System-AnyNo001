@@ -5911,7 +5911,10 @@ ${row.key}`;
         // 入口卡只是回头路：对阵界面没做选择就关闭、或自动打开失败时，才在原位置留「返回战斗 / 返回挑战」小标签。
         // 持久会话里有同一开战楼的未结束战斗时同样留标签：刷新或重开后内存标记已丢，以存档为准；面板开着时不显示。
         const panelOpen = Boolean(current.dom.combatController && current.dom.combatController.isOpen());
-        const persisted = Boolean(floorEntry) && !panelOpen && sessionMatchesEntry(unfinishedCombatState(typeof options.getCombatSession === 'function' ? options.getCombatSession() : null), floorEntry);
+        const combatSession = typeof options.getCombatSession === 'function' ? options.getCombatSession() : null;
+        const sessionState = combatSession?.state?.();
+        probe.session = sessionState ? { status: sessionState.status, anchor: sessionState.anchor, reportId: sessionState.reportId, resumable: sessionState.resumable, reportDelivered: sessionState.reportDelivered, settlementError: sessionState.settlementError || '' } : null;
+        const persisted = Boolean(floorEntry) && !panelOpen && sessionMatchesEntry(unfinishedCombatState(combatSession), floorEntry);
         probe.returnTag = probe.returnTag || persisted;
         const showTag = persisted ? floorEntry : entry && state.combatReturnKey === entry.key ? entry : null;
         syncCombatEntry(overlay, showTag, { skin, onOpen: () => openCombatPanel(current, showTag), onFail: (r) => notifyCombatOpenFail(r) });

@@ -1,12 +1,25 @@
 import { abilityMod, ABILITY_KEYS } from './abilities.js';
 
-export const ATTRIBUTE_POLICY_VERSION = 1;
+// v1：属性修正 + 熟练加值；v2（规则 v7 起）：只看属性修正，曲线放大，等级不再带来倍率成长。
+export const ATTRIBUTE_POLICY_VERSION = 2;
+export const ATTRIBUTE_POLICY_VERSIONS = Object.freeze([1, 2]);
+const ATTRIBUTE_RULES_MIN_VERSION = Object.freeze({ 1: 6, 2: 7 });
+const CURVES = Object.freeze({
+    1: { normal: { step: 0.08, low: 0.90, high: 1.30 }, support: { step: 0.04, low: 0.95, high: 1.15 } },
+    2: { normal: { step: 0.30, low: 0.70, high: 3.00 }, support: { step: 0.15, low: 0.85, high: 2.00 } },
+});
 export const OFFENSE_ABILITY = Object.freeze({ warrior: 'str', guardian: 'str', assassin: 'str', ranger: 'str', mage: 'int', priest: 'wis', summoner: 'cha', bard: 'cha' });
 export const ATTRIBUTE_SIFT_AT = 16;
 export const CARD_ARCHETYPES = Object.freeze([...Object.keys(OFFENSE_ABILITY), 'general']);
 
-export function validAttributePolicy(value) {
-    return Boolean(value && value.version === ATTRIBUTE_POLICY_VERSION && Object.hasOwn(OFFENSE_ABILITY, value.role)
+// setup.attributeRules 与规则版本的配对：1 需 rulesVersion ≥ 6，2 需 ≥ 7。
+export const validAttributeRules = (rules, rulesVersion) => Object.hasOwn(ATTRIBUTE_RULES_MIN_VERSION, rules)
+    && ATTRIBUTE_POLICY_VERSIONS.includes(rules) && rulesVersion >= ATTRIBUTE_RULES_MIN_VERSION[rules];
+
+// version 给定时策略版本必须与 setup.attributeRules 一致。
+export function validAttributePolicy(value, version) {
+    return Boolean(value && ATTRIBUTE_POLICY_VERSIONS.includes(value.version) && (version === undefined || value.version === version)
+        && Object.hasOwn(OFFENSE_ABILITY, value.role)
         && value.scores && ABILITY_KEYS.every(key => Number.isInteger(value.scores[key]) && value.scores[key] >= 1 && value.scores[key] <= 30)
         && Number.isInteger(value.proficiency) && value.proficiency >= 2 && value.proficiency <= 9);
 }
@@ -36,12 +49,9 @@ export function cardAbility(policy, archetype, role) {
 
 export function attributeMultiplier(policy, ability, tier = 'normal') {
     if (!validAttributePolicy(policy) || !ABILITY_KEYS.includes(ability)) throw new Error('invalid-attribute-policy');
-    const diff = abilityMod(policy.scores[ability]) + policy.proficiency - 2;
-    const conservative = tier === 'support';
-    const step = conservative ? 0.04 : 0.08;
-    const low = conservative ? 0.95 : 0.90;
-    const high = conservative ? 1.15 : 1.30;
-    return Math.round(Math.max(low, Math.min(high, 1 + step * diff)) * 100) / 100;
+    const curve = CURVES[policy.version][tier === 'support' ? 'support' : 'normal'];
+    const diff = abilityMod(policy.scores[ability]) + (policy.version === 1 ? policy.proficiency - 2 : 0);
+    return Math.round(Math.max(curve.low, Math.min(curve.high, 1 + curve.step * diff)) * 100) / 100;
 }
 
 export const scalePositive = (value, multiplier) => Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value * multiplier)) : value;

@@ -2,6 +2,8 @@
 // 所有常量深冻结，整局共享，只读。数值与文案原样来自 v0.39.0，不要顺手调平衡。
 import { hash32 } from './random.js';
 import { opHandler } from './mechanics/registry.js';
+import { upgradedCardFace } from './card-upgrade.js';
+import { sourceCardMatches, templateUpgradeHasSource, templateUpgradeMatches } from './card-source-models.js';
 // 规则 v5 机制登记入口：导入即登记，保证估值前机制已就位。
 import './mechanics/index.js';
 
@@ -20,7 +22,7 @@ function deepFreeze(value) {
 }
 
 export const COMBAT_RULES = Object.freeze({
-    version: 6,
+    version: 7,
     energyPerTurn: 3,
     drawPerTurn: 5,
     handLimit: 10,
@@ -44,6 +46,7 @@ export const COMBAT_RULES = Object.freeze({
     maxAllies: 3,
     defaultSpeed: 100,
     speedJitter: 5,
+    enemySpeedGain: 0.5,
     tiers: Object.freeze({
         normal: Object.freeze({ label: '普通', hp: 40, damageCap: 12, exp: 20, speed: 100, hpScale: 1.2, damageScale: 2.38, difficultyGain: 1 }),
         elite: Object.freeze({ label: '精英', hp: 80, damageCap: 18, exp: 45, speed: 104, hpScale: 1.01, damageScale: 1.49, difficultyGain: 0.5 }),
@@ -86,18 +89,23 @@ export const COMBAT_RULES = Object.freeze({
     }),
     // 单张牌的价值预算，按费用分档（X 费按 7）。
     costBudget: Object.freeze({ 0: 4, 1: 8, 2: 14, 3: 20, X: 7 }),
-    // 各稀有度允许的价值区间（相对预算的倍数）与目标倍数。
+    // 预算假设，不是实战触发上限；格挡转换按约一张防御牌后的 8 点格挡计。
+    cardValue: Object.freeze({ area: 1.4, random: 0.85, eachTurn: 2.5, expectedBlock: 8 }),
+    // 各稀有度允许的价值区间（相对预算的倍数）与目标倍数。D-2 按原版参考卡反解（scripts/combat-card-reference.mjs）：
+    // 普通牌参考目标为预算 1.8 倍；基础牌目标保持 1.0。历史定义读取另兼容 CARD_BUDGET_V1。
     rarityWindows: Object.freeze({
         basic: Object.freeze({ min: 0.85, max: 1.15, target: 1 }),
-        common: Object.freeze({ min: 0.85, max: 1.15, target: 1 }),
-        uncommon: Object.freeze({ min: 0.8, max: 1.25, target: 1.1 }),
-        rare: Object.freeze({ min: 0.7, max: 1.4, target: 1.2 }),
-        epic: Object.freeze({ min: 0.9, max: 1.5, target: 1.3 }),
-        mythic: Object.freeze({ min: 1.2, max: 1.65, target: 1.45 }),
-        personal: Object.freeze({ min: 0.7, max: 1.35, target: 1.15 }),
-        signature: Object.freeze({ min: 1.2, max: 1.6, target: 1.4 }),
+        common: Object.freeze({ min: 0.75, max: 2.07, target: 1.8 }),
+        uncommon: Object.freeze({ min: 0.65, max: 2.7, target: 1.98 }),
+        rare: Object.freeze({ min: 0.6, max: 3.25, target: 2.16 }),
+        epic: Object.freeze({ min: 0.9, max: 2.7, target: 2.34 }),
+        mythic: Object.freeze({ min: 1.2, max: 2.97, target: 2.61 }),
+        personal: Object.freeze({ min: 0.7, max: 2.43, target: 2.07 }),
+        signature: Object.freeze({ min: 1.2, max: 2.88, target: 2.52 }),
     }),
-    upgradeAllowance: 1.3,
+    upgradeAllowance: 1.4,
+    // 模板升级版的目标增益（相对费用预算的倍数），取原版普通牌升级增益中位数。
+    templateUpgradeGain: 0.6,
     signatureLimit: 2,
     signatureCopyLimit: 1,
     // 专属卡按等级解锁（v0.39.2）：第 i 张在 signatureUnlockLevels[i] 级解锁，等级退回时重新锁上。
@@ -126,6 +134,23 @@ export const COMBAT_RULES = Object.freeze({
     endureBlock: 8,
 });
 
+// D-2 前的完整预算口径，仅供旧档读取与标定基线，不用于生成新牌。
+export const CARD_BUDGET_V1 = deepFreeze({
+    costBudget: COMBAT_RULES.costBudget,
+    cardValue: { area: 1.4, random: 0.85, eachTurn: 2.5, expectedBlock: 6 },
+    rarityWindows: {
+        basic: { min: 0.85, max: 1.15, target: 1 },
+        common: { min: 0.85, max: 1.15, target: 1 },
+        uncommon: { min: 0.8, max: 1.25, target: 1.1 },
+        rare: { min: 0.7, max: 1.4, target: 1.2 },
+        epic: { min: 0.9, max: 1.5, target: 1.3 },
+        mythic: { min: 1.2, max: 1.65, target: 1.45 },
+        personal: { min: 0.7, max: 1.35, target: 1.15 },
+        signature: { min: 1.2, max: 1.6, target: 1.4 },
+    },
+    upgradeAllowance: 1.3,
+});
+
 export const BASIC_CARDS = deepFreeze({
     'basic-strike': { id: 'basic-strike', name: '攻击', type: 'attack', cost: 1, rarity: 'basic', effects: [{ op: 'damage', amount: 6, target: 'enemy' }], upgraded: { effects: [{ op: 'damage', amount: 8, target: 'enemy' }] }, skillRef: '攻击' },
     'basic-defend': { id: 'basic-defend', name: '防御', type: 'skill', cost: 1, rarity: 'basic', effects: [{ op: 'block', amount: 5, target: 'self' }], upgraded: { effects: [{ op: 'block', amount: 7, target: 'self' }] }, skillRef: '防御' },
@@ -133,8 +158,8 @@ export const BASIC_CARDS = deepFreeze({
 export const BASIC_STRIKE_ID = 'basic-strike';
 export const BASIC_DEFEND_ID = 'basic-defend';
 
-// 旧存档的规则版本 3–6 可以互相兼容；v5 新机制在 state.rulesVersion >= 5 时启用，v6 的战斗结算与 v5 相同（v6 改的是卡组与奖励）。
-export const COMPATIBLE_RULES_VERSIONS = Object.freeze([3, 4, 5, 6]);
+// 存档按自身规则重放；v7 的结算变更不回写旧 setup。
+export const COMPATIBLE_RULES_VERSIONS = Object.freeze([3, 4, 5, 6, 7]);
 export const isCompatibleRulesVersion = (version) => COMPATIBLE_RULES_VERSIONS.includes(version);
 
 // 战斗中生成的临时牌与状态牌。
@@ -171,14 +196,15 @@ const AREA_TARGETS = new Set(['all-enemies', 'all-allies']);
 const BUDGET_EPSILON = 1e-9;
 const round2 = (value) => Math.round(value * 100) / 100;
 
-function targetFactor(target) {
-    return AREA_TARGETS.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1;
+function targetFactor(target, model) {
+    return AREA_TARGETS.has(target) ? model.area : target === 'random-enemy' ? model.random : 1;
 }
 
 // 单个效果的价值。
-function effectValue(effect) {
+function effectValue(effect, model) {
     if (!effect) return 0;
-    const factor = targetFactor(effect.target);
+    const factor = targetFactor(effect.target, model);
+    const sum = (effects) => sumEffects(effects, model);
     switch (effect.op) {
         case 'damage':
             return (effect.amount * (4 / 3) + ((effect.strengthScale || 1) - 1) * 2) * (effect.hits || 1) * factor;
@@ -195,9 +221,9 @@ function effectValue(effect) {
         case 'exhaust-self':
             return -2;
         case 'conditional':
-            return 0.6 * sumEffects(effect.then);
+            return 0.6 * sum(effect.then);
         case 'damage-from-block':
-            return 8 * factor;
+            return model.expectedBlock * (4 / 3) * factor;
         case 'self-damage':
             return -effect.amount * 1.5;
         case 'double':
@@ -205,7 +231,7 @@ function effectValue(effect) {
         case 'next-turn':
             return (effect.amount || 0) * (effect.gain === 'energy' ? 5 : effect.gain === 'draw' ? 3.5 : 0);
         case 'each-turn':
-            return 2.5 * sumEffects(effect.then);
+            return model.eachTurn * sum(effect.then);
         case 'hand-cost':
             return -effect.amount * 5;
         case 'cleanse':
@@ -217,7 +243,7 @@ function effectValue(effect) {
         case 'copy':
             return effect.amount * (effect.from === 'self' ? 4 : 6);
         case 'create':
-            return TOKEN_CARDS[effect.card]?.unplayable ? -3 * effect.amount : effect.amount * 0.8 * sumEffects(TOKEN_CARDS[effect.card]?.effects);
+            return TOKEN_CARDS[effect.card]?.unplayable ? -3 * effect.amount : effect.amount * 0.8 * sum(TOKEN_CARDS[effect.card]?.effects);
         case 'repeat-last':
             return 7 * effect.amount;
         case 'replay-next':
@@ -231,70 +257,96 @@ function effectValue(effect) {
         case 'mutual-damage':
             return effect.amount * (4 / 3) - (effect.selfAmount ?? effect.amount) * 0.5;
         case 'random-branch':
-            return 0.5 * (sumEffects(effect.a) + sumEffects(effect.b));
+            return 0.5 * (sum(effect.a) + sum(effect.b));
         case 'buff':
-            return effect.turns * (BUFF_TRIGGER_VALUE[effect.trigger] || 1) * (effect.cardType ? 0.5 : 1) * sumEffects(effect.then);
+            return effect.turns * (BUFF_TRIGGER_VALUE[effect.trigger] || 1) * (effect.cardType ? 0.5 : 1) * sum(effect.then);
         default:
             // 已登记机制的算子按其自身估值，未登记的仍为 0。
-            return opHandler(effect.op)?.value?.(effect, sumEffects) ?? 0;
+            return opHandler(effect.op)?.value?.(effect, sum) ?? 0;
     }
 }
 
-function sumEffects(effects) {
-    return (Array.isArray(effects) ? effects : []).reduce((total, effect) => total + effectValue(effect), 0);
+function sumEffects(effects, model = COMBAT_RULES.cardValue) {
+    return (Array.isArray(effects) ? effects : []).reduce((total, effect) => total + effectValue(effect, model), 0);
 }
 
 // 一组效果的总价值（保留两位小数）。
-export function estimateEffectsValue(effects) {
-    return round2(sumEffects(effects));
+export function estimateEffectsValue(effects, model = COMBAT_RULES.cardValue) {
+    return round2(sumEffects(effects, model));
 }
+
+// 战斗自动选择保持既有估值；预算重标定只影响新定义，不改变已保存动作的隐式选牌。
+export const estimateBattleEffectsValue = (effects) => estimateEffectsValue(effects, CARD_BUDGET_V1.cardValue);
 
 // 牌自身的附加价值：固有 +2，消散且没有自带耗尽 -2，弃牌触发效果按可打出与否折算；
 // 规则 v5 关键字：重演按效果价值 × 次数 × 0.85 计入，狡黠 +1.5；
 // 圣辉第二费用每点 -3（与获得 1 点圣辉的估值相抵），X 圣辉按平均投入 2 点计：效果再计 1 倍、减 6。
-function cardTraitValue(card, effects) {
+function cardTraitValue(card, effects, model) {
+    const sum = (list) => sumEffects(list, model);
     let value = 0;
     if (card.innate) value += 2;
     if (card.ethereal && !(effects || []).some((effect) => effect?.op === 'exhaust-self')) value -= 2;
-    if (card.onDiscard) value += sumEffects(card.onDiscard) * (card.unplayable ? 1 : 0.5);
-    if (Number.isInteger(card.replay) && card.replay > 0) value += sumEffects(effects) * card.replay * 0.85;
+    if (card.onDiscard) value += sum(card.onDiscard) * (card.unplayable ? 1 : 0.5);
+    if (Number.isInteger(card.replay) && card.replay > 0) value += sum(effects) * card.replay * 0.85;
     if (card.sly) value += 1.5;
-    if (card.radiance === 'X') value += sumEffects(effects) - 6;
+    if (card.radiance === 'X') value += sum(effects) - 6;
     else if (Number.isInteger(card.radiance) && card.radiance > 0) value -= card.radiance * 3;
     return value;
 }
 
-const cardValueOf = (card, effects) => round2(sumEffects(effects) + cardTraitValue(card, effects));
-export const estimateCardValue = (card) => cardValueOf(card || {}, card?.effects);
+const cardValueOf = (card, effects, model) => round2(sumEffects(effects, model) + cardTraitValue(card, effects, model));
+export const estimateCardValue = (card, model = COMBAT_RULES.cardValue) => cardValueOf(card || {}, card?.effects, model);
 
-const hasCostBudget = (cost) => Object.hasOwn(COMBAT_RULES.costBudget, cost);
-const hasRarity = (rarity) => typeof rarity === 'string' && Object.hasOwn(COMBAT_RULES.rarityWindows, rarity);
+const hasCostBudget = (cost, rules = COMBAT_RULES) => Object.hasOwn(rules.costBudget, cost);
+const hasRarity = (rarity, rules = COMBAT_RULES) => typeof rarity === 'string' && Object.hasOwn(rules.rarityWindows, rarity);
 
 // 某费用+稀有度下的价值窗口；参数无效返回 null。
-export function rarityWindow(cost, rarity) {
-    if (!hasCostBudget(cost) || !hasRarity(rarity)) return null;
-    const budget = COMBAT_RULES.costBudget[cost];
-    const window = COMBAT_RULES.rarityWindows[rarity];
+export function rarityWindow(cost, rarity, rules = COMBAT_RULES) {
+    if (!hasCostBudget(cost, rules) || !hasRarity(rarity, rules)) return null;
+    const budget = rules.costBudget[cost];
+    const window = rules.rarityWindows[rarity];
     return { budget, min: round2(budget * window.min), max: round2(budget * window.max), target: round2(budget * window.target) };
 }
 
-// 卡牌预算校验：本体必须落在窗口内，升级后不得超过放宽上限且要比本体更优。
-export function evaluateCardBudget(card) {
-    if (!hasCostBudget(card?.cost)) return { ok: false, reason: 'invalid-cost', path: 'cost' };
-    if (!hasRarity(card?.rarity)) return { ok: false, reason: 'invalid-rarity', path: 'rarity' };
-    const window = rarityWindow(card.cost, card.rarity);
-    const value = cardValueOf(card, card.effects);
+// 自创牌按窗口校验；登记来源须逐字段相符，窗口偏差只报告，不能重写来源卡面。
+export function evaluateCardBudget(card, rules = COMBAT_RULES) {
+    if (card?.upgradeReason !== undefined && card.upgradeModel === undefined)
+        return { ok: false, reason: 'upgrade-model-required', path: 'upgradeReason' };
+    if (card?.sourceModel !== undefined) {
+        if (card.upgradeModel !== undefined || card.upgradeReason !== undefined || !sourceCardMatches(card)) return { ok: false, reason: 'source-model-mismatch', path: 'sourceModel' };
+        const { sourceModel, ...plain } = card;
+        return { ok: true, sourceModel, diagnostic: evaluateCardBudget(plain, rules) };
+    }
+    if (card?.upgradeModel !== undefined && !templateUpgradeMatches(card))
+        return { ok: false, reason: 'upgrade-model-mismatch', path: 'upgradeModel' };
+    if (!hasCostBudget(card?.cost, rules)) return { ok: false, reason: 'invalid-cost', path: 'cost' };
+    if (!hasRarity(card?.rarity, rules)) return { ok: false, reason: 'invalid-rarity', path: 'rarity' };
+    const window = rarityWindow(card.cost, card.rarity, rules);
+    const value = cardValueOf(card, card.effects, rules.cardValue);
     const detail = { value, budget: window.budget, min: window.min, max: window.max };
     if (value > window.max + BUDGET_EPSILON) return { ok: false, reason: 'over-budget', path: 'effects', detail };
     if (value < window.min - BUDGET_EPSILON) return { ok: false, reason: 'under-budget', path: 'effects', detail };
     if (!card.upgraded) return { ok: true, detail };
-    const upWindow = rarityWindow(card.upgraded.cost ?? card.cost, card.rarity);
+    if (card.upgradeModel !== undefined && templateUpgradeHasSource(card.upgradeModel)) {
+        const { upgradeModel, upgradeReason, ...plain } = card;
+        return { ok: true, detail, upgradeModel, diagnostic: evaluateCardBudget(plain, rules) };
+    }
+    const upWindow = rarityWindow(card.upgraded.cost ?? card.cost, card.rarity, rules);
     if (!upWindow) return { ok: false, reason: 'invalid-cost', path: 'upgraded.cost' };
-    const upValue = cardValueOf(card, card.upgraded.effects ?? card.effects);
-    const upDetail = { value: upValue, budget: upWindow.budget, max: round2(upWindow.max * COMBAT_RULES.upgradeAllowance) };
+    const upFace = upgradedCardFace(card);
+    const upValue = cardValueOf(upFace, upFace.effects, rules.cardValue);
+    const upDetail = { value: upValue, budget: upWindow.budget, max: round2(upWindow.max * rules.upgradeAllowance) };
     if (upValue > upDetail.max + BUDGET_EPSILON) return { ok: false, reason: 'upgrade-over-budget', path: 'upgraded', detail: upDetail };
     if (upValue - upWindow.budget < value - window.budget - BUDGET_EPSILON) return { ok: false, reason: 'upgrade-not-better', path: 'upgraded', detail: upDetail };
     return { ok: true, detail };
+}
+
+// 旧档没有预算版本；只读时允许当前模型或 D-2 前模型之一完整合法，不改卡面、不混用两版上下界。
+export function evaluateStoredCardBudget(card) {
+    const current = evaluateCardBudget(card);
+    if (current.ok) return current;
+    const legacy = evaluateCardBudget(card, CARD_BUDGET_V1);
+    return legacy.ok ? { ...legacy, legacy: true } : current;
 }
 
 // 从 level 升到 level+1 所需经验。
@@ -429,4 +481,10 @@ export function combatSpeedFor({ archetype, tier, id } = {}) {
     const base = COMBAT_RULES.archetypes[archetype]?.speed ?? COMBAT_RULES.tiers[tier]?.speed ?? COMBAT_RULES.defaultSpeed;
     const jitter = COMBAT_RULES.speedJitter;
     return base + (id ? hash32(`speed:${id}`) % (2 * jitter + 1) - jitter : 0);
+}
+
+// 只供新建敌人使用：压缩高于基准的速度，低速部分保持不变。
+export function enemySpeedFor(speed) {
+    const base = COMBAT_RULES.defaultSpeed;
+    return Math.round(speed > base ? base + (speed - base) * COMBAT_RULES.enemySpeedGain : speed);
 }

@@ -113,7 +113,7 @@ registerMechanic({
                 enterStance(ctx, unit, effect.stance, kit);
             },
             value: (e) => STANCE_VALUE[e.stance] || 0,
-            describe: (e) => (e.stance === 'neutral' ? '回到中立心境' : `进入${STANCE_NAME[e.stance]}`),
+            describe: (e, kit) => (e.stance === 'neutral' ? `回到${kit.kw('res:stance:neutral', '中立')}心境` : `进入${kit.kw(`res:stance:${e.stance}`, STANCE_NAME[e.stance])}`),
             brief: (e) => STANCE_NAME[e.stance] || '',
         },
         momentum: {
@@ -125,7 +125,7 @@ registerMechanic({
                 gainMomentum(ctx, unit, effect.amount, kit);
             },
             value: (e) => e.amount * 1.5,
-            describe: (e) => `获得 ${e.amount} 点乐势`,
+            describe: (e, kit) => `获得 ${e.amount} 点${kit.kw('res:momentum', '乐势')}`,
             brief: (e) => `乐势${e.amount}`,
         },
         foresee: {

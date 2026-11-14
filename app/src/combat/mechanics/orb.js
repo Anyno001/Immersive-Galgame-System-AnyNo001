@@ -145,6 +145,24 @@ registerMechanic({
             describe: (e) => (e.amount > 1 ? `引发最前一颗法珠 ${e.amount} 次` : '引发最前一颗法珠'),
             brief: (e) => `引发${e.amount}`,
         },
+        'evoke-x': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'bonus'], path, state);
+                return { op: 'evoke-x', bonus: kit.intField(effect.bonus, kit.joinPath(path, 'bonus'), state, 0, 1, 0) };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                const orbs = unit.res?.orbs;
+                const orb = orbs?.list.at(-1);
+                const times = Math.min(20, (ctx.state.play?.xSpent ?? 0) + (effect.bonus || 0));
+                if (!orb || !times) return;
+                for (let n = 0; n < times && unit.alive && !ctx.state.outcome; n += 1) evoke(ctx, unit, orb, kit);
+                const index = orbs.list.indexOf(orb);
+                if (index >= 0) orbs.list.splice(index, 1);
+            },
+            value: e => (2 + (e.bonus || 0)) * 7,
+            describe: e => `引发同一颗最右法珠 X${e.bonus ? '+1' : ''} 次，然后移除（X 为本次投入的能量）`,
+            brief: () => 'X引发',
+        },
         'orb-pulse': {
             ...intOp('orb-pulse', 1, 2),
             apply(ctx, unit, effect, aimId, source, kit) {
@@ -155,7 +173,7 @@ registerMechanic({
             brief: (e) => `触发${e.amount}`,
         },
         'orb-slot': {
-            ...intOp('orb-slot', 1, 2),
+            ...intOp('orb-slot', 1, 3),
             apply(ctx, unit, effect, aimId, source, kit) {
                 const orbs = orbsOf(ctx, unit, kit);
                 if (!orbs) return;
@@ -169,7 +187,7 @@ registerMechanic({
             brief: (e) => `槽+${e.amount}`,
         },
         focus: {
-            ...intOp('focus', -3, 3),
+            ...intOp('focus', -3, 6),
             apply(ctx, unit, effect, aimId, source, kit) {
                 const res = kit.resOf(ctx, unit);
                 if (!res || !effect.amount) return;
