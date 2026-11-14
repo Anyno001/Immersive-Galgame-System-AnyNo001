@@ -13,6 +13,11 @@ export function withTavernIllustrationFiles(store, globalObject = globalThis) {
         : (await store.getSlots(key.slice(0, key.lastIndexOf('|')))).find(value => value.slot === Number(key.slice(key.lastIndexOf('|') + 1)));
     const all = async () => {
         const keys = typeof store.listSlotKeys === 'function' ? await store.listSlotKeys() : [];
+        // 一个事务批量取：逐条 getSlotRecord 各开一个事务，CG 多时启动恢复和每轮同步都被拖慢。
+        if (typeof store.getSlotRecords === 'function') {
+            const values = await store.getSlotRecords(keys);
+            return keys.map((key, index) => [key, values[index] || null]);
+        }
         return Promise.all(keys.map(async key => [key, await getRaw(key)]));
     };
     const journal = createMediaRecordJournal(globalObject, {
