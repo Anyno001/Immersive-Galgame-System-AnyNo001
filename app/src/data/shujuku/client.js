@@ -1,3 +1,6 @@
+// 批量写的单条写入：不发通知、不做写后合并刷新；调用方批末统一 refresh()。旧版数据库插件忽略 skipRefresh。
+export const BATCH_WRITE_OPTIONS = Object.freeze({ skipNotify: true, skipRefresh: true });
+
 export function createShujukuClient(api) {
     return {
         // kept for backward compat — simulate.test.js depends on this
@@ -25,10 +28,13 @@ export function createShujukuClient(api) {
             }
         },
 
-        async updateCell(tableName, rowIndex, colName, value) {
+        // options 只在调用方传入时使用对象参数形式（如 skipNotify / skipRefresh），不传时保持位置参数调用。
+        async updateCell(tableName, rowIndex, colName, value, options) {
             if (!api || typeof api.updateCell !== 'function')
                 return { ok: false, reason: 'missing-api' };
-            const result = await api.updateCell(tableName, rowIndex, colName, String(value));
+            const result = options && typeof options === 'object'
+                ? await api.updateCell({ ...options, tableName, rowIndex, colIdentifier: colName, value: String(value) })
+                : await api.updateCell(tableName, rowIndex, colName, String(value));
             return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
         },
 
@@ -93,7 +99,8 @@ export function createShujukuClient(api) {
         async refresh() {
             if (!api || typeof api.refreshDataAndWorldbook !== 'function')
                 return { ok: false, reason: 'missing-api' };
-            await api.refreshDataAndWorldbook();
+            // 批末刷新不等待数据库插件的前端回读窗口；旧版插件忽略该参数。
+            await api.refreshDataAndWorldbook({ awaitFrontendReadback: false });
             return { ok: true };
         },
 

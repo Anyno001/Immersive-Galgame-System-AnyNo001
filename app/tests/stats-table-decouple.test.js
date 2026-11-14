@@ -101,7 +101,10 @@ function setup({ pushEnabled = true, tableData = numericTable() } = {}) {
     const writes = [];
     const api = {
         exportTableAsJson: () => tableData,
-        updateCell(table, rowIndex, col, value) {
+        // 与真实接口一致，同时接受位置参数与对象参数。
+        updateCell(a, i, c, v) {
+            const [table, rowIndex, col, value] = a && typeof a === 'object'
+                ? [a.tableName, a.rowIndex, a.colIdentifier, a.value] : [a, i, c, v];
             const s = Object.values(tableData).find((x) => x.name === table);
             s.content[rowIndex][s.content[0].indexOf(col)] = value;
             writes.push({ rowIndex, col, value });

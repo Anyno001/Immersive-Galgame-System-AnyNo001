@@ -6,6 +6,7 @@
 //   - parseTables 与 locateInventoryTable 的结果按「同一份导出数据对象」记忆，同一份数据只解析一次。
 // 记忆化的前提：导出数据视为不可变快照（缓存 client 在每次写入后换新快照，旧快照不会被原地修改）。
 import { parseTables } from './table-parser.js';
+import { BATCH_WRITE_OPTIONS } from './client.js';
 import { createCachedTableClient, buildIgsSheet } from './combat-tables.js';
 import { normalizeItemName } from './item-catalog.js';
 import { INVENTORY_LOST_MARK } from './record-model.js';
@@ -419,18 +420,18 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
         if (existing?.lost) {
             result = await client.updateRow(inventory.name, existing.rowIndex, {
                 [columns[inventory.index.quantity]]: String(after), [columns[inventory.index.category]]: String(category || ''),
-            }, { skipNotify: true });
+            }, BATCH_WRITE_OPTIONS);
         } else if (markLost) {
-            result = await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.category]]: INVENTORY_LOST_MARK }, { skipNotify: true });
+            result = await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.category]]: INVENTORY_LOST_MARK }, BATCH_WRITE_OPTIONS);
         } else if (existing) {
             result = after === 0
-                ? await client.deleteRow(inventory.name, existing.rowIndex, { skipNotify: true })
-                : await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.quantity]]: String(after) }, { skipNotify: true });
+                ? await client.deleteRow(inventory.name, existing.rowIndex, BATCH_WRITE_OPTIONS)
+                : await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.quantity]]: String(after) }, BATCH_WRITE_OPTIONS);
         } else {
             const row = { [columns[inventory.index.name]]: String(name).trim(), [columns[inventory.index.quantity]]: String(after) };
             if (description && inventory.index.description >= 0) row[columns[inventory.index.description]] = String(description);
             if (category && inventory.index.category >= 0) row[columns[inventory.index.category]] = String(category);
-            result = await client.insertRow(inventory.name, row, { skipNotify: true });
+            result = await client.insertRow(inventory.name, row, BATCH_WRITE_OPTIONS);
         }
         if (!result.ok) return { ok: false, reason: 'inventory-write-failed', name, detail: result.reason };
         // 写操作已使缓存作废，这里读到的是最新数据
@@ -490,10 +491,10 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
             try {
                 if (record) {
                     result = existing
-                        ? await client.updateRow(GEAR_TABLE.name, existing.rowIndex, cells, { skipNotify: true })
-                        : await client.insertRow(GEAR_TABLE.name, cells, { skipNotify: true });
+                        ? await client.updateRow(GEAR_TABLE.name, existing.rowIndex, cells, BATCH_WRITE_OPTIONS)
+                        : await client.insertRow(GEAR_TABLE.name, cells, BATCH_WRITE_OPTIONS);
                 } else {
-                    result = await client.deleteRow(GEAR_TABLE.name, existing.rowIndex, { skipNotify: true });
+                    result = await client.deleteRow(GEAR_TABLE.name, existing.rowIndex, BATCH_WRITE_OPTIONS);
                 }
             } finally {
                 writing = false;

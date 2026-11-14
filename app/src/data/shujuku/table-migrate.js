@@ -2,6 +2,7 @@
 // 做法：先备份旧表 JSON；用新模板替换本聊天模板（数据库插件按 seed 保留已有数据）；再按迁移前的快照把秘密、属性格搬到新位置。
 // 已是解耦结构但仍用旧版适配模板的聊天（角色数值表、才艺技能表还不是 IGS 维护写法）只做精修：换两张 IGS 表的配置与 AI 填的表的说明。
 // 纯函数部分（buildMigratedTemplate / planTableMigration）不碰数据库插件；migrateTables 负责串起流程。
+import { BATCH_WRITE_OPTIONS } from './client.js';
 import { parseTables } from './table-parser.js';
 import { SHUJUKU_ROW_OFFSET } from './stats-push.js';
 import { SKILL_TABLE_NAME, canonicalAttribute, findSkillTable, isSixAttribute } from './skill-table.js';
@@ -208,12 +209,12 @@ export async function migrateTables(client, fetched, { backup } = {}) {
     let inserted = 0;
     for (const w of plan.writes) {
         let r;
-        try { r = await client.updateCell(w.table, w.rowIndex, w.column, w.value); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
+        try { r = await client.updateCell(w.table, w.rowIndex, w.column, w.value, BATCH_WRITE_OPTIONS); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
         if (r && r.ok) wrote += 1; else failures.push({ ...w, reason: r && r.reason });
     }
     for (const item of plan.inserts) {
         let r;
-        try { r = await client.insertRow(item.table, item.data, { skipNotify: true }); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
+        try { r = await client.insertRow(item.table, item.data, BATCH_WRITE_OPTIONS); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
         if (r && r.ok) inserted += 1; else failures.push({ table: item.table, data: item.data, reason: r && r.reason });
     }
     if (wrote || inserted) { try { await client.refresh(); } catch (error) { plan.diagnostics.push({ code: 'migrate-refresh-failed' }); } }

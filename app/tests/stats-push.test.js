@@ -8,6 +8,8 @@ import { createCharacter, createStatsState } from '../src/scene/stats/stat-state
 function sheet(uid, name, content, orderNo = 0) { return { uid, name, content, orderNo }; }
 
 // fake shujuku：updateCell 的 rowIndex 含表头（与真实接口、shujuku-panel 一致），直接对应 content 下标。
+// 与真实接口一致，同时接受位置参数与对象参数（{ tableName, rowIndex, colIdentifier, value, ...options }）。
+const cellArgs = (a, i, c, v) => (a && typeof a === 'object' ? [a.tableName, a.rowIndex, a.colIdentifier, a.value] : [a, i, c, v]);
 function fakeApi(sheets, { failCell = null, readThrows = false } = {}) {
     const calls = { update: [], refresh: 0 };
     const raw = Object.fromEntries(sheets.map((s) => [s.uid, s]));
@@ -15,7 +17,8 @@ function fakeApi(sheets, { failCell = null, readThrows = false } = {}) {
         calls,
         raw,
         exportTableAsJson() { if (readThrows) throw new Error('not ready'); return raw; },
-        updateCell(tableName, rowIndex, colName, value) {
+        updateCell(...args) {
+            const [tableName, rowIndex, colName, value] = cellArgs(...args);
             calls.update.push({ tableName, rowIndex, colName, value });
             if (failCell && failCell === colName) return false;
             const s = Object.values(raw).find((x) => x.name === tableName);
@@ -97,7 +100,7 @@ test('写入失败记入 failures；映射可设为不推送；rowOffset 生效'
     const plain = detectStatMappings(tables);
     assert.ok(plain.mappings.some((m) => m.table === '主角信息表' && m.column === '基础属性'));
     const off = fakeApi(baseSheets());
-    await pushStats(createShujukuClient({ ...off, updateCell: (t, i, c, v) => { off.calls.update.push({ i }); return true; } }), stateWith({ 好感: 34 }), { rowOffset: 0 });
+    await pushStats(createShujukuClient({ ...off, updateCell: (...args) => { off.calls.update.push({ i: cellArgs(...args)[1] }); return true; } }), stateWith({ 好感: 34 }), { rowOffset: 0 });
     assert.ok(off.calls.update.length > 0 && off.calls.update.some((c) => c.i === 0));
     assert.ok(api.calls.update.every((c) => c.rowIndex >= 1), '默认行号含表头，不会写到第 0 行（表头）');
 });

@@ -1,5 +1,6 @@
 // 数值系统单向推送到 shujuku（§8A、§8B；易错点 F2/F3/F7/F9/F10/F12/F13）。
 // IGS 是唯一真值：只写目标单元格，不新建行列、不读回、不监听表格回调；找不到就跳过并记诊断。
+import { BATCH_WRITE_OPTIONS } from './client.js';
 import { parseTables } from './table-parser.js';
 import { columnLooksTextual, formatNumberCell, readAttributeCell, scaleValue, suspectRange, writeAttributeCell } from '../../scene/stats/stat-cell-format.js';
 import { stageOf } from '../../scene/stats/stat-favor.js';
@@ -214,14 +215,14 @@ export async function pushStats(client, state, { overrides, overridesByFingerpri
     for (const w of plan.writes) {
         let r;
         if (!shouldStart()) return { ok: false, reason: 'request-stale', wrote };
-        try { r = await client.updateCell(w.table, w.rowIndex, w.column, w.value); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
+        try { r = await client.updateCell(w.table, w.rowIndex, w.column, w.value, BATCH_WRITE_OPTIONS); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
         if (r && r.ok) wrote += 1; else failures.push({ ...w, reason: r && r.reason });
     }
     // 才艺技能表里没有的行：用数据库插件的新增行接口补上；接口缺失或失败只记诊断，不算推送失败。
     let inserted = 0;
     for (const item of plan.inserts) {
         let r;
-        try { r = await client.insertRow(item.table, item.data, { skipNotify: true }); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
+        try { r = await client.insertRow(item.table, item.data, BATCH_WRITE_OPTIONS); } catch (error) { r = { ok: false, reason: String(error && error.message || error) }; }
         if (r && r.ok) inserted += 1;
         else { diagnostics.push({ code: 'stats-skill-insert-failed', table: item.table, skill: Object.values(item.data)[1], reason: r && r.reason }); if (r && r.reason === 'missing-api') break; }
     }

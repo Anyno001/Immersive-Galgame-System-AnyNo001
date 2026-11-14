@@ -2,6 +2,7 @@
 // 表结构、列名、记录格式、记录 ID 规则与 v0.39 完全一致，已存下的数据可以直接读回。
 // 与 v0.39 的差别只在读写路径：表读取按版本号缓存、解码按 sheet 惰性进行、flush 一批只读一次表。
 import { parseTables } from './table-parser.js';
+import { BATCH_WRITE_OPTIONS } from './client.js';
 
 // 数据库插件必须提供的 5 个函数，缺任何一个都不能启用战斗扩展。
 export const COMBAT_TABLE_REQUIRED_API = Object.freeze([
@@ -314,9 +315,11 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
             }
             return { ok: true, tableName, rowIndex, patch };
         },
-        async updateCell(tableName, rowIndex, columnName, value) {
+        async updateCell(tableName, rowIndex, columnName, value, options) {
             if (!api || typeof api.updateCell !== 'function') return { ok: false, reason: 'missing-api' };
-            const result = await api.updateCell(tableName, rowIndex, columnName, String(value));
+            const objectArgs = options && typeof options === 'object'
+                ? { ...options, tableName, rowIndex, colIdentifier: columnName, value: String(value) } : null;
+            const result = objectArgs ? await api.updateCell(objectArgs) : await api.updateCell(tableName, rowIndex, columnName, String(value));
             bump();
             return isSuccessful(result) ? { ok: true } : { ok: false, reason: 'update-failed' };
         },
@@ -364,7 +367,8 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
             let timer;
             const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: true, slow: true }), REFRESH_TIMEOUT_MS); });
             try {
-                return await Promise.race([Promise.resolve(api.refreshDataAndWorldbook()).then(() => ({ ok: true })), timeout]);
+                // 批末刷新不等待数据库插件的前端回读窗口；旧版插件忽略该参数。
+                return await Promise.race([Promise.resolve(api.refreshDataAndWorldbook({ awaitFrontendReadback: false })).then(() => ({ ok: true })), timeout]);
             } finally { clearTimeout(timer); }
         },
         registerCallback(callback) {
@@ -604,7 +608,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                         let insertFailed = false;
                         for (const row of encoded.rows) {
                             if (!requestStillValid(item)) { stale = true; break; }
-                            const result = await client.insertRow(COMBAT_TABLE_SPECS[item.kind].name, row, { skipNotify: true });
+                            const result = await client.insertRow(COMBAT_TABLE_SPECS[item.kind].name, row, BATCH_WRITE_OPTIONS);
                             if (!result.ok) { insertFailed = true; break; }
                             insertedHere += 1;
                         }
@@ -645,7 +649,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                         }
                     }
                     for (let at = queue.length - 1; at >= 0; at -= 1) if (finished.has(queue[at])) queue.splice(at, 1);
-                    // 数据库插件的 insertRow 已自行刷新合并数据与世界书并保存聊天；不进世界书的积分 / Origin 记录不再整套重刷。
+                    // 逐行写入带 skipRefresh，合并刷新与世界书重写在批末统一做一次；不进世界书的积分 / Origin 记录不刷新（旧版插件的 insertRow 仍自行刷新）。
                     if (inserted > 0 && batch.some(({ item }) => item.options?.refresh !== false)) {
                         try {
                             if (!(await client.refresh()).ok && !failure) failure = { reason: 'combat-table-refresh-failed' };
