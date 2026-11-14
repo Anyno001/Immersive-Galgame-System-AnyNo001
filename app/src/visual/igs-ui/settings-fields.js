@@ -669,7 +669,7 @@ function renderCharacterTtsRow(charName, { sceneAssets, tts }) {
     return `<div class="igs-char-tts">`
         + voiceGroup('台词', voiceSelect('tts', manual.tts, `自动（${autoName}）`, '台词声音') + preview('tts-preview'), [['语速', speed], ['音量', volume], pitch, gender])
         + voiceGroup('心里话', voiceSelect('ttsThought', manual.ttsThought, '同台词', '心里话声音') + preview('tts-preview-thought'), [['语速', thoughtSpeed], ['音量', thoughtVolume]])
-        + voiceGroup('朗读风格', `<input class="igs-asset-move" type="text" maxlength="300" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="仅 OpenAI 兼容与自定义接口生效" aria-label="朗读风格">`)
+        + voiceGroup('朗读风格', `<input class="igs-asset-move" type="text" data-char-voice-ttsStyle="${name}" value="${esc(manual.ttsStyle)}" placeholder="仅 OpenAI 兼容与自定义接口生效" aria-label="朗读风格">`)
         + '</div>';
 }
 

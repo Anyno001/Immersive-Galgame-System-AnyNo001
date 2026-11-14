@@ -84,7 +84,7 @@ export function normalizeCharacterVoice(value) {
         ttsSpeed: normalizeOptionalSpeed(source.ttsSpeed),
         ttsThoughtSpeed: normalizeOptionalSpeed(source.ttsThoughtSpeed),
         ttsThoughtVolume: normalizeThoughtVolume(source.ttsThoughtVolume),
-        ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim().slice(0, 300) : '',
+        ttsStyle: typeof source.ttsStyle === 'string' ? source.ttsStyle.trim() : '',
         // 朗读按哪种性别分配声音：留空按 DNA、立绘、名字与正文判断；判断不出时阅读中弹窗询问，选定后存在这里。
         ttsGender: source.ttsGender === 'male' || source.ttsGender === 'female' ? source.ttsGender : '',
     };

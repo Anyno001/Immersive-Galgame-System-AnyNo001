@@ -282,12 +282,12 @@ export async function withCharacterLore(entities, lookup) {
 }
 
 // 把剧情上下文（story / worldInfo / userPersona）并入 context；读取失败或全空则原样返回
-export async function withStoryContext(context, read, { names = [], signal, full = false, persona = false } = {}) {
+export async function withStoryContext(context, read, { names = [], signal, persona = false } = {}) {
     const base = isPlainObject(context) ? context : {};
     if (typeof read !== 'function') return base;
     let loaded = null;
     try {
-        loaded = await read({ names, signal, ...(full ? { full: true } : {}), ...(persona ? { persona: true } : {}) });
+        loaded = await read({ names, signal, ...(persona ? { persona: true } : {}) });
     } catch {
         loaded = null;
     }

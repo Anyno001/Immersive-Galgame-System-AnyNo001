@@ -1245,7 +1245,7 @@ export function createCombatSession(options = {}) {
         if (entities.length) {
             const context = await withStoryContext(
                 { encounter: located.start.encounter, tier: located.start.tier, protagonist: userName }, options.readStoryContext,
-                { names: initNames, signal, full: entities.some((entity) => entity.kind === 'profile-deck' || entity.kind === 'enemy-roster') },
+                { names: initNames, signal },
             );
             generated = await generateWithRetry(await withCharacterLore(entities, options.readLore), {
                 request, llm: resolveOption(options.llm), signal, classes: ledgerState.classes, now: now(), context, retryDelays: options.retryDelays,

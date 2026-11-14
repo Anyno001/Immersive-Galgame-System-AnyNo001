@@ -4,7 +4,6 @@ import { FEED_PLATFORMS, FEED_PLATFORM_IDS, STORM_DEFAULT_PROMPT, feedPlatformBy
 // enabled 总开关（默认关，演出档位第 3 档打开）；muteOnNsfw NSFW 场景收起；
 // platforms[id] = { enabled, prompt }：平台开关（默认全开）与自定义写法（留空或与默认相同即用默认）；
 // worldview 由 applyFxWorldview 按当前世界观写入（只在快照里，不存档）。
-const PROMPT_MAX = 400;
 
 function plain(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -16,11 +15,11 @@ export function normalizeFeedFxSettings(value) {
     const platforms = {};
     for (const p of FEED_PLATFORMS) {
         const one = plain(raw[p.id]);
-        const prompt = String(one.prompt || '').trim().slice(0, PROMPT_MAX);
+        const prompt = String(one.prompt || '').trim();
         platforms[p.id] = { enabled: one.enabled !== false, prompt: prompt === p.prompt ? '' : prompt };
     }
     const storm = plain(src.storm);
-    const stormPrompt = String(storm.prompt || '').trim().slice(0, PROMPT_MAX);
+    const stormPrompt = String(storm.prompt || '').trim();
     const out = {
         enabled: src.enabled === true,
         muteOnNsfw: src.muteOnNsfw !== false,

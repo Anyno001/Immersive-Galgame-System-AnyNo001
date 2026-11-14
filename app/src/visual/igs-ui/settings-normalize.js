@@ -71,7 +71,7 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.(clashFx\.(auto|ghost|shake)|battleFx\.dash)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (path === 'readerSettings.fxPrompts.inject') return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.fxPrompts\.(fx|daily|item|bgm|romance|battle|camera|cast|chat|live|audience|feed|text|bilingual|dlc)$/.test(path)) {
-            return (typeof value === 'string' ? value : '').slice(0, 6000);
+            return typeof value === 'string' ? value : '';
         }
         if (path === 'readerSettings.fxPrompts.style') return value === 'detailed' ? 'detailed' : 'compact';
         if (/^readerSettings\.(sceneTransition|timeTint|spriteMotion|spriteActions|camera|stageCast|textFx|bilingual|clickWaitMark|bgm|ambientSound|uiSound)\.(enabled|moodTag|night|alignHeads|romanceDuo|castReact|castStage|backHint|breathing|castBreathing|castLean|speakBounce|enterExit|emotionFade|kenBurns|parallax|closeUp|aiShots|birds|rain|wind|insects|waves|crowd|thunder|stream|fire|snow|cicadas|frogs|chimes|bell|clock|drip|train|tavern|ship|traffic|car|carriage|bath|underwater|space)$/.test(path)

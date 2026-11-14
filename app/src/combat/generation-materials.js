@@ -45,10 +45,10 @@ export function discoverMvuMaterials(data, names) {
     return candidates;
 }
 
-// 限制深度、字段数与单个字符串；保留状态字段，让模型区分已学会与未解锁。
+// 限制遍历深度和字段数；字符串完整保留，让模型区分已学会与未解锁。
 export function compactMaterial(value, depth = 0, budget = { nodes: 0 }) {
     if (budget.nodes++ > 600 || depth > 7) return '（内容省略）';
-    if (typeof value === 'string') return value.length > 800 ? `${value.slice(0, 800)}（截短）` : value;
+    if (typeof value === 'string') return value;
     if (!object(value)) return value ?? null;
     if (Array.isArray(value)) return [...value.slice(0, 50).map((v) => compactMaterial(v, depth + 1, budget)), ...(value.length > 50 ? ['（其余条目省略）'] : [])];
     const entries = Object.entries(value).filter(([k]) => !PRIVATE.test(k) && !BLOCKED_KEYS.has(k) && !k.startsWith('$'));

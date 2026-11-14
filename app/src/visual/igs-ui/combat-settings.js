@@ -5,7 +5,7 @@ import { COMBAT_DIFFICULTY_KEYS } from '../../combat/rules.js';
 import { normalizeAutoIllustrationSettings } from '../../generated-images/illustration/auto-illustration-settings.js';
 import { CHALLENGE_QUOTA } from '../../scene/challenge-directives.js';
 import { normalizeIntimateSettings } from '../../scene/intimate-duel.js';
-import { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, COMBAT_KINDS, COMBAT_RULE_PROMPT_MAX, isDefaultCombatRuleText } from '../../scene/combat-prompt.js';
+import { COMBAT_COOLDOWN_CHOICES, COMBAT_FREQUENCIES, COMBAT_KINDS, isDefaultCombatRuleText } from '../../scene/combat-prompt.js';
 
 export const COMBAT_DIFFICULTIES = COMBAT_DIFFICULTY_KEYS;
 export const COMBAT_REPORT_DETAILS = Object.freeze(['brief', 'normal']);
@@ -45,8 +45,7 @@ export function normalizeCombatExpansionSettings(value) {
 // 与默认规则全文一致的文本不存为自定义值，空串表示使用默认。
 function normalizeRulePrompt(value) {
   if (typeof value !== 'string' || !value.trim()) return '';
-  const text = value.slice(0, COMBAT_RULE_PROMPT_MAX);
-  return isDefaultCombatRuleText(text) ? '' : text;
+  return isDefaultCombatRuleText(value) ? '' : value;
 }
 
 export function normalizeDailySettings(value) {

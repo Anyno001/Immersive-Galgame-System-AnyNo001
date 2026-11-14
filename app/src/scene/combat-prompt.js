@@ -111,7 +111,6 @@ export function combatPromptMerged(settings) {
     return asObject(settings).combatMerged === true;
 }
 
-export const COMBAT_RULE_PROMPT_MAX = 8000;
 const FREQUENCY_LINES = Object.freeze({
     low: '战斗频率：只在冲突无法回避时才写开战标签，平常的摩擦用剧情解决。',
     normal: '战斗频率：剧情出现明确的敌意、拦路、袭击或比斗时安排交战，不刻意回避，也不硬造遭遇。',

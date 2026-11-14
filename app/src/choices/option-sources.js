@@ -1,7 +1,6 @@
 import { parseChoiceItems } from './choice-parser.js';
 
 const QUICK_MAX_LINES = 8;
-const QUICK_MAX_LENGTH = 24;
 const BODY_MAX_ITEMS = 8;
 const BODY_ITEM_MAX_LENGTH = 80;
 const BODY_TAIL_LINES = 14;
@@ -18,7 +17,7 @@ export function normalizeQuickActions(value) {
     const seen = new Set();
     const lines = [];
     for (const raw of toLines(value)) {
-        const line = raw.replace(/\s+/g, ' ').trim().slice(0, QUICK_MAX_LENGTH);
+        const line = raw.replace(/\s+/g, ' ').trim();
         if (!line || seen.has(line)) continue;
         seen.add(line);
         lines.push(line);

@@ -407,7 +407,7 @@ export function spriteIdentity(character, outfit) {
 
 // 只列在场角色的服装：角色主名或任一别名出现在 presentText（角色卡名、群聊成员、最近几层正文）里。
 // presentText 为 null 表示拿不到名单，退回全量；两种情况都按字数上限截断。
-export function buildScopedOutfitGroupsText(characterOutfits, { presentText = null, characterAliases = {}, limit = 400 } = {}) {
+export function buildScopedOutfitGroupsText(characterOutfits, { presentText = null, characterAliases = {} } = {}) {
     const text = presentText == null ? null : String(presentText);
     const aliases = plain(characterAliases) || {};
     const entries = Object.entries(plain(characterOutfits) || {})
@@ -417,16 +417,5 @@ export function buildScopedOutfitGroupsText(characterOutfits, { presentText = nu
             || [character, ...(Array.isArray(aliases[character]) ? aliases[character] : [])]
                 .some((name) => String(name || '').trim() && text.includes(String(name).trim())));
     if (!entries.length) return NO_OUTFIT_GROUPS_TEXT;
-    const lines = [];
-    let used = 0;
-    for (const [, , line] of entries) {
-        const cost = Array.from(line).length + 1;
-        if (used + cost > limit && lines.length) {
-            lines.push('等');
-            break;
-        }
-        lines.push(line);
-        used += cost;
-    }
-    return lines.join('\n');
+    return entries.map(([, , line]) => line).join('\n');
 }

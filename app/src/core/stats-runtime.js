@@ -45,7 +45,7 @@ import {
     gateAttributes, isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
 } from '../scene/stats/stat-engine.js';
 import {
-    PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier,
+    PROTAGONIST_BACKFILL_MAX, SHEET_BATCH_MAX, applyBackfillToSheet, buildBackfillRequest, buildSheetRequest, capSkillTier, sheetHistoryContext,
     buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
@@ -65,9 +65,8 @@ export const STATS_PROMPT_KEY = 'igs-stats-state';
 const IN_CHAT = 1;
 const NONE = -1;
 const SKIP_TYPES = new Set(['quiet', 'impersonate']);
-// 「按剧情拟写」读最近多少楼、正文最多多少字。
+// 「按剧情拟写」读取最近楼层。
 const HERO_NOTE_FLOORS = 12;
-const HERO_NOTE_CHARS = 6000;
 const DIAG_MAX = 50;
 // 复核提示词里列的恩仇事件（短表；解析仍认全部 EVENT_TYPES）。
 const TRAIT_REVIEW_PROMPT_EVENTS = Object.freeze(['救命', '帮忙', '报恩', '结怨', '和解', '复仇', '偷窃成功', '谎言揭穿', '猜忌']);
@@ -166,7 +165,7 @@ function settleSeed(chatId, ordinal, swipe, kind = 'settle') {
 export function createStatsRuntime({
     getContext, readSettings, resolveCharacter, isNsfw = () => false, presentOf = null, onChange = () => {},
     worldRoles = null, getPushClient = () => null, pushOptions = {}, isBackground = () => false, getBackgroundRequest = () => null,
-    describePeople = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
+    describePeople = null, readSheetContext = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
     // v0.39 注入点：战斗侧生命/六维来源、数据库表读写通道、战斗提示词输入、战斗扩展是否开启。
     combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
     // 剧情货币所在的物品表读写口（createInventoryTables 的产物：read / changeQuantities）。
@@ -1457,7 +1456,7 @@ export function createStatsRuntime({
                 const nsfw = isNsfw();
                 const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
                 const floors = messages(c).filter((m) => m && !m.is_system).slice(-6)
-                    .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
+                    .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')) }));
                 let client = null;
                 try { client = getPushClient(); } catch (error) { client = null; }
                 let aliases = {};
@@ -1543,7 +1542,7 @@ export function createStatsRuntime({
         const nsfw = isNsfw();
         const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
         const floors = messages(c).slice(0, messageId + 1).filter((m) => m && !m.is_system).slice(-6)
-            .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')).slice(0, 1500) }));
+            .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')) }));
         let client = null;
         try { client = getPushClient(); } catch (error) { client = null; }
         let aliases = {};
@@ -2127,7 +2126,7 @@ export function createStatsRuntime({
     }
 
     // 生成角色卡：生成进行中时排到结束后（N1）；失败最多自动重试 1 次（N13），整份失败不写半份（N3）。
-    // 角色卡含六维属性档（LLM 只给档位词）、资历、技能与招牌技能；世界书读取与筛选由注入的 describePeople 完成。
+    // 角色卡含六维属性档、资历与技能；专属宿主入口装配历史、角色卡及原生触发世界书。
     function generateSheets(names = null) {
         if (sheetJob) return sheetJob;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
@@ -2145,12 +2144,33 @@ export function createStatsRuntime({
         setNotice('sheets', { kind: 'busy', text: `正在生成数值：${targets.join('、')}` });
         const chatSeed = chatIdOf(ctx());
         const run = async () => {
-            let people;
-            try { people = typeof describePeople === 'function' ? await describePeople(targets) : targets.map((name) => ({ name, summary: '' })); }
-            catch (error) { people = targets.map((name) => ({ name, summary: '' })); }
+            const protagonists = targets.filter(isHero);
+            let context = {
+                people: targets.map((name) => ({ name, summary: '' })), protagonists,
+                history: sheetHistoryContext(messages(ctx()).filter((m) => m && !m.is_system)
+                    .map((m) => ({ user: Boolean(m.is_user), text: m.mes }))),
+                userPersona: protagonists.length ? String(ctx()?.powerUserSettings?.persona_description || '') : '',
+            };
+            if (typeof readSheetContext === 'function') {
+                const c = ctx();
+                let picked = '';
+                try { picked = String(userCharacter() || '').trim(); } catch (error) { picked = ''; }
+                const protagonistCards = [...new Set([picked, c?.name2, ...(Array.isArray(c?.groupMembers) ? c.groupMembers : [])]
+                    .map((name) => String(name || '').trim()).filter((name) => name && isHero(name)))];
+                let resolved;
+                try { resolved = await readSheetContext({ names: targets, protagonists, protagonistCards }); }
+                catch (error) { resolved = { ok: false, reason: 'stats-sheet-context-failed' }; }
+                if (!resolved || resolved.ok === false) {
+                    const reason = resolved?.reason || 'stats-sheet-context-failed';
+                    diag(reason);
+                    setNotice('sheets', { kind: 'sheets', text: '生成数值所需的上下文读取失败，未发送请求，可重试', actions: [['generate', '重试'], ['dismiss', '稍后']] });
+                    return { ok: false, reason };
+                }
+                context = { ...context, ...resolved };
+            }
             const engine = engineOf();
             const skills = engine.registry.entries().filter(([, e]) => e.kind === 'skill' && (e.origin !== 'world')).map(([n, e]) => [n, e.attribute]);
-            const prompt = buildSheetRequest(people, { worldview: worldviewOf(), skills, prompt: settings().prompts.sheetGen });
+            const prompt = buildSheetRequest(context.people, { ...context, worldview: worldviewOf(), skills, prompt: settings().prompts.sheetGen });
             let parsed = null;
             for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
                 try { parsed = parseSheetReply(await ask(request, prompt), { names: targets, registry: engine.registry }); }
@@ -3022,7 +3042,7 @@ export function createStatsRuntime({
             .map((m) => `${m.is_user ? hero : (m.name || '旁白')}：${m.mes.replace(/\[igs-[^\]]*\]/g, '').replace(/<[^>]+>/g, '').trim()}`)
             .filter((line) => line.length > 2);
         if (!lines.length) return { ok: false, reason: 'stats-note-no-text' };
-        const user = lines.join('\n').slice(-HERO_NOTE_CHARS);
+        const user = lines.join('\n');
         const system = `根据下面的剧情正文，用一句话写出${hero}（主角）对${name}的态度，以及两人之间已经发生的事。只写正文里明确出现的内容，不推测，不按身份套路补写。不超过四十字，只输出这句话。`;
         if (!estimate) return { ok: true, system, user };
         const desire = isNsfw() ? '、欲望' : '';

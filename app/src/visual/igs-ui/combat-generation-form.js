@@ -1,5 +1,3 @@
-import { GENERATION_HINT_LIMIT } from '../../combat/generation-materials.js';
-
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const statusText = (s) => ({ ready: '已读取', absent: '未发现', error: '读取失败，请重试或关闭该来源' })[s] || '未读取';
 const field = (key, value, checked, label, disabled) => `<label class="igs-generation-check"><input type="checkbox" data-generation-field="${key}" value="${esc(value)}"${checked ? ' checked' : ''}${disabled ? ' disabled' : ''}>${esc(label)}</label>`;
@@ -18,7 +16,7 @@ export function renderCombatGenerationForm(form, busy = false) {
     const candidates = (p?.candidates || []).map((c) => `<div>${field('path', c.id, selectedPaths.has(c.id), c.label, disabled || !form.selection.useMvu)}<details><summary>查看内容</summary><pre>${esc(c.preview)}</pre></details></div>`).join('');
     const tables = (p?.tables || []).map((t) => `<div>${field('table', t.id, selectedTables.has(t.id), `${t.name} · ${t.count} 条 · ${t.ownership}`, disabled || !form.selection.useTables)}<details><summary>查看内容</summary><pre>${esc(t.preview)}</pre></details></div>`).join('');
     return `<div class="igs-generation-form">
-        <label>生成方向（可留空）<textarea data-generation-field="hint" rows="3" maxlength="${GENERATION_HINT_LIMIT}" placeholder="例如：雷系近战，保留雷步和雷刃，多些连击，少些防御。"${attr}>${esc(form.hint)}</textarea></label>
+        <label>生成方向（可留空）<textarea data-generation-field="hint" rows="3" placeholder="例如：雷系近战，保留雷步和雷刃，多些连击，少些防御。"${attr}>${esc(form.hint)}</textarea></label>
         <p>方向影响卡牌与技能设计；费用、张数和强度仍按战斗规则。成功后才扣费，失败保留旧卡组。</p>
         <details${form.detailsOpen ? ' open' : ''} data-generation-details><summary data-generation-summary>参考素材 · ${form.loading ? '读取中…' : esc(summary)}</summary>
             ${form.error ? `<p role="alert">${esc(form.error)}</p>` : ''}
@@ -87,8 +85,8 @@ export function createCombatGenerationForm({ inspect, render, errorText }) {
         const key = el?.getAttribute?.('data-generation-field');
         if (!key) return false;
         if (!state || state.loading) return true;
-        if (key === 'hint') state.hint = String(el.value || '').slice(0, GENERATION_HINT_LIMIT);
-        else if (key === 'paths') state.paths = String(el.value || '').slice(0, 4000);
+        if (key === 'hint') state.hint = String(el.value || '');
+        else if (key === 'paths') state.paths = String(el.value || '');
         else if (key === 'priority') state.selection.priority = el.value === 'tables' ? 'tables' : 'mvu';
         else if (key === 'useMvu' || key === 'useTables') state.selection[key] = el.checked;
         else if (key === 'path' || key === 'table') {

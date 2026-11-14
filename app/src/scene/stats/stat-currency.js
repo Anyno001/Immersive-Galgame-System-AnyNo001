@@ -89,8 +89,8 @@ export function currencyForPoints(config, points) {
 export function buildCurrencyRequest({ protagonist = '主角', worldview = '', story = '', people = [] } = {}, { prompt = '' } = {}) {
     const lines = [`主角：${protagonist}`];
     if (worldview) lines.push(`世界观：${worldview}`);
-    if (story) lines.push(`剧情：${String(story).slice(0, 2000)}`);
-    const intro = (Array.isArray(people) ? people : []).filter((p) => p && p.name).slice(0, 6).map((p) => `- ${p.name}：${String(p.summary || '').slice(0, 200)}`);
+    if (story) lines.push(`剧情：${String(story)}`);
+    const intro = (Array.isArray(people) ? people : []).filter((p) => p && p.name).slice(0, 6).map((p) => `- ${p.name}：${String(p.summary || '')}`);
     if (intro.length) lines.push(`角色资料：\n${intro.join('\n')}`);
     return { system: prompt || DEFAULT_CURRENCY_PROMPT, user: lines.join('\n') };
 }

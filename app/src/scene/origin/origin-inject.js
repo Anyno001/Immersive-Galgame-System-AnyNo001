@@ -91,7 +91,6 @@ export function buildInjection(view, s, turn) {
     out += '（标签必须原样写 <origin> 与 </origin>，不许改成「数据板」「数据块」或别的名字；块里不要加「系统：……」之类的小标题、不要加项目符号，每一行只能是上面列出的某一种格式，第一个字段必须是 进度／完成／新任务 这类标签名。）\n';
     out += '规则：任务id用上面列出的数字；没有对应内容就不写该行；完全无变化则输出 <origin>无</origin>。新任务的各字段请用「标签:值」写（如 奖励:积分100' + (s.limitMax > 0 ? '、时限:' + s.limitMax : '') + '）；描述与条件里不得出现竖线 |。\n';
 
-    if (out.length > s.budget) { const cut = out.lastIndexOf('\n', s.budget); out = out.slice(0, cut > 0 ? cut : s.budget); }
     return out;
 }
 

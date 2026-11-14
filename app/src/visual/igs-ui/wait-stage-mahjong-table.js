@@ -717,7 +717,6 @@ export function createMahjongTable(ctx, kit) {
         }
         const input = el(doc, 'textarea', 'igs-mj-penalty-input');
         input.rows = 3;
-        input.maxLength = 300;
         input.placeholder = self ? `怎么罚由${who.punisher}决定，想加要求可以写在这里（选填）` : `写下要怎么罚${others}（必填）`;
         input.addEventListener('keydown', (event) => event.stopPropagation());
         form.appendChild(input);

@@ -41,14 +41,12 @@ export function mergeItemCandidates(...lists) {
     return Array.from(byName.values());
 }
 
-// 物品图只画外观：副 LLM 只拿提到这些物品的段落，总长封顶，不再随每批请求发整楼正文。
-const ITEM_CONTEXT_LIMIT = 600;
+// 物品图只画外观：副 LLM 只拿提到这些物品的完整段落。
 export function itemContextOf(text, needs = []) {
     const names = needs.map((need) => String((need && need.name) || '').trim()).filter(Boolean);
     let out = '';
     for (const { text: paragraph } of numberParagraphs(text).paragraphs) {
         if (!names.some((name) => paragraph.includes(name))) continue;
-        if (out.length + paragraph.length + 1 > ITEM_CONTEXT_LIMIT) return out || paragraph.slice(0, ITEM_CONTEXT_LIMIT);
         out += (out ? '\n' : '') + paragraph;
     }
     return out;

@@ -1,12 +1,11 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAGE_TEXT_PLATONIC, DEFAULT_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAGE_TEXT_PLATONIC, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
 // v0.39 之前的工作区默认规则体系。
 const LEGACY_RULESET = 'coc7';
 
-const PROMPT_MAX = 4000;
 // 曾被 v0.39 放进 stalePrompts 的键，这里仍是有效模板，迁移时搬回 prompts。
 const RESTORABLE_KEYS = Object.freeze(['sheets', 'sheetGen']);
 const STALE_STORE_KEYS = Object.freeze([...STAT_STALE_PROMPT_KEYS, ...RESTORABLE_KEYS]);
@@ -77,16 +76,18 @@ function regexText(value) {
     return typeof value === 'string' ? value.trim().slice(0, 300) : '';
 }
 
-// 用户覆盖的文本：只收已登记的键与非空字符串（超长截断）；留空表示用默认值（§9）。
+// 用户覆盖的文本：只收已登记的键与非空字符串，保留完整文本；留空表示用默认值（§9）。
 // 设置页框里直接显示默认原文，与默认值相同的内容不算覆盖，内置提示词更新时仍跟随默认。
-function textMap(raw, keys, defaults = {}) {
+// retired 是已退役的旧默认原文：设置页曾把旧默认原样存下，与之相同的也不算覆盖。
+function textMap(raw, keys, defaults = {}, retired = {}) {
     const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const out = {};
     for (const key of keys) {
         const value = src[key];
         if (typeof value !== 'string' || !value.trim()) continue;
         if (typeof defaults[key] === 'string' && value.trim() === defaults[key].trim()) continue;
-        out[key] = value.slice(0, PROMPT_MAX);
+        if (Array.isArray(retired[key]) && retired[key].some((old) => value.trim() === old.trim())) continue;
+        out[key] = value;
     }
     return out;
 }
@@ -104,16 +105,16 @@ function migratePrompts(src) {
         delete stale[key];
     }
     const merged = { ...restore, ...prompts };
-    if (src.promptsVersion === STAT_PROMPTS_VERSION) return { prompts: textMap(merged, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
+    if (src.promptsVersion === STAT_PROMPTS_VERSION) return { prompts: textMap(merged, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
     const kept = { ...merged };
     for (const key of STAT_STALE_PROMPT_KEYS) {
         delete kept[key];
         const text = merged[key];
         if (typeof text !== 'string' || !text.trim()) continue;
         if (typeof DEFAULT_STAT_PROMPTS[key] === 'string' && text.trim() === DEFAULT_STAT_PROMPTS[key].trim()) continue;
-        stale[key] = text.slice(0, PROMPT_MAX);
+        stale[key] = text;
     }
-    return { prompts: textMap(kept, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
+    return { prompts: textMap(kept, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
 }
 
 // 每段注入是否开启：未写或非布尔一律视为开启。

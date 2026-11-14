@@ -65,7 +65,7 @@ export function statUnitHint(s) {
 export const SETTING_DEFAULTS = {
     enabled: false, judgeMode: 'A', freq: 3, blockWhenUnfinished: true, taskSource: 'auto', fourthWall: 0,
     sysName: 'Origin', personality: '冷澈', personaText: '', rewardPref: '', penaltyPref: '', bindTo: '宿主',
-    autoEcon: false, econStyle: '', econText: '', budget: 1400, drawCost: 60, limitMin: 0, limitMax: 0, punishEvent: true, achieveOn: true,
+    autoEcon: false, econStyle: '', econText: '', drawCost: 60, limitMin: 0, limitMax: 0, punishEvent: true, achieveOn: true,
     shopRefresh: 0, gachaRefresh: 0, chatToStory: true, rpChat: 'auto',
     // 逐楼存档只留最近几个 AI 楼（原插件 keepAll 关闭时留 15 楼）；0 = 全部保留。
     keepFloors: 30,

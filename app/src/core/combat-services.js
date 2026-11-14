@@ -1123,7 +1123,7 @@ export function createCombatServices(options = {}) {
         const entities = await withCharacterLore([...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })], readLore);
         if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch { /* */ }
-        const context = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [target, getUserName()], signal, full: true, persona: target !== getUserName() });
+        const context = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [target, getUserName()], signal, persona: target !== getUserName() });
         if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context, retryDelays, onRetry });
         if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
@@ -1184,7 +1184,7 @@ export function createCombatServices(options = {}) {
         if (!material.ok) return material;
         const entities = await withCharacterLore(deckProfileEntities({ name: hero.name, id: hero.id, role: 'protagonist', classRef: hero.classRef, classes: state.classes }), readLore);
         if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
-        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal, full: true });
+        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal });
         if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
         if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
@@ -1217,7 +1217,7 @@ export function createCombatServices(options = {}) {
         if (!llm.ok) return llmFailure(llm);
         const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
         if (!material.ok) return material;
-        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal, full: true });
+        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal });
         if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const generated = await generateWithRetry([respecClassEntity({ id: hero.id, name: hero.name })], { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
         if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
@@ -1249,7 +1249,7 @@ export function createCombatServices(options = {}) {
         if (!llm.ok) return llmFailure(llm);
         const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
         if (!material.ok) return material;
-        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal, full: true });
+        const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal });
         if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
         const entity = classTierEntity({ character: hero, cls: hero.classProfile, tier, rarity: tierRule.rarity, tierName: hero.tierName, mark: Date.now().toString(36) });
         const generated = await generateWithRetry([entity], { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });

@@ -31,10 +31,6 @@ export const NPC_GOOD_COUNT = 5;
 export const NPC_STRONG_VALUE = 60;
 export const NPC_GOOD_VALUE = 30;
 export const BACKFILL_SKILL_MAX = 6;
-// 角色资料分两段：own 是角色自己的资料（卡面人设与写着名字的条目），逐人发送；world 是其余世界书，整批只发一份。
-export const SUMMARY_MAX = 6000;
-export const BACKFILL_SUMMARY_MAX = 2000;
-export const WORLD_REF_MAX = 30000;
 const NUMERIC = /[0-9０-９]/;
 const ATTR_SYNONYM = Object.freeze({ 弱: '偏弱', 差: '偏弱', 一般: '普通', 中等: '普通', 强: '出众', 优秀: '出众', 很强: '顶尖', 极强: '顶尖', 非人: '超凡' });
 const SKILL_SYNONYM = Object.freeze({ 不会: '未学', 无: '未学', 新手: '入门', 初学: '入门', 会: '熟练', 擅长: '熟练', 专精: '精通', 专家: '精通', 宗师: '大师' });
@@ -97,34 +93,99 @@ export function skillTierOfValue(value) {
     return '未学';
 }
 
+// 从 { 起按括号配对找到对应的 }（跳过字符串里的括号）；配不上返回 -1。
+function balancedEnd(text, start) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+        const ch = text[i];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (ch === '\\') escaped = true;
+            else if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') inString = true;
+        else if (ch === '{') depth += 1;
+        else if (ch === '}') { depth -= 1; if (depth === 0) return i; }
+    }
+    return -1;
+}
+
+// 回复里取第一个能解析的 JSON 对象：去掉思考块与代码块标记，按括号配对截取，前后的说明文字不影响；多余的尾逗号容忍。
 function extractJson(reply) {
-    const text = String((reply && typeof reply === 'object' ? reply.text : reply) ?? '').replace(/```[a-z]*\n?|```/gi, '');
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try { return JSON.parse(match[0]); } catch (error) { return null; }
+    const text = String((reply && typeof reply === 'object' ? reply.text : reply) ?? '')
+        .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
+        .replace(/```[a-z]*\n?|```/gi, '');
+    for (let start = text.indexOf('{'); start >= 0; start = text.indexOf('{', start + 1)) {
+        const end = balancedEnd(text, start);
+        if (end < 0) continue;
+        const body = text.slice(start, end + 1);
+        for (const candidate of [body, body.replace(/,\s*([}\]])/g, '$1')]) {
+            try {
+                const obj = JSON.parse(candidate);
+                if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj;
+            } catch (error) { /* 试下一种写法 */ }
+        }
+    }
+    return null;
 }
 
-function clip(text, max) {
-    const s = String(text ?? '').replace(/\s+/g, ' ').trim();
-    return s.length > max ? `${s.slice(0, max)}…` : s;
+const ownOf = (p) => String((p && (p.own ?? p.summary)) || '').trim();
+function worldRef(people) {
+    const text = [...new Set((people || []).map((p) => String(p?.world || '').trim()).filter(Boolean))].join('\n\n');
+    return text ? `世界观及角色设定：\n${text}\n` : '';
 }
 
-const ownOf = (p) => (p && (p.own ?? p.summary)) || '';
-// 各人扫到的常驻条目相同，按行去重后只留一份。
-function worldRef(people, max = WORLD_REF_MAX) {
+export function sheetHistoryContext(floors) {
+    const picked = [];
     const seen = new Set();
-    const lines = (people || []).flatMap((p) => String((p && p.world) || '').split('\n')).map((l) => l.trim()).filter((l) => l && !seen.has(l) && seen.add(l));
-    const text = clip(lines.join(' '), max);
-    return text ? `世界观与背景资料（各角色共用；其中写到某个角色的内容也算该角色的资料）：${text}\n` : '';
+    for (const floor of [...(Array.isArray(floors) ? floors : [])].reverse()) {
+        const user = Boolean(floor?.user);
+        if (seen.has(user)) continue;
+        const body = String(floor?.text || '').replace(/<!--[\s\S]*?-->/g, '')
+            .replace(/\[igs-[^\]]*\]/g, '').replace(/<[^>]+>/g, '').trim();
+        if (!body) continue;
+        seen.add(user);
+        picked.unshift(`${user ? '用户输入' : 'AI 回复'}：\n${body}`);
+        if (seen.size === 2) break;
+    }
+    return picked.join('\n\n');
 }
 
-// people：[{ name, summary, own?, world? }]；skills：[[技能名, 所属属性]]。
-export function buildSheetRequest(people, { worldview = '', skills = [], prompt } = {}) {
-    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(ownOf(p), SUMMARY_MAX) || '（没有资料，按普通人处理）'}`);
+// 输出格式由程序固定附在请求末尾，不随用户改写的提示词丢失；占位符带尖括号，照抄时会被名字校验拒收。
+function sheetReplyFormat(names) {
+    return [
+        '【输出要求】',
+        `只输出一个 JSON 对象，不要代码块、解释或其他文字。顶层键是角色名，必须与下列名字一字不差，每人都要有：${names.join('、')}`,
+        '{"<角色名>":{"资历":"<资历档>","属性":{"<属性名>":"<属性档>"},"擅长":["<技能>"],"比较擅长":["<技能>"],"招牌技能":[{"名":"<技能>","属性":"<六维之一>"}]}}',
+        '- 资历：普通人、老手、精英、大师、传奇 之一',
+        '- 属性名：力量、敏捷、体质、智力、感知、魅力、理智；属性档：很弱、偏弱、普通、出众、顶尖、超凡 之一；只写与「普通」不同的项，没有就写 {}',
+        '- 擅长写 3 项、比较擅长写 5 项，只从可用技能里选，两组不重复',
+        '- 招牌技能 0–3 个，可以是清单外的新技能（名字不超过 8 个字），属性填 力量、敏捷、体质、智力、感知、魅力 之一',
+        '- 全部用档位词，任何位置都不写数字',
+    ].join('\n');
+}
+
+export function buildSheetRequest(people, { worldview = '', skills = [], history = '', settings = '', worldInfo = '', userPersona = '', protagonists = [], prompt } = {}) {
+    const batch = people.slice(0, SHEET_BATCH_MAX);
+    const list = batch.map((p) => `【${p.name}】${ownOf(p) || '（没有资料，按普通人处理）'}`);
     const skillText = skills.map(([name, attribute]) => `${name}（${attribute}）`).join('、');
+    const settingText = [...new Set([String(settings).trim(), String(worldInfo).trim(),
+        ...batch.map((p) => String(p?.world || '').trim())].filter(Boolean))].join('\n\n');
+    const heroNames = batch.filter((p) => p.name === PROTAGONIST || protagonists.includes(p.name)).map((p) => p.name);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.sheetGen,
-        user: `世界观：${worldview || '现代'}\n可用技能：${skillText}\n${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}`,
+        user: [
+            `世界观：${worldview || '现代'}\n可用技能：${skillText || '（无）'}`,
+            settingText ? `世界观及角色设定：\n${settingText}` : '',
+            `角色资料：\n${list.join('\n\n')}`,
+            heroNames.length && String(userPersona).trim()
+                ? `以下是主角的补充信息（${heroNames.join('、')}）：\n${String(userPersona).trim()}` : '',
+            String(history).trim() ? `历史上下文（最新一层 AI 回复与用户输入，仅供判断，不要续写）：\n${String(history).trim()}` : '',
+            sheetReplyFormat(batch.map((p) => p.name)),
+        ].filter(Boolean).join('\n\n'),
     };
 }
 
@@ -246,7 +307,7 @@ export function abilityLine(engine, state, actor) {
 
 // people：[{ name, summary }]（含主角，名字为「主角」）；skills：待补的技能名。
 export function buildBackfillRequest(people, skills, { prompt } = {}) {
-    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(ownOf(p), BACKFILL_SUMMARY_MAX) || '（没有资料）'}`);
+    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${ownOf(p) || '（没有资料）'}`);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.backfill,
         user: `需要补的技能：${skills.slice(0, BACKFILL_SKILL_MAX).join('、')}\n角色资料：\n${list.join('\n')}`,
@@ -273,8 +334,6 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 
 // 主角技能一次性分配（CoC）：每个档位的名额上限，超额按回复顺序降一档；未学不限。
 export const HERO_TIER_LIMITS = Object.freeze({ 大师: 1, 精通: 2, 熟练: 6, 入门: 8 });
-export const HERO_SUMMARY_MAX = 6000;
-export const PLOT_SETTING_MAX = 3000;
 
 // skills：可分配的技能名。回复格式 { "技能名": "档位" }。
 export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
@@ -283,7 +342,7 @@ export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
         system: prompt || DEFAULT_STAT_PROMPTS.heroSkills,
         user: `可分配技能：${skills.join('、')}
 ${worldRef([hero])}角色资料：
-【${PROTAGONIST}】${clip(ownOf(hero), HERO_SUMMARY_MAX) || '（没有资料，按普通人处理）'}`,
+【${PROTAGONIST}】${ownOf(hero) || '（没有资料，按普通人处理）'}`,
     };
 }
 
@@ -314,9 +373,9 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
 // hero 为主角资料（用户人设）：玩家常把「谁喜欢主角」写在这里，角色资料里反而没有。
 // plot 为剧情注入器的设定条目，人物关系常写在这里。
 export function buildStartRelationRequest(people, { prompt, hero = '', plot = '' } = {}) {
-    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${clip(ownOf(p), SUMMARY_MAX) || '（没有资料）'}`);
-    const heroText = clip(hero, HERO_SUMMARY_MAX);
-    const plotText = clip(plot, PLOT_SETTING_MAX);
+    const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${ownOf(p) || '（没有资料）'}`);
+    const heroText = String(hero || '').trim();
+    const plotText = String(plot || '').trim();
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
         user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}`,

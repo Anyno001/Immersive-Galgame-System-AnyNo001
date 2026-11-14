@@ -116,7 +116,7 @@ export function normalizeAudienceFxSettings(value) {
     return {
         enabled: src.enabled === true,
         persona: pick(DANMAKU_PERSONAS, src.persona, 'melon'),
-        customPersona: String(src.customPersona || '').trim().slice(0, 120),
+        customPersona: String(src.customPersona || '').trim(),
         density: pick(DANMAKU_DENSITIES, src.density, 'medium'),
         speed: pick(DANMAKU_SPEEDS, src.speed, 'medium'),
         entrySize: pick(DANMAKU_ENTRY_SIZES, src.entrySize, 'medium'),

@@ -56,7 +56,7 @@ export function registerDlcFx(input) {
     const layer = DLC_FX_LAYERS.includes(input.layer) ? input.layer : 'front';
     const life = Number(input.lifeMs);
     const lifeMs = Number.isFinite(life) ? Math.max(200, Math.min(15000, life)) : 2400;
-    const prompt = typeof input.prompt === 'string' ? input.prompt.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const prompt = typeof input.prompt === 'string' ? input.prompt.replace(/\s+/g, ' ').trim() : '';
     const def = Object.freeze({
         kind,
         label,

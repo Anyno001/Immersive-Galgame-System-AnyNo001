@@ -27,7 +27,6 @@ export const PROMPT_ENTRY_MODES = Object.freeze(['auto', 'always', 'off']);
 export const PROMPT_ENTRY_POSITIONS = Object.freeze(['', 'system', 'depth0', 'depth']);
 export const PROMPT_ENTRY_DEPTH_MAX = 99;
 export const PROMPT_ENTRY_DEPTH_DEFAULT = 4;
-export const PROMPT_ENTRY_TEXT_MAX = 6000;
 
 // 个别块默认常驻（卡牌战斗的规则是否发出由战斗总开关决定，不靠关键词触发）。
 export const PROMPT_ENTRY_DEFAULT_MODES = Object.freeze({ combat: 'always' });
@@ -58,7 +57,7 @@ export function normalizePromptEntry(value, key = '') {
         position: PROMPT_ENTRY_POSITIONS.includes(v.position) ? v.position : '',
         depth: clampInt(v.depth, 0, PROMPT_ENTRY_DEPTH_MAX, PROMPT_ENTRY_DEPTH_DEFAULT),
         // 正文覆盖：只给没有 readerSettings.fxPrompts 对应项的块用（换装、玩乐、校园、题材包）；空 = 用内置写法。
-        text: typeof v.text === 'string' ? v.text.slice(0, PROMPT_ENTRY_TEXT_MAX) : '',
+        text: typeof v.text === 'string' ? v.text : '',
     };
 }
 

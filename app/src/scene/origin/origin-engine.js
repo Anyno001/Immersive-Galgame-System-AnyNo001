@@ -786,12 +786,12 @@ export function createOriginEngine(host) {
 
     // ---------- 生成请求：核心拼提示词，宿主 generate(kind, prompt) 发请求 ----------
     const BUSY = { ok: false, reason: 'busy' };
-    function material(recentN, cut) {
+    function material(recentN) {
         const c = ctx() || {};
         let cd = '';
-        try { const ch = (c.characters || [])[c.characterId]; if (ch) cd = String(ch.description || '').slice(0, 500); } catch (e) { /* */ }
+        try { const ch = (c.characters || [])[c.characterId]; if (ch) cd = String(ch.description || ''); } catch (e) { /* */ }
         const list = (Array.isArray(c.chat) ? c.chat : []).filter((m) => !m.is_system).slice(-recentN);
-        return { cd, recent: list.map((m) => (m.is_user ? '我：' : '') + stripHtml(m.mes).slice(0, cut)).join('\n') };
+        return { cd, recent: list.map((m) => (m.is_user ? '我：' : '') + stripHtml(m.mes)).join('\n') };
     }
     async function runGen(kind, prompt) {
         try { return { out: String(await host.generate(kind, prompt) || '') }; } catch (e) { return { err: String((e && e.message) || e) }; }
@@ -809,9 +809,9 @@ export function createOriginEngine(host) {
     function genTask() {
         return guarded(async () => {
             const v = view();
-            const mt = material(4, 900);
+            const mt = material(4);
             notify('info', '正在生成任务…');
-            const r = await runGen('task', taskPrompt({ ...v, cd: mt.cd.slice(0, 400), recent: mt.recent.slice(-900) }));
+            const r = await runGen('task', taskPrompt({ ...v, ...mt }));
             const line = r.out ? pickTaskLine(r.out) : '';
             if (!line) { notify('warn', '没生成出来，再点一次或手动添加'); return { ok: false, reason: r.err || 'no-result' }; }
             const res = await commitSaved({ type: 'applyBlock', block: line });
@@ -823,7 +823,7 @@ export function createOriginEngine(host) {
         return guarded(async () => {
             const v = view();
             notify('info', '正在刷新商城…');
-            const r = await runGen('shop', shopPrompt({ ...v, cd: material(1, 0).cd.slice(0, 300) }));
+            const r = await runGen('shop', shopPrompt({ ...v, cd: material(1).cd }));
             const items = parseShopLines(r.out);
             if (!items.length) { notify('warn', '刷新失败，重试'); return { ok: false, reason: r.err || 'no-result' }; }
             const res = await commitSaved({ type: 'setShop', items });
@@ -835,7 +835,7 @@ export function createOriginEngine(host) {
         return guarded(async () => {
             const v = view();
             notify('info', '正在重出奖池…');
-            const r = await runGen('gacha', gachaPrompt({ ...v, cd: material(1, 0).cd.slice(0, 300) }));
+            const r = await runGen('gacha', gachaPrompt({ ...v, cd: material(1).cd }));
             const items = parseGachaLines(r.out);
             if (!items.length) { notify('warn', '重出失败，重试'); return { ok: false, reason: r.err || 'no-result' }; }
             const res = await commitSaved({ type: 'setGacha', items });
@@ -851,7 +851,7 @@ export function createOriginEngine(host) {
             const asked = await commitSaved({ type: 'chatMe', text: ask });
             if (!asked.ok) return asked;
             const v = view();
-            const mt = material(2, 350);
+            const mt = material(2);
             const p = sysChatPrompt({ st: v.st, world: v.world, s: v.s, turn: v.turn, recent: mt.recent });
             const r = await runGen('sysChat', flatChat(p.system, p.msgs));
             if (r.err !== undefined) return commitSaved({ type: 'chatSys', text: '（连接失败：' + r.err + '）', block: null, toStory: false, ask });
@@ -863,7 +863,7 @@ export function createOriginEngine(host) {
         return guarded(async () => {
             const v = view();
             if (!hostOf(v.s)) return { ok: false, reason: 'no-host' };
-            const mt = material(3, 400);
+            const mt = material(3);
             notify('info', '正在生成私聊…');
             const r = await runGen('rpChat', rpChatPrompt({ st: v.st, world: v.world, s: v.s, cd: mt.cd, recent: mt.recent }));
             const lines = parseRpChatLines(r.out);

@@ -2922,7 +2922,7 @@ export async function handleSettingsAction(action, ctx) {
         if (carryPhoneAction[1]) {
             let text = '';
             try { text = decodeURIComponent(carryPhoneAction[2]); } catch { text = carryPhoneAction[2]; }
-            sceneAssets.carryPhonePrompt = text.slice(0, 600);
+            sceneAssets.carryPhonePrompt = text;
         } else sceneAssets.carryPhone = carryPhoneAction[2] === 'on';
         return rerenderSettings();
     }
@@ -4517,7 +4517,7 @@ export async function handleSettingsAction(action, ctx) {
         const alertFn = (msg) => { if (globalObj.alert) globalObj.alert(msg); };
         if (!name || ['__proto__', 'constructor', 'prototype'].includes(name)) { alertFn('没读到酒馆的用户名，请先在酒馆里选好用户设定'); return rerenderSettings(); }
         const persona = String((st.powerUserSettings && st.powerUserSettings.persona_description) || '')
-            .replace(/\{\{user\}\}/gi, name).replace(/\s+/g, ' ').trim().slice(0, 600);
+            .replace(/\{\{user\}\}/gi, name).replace(/\s+/g, ' ').trim();
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);
         const aliases = ensureCharacterAliases(settingsState, editTarget);
         const aliasOwner = Object.keys(aliases).find((n) => Array.isArray(aliases[n]) && aliases[n].includes(name));

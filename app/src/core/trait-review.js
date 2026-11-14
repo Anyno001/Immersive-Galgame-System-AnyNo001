@@ -101,9 +101,6 @@ function currentTraits(char, catalog) {
 // 2. 发：组装发送内容。
 // floors：[{ no, role: 'ai'|'user', text }]（取最后 6 楼）；
 // chars：[{ name, aliases?, protagonist?, relation?, summary?, traits?, recent? }]
-// 人设字数上限：每个角色自己的资料，与整批共用的世界观资料（只发一份）分开计。
-export const REVIEW_PERSONA_MAX = 6000;
-export const REVIEW_WORLD_MAX = 30000;
 export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, nsfw = false, world = '' } = {}) {
     const byId = new Map((Array.isArray(defs) ? defs : []).map((d) => [d.id, d]));
     const nameOf = (id) => (byId.has(id) ? byId.get(id).name : id);
@@ -112,7 +109,7 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
     const diary = diaryRows(tableList, people);
     return {
         nsfw: !!nsfw,
-        world: clean(world).slice(0, REVIEW_WORLD_MAX),
+        world: clean(world),
         floors: (Array.isArray(floors) ? floors : []).filter((f) => f && clean(f.text)).slice(-REVIEW_FLOOR_COUNT)
             .map((f) => ({ no: f.no, role: f.role === 'user' ? 'user' : 'ai', text: clean(f.text) })),
         summary: summaryRows(tableList, N),
@@ -121,8 +118,8 @@ export function buildReviewPayload({ floors, tables, chars, catalog, defs, N, ns
             protagonist: !!c.protagonist,
             relation: clean(c.relation),
             summary: clean(c.summary),
-            persona: clean(c.persona).slice(0, REVIEW_PERSONA_MAX),
-            note: clean(c.note).slice(0, 200),
+            persona: clean(c.persona),
+            note: clean(c.note),
             attrs: c.attrs && typeof c.attrs === 'object' ? c.attrs : null,
             traits: currentTraits(c, catalog).map((t) => ({ ...t, name: nameOf(t.id) })),
             statuses: Object.entries((catalog && catalog.statuses && catalog.statuses[c.name]) || {}).map(([name, e]) => ({ name, src: (e && e.src) || 'story' })),

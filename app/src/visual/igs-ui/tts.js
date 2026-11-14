@@ -301,9 +301,9 @@ export function normalizeTtsSettings(value) {
         // 系统声音下拉列出全部语言；关掉时只列中文、日文。
         allVoices: source.allVoices === true,
         // 旁白风格：一段文字描述，OpenAI 兼容接口作为 instructions 发送，自定义请求用 {{style}}。
-        narratorStyle: field(source.narratorStyle),
+        narratorStyle: String(source.narratorStyle ?? '').trim(),
         // 心里话页的风格描述与音量；风格与角色风格、情绪描述一起拼进 style。
-        thoughtStyle: field(source.thoughtStyle),
+        thoughtStyle: String(source.thoughtStyle ?? '').trim(),
         thoughtVolume: source.thoughtVolume !== undefined && source.thoughtVolume !== null && source.thoughtVolume !== '' && Number.isFinite(thoughtVolume) ? clamp(thoughtVolume, 0, 1) : THOUGHT_VOLUME_DEFAULT,
         // 台词、心里话按情绪与耳语拼一句中文描述写进风格（仅支持风格的格式有意义）。
         moodStyle: source.moodStyle === true,

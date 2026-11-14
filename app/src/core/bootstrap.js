@@ -102,11 +102,12 @@ import { createCombatChatRecord } from '../host/combat-chat-record.js';
 import { createPointsFloorRecord } from '../host/points-floor-record.js';
 import { createCombatGenerationMaterials } from '../host/combat-generation-materials.js';
 import { createCombatStoryContext } from '../host/combat-story-context.js';
+import { createStatsSheetContext } from '../host/stats-sheet-context.js';
 import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsOf, combatGrammarEnabled, findPendingCombatReport, resolveChallengePromptSegment, resolveCombatNarrationSegment, resolveCombatPartySegment, resolveCombatPromptRule } from '../scene/combat-prompt.js';
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.49';
+const IGS_VERSION = '0.40.50';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -879,7 +880,6 @@ export function bootstrapIGS(options = {}) {
     // 角色资料（v2 §6.4）：主角读人设，NPC 读角色卡与按名字、别名扫到的世界书条目（标题或正文开头含名字的也算）；
     // 仍为空时从最近楼层截取提到该角色的段落兜底。读取失败记在 errors 里，由数值运行时写进诊断。
     const PERSONA_FLOORS = 20;
-    const PERSONA_FALLBACK_MAX = 3000;
     // 条目开头的 HTML 注释（如数据库技能元信息）不是设定内容，读人设时去掉。
     const stripNotes = (text) => String(text || '').replace(/<!--[\s\S]*?-->/g, '').trim();
     const aliasGroupOf = (name) => {
@@ -897,7 +897,7 @@ export function bootstrapIGS(options = {}) {
                 if (text && words.some((w) => w.length >= 2 && text.includes(w))) out.push(text);
             }
         }
-        return out.join('\n').slice(-PERSONA_FALLBACK_MAX);
+        return out.join('\n');
     };
     const describeStatsPeople = async (names) => {
         const c = resolveTavernContext();
@@ -1011,6 +1011,7 @@ export function bootstrapIGS(options = {}) {
             return (prompt) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, llm);
         },
         describePeople: describeStatsPeople,
+        readSheetContext: createStatsSheetContext(globalObject, { resolveWorldInfo: statsWorldInfo, aliasesOf: aliasGroupOf }),
         plotSetting: readPlotSetting,
         // 人际关系页与好感总览两处表格里的人物名单（只取名字，数值以 IGS 为准）。
         tablePeople: () => {

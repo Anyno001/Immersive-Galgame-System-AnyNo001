@@ -8,7 +8,6 @@ export const LIVE_SKINS = Object.freeze(['terminal', 'cctv', 'auction']);
 export const LIVE_SKIN_LABELS = Object.freeze({ terminal: '终端', cctv: '监控', auction: '拍卖' });
 export const LIVE_TERMINAL_TONES = Object.freeze(['green', 'amber']);
 export const LIVE_TERMINAL_TONE_LABELS = Object.freeze({ green: '磷光绿', amber: '琥珀' });
-const PROMPT_MAX = 300;
 
 // 直播提示词里「平台」一栏的写法说明；设置里可改，留空或与默认相同即用默认。
 export const LIVE_PLATFORM_DEFAULT_PROMPT = '平台一栏可省；只有地下、违禁、见不得光的直播才写：暗网（用默认风格）或 暗网·终端（黑客）/ 暗网·监控（偷拍）/ 暗网·拍卖（会所竞拍）。普通直播不写';
@@ -18,7 +17,7 @@ const pick = (list, value, fallback) => (list.includes(value) ? value : fallback
 // 直播设置里与皮肤相关的字段：默认暗网子风格、终端配色、固定暗网开关、平台栏写法。
 export function normalizeLiveSkinSettings(value) {
     const src = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    const prompt = String(src.platformPrompt || '').trim().slice(0, PROMPT_MAX);
+    const prompt = String(src.platformPrompt || '').trim();
     return {
         darkSkin: pick(LIVE_SKINS, src.darkSkin, 'auction'),
         darkAll: src.darkAll === true,
