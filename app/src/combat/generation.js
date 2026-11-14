@@ -25,6 +25,7 @@ import { parseCombatInit } from './abilities.js';
 import { planRewardSlots } from './rewards.js';
 import { isRelicPassive, resolveRelic } from './relics/draw.js';
 import { INSCRIPTION_LABELS } from './mechanics/inscription.js';
+import { fixedCard } from './fixed-cards/index.js';
 
 // 支持的实体种类（顺序即处理顺序的参考）
 export const GENERATION_KINDS = Object.freeze(['class', 'profile-deck', 'profile-skill', 'profile-init', 'enemy', 'enemy-roster', 'skill-to-card', 'equip-to-passive', 'item-to-consumable', 'battle-reward', 'class-tier', 'trait', 'skill-fill', 'encounter-theme', 'profile-gear', 'signature-card', 'draw-card']);
@@ -112,7 +113,7 @@ export const GENERATION_SYSTEM = [
     '- skill-to-card：{"name"?:"默认 input.skill","template":"input.output 为 card 时填卡牌模板键，为 skill 时填技能模板键","cost"?:卡牌费用 0–3}；input.mode 为 upgrade 时另填 "targetId"：从 input.candidates 选出被精进的那一项，找不到时填 ""。input.templates 存在时（卡牌带 input.rarity）模板只能从其中选，可另填 "values":[整数…]——按 input.templateVars 中所选模板各变量的范围依次给数值，程序按费用 × 稀有度预算校验，不合格会要你修改；省略 values 则由程序求解。',
     '- equip-to-passive：{"template":"被动模板键"}——按 input.name、input.slot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）与 input.description 选最贴合这件装备的被动；名称与数值由程序给定。input.rarity 存在时改回 {"ability":"六维键 str/dex/con/int/wis/cha，按名称与简述选这件装备加成的一项","template":"被动模板键，只能从 input.templates 中选"}；没有 input.templates 时这件装备没有被动，只回 ability。',
     '- item-to-consumable：{"template":"道具模板键"}——按 input.name 与 input.description 选最贴合这件一次性道具的效果；input.templates 存在时只能从其中选（数值按 input.rarity 由程序放大）；名称、数量与数值由程序给定。',
-    `- battle-reward：{"slots":[按 input.slots 的顺序每槽一项 ["名称","模板键","来历"]],"reserve":[按 input.reserve 的顺序同样每槽一项]}——slots、reserve 的项数分别与 input.slots、input.reserve 相同；reserve 是翻牌重抽时换上的备用一套，名称不与 slots 重复。来历 ≤${REWARD_ORIGIN_MAX} 字，写这件东西从哪来，贴合 input.encounter、input.enemies 与剧情（context.story、context.worldInfo）。按该槽的 kind 填模板键：card 填卡牌模板键（费用为该槽的 cost，0 费只能用「0 费槽可用」的模板）；gear 填被动模板键，名称贴合该槽的 gearSlot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）；item 是一次性道具，填道具模板键；keepsake 是没有战斗效果的杂物（如褪色的发绳、半块桂花糕），模板键填 null；inscribe 是把 input 里的刻印（inscription）刻在角色已有的那张牌（card）上，名称写 null、模板键填 null，只写来历（这道刻印因何而来）。每槽都必须起名，名称与来历的品相贴合该槽的 rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）。稀有度、数值与数量由程序给定。`,
+    `- battle-reward：{"slots":[按 input.slots 的顺序每槽一项 ["名称","模板键","来历"]],"reserve":[按 input.reserve 的顺序同样每槽一项]}——slots、reserve 的项数分别与 input.slots、input.reserve 相同；reserve 是翻牌重抽时换上的备用一套，名称不与 slots 重复。来历 ≤${REWARD_ORIGIN_MAX} 字，写这件东西从哪来，贴合 input.encounter、input.enemies 与剧情（context.story、context.worldInfo）。按该槽的 kind 填模板键：card 填卡牌模板键（费用为该槽的 cost，0 费只能用「0 费槽可用」的模板）；card 槽带 fixedCard（程序定好的那张牌名）时名称写 null、模板键填 null，只写来历（这张牌因何而得）；gear 填被动模板键，名称贴合该槽的 gearSlot（weapon 武器 / armor 防具 / accessory 饰品 / treasure 宝物）；item 是一次性道具，填道具模板键；keepsake 是没有战斗效果的杂物（如褪色的发绳、半块桂花糕），模板键填 null；inscribe 是把 input 里的刻印（inscription）刻在角色已有的那张牌（card）上，名称写 null、模板键填 null，只写来历（这道刻印因何而来）。其余槽都必须起名，名称与来历的品相贴合该槽的 rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）。稀有度、数值与数量由程序给定。`,
     '- class-tier：{"tierName":"职业 input.className 第 input.tier 阶的阶名，≤12 字，按本故事的世界观起名，与 input.className 及 input.previousTierName（存在时）衔接、不重复","cards":[恰好 3 张卡牌]}——升阶后追加进该职业池的卡，第 i 张的费用是 input.costSlots[i]，体现职业原型 input.archetype 的进阶招式，名称不与 existingClasses 里该职业已有的卡重名；稀有度（input.rarity）、数值与 ID 由程序给定。',
     `input.combatInit 为 true 时，在 value 中另附 init：{"className":"自由职业显示名，最多12字，可空","role":"${ARCHETYPE_KEYS}","major":"主擅长六维键","minor":"次擅长六维键","weak":"短板六维键"}；六维键为 str/dex/con/int/wis/cha，三项互异，依据角色设定与剧情，不输出属性数值。profile-init 只返回 {"init":{...}}，不重写档案；这组字段可整组省略。`,
     `- trait：{"name":"人物特性名，≤20 字","template":"被动模板键","origin":"来历，≤${REWARD_ORIGIN_MAX} 字"}——角色 input.name 的人物特性：名称与来历依据 input.lore（存在时）、剧情与世界书（context.story、context.worldInfo），写这个人为何有这种特质；品相贴合 input.rarity（common 普通、uncommon 罕见、rare 稀有、epic 史诗、mythic 神话）；不与 input.existing（存在时）里已有的特性重名。input.effect 存在时效果已由程序定好（input.kind 为 active 时是战斗中每回合可主动用一次的技能，passive 为被动），只回 name 与 origin，名称与来历贴合这个效果，不写 template。稀有度、数值与 ID 由程序给定。`,
@@ -441,10 +442,12 @@ export function rewardEntity({ combatId, randomKey, anchor, tier, enemyTiers = [
     const slots = withGearTemplates(plan.slots, plan.seed);
     const reserve = withGearTemplates(plan.reserve, `${plan.seed}|reserve`);
     // 给模型的槽位信息去掉 index 与 count（由程序掌握）；刻印槽只给刻印名与牌名，不给副本与卡牌 ID；
-    // 遗物宝物槽（规则 v6）只给程序定好的名称与效果，不给遗物 ID 与模型。
+    // 遗物宝物槽（规则 v6）只给程序定好的名称与效果，不给遗物 ID 与模型；预定固定卡槽（规则 v6，不带 randomAt）只给牌名，模型只写来历。
     const visibleSlots = (slots) => slots.map(({ index, count, ...rest }) => (rest.kind === 'inscribe'
         ? { kind: rest.kind, rarity: rest.rarity, inscription: INSCRIPTION_LABELS[rest.inscription], card: rest.cardName }
-        : rest.relic
+        : rest.kind === 'card' && Array.isArray(rest.fixedIds) && rest.randomAt === undefined
+            ? { kind: rest.kind, rarity: rest.rarity, fixedCard: fixedCard(rest.fixedIds[0])?.name || '' }
+            : rest.relic
             ? (({ relic, templates, ...shown }) => ({ ...shown, ...relicShown(relic) }))(rest)
             : rest));
     const enemyNames = [...new Set((Array.isArray(enemies) ? enemies : []).map((enemy) => String(enemy?.name || '').trim()).filter(Boolean))];

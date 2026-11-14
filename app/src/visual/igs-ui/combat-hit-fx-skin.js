@@ -216,6 +216,13 @@ const EXTRA = `
 @keyframes hx-hurt{0%{filter:brightness(2.2) saturate(0);}30%{transform:translateX(10px) rotate(2deg);filter:brightness(1.35) saturate(.5);}60%{transform:translateX(-6px);filter:none;}100%{filter:none;}}
 @keyframes hx-struck{0%{filter:brightness(1.8) saturate(.4);}30%{transform:translateX(-8px);filter:brightness(1.3);}60%{transform:translateX(5px);filter:none;}100%{filter:none;}}
 ${SCOPE} .foe[data-igs-combat-react="hit"] .art{animation:hx-hurt 320ms cubic-bezier(.3,1.6,.5,1);}
+${SCOPE} .foe[data-igs-combat-react="heavy"] .art{animation:hx-hurt-heavy 420ms cubic-bezier(.3,1.4,.5,1);}
+@keyframes hx-hurt-heavy{0%{transform:scale(1.05);filter:brightness(3) saturate(0);}14%{transform:translateX(16px) rotate(3deg) scale(.97);filter:brightness(1.5) sepia(.5) hue-rotate(-30deg) saturate(2.6);}32%{transform:translateX(-12px) rotate(-2deg);}52%{transform:translateX(7px);filter:brightness(1.1);}74%{transform:translateX(-3px);}100%{transform:none;filter:none;}}
+${SCOPE} .igs-combat-float.is-damage.is-heavy-1{font-size:64px;color:#ffd06a;text-shadow:0 0 16px rgba(255,150,40,.9),0 0 30px rgba(255,100,30,.5);animation-name:hx-dmg-heavy;}
+${SCOPE} .igs-combat-float.is-damage.is-heavy-2{font-size:78px;color:#ff7444;text-shadow:0 0 18px rgba(255,80,40,.95),0 0 38px rgba(255,40,20,.6);animation-name:hx-dmg-heavy;}
+${SCOPE} .igs-combat-float.is-damage.is-reduced:is(.is-heavy-1,.is-heavy-2){animation-name:igs-combat-float-still;}
+@keyframes hx-dmg-heavy{0%{opacity:0;transform:translateY(-36px) scale(2.6) rotate(-8deg);}10%{opacity:1;transform:translateY(6px) scale(.86) rotate(-6deg);}20%{transform:translateY(-2px) scale(1.12) rotate(-6deg);}32%{transform:rotate(-6deg);}75%{opacity:1;transform:translateY(-8px) rotate(-6deg);}100%{opacity:0;transform:translateY(-30px) rotate(-6deg);}}
+${SCOPE} .foe .igs-combat-heavy-burst{z-index:46;}
 ${SCOPE} :is(.lead,.mate)[data-igs-combat-react="hit"] :is(.face,.mface){animation:hx-struck 300ms cubic-bezier(.3,1.6,.5,1);}
 ${SCOPE} .foe.hx-falling .art .cx-art-img{filter:grayscale(1) brightness(.55);transition:filter 300ms;}
 ${SCOPE} .hx-rbanner .hx-ic{color:var(--hx-rar);}

@@ -81,8 +81,8 @@ export const HURT_TIER_KEYS = Object.freeze(['轻伤', '中伤', '重伤']);
 export const REWARD_KINDS = Object.freeze(['card', 'gear', 'item', 'keepsake', 'inscribe']);
 export const REWARD_SLOT_COUNT = 3;
 export const REWARD_SLOT_MAX = 4;
-// 基础奖励三候选；积分抽卡独立固定为三候选。
-export const REWARD_CARD_CHOICES = 3;
+// 战利品卡牌槽基础为一张预定牌（旧 offer 为三候选，上限 4 照旧通过）；积分抽卡独立固定为三候选。
+export const REWARD_CARD_CHOICES = 1;
 export const REWARD_CARD_CHOICES_MAX = 4;
 export const CARD_DRAW_CHOICES = 3;
 export const REWARD_ORIGIN_MAX = 30;
@@ -1144,7 +1144,7 @@ function validateItem(item, path, state) {
 }
 
 // 战利品槽位里除公共字段外允许的载荷字段。
-// 卡牌槽的 choices（规则 v6）：REWARD_CARD_CHOICES 张候选（固定卡与随机卡 2:1），card 为其中的随机卡；旧槽位不带。
+// 卡牌槽的 choices（规则 v6）：1–REWARD_CARD_CHOICES_MAX 张（新 offer 为一张预定牌，加成时二选一；旧 offer 为三选一），card 必须是其中一张；旧槽位不带。
 // 杂物槽的 junk（规则 v6 G3d 弱敌战）：劣等杂物，卖价按 1/4；只在为真时写。
 const REWARD_PAYLOAD_FIELDS = Object.freeze({ card: ['card', 'choices', 'marks', 'upgradeNoDamage'], gear: ['gear'], item: ['item'], keepsake: ['junk'], inscribe: ['inscription', 'cardId', 'copyId', 'cardName'] });
 

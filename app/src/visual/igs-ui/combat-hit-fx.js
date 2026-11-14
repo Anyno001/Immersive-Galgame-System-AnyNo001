@@ -57,7 +57,7 @@ const FLOAT_TEXT = Object.freeze({
 });
 
 // 飘字：每条变化一个 span，挂在单位块里、立绘上方，按序号错开上浮（--i）；击倒也写在受击单位上（战斗面板不在画面中间出命中标签）。返回挂上的节点。
-export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, rarity, fresh = false } = {}) {
+export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, rarity, fresh = false, heavy = 0 } = {}) {
     if (!unitEl || !doc?.createElement) return [];
     const nodes = [];
     for (const m of marks || []) {
@@ -65,7 +65,8 @@ export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, r
         if (!text) continue;
         const el = doc.createElement('span');
         // fresh（九套画布皮肤）：格挡类飘字借设计稿「+N 格挡」的蓝字黑描边样式（hx-gainfx）。
-        el.className = `igs-combat-float is-${m.kind}${reduced ? ' is-reduced' : ''}${fresh && (m.kind === 'block' || m.kind === 'guard') ? ' hx-gainfx' : ''}`;
+        // heavy（对敌大伤害档，见 heavyHitRank）：掉血飘字加 is-heavy-1 / is-heavy-2，放大并砸落。
+        el.className = `igs-combat-float is-${m.kind}${reduced ? ' is-reduced' : ''}${fresh && (m.kind === 'block' || m.kind === 'guard') ? ' hx-gainfx' : ''}${m.kind === 'damage' && heavy ? ` is-heavy-${heavy}` : ''}`;
         el.setAttribute?.('aria-hidden', 'true');
         el.style?.setProperty?.('--i', String(nodes.length));
         el.textContent = text(m);
@@ -85,12 +86,13 @@ export const COMBAT_HIT_REACT_ATTR = 'data-igs-combat-react';
 const REACT_ORDER = ['ko', 'damage', 'overkill', 'guard', 'heal', 'block', 'power'];
 const REACT_KIND = Object.freeze({ ko: 'hit', damage: 'hit', overkill: 'hit', guard: 'guard', block: 'guard', heal: 'heal', power: 'power' });
 
-// 受击反馈：单位块挂 data-igs-combat-react（hit / guard / heal），样式按它做一次抖动或泛光，到时移除；减少动态效果时不加。返回反馈类别。
-export function reactUnit(unitEl, marks, { reduced = false, schedule } = {}) {
+// 受击反馈：单位块挂 data-igs-combat-react（hit / heavy / guard / heal），样式按它做一次抖动或泛光，到时移除；减少动态效果时不加。返回反馈类别。
+// heavy 为真（对敌大伤害）时受击改为 heavy：先白闪再大幅抖动。
+export function reactUnit(unitEl, marks, { reduced = false, schedule, heavy = false } = {}) {
     if (!unitEl || reduced) return '';
     const top = REACT_ORDER.find((k) => (marks || []).some((m) => m.kind === k));
     if (!top) return '';
-    const react = REACT_KIND[top];
+    const react = heavy && REACT_KIND[top] === 'hit' ? 'heavy' : REACT_KIND[top];
     // 先摘再挂并强制一次回流，连续命中同一单位时动画从头再播。
     unitEl.removeAttribute?.(COMBAT_HIT_REACT_ATTR);
     void unitEl.offsetWidth;
@@ -99,6 +101,34 @@ export function reactUnit(unitEl, marks, { reduced = false, schedule } = {}) {
     const later = typeof schedule === 'function' ? schedule : (f, t) => setTimeout(f, t);
     later(() => { if (unitEl.getAttribute?.(COMBAT_HIT_REACT_ATTR) === react && (!generation || unitEl.getAttributeNode?.(COMBAT_HIT_REACT_ATTR) === generation)) unitEl.removeAttribute?.(COMBAT_HIT_REACT_ATTR); }, COMBAT_HIT_REACT_MS);
     return react;
+}
+
+// 对敌大伤害：一次落下的掉血合计达到绝对值 min，或不少于 floor 且达到最大生命的 ratio 比例，即入该档（取高档）。
+// 1 重击、2 巨创：飘字放大砸落、受击重抖、立绘上炸开冲击光圈与火花，另有短停顿（hold）、定向震屏（shake）与冲击声。
+export const COMBAT_HEAVY_HIT = Object.freeze({
+    1: Object.freeze({ min: 12, floor: 5, ratio: 0.2, hold: 60, shake: 4, life: 520, sparks: 6, sfx: 'battle-impact-rare' }),
+    2: Object.freeze({ min: 24, floor: 8, ratio: 0.4, hold: 100, shake: 7, life: 680, sparks: 10, sfx: 'battle-impact-epic' }),
+});
+export function heavyHitRank(marks, maxHp = 0) {
+    const amount = (marks || []).reduce((sum, m) => sum + (m.kind === 'damage' ? Number(m.amount) || 0 : 0), 0);
+    if (!(amount > 0)) return 0;
+    const hp = Number(maxHp) || 0;
+    const reach = (t) => amount >= t.min || (hp > 0 && amount >= t.floor && amount >= hp * t.ratio);
+    return reach(COMBAT_HEAVY_HIT[2]) ? 2 : reach(COMBAT_HEAVY_HIT[1]) ? 1 : 0;
+}
+// 大伤害爆点：受击单位块里挂一个冲击光圈（低画质不出火花），到时移除；减少动态效果时不出。返回挂上的节点。
+export function showHeavyBurst(doc, unitEl, rank, { reduced = false, low = false, schedule } = {}) {
+    const tier = COMBAT_HEAVY_HIT[rank];
+    if (!tier || reduced || !unitEl || !doc?.createElement) return [];
+    const el = doc.createElement('span');
+    el.className = `igs-combat-heavy-burst is-rank-${rank}`;
+    el.setAttribute?.('aria-hidden', 'true');
+    el.style?.setProperty?.('--life', `${tier.life}ms`);
+    el.innerHTML = `<i class="igs-combat-heavy-ring"></i>${low ? '' : Array.from({ length: tier.sparks }, (_, i) => `<i class="igs-combat-heavy-spark" style="--a:${Math.round((360 / tier.sparks) * i + 15)}deg"></i>`).join('')}`;
+    unitEl.appendChild(el);
+    const later = typeof schedule === 'function' ? schedule : (f, t) => setTimeout(f, t);
+    later(() => el.remove?.(), tier.life);
+    return [el];
 }
 
 

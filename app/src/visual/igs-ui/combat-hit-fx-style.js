@@ -43,6 +43,25 @@ ${C} .igs-combat-fx .igs-combat-card.is-flying{position:absolute;z-index:4;margi
 @media (prefers-reduced-motion:reduce){${C} .igs-combat-unit[${R}] .igs-combat-portrait{animation:none;}${C} .igs-combat-float{animation-name:igs-combat-float-still;}${C} .igs-combat-hp-track::before{transition:none;}}
 ${C} .igs-combat-float{scale:var(--igs-float-scale,1);}
 ${C} .igs-combat-float.is-guard{color:var(--igs-float-color,color-mix(in srgb,var(--igs-cb-skill) 55%,#fff));}
+${C} .igs-combat-float.is-damage:is(.is-heavy-1,.is-heavy-2){z-index:4;scale:min(var(--igs-float-scale,1),1.2);letter-spacing:.02em;}
+${C} .igs-combat-float.is-damage.is-heavy-1{color:#ffc35a;font-size:30px;font-size:clamp(22px,6cqmin,40px);text-shadow:0 2px 3px rgba(0,0,0,.9),0 0 10px rgba(255,150,40,.75),0 0 22px rgba(255,110,30,.45);}
+${C} .igs-combat-float.is-damage.is-heavy-2{color:#ff6a3d;font-size:38px;font-size:clamp(28px,7.6cqmin,52px);text-shadow:0 2px 3px rgba(0,0,0,.95),0 0 12px rgba(255,80,40,.85),0 0 30px rgba(255,40,20,.55);}
+${C} .igs-combat-float.is-damage:is(.is-heavy-1,.is-heavy-2):not(.is-reduced){animation-name:igs-combat-float-heavy;animation-timing-function:cubic-bezier(.2,.9,.3,1);}
+@keyframes igs-combat-float-heavy{0%{opacity:0;transform:translateY(-30px) scale(2.3);}10%{opacity:1;transform:translateY(4px) scale(.88);}20%{transform:translateY(-2px) scale(1.14);}32%{transform:translateY(-6px) scale(1);}80%{opacity:1;}100%{opacity:0;transform:translateY(-34px) scale(.96);}}
+${C} .igs-combat-unit[${R}="heavy"] .igs-combat-portrait{animation:igs-combat-heavy-struck ${COMBAT_HIT_REACT_MS}ms cubic-bezier(.25,.8,.35,1) both;}
+@keyframes igs-combat-heavy-struck{0%{translate:0 0;scale:1.04;filter:brightness(3) saturate(0);}12%{translate:-12px 2px;scale:.97;filter:brightness(1.6) sepia(.6) hue-rotate(-35deg) saturate(3);}28%{translate:10px -2px;scale:1.01;}44%{translate:-7px 1px;}60%{translate:4px 0;filter:brightness(1.15);}78%{translate:-2px 0;}100%{translate:0 0;scale:1;filter:none;}}
+${C} .igs-combat-heavy-burst{position:absolute;left:50%;top:42%;z-index:3;width:clamp(90px,60%,200px);aspect-ratio:1;translate:-50% -50%;pointer-events:none;}
+${C} .igs-combat-heavy-burst.is-rank-2{width:clamp(120px,82%,260px);}
+${C} .igs-combat-heavy-ring{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(255,250,235,.95) 0 12%,rgba(255,170,60,.7) 24%,rgba(255,90,40,.28) 46%,transparent 66%);animation:igs-combat-heavy-ring var(--life) cubic-bezier(.15,.85,.3,1) both;}
+${C} .igs-combat-heavy-ring::after{content:"";position:absolute;inset:6%;border-radius:50%;box-shadow:0 0 0 3px rgba(255,214,150,.9),0 0 18px 4px rgba(255,120,40,.6);animation:igs-combat-heavy-shock var(--life) cubic-bezier(.1,.8,.3,1) both;}
+${C} .igs-combat-heavy-spark{position:absolute;left:50%;top:50%;width:4px;height:18px;margin:-9px -2px;border-radius:2px;background:linear-gradient(#fff,#ffb347 55%,transparent);box-shadow:0 0 8px rgba(255,150,50,.8);rotate:var(--a);animation:igs-combat-heavy-spark var(--life) cubic-bezier(.1,.8,.3,1) both;}
+${C} .igs-combat-heavy-burst.is-rank-2 .igs-combat-heavy-spark{height:26px;margin-top:-13px;}
+@keyframes igs-combat-heavy-ring{0%{opacity:0;scale:.2;}12%{opacity:1;scale:.8;}100%{opacity:0;scale:1.25;}}
+@keyframes igs-combat-heavy-shock{0%{opacity:0;scale:.3;}15%{opacity:1;}100%{opacity:0;scale:1.6;}}
+@keyframes igs-combat-heavy-spark{0%{opacity:0;transform:translateY(0) scaleY(.4);}12%{opacity:1;transform:translateY(-18px) scaleY(1.2);}100%{opacity:0;transform:translateY(-78px) scaleY(.3);}}
+@media (prefers-reduced-motion:reduce){${C} .igs-combat-float.is-damage:is(.is-heavy-1,.is-heavy-2){animation-name:igs-combat-float-still;}${C} .igs-combat-heavy-burst{display:none;}}
+#igs-overlay[data-igs-quality="low"] ${C} .igs-combat-heavy-ring::after{display:none;}
+
 ${C} .igs-combat-card[data-igs-rarity-trail]{box-shadow:0 12px 16px -4px var(--rar),0 30px 25px -8px color-mix(in srgb,var(--rar) 45%,transparent);}
 ${C} .igs-combat-rarity-fx{position:absolute;inset:0;pointer-events:none;z-index:5;border-radius:inherit;animation:igs-combat-rarity-pulse var(--life) ease-out both;background:radial-gradient(ellipse at center,color-mix(in srgb,var(--rar) 55%,transparent),transparent 72%);}
 ${C} .igs-combat-rarity-fx.is-hit{inset:4% -15% 10%;background:radial-gradient(ellipse,#fff5d4 0%,color-mix(in srgb,var(--rar) 65%,transparent) 22%,transparent 70%);}

@@ -13,7 +13,7 @@ import { createIntimateDuelFx } from './intimate-duel-fx.js';
 import { createDuelLowGate } from '../../scene/intimate-duel.js';
 import { combatPortraitNames } from '../../scene/creature-battle.js';
 import { ensureFxLayers } from './fx-layer.js';
-import { COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
+import { COMBAT_HEAVY_HIT, COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, heavyHitRank, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHeavyBurst, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
 import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
 import { cardTipHtml, combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
@@ -465,7 +465,7 @@ export function createCombatPanelController(doc, options = {}) {
 
     // 整块重绘会换掉单位块：重绘前把单位块上还在播的演出（飘字、受击形态）与受击反馈收起来，重绘后挂回同一单位的新节点，
     // 并按挪动前的播放进度接上（样式动画换了位置会从头再播）；连续出牌时上一张牌的演出不被下一张的重绘清掉。
-    const UNIT_FX = '.igs-combat-float, .igs-combat-rarity-fx';
+    const UNIT_FX = '.igs-combat-float, .igs-combat-rarity-fx, .igs-combat-heavy-burst';
     const animationsOf = (n, subtree) => { try { return (subtree ? n?.getAnimations?.({ subtree: true }) : n?.getAnimations?.()) || []; } catch (error) { return []; } };
     function liftUnitFx() {
         const out = [];
@@ -1127,15 +1127,32 @@ export function createCombatPanelController(doc, options = {}) {
     function rarityImpact(fx, targetId) {
         if (!root || !fx?.rank) return;
         const el = root;
-        if (fx.hold) {
-            el.setAttribute('data-igs-combat-hold', '');
-            later(() => el.removeAttribute('data-igs-combat-hold'), fx.hold);
-        }
+        if (fx.hold) holdPanel(el, fx.hold);
         later(() => {
             if (root !== el) return;
             if (fx.shake) shakePanel(el, strikeDirection(fx.unitId, targetId), fx.shake, fx.rank);
             sfx(fx.sfx);
         }, fx.hold);
+    }
+    // 停顿标记按最后一次挂上的时长撤掉：稀有停顿之后再挂更长的大伤害停顿时，不被前一次的计时提前摘除。
+    let holdGen = 0;
+    function holdPanel(el, ms) {
+        const gen = ++holdGen;
+        el.setAttribute('data-igs-combat-hold', '');
+        later(() => { if (gen === holdGen) el.removeAttribute('data-igs-combat-hold'); }, ms);
+    }
+    // 对敌大伤害（COMBAT_HEAVY_HIT）：本段第一次落下时补足停顿、震屏与冲击声；稀有命中已给出的不重复、只取更强的一项。
+    // 低画质不震屏，减少动态效果不停顿、不震、不出声。
+    function heavyImpact(tier, fx, targetId) {
+        if (!root || !tier || reduced()) return;
+        const el = root;
+        const base = fx?.rank ? fx.hold || 0 : 0;
+        if (tier.hold > base) holdPanel(el, tier.hold);
+        later(() => {
+            if (root !== el) return;
+            if (!lowQuality() && tier.shake > (fx?.rank ? fx.shake || 0 : 0)) shakePanel(el, strikeDirection(fx?.unitId, targetId), tier.shake, Math.max(1, fx?.rank || 0));
+            if (!(fx?.rank && fx.sfx)) sfx(tier.sfx);
+        }, Math.max(tier.hold, base));
     }
 
     // 整面板朝 dir 方向推一下再回弹（--igs-shake-x / -y 为方向，--shake 为幅度，data-igs-combat-shake 为档位，380ms 后撤掉）；稀有命中与觉醒收尾共用。
@@ -1462,6 +1479,7 @@ export function createCombatPanelController(doc, options = {}) {
         const strikes = landing?.strikes || new Map();
         const sounded = new Set();
         let impacted = false;
+        let heavied = false;
         for (const { unitId, marks: all } of marks) {
             const name = String(units[unitId]?.name || '').trim();
             let match;
@@ -1486,10 +1504,18 @@ export function createCombatPanelController(doc, options = {}) {
                     const stop = struck && !impacted ? rarity.hold : 0;
                     const ko = defer && entry && list.some((mark) => mark.kind === 'ko');
                     const shown = ko ? list.filter((mark) => mark.kind !== 'ko') : list;
+                    // 对敌大伤害（heavyHitRank）：按这次落下的掉血合计与敌人最大生命定档，飘字砸落、受击重抖、爆点；本段第一次另补停顿与震屏。
+                    const heavy = units[unitId]?.side === 'enemy' ? heavyHitRank(shown, entry?.maxHp || units[unitId]?.maxHp) : 0;
+                    const tier = heavy ? COMBAT_HEAVY_HIT[heavy] : null;
+                    const hold = Math.max(stop, tier && !heavied && !reduced() ? tier.hold : 0);
                     if (entry) { applyHitMarks(entry, shown); if (ko) { entry.hp = 0; entry.ko = true; } paintUnitHp(el, entry); }
-                    showHitFloats(doc, el, shown, { reduced: reduced(), schedule: later, rarity, fresh: hxOn() });
+                    showHitFloats(doc, el, shown, { reduced: reduced(), schedule: later, rarity, fresh: hxOn(), heavy });
                     // 停顿期间受击动画暂停，摘除受击反馈的计时顺延同样时长，动画不被截短。
-                    reactUnit(el, list, { reduced: reduced() || lowQuality(), schedule: stop ? (fn, ms) => later(fn, ms + stop) : later });
+                    reactUnit(el, list, { reduced: reduced() || lowQuality(), schedule: hold ? (fn, ms) => later(fn, ms + hold) : later, heavy: heavy > 0 });
+                    if (heavy) for (const node of showHeavyBurst(doc, el, heavy, { reduced: reduced(), low: lowQuality(), schedule: later })) {
+                        cutinNodes.add(node);
+                        later(() => cutinNodes.delete(node), tier.life);
+                    }
                     hxHitCues(unitId, shown, { struck, rarity, enemyActs });
                     // 倒下（鞭尸推迟的由 revealDowns 出）：敌方按登记与否出两类姿态与倒地声、说倒下台词；其余掉血的单位说受击台词（同单位节流）。
                     if (shown.some((mark) => mark.kind === 'ko')) koFallCue(unitId);
@@ -1498,6 +1524,7 @@ export function createCombatPanelController(doc, options = {}) {
                         rarityNodes(el, rarity, 'hit');
                         if (!impacted) { impacted = true; rarityImpact(rarity, unitId); }
                     }
+                    if (tier && !heavied) { heavied = true; heavyImpact(tier, impacted ? rarity : null, unitId); }
                     if (wave && !wave.first && typeof onWave === 'function' && !sounded.has(wave)) { sounded.add(wave); onWave(wave.event, list); }
                 };
                 if (at > 0) later(land, at); else land();

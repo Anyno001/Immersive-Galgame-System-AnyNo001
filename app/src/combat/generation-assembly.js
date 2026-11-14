@@ -702,17 +702,23 @@ function buildRewardEntry(value, path, collector, slot, seed) {
     if (origin.length > REWARD_ORIGIN_MAX) collector.note(paths[2], origin.length, REWARD_ORIGIN_MAX);
     const base = { index: slot.index, kind: slot.kind, rarity: slot.rarity, origin: origin.slice(0, REWARD_ORIGIN_MAX) };
     if (slot.kind === 'card') {
-        // 规则 v6 三选一槽（rewards.js 的 withCardCandidates）：随机卡只能用本职业允许的模板，与程序定的固定卡一起按 randomAt 排成 choices。
+        // 规则 v6 预定卡槽（rewards.js 的 withCardCandidates）：只有固定卡（不带 randomAt）时就是那张牌，模型只写来历；
+        // 带随机卡时随机卡只能用本职业允许的模板，与程序定的固定卡一起按 randomAt 排成 choices（旧 offer 的三选一同此）。
         const fixedIds = Array.isArray(slot.fixedIds) ? slot.fixedIds : null;
-        const table = fixedIds ? archetypeTable(slot.archetype) : CARD_TEMPLATES;
-        const card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost, table, archetype: slot.archetype });
-        if (!card) return undefined;
         const fixed = (fixedIds || []).map((id) => fixedCard(id));
         if (fixed.some((item) => !item)) return collector.fail(path, 'reward-choice-invalid');
         const choices = fixed.map((item) => JSON.parse(JSON.stringify(item)));
-        choices.splice(Math.max(0, Math.min(choices.length, Number(slot.randomAt) || 0)), 0, card);
+        let card = choices[0];
+        if (!fixedIds || slot.randomAt !== undefined) {
+            const table = fixedIds ? archetypeTable(slot.archetype) : CARD_TEMPLATES;
+            card = buildCard(nameValue, templateValue, undefined, [paths[0], paths[1], `${path}.cost`], collector, { id: rewardId(seed, slot.index, 'rc'), rarity: slot.rarity, slot: slot.cost, table, archetype: slot.archetype });
+            if (!card) return undefined;
+            choices.splice(Math.max(0, Math.min(choices.length, Number(slot.randomAt) || 0)), 0, card);
+        }
+        if (!card) return collector.fail(path, 'reward-choice-invalid');
+        // 预定固定卡可能因固定池逐档降低而低于槽位稀有度：槽位稀有度随这张牌，与校验的 card.rarity 一致。
         return {
-            ...base, name: card.name, card, ...(fixedIds ? { choices } : {}),
+            ...base, rarity: card.rarity || slot.rarity, name: card.name, card, ...(fixedIds ? { choices } : {}),
             ...(slot.inscribe > 0 ? { marks: planRewardMarks(choices, `${seed}|${slot.index}`, slot.inscribe) } : {}),
             ...(slot.upgradeNoDamage === true ? { upgradeNoDamage: true } : {}),
         };

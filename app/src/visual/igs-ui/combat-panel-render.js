@@ -542,7 +542,7 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     const actLabel = act === 'choose' ? `选择 ${label}` : s ? `翻开 ${label}` : `翻开第 ${pos + 1} 张`;
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
-// 规则 v6 卡牌槽三选一：选定的战利品带 choices 时，在下方列出候选，点选其一（可改选），或跳过。
+// 规则 v6 卡牌槽：选定的战利品带 choices 时在下方亮出牌面。一张（预定牌）时接受或放弃；多张（加成二选一、旧 offer 三选一）时点选其一（可改选）或跳过。
 function lootChoicesHtml(f, pending, v = {}) {
     const slot = f.done ? f.cards.find((c) => c.chosen)?.slot : null;
     if (!slot || slot.kind !== 'card' || !Array.isArray(slot.choices) || !slot.choices.length) return '';
@@ -691,8 +691,11 @@ function lootHtml(v) {
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
         ? btn('reroll', r.cost > 0 ? `重抽·${r.cost}积分` : '重抽·免费', { disabled: pending || !r.available, full: r.cost > 0 ? `重新抽取（消耗${r.cost}积分）` : '重新抽取（免费）' }) : '';
     const choices = lootChoicesHtml(f, pending, v);
-    const skip = choices ? btn('pick-card', f.card === 'skip' ? '已跳过' : '跳过', { id: 'skip', disabled: pending }) : '';
-    const tools = `${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
+    const single = Boolean(choices) && f.cards.find((c) => c.chosen)?.slot?.choices?.length === 1;
+    const accept = single ? btn('pick-card', f.card === 0 ? '已接受' : '接受', { id: '0', primary: f.needCard === true, pressed: f.card === 0, disabled: pending }) : '';
+    const skipLabel = single ? (f.card === 'skip' ? '已放弃' : '放弃') : (f.card === 'skip' ? '已跳过' : '跳过');
+    const skip = choices ? btn('pick-card', skipLabel, { id: 'skip', ...(single ? { pressed: f.card === 'skip' } : {}), disabled: pending }) : '';
+    const tools = `${accept}${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
         + `${traitSourceHtml(f)}${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;

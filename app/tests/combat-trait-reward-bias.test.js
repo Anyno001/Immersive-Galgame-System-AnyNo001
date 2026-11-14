@@ -68,12 +68,13 @@ describe('B 奖励牌类偏向', () => {
 });
 
 describe('C 翻牌时多一次选择', () => {
-    it('幸运儿：每 3 胜一次，多一个可选项（候选 3→4）并记来源', () => {
+    it('幸运儿：每 3 胜一次，多一个可选项（预定牌 1→固定卡与随机卡二选一）并记来源', () => {
         const due = plan('f1', { hero: ['幸运儿'], allies: [] }, { character: { flipWins: { 'trait:幸运儿': 2 } } });
         assert.deepEqual(due.traitFlip, { trait: '幸运儿', effect: 'choices' });
         assert.deepEqual(due.traitHeld, ['幸运儿']);
-        const sizes = due.slots.filter((s) => s.kind === 'card' && s.fixedIds).map((s) => s.fixedIds.length);
-        assert.ok(sizes.every((n) => n === 3), sizes.join());
+        const cards = due.slots.filter((s) => s.kind === 'card' && s.fixedIds);
+        assert.ok(cards.length > 0);
+        assert.ok(cards.every((s) => s.fixedIds.length === 1 && Number.isInteger(s.randomAt)), JSON.stringify(cards));
         const off = plan('f1', { hero: ['幸运儿'], allies: [] }, { character: { flipWins: { 'trait:幸运儿': 1 } } });
         assert.equal(off.traitFlip, undefined);
         assert.deepEqual(off.traitHeld, ['幸运儿']);

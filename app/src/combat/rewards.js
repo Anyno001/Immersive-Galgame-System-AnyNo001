@@ -202,26 +202,33 @@ function fixedCandidates(seed, rarity, pool, owned, count, taken = [], floor = '
     return out;
 }
 
-// 规则 v6：卡牌槽展开为 REWARD_CARD_CHOICES 张候选，本职业固定卡与随机卡 2:1，随机卡的位置由种子定；
-// 每槽以 REWARD_GENERAL_SHARE 的概率把最后一张固定候选换成无色固定卡。
-// 程序在槽位上记 fixedIds / randomAt / archetype，随机卡由副 LLM 按本职业模板命名。本职业固定池凑不齐时该槽照旧只出一张随机卡。
+// 规则 v6：卡牌槽是程序预先定好的一张牌，翻到即是这张牌，结算时接受或放弃（不再展开候选）。
+// 稀有及以下的槽以 REWARD_RANDOM_CARD_SHARE 的概率出本职业随机卡（副 LLM 按本职业模板命名），否则出一张本职业固定卡；史诗及以上（固定池封顶稀有）出随机卡。
+// 固定卡以 REWARD_GENERAL_SHARE 的概率换成无色固定卡。「多一个可选项」（bonus.choices）时为固定卡与随机卡各一张，二选一。
+// 程序在槽位上记 fixedIds / archetype，含随机卡时另记 randomAt（随机卡位置）；固定池凑不齐时缺的位置由随机卡补上。
 // heroTraits 为主角数值特质名单（可选）：命中偏向时本职业固定候选按牌类加权，applied 收集实际生效的 { trait, category }。
+export const REWARD_RANDOM_CARD_SHARE = 1 / 3;
 function withCardCandidates(slots, seed, pool, owned, archetype, general = [], bonus = {}, heroTraits = null, applied = null) {
     return slots.map((slot) => {
         if (slot.kind !== 'card') return slot;
         const marked = { ...slot, ...(bonus.inscribe > 0 ? { inscribe: bonus.inscribe } : {}), ...(bonus.upgradeNoDamage ? { upgradeNoDamage: true } : {}) };
         if (!pool.length) return marked;
         const count = Math.min(REWARD_CARD_CHOICES_MAX, REWARD_CARD_CHOICES + (bonus.choices || 0));
-        const bias = heroTraits ? pickBias(heroTraits, pool) : null;
-        const fixedIds = fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, count - 1, [], 'common', bias ? biasWeightOf(bias.category) : null);
-        if (bias && applied && fixedIds.length >= REWARD_CARD_CHOICES - 1) applied.push(bias);
-        if (fixedIds.length < REWARD_CARD_CHOICES - 1) return marked;
-        const size = fixedIds.length + 1;
-        if (general.length && randomFrom(`${seed}|cand-general|${slot.index}`)() < REWARD_GENERAL_SHARE) {
+        let random = count > 1 || rarityIndex(slot.rarity) > FIXED_TOP || randomFrom(`${seed}|cand-random|${slot.index}`)() < REWARD_RANDOM_CARD_SHARE;
+        const want = random ? count - 1 : count;
+        const bias = want && heroTraits ? pickBias(heroTraits, pool) : null;
+        let fixedIds = want ? fixedCandidates(`${seed}|cand|${slot.index}`, slot.rarity, pool, owned, want, [], 'common', bias ? biasWeightOf(bias.category) : null) : [];
+        if (bias && applied && fixedIds.length) applied.push(bias);
+        if (fixedIds.length < want) {
+            fixedIds = fixedIds.slice(0, count - 1);
+            random = true;
+        }
+        if (fixedIds.length && general.length && randomFrom(`${seed}|cand-general|${slot.index}`)() < REWARD_GENERAL_SHARE) {
             const [colorless] = fixedCandidates(`${seed}|cand-general-pick|${slot.index}`, slot.rarity, general, owned, 1, fixedIds, 'uncommon');
             if (colorless) fixedIds[fixedIds.length - 1] = colorless;
         }
-        const randomAt = pickIndex(randomFrom(`${seed}|cand-at|${slot.index}`), size);
+        if (!random) return { ...marked, archetype, fixedIds };
+        const randomAt = pickIndex(randomFrom(`${seed}|cand-at|${slot.index}`), fixedIds.length + 1);
         return { ...marked, archetype, fixedIds, randomAt };
     });
 }
