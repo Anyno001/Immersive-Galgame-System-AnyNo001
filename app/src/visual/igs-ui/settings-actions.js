@@ -42,6 +42,7 @@ import { collectPromptContext } from '../../host/prompt-context.js';
 import { localImageCacheFor } from '../../media/tavern-image-cache.js';
 import { buildPageDiagnostic } from './page-diagnostic.js';
 import { pickFaceBox } from './face-box-picker.js';
+import { pickAvatarCrop } from './avatar-crop-picker.js';
 import { normalizeFaceBox } from '../../generated-images/illustration/face-edit-plan.js';
 import { fxPromptsCopyText } from './fx-settings-fields.js';
 import { defaultPromptEntryMode, isPromptEntryKey, normalizePromptEntry } from '../../scene/prompt-entries.js';
@@ -50,7 +51,7 @@ import { clearMoodReview, loadMoodReview, removeMoodReview, saveMoodReview } fro
 import { loadStoryOutfitCandidates } from '../../scene/outfit-review-store.js';
 import { applyMoodAssignments, applyMoodReclassification, buildMoodClassificationRequest, buildMoodReclassifyRequest, parseMoodClassification, resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { SETTINGS_NOTICE_MS, beginSettingsProgress, markSettingsButtonBusy, remountSettingsNotice } from './settings-notice.js';
-import { STATUS_HUD_POSITION_DEVICES, normalizeStatusHudSettings, normalizeStatusAvatars, resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
+import { STATUS_HUD_AVATAR_RADIUS_PX, STATUS_HUD_POSITION_DEVICES, normalizeStatusAvatarCrops, normalizeStatusHudSettings, normalizeStatusAvatars, resolveStatusHudPicks } from '../../data/shujuku/status-hud-model.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 
 import { normalizeStageShakeSettings } from './stage-shake-runtime.js';
@@ -80,7 +81,7 @@ import { resolveCharacterDna, normalizeCharacterDna, normalizeCharacterDnaMap, r
 import { prepareSpriteIdentityAdoption } from '../../scene/character-identity.js';
 import { adoptCharacterSeed } from '../../scene/generation-seeds.js';
 import { isImageSeed } from '../../generated-images/image-seed.js';
-import { readDefaultOutfit, outfitSpriteSlots, setOutfitSprite, pickOutfitSprite, prepareInitialDefaultOutfitSelection } from '../../scene/character-appearance.js';
+import { readDefaultOutfit, readVisibleDefaultOutfit, outfitSpriteSlots, setOutfitSprite, pickOutfitSprite, prepareInitialDefaultOutfitSelection } from '../../scene/character-appearance.js';
 import { inspectOutfitImages } from '../../media/outfit-image-availability.js';
 import { prepareOutfitAdoption, prepareOutfitDnaSave } from '../../scene/outfit-identity.js';
 import { revertProfileWrite } from '../../scene/profile-write.js';
@@ -1002,6 +1003,53 @@ export async function handleSettingsAction(action, ctx) {
     }
     const risky = riskyActionMessage(normalizedAction, settingsState, editTarget);
     if (risky && typeof dialogs.confirm === 'function' && !(await dialogs.confirm(risky))) return rerenderSettings();
+    // 表情立绘批量删除：多选记在界面状态里，删除时逐格走单格删除动作，清理与单删一致。
+    const moodMatch = /^mood-(select|pick|pick-all|delete-picked|select-done)(?::(.*))?$/.exec(normalizedAction);
+    if (moodMatch) {
+        const [, op, rest = ''] = moodMatch;
+        const asyncState = settingsState.asyncState;
+        if (op === 'select-done') { asyncState.moodSelect = null; return rerenderSettings(); }
+        if (op === 'select') {
+            const [charName = '', outfitName = ''] = rest.split(':').map(decodeSeg);
+            asyncState.moodSelect = charName ? { char: charName, outfit: outfitName, names: new Set() } : null;
+            return rerenderSettings();
+        }
+        const cur = asyncState.moodSelect;
+        if (!cur || !(cur.names instanceof Set)) return rerenderSettings();
+        const assets = draftEffectiveAssets(settingsState) || {};
+        const outfitEntry = cur.outfit ? (assets.characterOutfits || {})[cur.char]?.[cur.outfit] : null;
+        const slots = cur.outfit
+            ? { ...(outfitEntry && outfitEntry.moods), ...(outfitEntry && outfitEntry.base && !isBuiltinNudeOutfit(outfitEntry.wardrobe) ? { 默认: outfitEntry.base } : {}) }
+            : { ...((assets.characters || {})[cur.char] || {}) };
+        const all = Object.keys(slots);
+        if (op === 'pick') {
+            const segs = rest.split(':').map(decodeSeg);
+            const mood = segs[2] || '';
+            if (segs[0] !== cur.char || segs[1] !== cur.outfit) return rerenderSettings();
+            if (cur.names.has(mood)) cur.names.delete(mood); else cur.names.add(mood);
+            return rerenderSettings();
+        }
+        if (op === 'pick-all') {
+            cur.names = cur.names.size === all.length ? new Set() : new Set(all);
+            return rerenderSettings();
+        }
+        const moods = [...cur.names].filter((mood) => all.includes(mood));
+        if (!moods.length) return rerenderSettings();
+        const preview = moods.slice(0, 5).map((mood) => `「${mood}」`).join('') + (moods.length > 5 ? ` 等${moods.length}格` : '');
+        const owner = cur.outfit ? `「${cur.char}」「${cur.outfit}」` : `「${cur.char}」`;
+        if (typeof dialogs.confirm === 'function' && !(await dialogs.confirm(`删除${owner}的${preview}立绘格？`))) return rerenderSettings();
+        const quiet = { ...ctx, dialogs: { ...dialogs, confirm: async () => true } };
+        const c = encodeURIComponent(cur.char);
+        for (const mood of moods) {
+            const one = cur.outfit
+                ? `scene-remove-outfit-mood:${c}:${encodeURIComponent(cur.outfit)}:${encodeURIComponent(mood)}`
+                : `scene-remove-mood:${c}:${encodeURIComponent(mood)}`;
+            const result = await handleSettingsAction(one, quiet);
+            if (result && result.ok === false) return result;
+        }
+        asyncState.moodSelect = null;
+        return rerenderSettings();
+    }
     // 素材批量删除：多选只记在界面状态里；删除时逐个走单条删除动作，别名、DNA、服装、文件夹归属的清理与单删完全一致。
     // 衣柜同一套：单删会把引用它的服装一并解绑。
     const selectMatch = /^asset-(select|pick|pick-all|delete-picked):(scenes|characters|wardrobe)(?::(.*))?$/.exec(normalizedAction);
@@ -1301,9 +1349,66 @@ export async function handleSettingsAction(action, ctx) {
                 const results = await Promise.allSettled([service?.retryMetadata?.(), options.itemImages?.retryMetadata?.()]);
                 if (results.some(result => result.status === 'rejected' || result.value?.ok === false)) throw new Error('asset-record-read-failed');
             } else if (service?.changeTempPage) {
-                await service.changeTempPage(normalizedAction.slice('gen-temp-page:'.length));
+                const [direction, kind] = normalizedAction.slice('gen-temp-page:'.length).split(':');
+                await service.changeTempPage(direction, kind || undefined);
             }
         } catch (error) { settingsState.asyncState.genRecordsError = error.message || '素材记录读取失败'; }
+        return rerenderSettings();
+    }
+
+    // 一键全部入库 / 丢弃：逐项走单项动作，名称用默认、单项确认自动通过，「一并清空 DNA」按否处理；最后统一重绘。
+    const bulk = /^gen-temp-bulk:(accept|discard):(sprite|background)$/.exec(normalizedAction);
+    if (bulk) {
+        const [, op, kind] = bulk;
+        const service = options.generatedAssets;
+        const globalObj = options.global || globalThis;
+        if (!service || typeof service.listTemp !== 'function') return { ok: false, reason: 'generated-assets-unavailable' };
+        const noun = kind === 'sprite' ? '立绘' : '背景';
+        const ask = op === 'accept'
+            ? `是否将全部刚生成的${noun}按原名称入库？`
+            : `是否丢弃全部刚生成的${noun}及其图片？`;
+        if (!(await dialogs.confirm(ask))) return rerenderSettings();
+        const failures = [];
+        const quiet = {
+            confirm: async (message) => !/^是否一并清空/.test(String(message || '')),
+            prompt: async (_message, value) => value,
+            alert: async (message) => { failures.push(String(message || '')); return true; },
+            view: async () => true,
+            choose: async () => null,
+        };
+        const subCtx = { ...ctx, dialogs: quiet, rerenderSettings: () => ({ ok: true }) };
+        const done = new Set();
+        let handled = 0;
+        for (let round = 0; round < 50 && state.activeSettings === settingsState; round += 1) {
+            try { await service.changeTempPage?.('first', kind); } catch { /* 读失败时用缓存里的记录 */ }
+            const keys = service.listTemp(kind).map(record => String(record?.key || '')).filter(key => key && !done.has(key));
+            if (!keys.length) break;
+            for (const key of keys) {
+                done.add(key);
+                const result = await handleSettingsAction(`gen-temp-${op}:${encodeURIComponent(key)}`, subCtx);
+                if (!operationFailed(result)) handled += 1;
+            }
+        }
+        // 生成库里还没放进角色 / 场景的条目也一并处理。
+        const assets = draftAssetLibrary(settingsState, editTarget);
+        const library = normalizeGeneratedLibrary(assets.generated);
+        const ids = (node, out = []) => {
+            if (typeof node === 'string' && node.startsWith('igs-gen:')) out.push(node);
+            else if (node && typeof node === 'object') for (const child of Object.values(node)) ids(child, out);
+            return out;
+        };
+        const placedIn = kind === 'sprite' ? assets.characters || {} : assets.scenes || {};
+        const leftovers = Object.entries(kind === 'sprite' ? library.characters : library.scenes)
+            .filter(([name, value]) => { const placed = new Set(ids(placedIn[name])); return !ids(value).every(url => placed.has(url)); })
+            .map(([name]) => name);
+        for (const name of leftovers) {
+            const action = op === 'discard'
+                ? `gen-lib-remove:${encodeURIComponent(kind)}:${encodeURIComponent(name)}`
+                : kind === 'sprite' ? `gen-adopt-sprite:${encodeURIComponent(name)}` : `gen-file-scene:${encodeURIComponent(name)}`;
+            const result = await handleSettingsAction(action, subCtx);
+            if (!operationFailed(result)) handled += 1;
+        }
+        if (failures.length) pageAlert(dialogs, globalObj, `已处理 ${handled} 项；以下未完成：\n${[...new Set(failures)].join('\n')}`);
         return rerenderSettings();
     }
 
@@ -2505,6 +2610,53 @@ export async function handleSettingsAction(action, ctx) {
     if (normalizedAction === 'status-hud-avatar-reset') {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
         readerDraft.statusHud = { ...normalizeStatusHudSettings(readerDraft.statusHud), avatarShiftX: 0, avatarShiftY: 0, avatarZoom: 100 };
+        return rerenderSettings();
+    }
+
+    // 每个角色单独的头像取景：在立绘上拖动 / 缩放，和状态栏同一套裁法；存在根素材库，按主名记。
+    if (normalizedAction.startsWith('status-avatar-crop:')) {
+        const charName = decodeSeg(normalizedAction.slice('status-avatar-crop:'.length));
+        const globalObj = options.global || globalThis;
+        const effective = draftEffectiveAssets(settingsState) || {};
+        const visible = readVisibleDefaultOutfit(effective, charName);
+        const sprite = visible.ok ? pickOutfitSprite(visible.entry, '平和', effective) : null;
+        const moods = (effective.characters || {})[charName] || {};
+        const raw = String((sprite && sprite.ok && sprite.url) || moods.平和 || moods.默认 || Object.values(moods).find((v) => String(v || '').trim()) || '').trim();
+        const service = options.generatedAssets;
+        let url = raw;
+        const imageId = generatedAssetIdOf(raw);
+        if (imageId && service) {
+            try { url = typeof service.resolveUrl === 'function' ? String(service.resolveUrl(raw) || '') : ''; } catch { url = ''; }
+            if (!/^(?:data:|blob:|https?:)/i.test(url)) {
+                try { url = typeof service.getImageDataUrl === 'function' ? await service.getImageDataUrl(imageId) : ''; } catch { url = ''; }
+            }
+        }
+        if (!/^(?:data:|blob:|https?:)/i.test(url)) {
+            pageAlert(dialogs, globalObj, `「${charName}」还没有立绘，无法调整头像取景。`);
+            return rerenderSettings();
+        }
+        const hud = normalizeStatusHudSettings(settingsState.draft.readerSettings && settingsState.draft.readerSettings.statusHud);
+        const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const saved = normalizeStatusAvatarCrops(root.statusAvatarCrops)[charName] || { x: hud.avatarShiftX, y: hud.avatarShiftY, zoom: hud.avatarZoom };
+        const host = settingsProgressHost(globalObj) || settingsState.dom;
+        const crop = await pickAvatarCrop({ host, imageUrl: url, initial: saved, radius: STATUS_HUD_AVATAR_RADIUS_PX[hud.avatarRadius] ?? '50%', title: `「${charName}」的状态栏头像：拖动大图调整位置，滚轮、双指或拉杆缩放。右边是实际大小。` });
+        if (!crop) return rerenderSettings();
+        const previous = root.statusAvatarCrops;
+        root.statusAvatarCrops = { ...normalizeStatusAvatarCrops(previous), [charName]: crop };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) { root.statusAvatarCrops = previous; return persisted; }
+        showGeneratedNotice(globalObj, hud.avatarSource === 'sprite' ? '头像取景已保存。' : '头像取景已保存；「界面 → 状态栏 → 头像来源」选「跟随立绘」后生效。', 'info');
+        return rerenderSettings();
+    }
+
+    if (normalizedAction.startsWith('status-avatar-crop-clear:')) {
+        const charName = decodeSeg(normalizedAction.slice('status-avatar-crop-clear:'.length));
+        const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};
+        const crops = normalizeStatusAvatarCrops(root.statusAvatarCrops);
+        delete crops[charName];
+        root.statusAvatarCrops = crops;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
         return rerenderSettings();
     }
 
@@ -4450,7 +4602,7 @@ export async function handleSettingsAction(action, ctx) {
             }
         }
         for (const field of [...CHARACTER_FIELDS, 'characterHouses', 'characterNameColors', 'characterVoices',
-            'characterSpriteScales', 'characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes', 'hiddenOutfits']) {
+            'characterSpriteScales', 'statusAvatarCrops', 'characterSpriteNotes', 'characterMoodTiers', 'characterMoodNotes', 'hiddenOutfits']) {
             if (!library[field] || !Object.hasOwn(library[field], name)) continue;
             library[field] = { ...library[field] };
             delete library[field][name];
@@ -4675,7 +4827,7 @@ export async function handleSettingsAction(action, ctx) {
             }
             // 角色声线、立绘高度和学院一样存在根素材库，按主名记。
             for (const assets of new Set(hasGlobalNamesake ? [sceneAssets] : [sceneAssets, rootAssets])) {
-                for (const field of ['characterVoices', 'characterSpriteScales']) {
+                for (const field of ['characterVoices', 'characterSpriteScales', 'statusAvatarCrops']) {
                     if (assets && assets[field] && typeof assets[field] === 'object') {
                         assets[field] = reorderKey(assets[field], oldName, newName);
                     }
@@ -5646,6 +5798,7 @@ async function handlePresetAction(action, settingsState, options, dialogs, persi
     root.characterNameColors = { ...(root.characterNameColors || {}), ...normalizeCharacterNameColors(pack.characterNameColors) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
+    root.statusAvatarCrops = { ...normalizeStatusAvatarCrops(root.statusAvatarCrops), ...normalizeStatusAvatarCrops(pack.statusAvatarCrops) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
     root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
     root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);
@@ -5696,6 +5849,7 @@ async function importLegacyPreset(settingsState, options, dialogs, persistSettin
     root.characterNameColors = { ...(root.characterNameColors || {}), ...normalizeCharacterNameColors(pack.characterNameColors) };
     root.characterVoices = { ...(root.characterVoices || {}), ...normalizeCharacterVoices(pack.characterVoices) };
     root.characterSpriteScales = { ...(root.characterSpriteScales || {}), ...normalizeCharacterSpriteScales(pack.characterSpriteScales) };
+    root.statusAvatarCrops = { ...normalizeStatusAvatarCrops(root.statusAvatarCrops), ...normalizeStatusAvatarCrops(pack.statusAvatarCrops) };
     root.moodGroups = mergeLabelGroups(root.moodGroups, pack.moodGroups);
     root.timeGroups = mergeLabelGroups(root.timeGroups, pack.timeGroups);
     root.weatherGroups = mergeLabelGroups(root.weatherGroups, pack.weatherGroups);

@@ -67,6 +67,7 @@ export function legacyPresetToPack(data) {
         characterNameColors: cleanMap(source.characterNameColors),
         characterVoices: cleanMap(source.characterVoices),
         characterSpriteScales: cleanMap(source.characterSpriteScales),
+        statusAvatarCrops: cleanMap(source.statusAvatarCrops),
         moodGroups: Array.isArray(source.moodGroups) ? source.moodGroups : [],
         timeGroups: Array.isArray(source.timeGroups) ? source.timeGroups : [],
         weatherGroups: Array.isArray(source.weatherGroups) ? source.weatherGroups : [],
@@ -226,6 +227,7 @@ export function presetFromAssets(effective, { root = {}, readerSettings = {} } =
     preset.characterNameColors = clone(cleanMap(plain(root).characterNameColors));
     preset.characterVoices = clone(cleanMap(plain(root).characterVoices));
     preset.characterSpriteScales = clone(cleanMap(plain(root).characterSpriteScales));
+    preset.statusAvatarCrops = clone(cleanMap(plain(root).statusAvatarCrops));
     for (const field of ['moodGroups', 'timeGroups', 'weatherGroups']) {
         preset[field] = Array.isArray(plain(root)[field]) ? clone(root[field]) : [];
     }

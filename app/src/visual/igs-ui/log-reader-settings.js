@@ -1,6 +1,8 @@
 // 窄屏阅读模式的设置。不依赖其他模块，供 fx-settings 登记默认值与整理（与漫画演出模式同一处）。
 export const LOG_AVATAR_SHAPES = Object.freeze(['card', 'circle', 'break']);
-export const LOG_REVEALS = Object.freeze(['flow', 'type', 'fade']);
+export const LOG_REVEALS = Object.freeze(['flow', 'type', 'fade', 'off']);
+// 出字速度：逐字间隔的倍率（越小越快），只作用于流水展开与打字机。
+export const LOG_SPEEDS = Object.freeze({ slow: 1.6, normal: 1, fast: 0.6, faster: 0.35 });
 export const LOG_EMOTIONS = Object.freeze(['once', 'loop', 'off']);
 // 情绪符号与胶囊的大小：大 = 与名字同高，小 = 名字的一半。
 export const LOG_MOOD_SIZES = Object.freeze(['l', 'm', 's']);
@@ -59,6 +61,7 @@ export function normalizeLogReaderSettings(value) {
         // 离屏幕边缘：贴边 / 标准 / 宽松。
         edge: LOG_EDGES.includes(src.edge) ? src.edge : 'normal',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'flow',
+        speed: Object.hasOwn(LOG_SPEEDS, src.speed) ? src.speed : 'normal',
         perTap: Math.round(clamp(src.perTap, LOG_PER_TAP_MIN, LOG_PER_TAP_MAX, 4)),
         veil: LOG_PERCENTS.includes(Number(src.veil)) ? Number(src.veil) : 85,
         density: LOG_PERCENTS.includes(Number(src.density)) ? Number(src.density) : 100,

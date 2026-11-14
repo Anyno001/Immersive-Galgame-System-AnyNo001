@@ -4044,7 +4044,7 @@ ${row.key}`;
             } else if (skipped[result.reason]) {
                 return skip(result || { ok: false, reason: 'error' }, `补全素材已跳过：${skipped[result.reason]}`);
             } else {
-                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项，可在「场景 › 待确认」查看与入库`);
+                feedback('success', `补全素材完成：已生成 ${result.count || 0} 项，立绘在「角色 › 角色」、背景在「场景 › 待确认」查看与入库`);
             }
             return result || { ok: false, reason: 'error' };
         } catch (error) {

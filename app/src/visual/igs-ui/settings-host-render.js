@@ -705,10 +705,12 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 characterDna: sceneAssets.characterDna || {},
                 characterOutfits: sceneAssets.characterOutfits || {},
                 outfitTabs: asyncState.outfitTabs || {},
+                moodSelect: asyncState.moodSelect || null,
                 sceneAssets,
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                statusAvatarCrops: (draft.bridge && draft.bridge.sceneAssets && draft.bridge.sceneAssets.statusAvatarCrops) || {},
                 // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
                 magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
                 // 角色声线只在开了「角色语气音」时显示；开了「台词朗读」时改显示朗读声音（两者二选一，朗读优先）。
@@ -731,16 +733,18 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                     return resolveGenerated(sprite?.url || firstUrl(Object.values(moods || {}).concat([(sceneAssets.statusAvatars || {})[name]])));
                 },
             });
-            const generatedArgs = {
+            // 刚生成的立绘放在角色页的待确认、背景放在场景页的待确认，各自分页。
+            const generatedArgsOf = (kind) => ({
+                kind,
                 library: normalizeGeneratedLibrary(sceneAssets.generated),
                 characters: sceneAssets.characters || {},
                 scenes: sceneAssets.scenes || {},
-                temp: !idx && generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp() : [],
+                temp: !idx && generatedService && typeof generatedService.listTemp === 'function' ? generatedService.listTemp(kind) : [],
                 resolveUrl: resolveGenerated,
                 moodGroups: sceneAssets.moodGroups || [],
-                tempPage: !idx && generatedService?.tempPage ? generatedService.tempPage() : null,
+                tempPage: !idx && generatedService?.tempPage ? generatedService.tempPage(kind) : null,
                 readError: asyncState.genRecordsError || options.itemImages?.metadataStatus?.().error || '',
-            };
+            });
             // 待确认：角色页放 AI 写出但没登记的服装词、词库外的情绪词；场景页放生成了还没入库的图。索引模式不读。
             const reviewData = memo(() => {
                 // 没有待确认词时不必建解析器，也不会有写回。
@@ -752,16 +756,18 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 const moodReview = loadMoodReview(storage);
                 return { outfitReview, moodReview, waitingCount: outfitReview.length + moodReview.length };
             });
-            const waitingCount = () => (idx ? 0 : reviewData().waitingCount);
-            const generatedCount = memo(() => (idx ? 0 : countGeneratedWaiting(generatedArgs)));
+            const spriteGeneratedCount = memo(() => (idx ? 0 : countGeneratedWaiting(generatedArgsOf('sprite'))));
+            const waitingCount = () => (idx ? 0 : reviewData().waitingCount + spriteGeneratedCount());
+            const generatedCount = memo(() => (idx ? 0 : countGeneratedWaiting(generatedArgsOf('background'))));
             const reviewPane = () => {
                 const { outfitReview, moodReview } = reviewData();
                 return `<div class="igs-settings-section igs-review-pane">`
+                    + renderGeneratedAssetPane(generatedArgsOf('sprite'))
                     + renderOutfitReviewList(outfitReview, sceneAssets.characterOutfits || {}, sceneAssets.characters || {})
                     + renderMoodReviewList(moodReview, sceneAssets.moodGroups, { busy: Boolean(asyncState.moodReviewClassifying) })
                     + `</div>`;
             };
-            const generatedPane = () => `<div class="igs-settings-section igs-review-pane">${renderGeneratedAssetPane(generatedArgs)}</div>`;
+            const generatedPane = () => `<div class="igs-settings-section igs-review-pane">${renderGeneratedAssetPane(generatedArgsOf('background'))}</div>`;
             // 多选与打包下载、＋并排放在区块标题右侧；进入多选后同一个按钮变成「完成」，取消、全选在列表上方的选择条里。
             const selectLink = (kind, count) => (count ? `<button type="button" class="igs-settings-action igs-asset-select-toggle${assetSelect(kind) ? ' is-on' : ''}" data-action="asset-select:${kind}" aria-pressed="${Boolean(assetSelect(kind))}">${assetSelect(kind) ? '完成' : '多选'}</button>` : '');
             const scenesPane = () => `<div class="igs-settings-section">

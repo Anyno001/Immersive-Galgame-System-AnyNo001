@@ -66,7 +66,13 @@ function scanStructureRanges(source) {
         if (closes[ch]) brackets.push({ start: i, close: closes[ch], kind: 'bracket' });
         else if (brackets.length && brackets.at(-1).close === ch) ranges.push({ ...brackets.pop(), end: i + 1 });
     }
-    for (const range of brackets) ranges.push({ ...range, end: null });
+    // 正文里漏写闭合的括号只影响它所在的那一行，不把后面整楼都判成不能插图。
+    for (const range of brackets) {
+        const newline = source.indexOf('\n', range.start);
+        ranges.push({ ...range, end: newline < 0 ? null : newline });
+    }
+    // 中文名的尖括号（<杨振宇>、<旁白>）没有闭合时是正文写法，不是 HTML 结构。
+    const unclosed = range => /^[a-z]/i.test(range.name) ? { ...range, end: null } : null;
     const html = [];
     for (const match of source.matchAll(/<\/?([\p{L}_][\p{L}\p{N}_.:-]*)(?=[\s/>])(?:"[^"]*"|'[^']*'|[^'">])*>/gu)) {
         if (hidden(match.index)) continue;
@@ -75,14 +81,14 @@ function scanStructureRanges(source) {
         if (match[0].startsWith('</')) {
             const at = html.findLastIndex(range => range.name === name);
             if (at < 0) continue;
-            for (const unfinished of html.slice(at + 1)) ranges.push({ ...unfinished, end: null });
+            for (const unfinished of html.slice(at + 1)) { const range = unclosed(unfinished); if (range) ranges.push(range); }
             ranges.push({ ...html[at], closeStart: match.index, end: match.index + match[0].length });
             html.length = at;
         } else if (!VOID_HTML.has(name) && !/\/\s*>$/.test(match[0])) {
             html.push({ name, start: match.index, openEnd: match.index + match[0].length, container: name === 'content' });
         }
     }
-    for (const range of html) ranges.push({ ...range, end: null });
+    for (const pending of html) { const range = unclosed(pending); if (range) ranges.push(range); }
     return ranges;
 }
 

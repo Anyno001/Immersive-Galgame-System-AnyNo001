@@ -25,7 +25,7 @@ import { normalizeShortcutOverrides } from './reader-shortcuts.js';
 import { cloneData, clampNumber, normalizeBoolean, normalizeFiniteNumber, normalizeNullableNumber, normalizeOpacity } from './reader-value-utils.js';
 import { normalizeBtnOrder, normalizeCastSlotLayouts, normalizeDialogBarAlign, normalizeDialogBarButtons, normalizeToolbarPlate, normalizeToolbarSplit, normalizeHiddenButtons, normalizePerformanceSettings, normalizePinnedButtons, normalizeReaderMode, normalizeSpriteDefaultScale, normalizeSpriteDisplayScale, normalizeSpriteGenderScale, normalizeSpriteLayouts } from './settings-normalize.js';
 import { normalizeCharacterSpriteScales } from './sprite-height.js';
-import { normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
+import { normalizeStatusAvatarCrops, normalizeStatusHudSettings } from '../../data/shujuku/status-hud-model.js';
 import { CLASSIC_DIALOG_WIDTH_PERCENT_DEFAULT, CLASSIC_DIALOG_THEME_DEFAULTS, normalizeClassicDialogWidthPercent, normalizeDialogSkin } from './classic-dialog-skin.js';
 import { MAGIC_ACCENT_DEFAULT, MAGIC_HOUSE_DEFAULT, normalizeMagicAccent, normalizeMagicHouse } from './dialog-theme-css-skins.js';
 import { normalizeCharacterHouses } from './magic-house.js';
@@ -176,6 +176,7 @@ export function normalizeSceneAssets(value) {
     if (Object.hasOwn(normalized, 'characterNameColors')) normalized.characterNameColors = normalizeCharacterNameColors(normalized.characterNameColors);
     normalized.characterVoices = normalizeCharacterVoices(normalized.characterVoices);
     normalized.characterSpriteScales = normalizeCharacterSpriteScales(normalized.characterSpriteScales);
+    normalized.statusAvatarCrops = normalizeStatusAvatarCrops(normalized.statusAvatarCrops);
     // 指定为 USER 立绘的角色名，空 = 不指定。
     normalized.userCharacter = typeof normalized.userCharacter === 'string' ? normalized.userCharacter.trim() : '';
     normalized.wardrobe = normalizeWardrobe(normalized.wardrobe);

@@ -9,6 +9,7 @@ import { VOICE_ICON } from './voice-icon.js';
 const REPLAY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>';
 import { cachedSpriteNameColor, spriteNameColor } from './character-name-color.js';
 import { armTextFx, disarmTextFx } from './text-fx.js';
+import { LOG_SPEEDS } from './log-reader-settings.js';
 const FLOW_STEP_MS = 18;
 const FLOW_FADE_MS = 260;
 const TYPE_STEP_MS = 30;
@@ -465,18 +466,21 @@ function splitChars(doc, root, delayOf) {
 }
 
 // 出字：流水展开（每字淡入、错开 18ms）/ 打字机 / 整句淡入。播完换回原 HTML，长列表里不留逐字节点。
-function reveal(overlay, text, mode) {
+function reveal(overlay, text, mode, speed) {
     const s = stateOf(overlay);
     const doc = overlay.ownerDocument;
     const timers = timersOf(overlay);
     const html = text.dataset.html || '';
     text.innerHTML = html;
+    // 直接显示：整句直出，不拆字、不弹文字演出。
+    if (mode === 'off') return Promise.resolve();
+    const k = LOG_SPEEDS[speed] || 1;
     let total = FADE_MS;
     if (mode === 'fade') text.classList.add('igs-log-fade');
     else if (mode === 'type') {
-        total = splitChars(doc, text, (ch) => (PAUSE_CHARS.test(ch) ? TYPE_PAUSE_MS : TYPE_STEP_MS));
+        total = splitChars(doc, text, (ch) => (PAUSE_CHARS.test(ch) ? TYPE_PAUSE_MS : TYPE_STEP_MS) * k);
         for (const span of text.querySelectorAll('.igs-log-fl')) span.style.animationDuration = '1ms';
-    } else total = splitChars(doc, text, () => FLOW_STEP_MS) + FLOW_FADE_MS;
+    } else total = splitChars(doc, text, () => FLOW_STEP_MS * k) + FLOW_FADE_MS;
     // 「大」「吼」在出到该段的那一刻弹出；播完换回原 HTML 前先解除，旧行不再重播。
     armTextFx(text, (pop) => parseFloat(pop.querySelector('.igs-log-fl')?.style.animationDelay) || 0);
     for (const pop of text.querySelectorAll('.igs-tfx-big,.igs-tfx-roar')) {
@@ -588,7 +592,7 @@ export function syncLogReader(overlay, view) {
             const node = built.node;
             const scene = node.previousElementSibling && node.previousElementSibling.classList.contains('igs-log-scene') ? node.previousElementSibling : null;
             timersOf(overlay).requestAnimationFrame(() => { node.classList.add('is-in'); if (scene) scene.classList.add('is-in'); });
-            revealing = reveal(overlay, built.text, view.settings.reveal);
+            revealing = reveal(overlay, built.text, view.settings.reveal, view.settings.speed);
         }
         s.rendered = i + 1;
     }
