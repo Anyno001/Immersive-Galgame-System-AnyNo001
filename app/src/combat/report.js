@@ -45,13 +45,15 @@ const LOOT_MARK = /\[igs-combat:loot\|/;
 export const hasLoot = (text) => LOOT_MARK.test(String(text || ''));
 
 // 在战报块末尾追加一行战利品描述，并在块后追加战利品标记。已有标记或没有战报块时原样返回。
-// 规则 v6 三选一卡牌槽（slot.choices）：loot.pick 为候选序号或 'skip'，写进标记第 5 字段；描述用选中的那张牌名。
+// 规则 v6 卡牌槽：loot.pick 为候选序号或 'skip'，写进标记第 5 字段；描述用选中的那张牌名。
+// 不带 choices 的卡牌槽（槽位上只有 card）带 pick 时按单张候选处理；旧调用不带 pick 时照旧写成得到这张牌。
 export function attachLoot(text, loot) {
     const body = String(text || '');
     if (!loot?.slot || hasLoot(body) || !body.includes('</igs-combat-report>')) return body;
     const character = sanitize(loot.character);
     const slot = loot.slot;
-    const choices = slot.kind === 'card' && Array.isArray(slot.choices) && slot.choices.length ? slot.choices : null;
+    const listed = slot.kind === 'card' && Array.isArray(slot.choices) && slot.choices.length ? slot.choices : null;
+    const choices = listed || (slot.kind === 'card' && slot.card && loot.pick !== undefined ? [slot.card] : null);
     if (choices && loot.pick !== 'skip' && !choices[loot.pick]) return body;
     const countText = slot.kind === 'item' && slot.item?.count > 1 ? `×${slot.item.count}` : '';
     // 规则 v5 P5b 刻印槽：写成在哪张牌（招式）上刻下哪种刻印。

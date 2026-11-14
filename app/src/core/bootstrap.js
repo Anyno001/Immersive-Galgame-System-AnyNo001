@@ -107,7 +107,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.50';
+const IGS_VERSION = '0.40.51';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 

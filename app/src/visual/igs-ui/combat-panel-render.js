@@ -15,6 +15,7 @@ import { resultStageHtml, stageFxStyle } from './combat-stage-fx.js';
 import { resourceBarHtml } from './combat-resource-bar.js';
 import { INSCRIPTION_LABELS } from '../../combat/mechanics/inscription.js';
 import { rewardCardMarks, rewardCardView } from '../../combat/reward-cards.js';
+import { rewardCardChoices } from '../../combat/flip.js';
 import { powerBadgesHtml } from './combat-power-badges.js';
 import { statusChipAttrs } from './combat-status-tips.js';
 
@@ -542,26 +543,37 @@ function lootCardHtml(c, f, fresh, struck, pending) {
     const actLabel = act === 'choose' ? `选择 ${label}` : s ? `翻开 ${label}` : `翻开第 ${pos + 1} 张`;
     return `<button type="button" ${attrs} data-combat-act="${act}" data-combat-id="${pos}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(actLabel)}">${inner}</button>`;
 }
-// 规则 v6 卡牌槽：选定的战利品带 choices 时在下方亮出牌面。一张（预定牌）时接受或放弃；多张（加成二选一、旧 offer 三选一）时点选其一（可改选）或跳过。
-function lootChoicesHtml(f, pending, v = {}) {
+// 单张卡牌接受或放弃；多候选沿用已保存的牌，不重新抽取。
+function lootChoicesHtml(f, pending, v = {}, tools = '') {
     const slot = f.done ? f.cards.find((c) => c.chosen)?.slot : null;
-    if (!slot || slot.kind !== 'card' || !Array.isArray(slot.choices) || !slot.choices.length) return '';
-    if (isCanvasSkin(v.skin) && CANVAS_REWARD[v.skin]) {
-        const views = slot.choices.map((_, i) => rewardHandView(rewardCardView(slot, i), rewardCardMarks(slot, i)));
-        return `<div class="igs-combat-loot-row igs-combat-loot-choices is-full" style="--n:${slot.choices.length}">${CANVAS_REWARD[v.skin](views, { orient: v.orient === 'land' ? 'land' : 'port', chosen: f.card, dim: f.card === 'skip', pending })}</div>`;
+    const choices = rewardCardChoices(slot);
+    if (!choices.length) return '';
+    const single = choices.length === 1;
+    if (single && f.card !== undefined) return '';
+    if (!single && isCanvasSkin(v.skin) && CANVAS_REWARD[v.skin]) {
+        const views = choices.map((_, i) => rewardHandView(rewardCardView(slot, i), rewardCardMarks(slot, i)));
+        const origin = slot.origin ? `<p class="igs-combat-loot-description">${esc(slot.origin)}</p>` : '';
+        return `<div class="igs-combat-loot-row igs-combat-loot-choices is-full" style="--n:${choices.length}">${CANVAS_REWARD[v.skin](views, { orient: v.orient === 'land' ? 'land' : 'port', chosen: f.card, dim: f.card === 'skip', pending })}${origin}</div>`;
     }
-    const cards = slot.choices.map((card, i) => {
+    const cards = choices.map((card, i) => {
         const marks = rewardCardMarks(slot, i);
         const view = rewardCardView(slot, i);
         const name = `${card.name}${marks.upgraded ? '+' : ''}`;
         const tag = [LOOT_RARITY_LABELS[card.rarity], view.cost === undefined ? '' : `${view.cost}费`, INSCRIPTION_LABELS[marks.inscription]].filter(Boolean).join('·');
         const text = [describeKeywords(view), describeEffects(view.effects)].filter(Boolean).join('；');
+        if (single) {
+            return `<section class="igs-combat-loot-detail" data-skin="${esc(v.skin || 'initial')}" role="region" aria-label="${esc(`${name} 奖励详情`)}">`
+                + `<div class="igs-combat-loot-detail-text"><span class="igs-combat-loot-detail-meta">${esc(tag)}</span><strong class="igs-combat-loot-detail-name">${esc(name)}</strong>`
+                + `<p class="igs-combat-loot-detail-effect">${esc(text || '无效果')}</p>${slot.origin ? `<p class="igs-combat-loot-detail-origin">${esc(slot.origin)}</p>` : ''}</div>`
+                + `<div class="igs-combat-loot-detail-tools">${tools}</div></section>`;
+        }
         const chosen = f.card === i;
         const cls = `igs-combat-loot-card is-face${chosen ? ' is-chosen' : ''}${f.card === 'skip' ? ' is-dim' : ''}`;
-        const face = `<span class="igs-combat-loot-face"><span class="igs-combat-loot-tag">${esc(tag)}</span><span class="igs-combat-loot-name">${esc(name)}</span>${text ? `<span class="igs-combat-loot-origin">${esc(text)}</span>` : ''}</span>`;
+        const face = `<span class="igs-combat-loot-face"><span class="igs-combat-loot-tag">${esc(tag)}</span><span class="igs-combat-loot-name">${esc(name)}</span>`
+            + `<span class="igs-combat-loot-effect">${esc(text || '无效果')}</span>${slot.origin ? `<span class="igs-combat-loot-origin">${esc(slot.origin)}</span>` : ''}</span>`;
         return `<button type="button" class="${cls}"${card.rarity ? ` data-rarity="${esc(card.rarity)}"` : ''} data-combat-act="pick-card" data-combat-id="${i}"${pending ? ' aria-disabled="true"' : ''} aria-label="${esc(`选择 ${card.name}${chosen ? '（已选定）' : ''}`)}">${face}</button>`;
     }).join('');
-    return `<div class="igs-combat-loot-row igs-combat-loot-choices" style="--n:${slot.choices.length}">${cards}</div>`;
+    return single ? cards : `<div class="igs-combat-loot-row igs-combat-loot-choices" style="--n:${choices.length}">${cards}</div>`;
 }
 
 // 规则 v6 删牌：本场正好满 5 场普通胜利时，战利品工具行里出一个紧凑按钮（未选时为主按钮），点开浮层选牌或不删；选定后按钮写所选。
@@ -690,15 +702,17 @@ function lootHtml(v) {
     const r = f.reroll;
     const reroll = f.done && r && (r.available || r.reason === 'combat-points-insufficient')
         ? btn('reroll', r.cost > 0 ? `重抽·${r.cost}积分` : '重抽·免费', { disabled: pending || !r.available, full: r.cost > 0 ? `重新抽取（消耗${r.cost}积分）` : '重新抽取（免费）' }) : '';
-    const choices = lootChoicesHtml(f, pending, v);
-    const single = Boolean(choices) && f.cards.find((c) => c.chosen)?.slot?.choices?.length === 1;
-    const accept = single ? btn('pick-card', f.card === 0 ? '已接受' : '接受', { id: '0', primary: f.needCard === true, pressed: f.card === 0, disabled: pending }) : '';
-    const skipLabel = single ? (f.card === 'skip' ? '已放弃' : '放弃') : (f.card === 'skip' ? '已跳过' : '跳过');
-    const skip = choices ? btn('pick-card', skipLabel, { id: 'skip', ...(single ? { pressed: f.card === 'skip' } : {}), disabled: pending }) : '';
+    const count = f.done ? rewardCardChoices(f.cards.find((c) => c.chosen)?.slot).length : 0;
+    const single = count === 1;
+    const singlePending = single && f.card === undefined;
+    const accept = singlePending ? btn('pick-card', '接受', { id: '0', primary: f.needCard === true, disabled: pending }) : '';
+    const skipLabel = single ? '放弃' : (f.card === 'skip' ? '已跳过' : '跳过');
+    const skip = count && (!single || singlePending) ? btn('pick-card', skipLabel, { id: 'skip', disabled: pending }) : '';
     const tools = `${accept}${skip}${reroll}${purgeButton(f, pending)}${upgradeButton(f, pending)}`;
+    const choices = lootChoicesHtml(f, pending, v, singlePending ? tools : '');
     return `<section class="igs-combat-loot" data-n="${f.cards.length}"${pause ? ' data-pause' : ''}><div class="igs-combat-loot-cap">战利品</div>`
         + `<div class="igs-combat-loot-row" style="--n:${f.cards.length}">${f.cards.map((c) => lootCardHtml(c, f, fresh, struck, pending)).join('')}</div>`
-        + `${traitSourceHtml(f)}${choices}${tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
+        + `${traitSourceHtml(f)}${choices}${!singlePending && tools ? `<div class="igs-combat-loot-tools">${tools}</div>` : ''}</section>`;
 }
 // 有 offer 时选定战利品前不能发战报：读取中、未选定、三选一卡牌槽还没取牌 / 跳过、删牌机会还没选牌 / 不删时不出发送按钮；读取失败时仍出（发送前再读一次，读不到照样拦下并提示原因）。
 const lootBlocksSend = (f) => Boolean(f) && (f.status === 'loading' || (f.status === 'ready' && (!f.done || f.needCard === true || f.needPurge === true || f.needUpgrade === true)));

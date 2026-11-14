@@ -632,7 +632,13 @@ function applyLootSlot(state, slot, entry, heroStockOwner = false, hpLost = null
         addCard(state, card.id, entry.id, entry.payload.added === true, marks);
         return null;
     }
-    if (slot.kind === 'card') return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}), added: entry?.payload?.added }, { entry, marks: rewardCardMarks(slot, 0, hpLost) });
+    if (slot.kind === 'card') {
+        // 不带 choices 的卡牌槽：标签写了 skip 即放弃，写了序号只能是 0；旧标签不带 pick 照旧入账。
+        const pick = entry?.payload?.pick;
+        if (pick === 'skip') return null;
+        if (pick !== undefined && pick !== 0) return 'combat-loot-pick-invalid';
+        return handlers.learn(state, { card: slot.card, ...(entry?.payload?.merge === true ? { merge: true } : {}), added: entry?.payload?.added }, { entry, marks: rewardCardMarks(slot, 0, hpLost) });
+    }
     // 规则 v5 P5b 刻印槽：刻在奖励单定下的那张副本上（副本已不在或已刻时记诊断）。
     if (slot.kind === 'inscribe') return handlers.inscribe(state, { cardId: slot.cardId, copyId: slot.copyId, inscription: slot.inscription });
     if (heroStockOwner) {
@@ -1785,14 +1791,15 @@ function buildLootEntry(effective, index, directive, anchor, report, text, userN
     if ((canonicalCharacterId(index, key) ?? key) !== offer.character) return { ok: false, reason: 'combat-loot-owner-mismatch' };
     const slot = (directive.set === 'reserve' ? offer.reserve : offer.slots)?.[directive.slot];
     if (!slot) return { ok: false, reason: 'combat-loot-slot-missing' };
-    // 规则 v6 三选一卡牌槽：标签必须写候选序号或 skip；旧槽位不带 choices，忽略该字段。
+    // 规则 v6 卡牌槽：带 choices 时标签必须写候选序号或 skip；不带 choices 的卡牌槽写了 pick（0 或 skip）也照录，旧标签不带。
     const choices = slot.kind === 'card' && Array.isArray(slot.choices);
     if (choices && directive.pick === undefined) return { ok: false, reason: 'combat-loot-pick-missing' };
+    const picked = slot.kind === 'card' && directive.pick !== undefined;
     const payload = {
         combatId: offer.combatId, reportId: directive.reportId, set: directive.set, slot: { ...slot },
         cost: directive.set === 'reserve' && !freeRerollOf(offer, allCleanOf(text)) ? REROLL_COST : 0,
         ...(slot.kind === 'card' ? { merge: true } : {}),
-        ...(choices ? { pick: directive.pick } : {}),
+        ...(picked ? { pick: directive.pick } : {}),
         ...(COMBAT_RULES.version >= 6 && slot.kind === 'card' && directive.pick !== 'skip' ? { added: true } : {}),
     };
     const normalized = normalizeLedgerEntry({ id: ledgerEntryId('loot', key, anchor), type: 'loot', character: key, anchor, payload, createdAt: now });

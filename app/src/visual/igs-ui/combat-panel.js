@@ -546,6 +546,7 @@ export function createCombatPanelController(doc, options = {}) {
         if (view.battle && hoverInst) view.hovered = hoverInst;
         if (view.battle && itemsOpen) view.itemsOpen = true;
         // 暂存中的单位已在 snapshot 里按暂存血量写进视图：新节点首帧就是显示值，不会先按结算后的血量算一次样式再补画（那样受击前血条会先跌再回弹）。
+        root.querySelector(':scope > .igs-combat-loot-detail')?.remove();
         body.innerHTML = renderCombatPanelHtml(view);
         // 画布皮肤共用控制器补位状态，不覆盖各套自身的站位与取景。
         for (const u of view.battle?.enemies || []) {
@@ -556,6 +557,7 @@ export function createCombatPanelController(doc, options = {}) {
         }
         restoreUnitFx(lifted);
         syncControlDock();
+        syncLootDetail();
         if (view.intro && !stageFxStyle(skinOf())) flashScreen(false);
         syncIntro(view);
         syncDuel(view);
@@ -570,8 +572,32 @@ export function createCombatPanelController(doc, options = {}) {
         else if (view.battle && selected && !isItemSelection(selected) && !drag?.live && showCardTip(selected)) { /* 截断的牌面说明已弹出 */ }
         else if (view.battle && keepUnit) showUnitTip(keepUnit);
         if (!had) return;
-        const same = act ? [...(body.querySelectorAll?.(`[data-combat-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-combat-id') || '') === id) : null;
+        const same = act ? [...(root.querySelectorAll?.(`[data-combat-act="${act}"]`) || [])].find((n) => (n.getAttribute('data-combat-id') || '') === id) : null;
         (same || root)?.focus?.();
+    }
+
+    function syncLootDetail() {
+        const detail = root?.querySelector('.igs-combat-loot-detail');
+        if (!detail) return;
+        if (detail.parentNode !== root) root.appendChild(detail);
+        const row = root.querySelector('.igs-combat-loot > .igs-combat-loot-row:not(.igs-combat-loot-choices)');
+        if (!row || !root.clientWidth || !root.clientHeight) return;
+        const host = root.getBoundingClientRect();
+        const sx = host.width / root.clientWidth;
+        const sy = host.height / root.clientHeight;
+        if (!(sx > 0 && sy > 0)) return;
+        const cards = [...row.children].map((card) => card.getBoundingClientRect());
+        if (!cards.length) return;
+        const left = (Math.min(...cards.map((r) => r.left)) - host.left) / sx;
+        const right = (Math.max(...cards.map((r) => r.right)) - host.left) / sx;
+        const width = Math.min(right - left, root.clientWidth - 16);
+        const top = (row.getBoundingClientRect().bottom - host.top) / sy + 10;
+        if (!(width > 0)) return;
+        detail.style.setProperty('--loot-detail-left', `${Math.max(8, Math.min(left, root.clientWidth - width - 8))}px`);
+        detail.style.setProperty('--loot-detail-top', `${top}px`);
+        detail.style.setProperty('--loot-detail-width', `${width}px`);
+        detail.style.setProperty('--loot-detail-height', `${Math.max(0, root.clientHeight - top - 8)}px`);
+        detail.setAttribute('data-positioned', '');
     }
 
     function syncControlDock() {
@@ -622,7 +648,7 @@ export function createCombatPanelController(doc, options = {}) {
     function watchControlDock() {
         const host = root;
         const win = doc.defaultView;
-        const sync = () => { if (root === host) syncControlDock(); };
+        const sync = () => { if (root === host) { syncControlDock(); syncLootDetail(); } };
         if (typeof win?.ResizeObserver === 'function') {
             const observer = new win.ResizeObserver(sync);
             observer.observe(host);
@@ -1658,17 +1684,15 @@ export function createCombatPanelController(doc, options = {}) {
     }
 
     // 发送属于会话，不随面板关闭取消；失败可重开重发，升级奖励在重开时领取。
-    // 发送成功才关闭；失败留在结算页显示原因，否则重开仍是同一结算页、点发送又静默失败，形成循环。
     function sendAndLeave(fn) {
         if (pending) return { ok: false, reason: 'combat-busy' };
         const my = token;
-        return runAsync('send', fn).then((r) => {
-            if (r?.ok === true && my === token && root) {
-                leaving = true;
-                try { close(); } finally { leaving = false; }
-            }
-            return r;
-        });
+        const task = runAsync('send', fn);
+        if (my === token && root) {
+            leaving = true;
+            try { close(); } finally { leaving = false; }
+        }
+        return task;
     }
 
     async function runAsync(kind, fn) {

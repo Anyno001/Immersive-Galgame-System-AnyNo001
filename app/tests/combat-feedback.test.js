@@ -14,10 +14,12 @@ import { CARD_TEMPLATES, cardFromValues, solveCardTemplate, templateCosts, templ
 import { buildChallengeSetup } from '../src/combat/challenge-setup.js';
 import { buildIntimateSetup } from '../src/combat/intimate-setup.js';
 import { attributeViewFor, cardModelKey, computeEffectiveState } from '../src/combat/ledger.js';
-import { buildCombatReport, collectTurns } from '../src/combat/report.js';
+import { attachLoot, buildCombatReport, collectTurns, reportIdFor } from '../src/combat/report.js';
+import { emptyPick, flipCard, flipOrder, flipView, lootOf, normalizePick, pickCardChoice } from '../src/combat/flip.js';
 import { updatePowerStatuses } from '../src/combat/power-state.js';
 import { activePowers, battleView, combatFxSource, combatHitMarks, unitDetailView } from '../src/visual/igs-ui/combat-panel-model.js';
 import { renderCombatPanelHtml } from '../src/visual/igs-ui/combat-panel-render.js';
+import { createCombatPanelController } from '../src/visual/igs-ui/combat-panel.js';
 import { CANVAS_BATTLE } from '../src/visual/igs-ui/combat-skin-registry.js';
 import { applyHitMarks, COMBAT_HIT_REACT_ATTR, reactUnit, showHitFloats } from '../src/visual/igs-ui/combat-hit-fx.js';
 import { attributeMultiplier, createAttributePolicy } from '../src/combat/attribute-policy.js';
@@ -2041,4 +2043,134 @@ test('特色模型：扼喉仅令指定敌人按本回合出牌失血，回合�
         assert.equal(after.events.filter(e => e.type === 'damage' && e.kind === 'garrote').length, 0);
         battle.replay();
     }
+});
+
+test('战利品单张卡接受或放弃经战报扫描持久化，旧无选择标记照常领取', async (t) => {
+    for (const [listed, pick] of [[false, 0], [false, 'skip'], [true, 0], [true, 'skip'], [false, undefined]]) {
+        const fixture = await createGenerationFixture();
+        t.after(fixture.dispose);
+        const ledger = fixture.services.getLedger();
+        const hero = await fixture.hero();
+        const chat = fixture.host.SillyTavern.getContext().chat;
+        const messageId = chat.push({ is_user: false, mes: '[igs-combat:start|战后领悟|野狼|艾拉|normal]', swipe_id: 0 }) - 1;
+        const located = locateCombatStart(chat, messageId);
+        assert.equal(located.ok, true);
+        const card = normalizeCard({ id: 'loot-solo', name: '战后领悟', cost: 1, rarity: 'common', ...solveCardTemplate('strike', 1, 'common') });
+        assert.equal(card.ok, true, JSON.stringify(card.errors));
+        const slot = { index: 0, kind: 'card', rarity: 'common', name: card.value.name, origin: '从对手的招式里领悟', card: card.value,
+            ...(listed ? { choices: [card.value] } : {}) };
+        const offer = { combatId: located.combatId, tier: 'normal', exp: 0, reveal: 0, slots: [slot,
+            ...[1, 2].map(index => ({ index, kind: 'keepsake', rarity: 'common', name: `碎片${index}`, origin: '' }))] };
+        const saved = await ledger.append({ id: 'offer-solo', type: 'offer', character: hero.id, anchor: located.anchor, payload: offer, createdAt: messageId });
+        assert.equal(saved.ok, true, JSON.stringify(saved));
+        const position = flipOrder(offer, 'main').indexOf(0);
+        const flipped = flipCard(offer, emptyPick(), position);
+        assert.equal(flipped.ok, true);
+        assert.equal(flipView(offer, flipped.pick).needCard, true);
+        assert.equal(pickCardChoice(offer, flipped.pick, 1).ok, false);
+        const selected = pick === undefined ? flipped.pick : pickCardChoice(offer, flipped.pick, pick).pick;
+        assert.deepEqual(normalizePick(selected, offer), selected);
+        if (pick !== undefined) assert.equal(flipView(offer, selected).needCard, false);
+        const reportId = reportIdFor(located.combatId);
+        const text = attachLoot(`<igs-combat-report id="${reportId}" result="win" encounter="战后领悟">\n胜利。\n</igs-combat-report>`,
+            { character: '艾拉', reportId, ...lootOf(offer, selected) });
+        const reportFloor = chat.push({ is_user: true, mes: text, swipe_id: 0 }) - 1;
+        assert.equal((await ledger.scan({ messageIds: [reportFloor] })).ok, true);
+        const snapshot = await ledger.read();
+        const stored = snapshot.entries.find(entry => entry.type === 'loot' && entry.payload.combatId === located.combatId);
+        assert.ok(stored, JSON.stringify(snapshot));
+        assert.equal(stored.payload.pick, pick);
+        const state = await ledger.effectiveState();
+        const replay = computeEffectiveState(snapshot, chat, { userName: '艾拉' });
+        for (const result of [state, replay]) {
+            assert.equal(result.ok, true);
+            assert.ok(result.loots.has(located.combatId));
+            assert.deepEqual(result.diagnostics.filter(row => row.id === stored.id), []);
+            const total = character => [...character.owned.values()].reduce((sum, count) => sum + count, 0);
+            assert.equal(total(result.characters.get(hero.id)) - total(hero), pick === 'skip' ? 0 : 1);
+        }
+    }
+});
+
+test('战利品单张卡显示费用效果来历，接受或放弃后移除详情且保留发送入口', async () => {
+    const { JSDOM } = await import('jsdom');
+    const card = { ...strike, name: '狼嚎震心', cost: 1 };
+    const slot = { index: 0, kind: 'card', rarity: 'common', name: card.name, origin: '学头狼短嚎的走音断句，竟也震人耳膜。', card };
+    const offer = { combatId: 'loot-display', slots: [slot, ...[1, 2].map(index => ({ index, kind: 'keepsake', rarity: 'common', name: `碎片${index}`, origin: '' }))] };
+    const original = structuredClone(offer);
+    const pick = flipCard(offer, emptyPick(), flipOrder(offer, 'main').indexOf(0)).pick;
+    for (const skin of ['initial', ...Object.keys(CANVAS_BATTLE)]) {
+        const dom = new JSDOM(renderCombatPanelHtml({ status: 'send-failed', skin, orient: 'land', flip: flipView(offer, pick) }));
+        try {
+            const doc = dom.window.document;
+            const detail = doc.querySelector('[role="region"][aria-label="狼嚎震心 奖励详情"]');
+            assert.ok(detail, skin);
+            assert.equal(detail.querySelector('.igs-combat-loot-detail-name').textContent, card.name, skin);
+            assert.equal(detail.querySelector('.igs-combat-loot-detail-effect').textContent, '造成 6 点伤害', skin);
+            assert.equal(detail.querySelector('.igs-combat-loot-detail-origin').textContent, slot.origin, skin);
+            assert.ok(detail.querySelector('.igs-combat-loot-detail-meta').textContent.includes('1费'), skin);
+            assert.equal(detail.querySelector('[data-combat-id="0"]').textContent, '接受', skin);
+            assert.equal(detail.querySelector('[data-combat-id="skip"]').textContent, '放弃', skin);
+            assert.equal(doc.querySelector('[data-combat-act="retry-send"]'), null);
+            assert.equal(detail.querySelectorAll('[data-combat-act="pick-card"]').length, 2, skin);
+            assert.equal(detail.querySelector('.igs-combat-loot-card'), null, skin);
+            for (const value of [0, 'skip']) {
+                const selected = pickCardChoice(offer, pick, value);
+                assert.equal(selected.ok, true);
+                const chosen = new JSDOM(renderCombatPanelHtml({ status: 'send-failed', skin, flip: flipView(offer, selected.pick) }));
+                try {
+                    const selectedDoc = chosen.window.document;
+                    assert.equal(selectedDoc.querySelector('.igs-combat-loot-detail'), null, skin);
+                    assert.equal(selectedDoc.querySelector('[data-combat-act="pick-card"]'), null, skin);
+                    assert.equal(selectedDoc.querySelectorAll('.igs-combat-loot > .igs-combat-loot-row > .igs-combat-loot-card').length, offer.slots.length, skin);
+                    assert.ok(chosen.window.document.querySelector('[data-combat-act="retry-send"]'), skin);
+                } finally { chosen.window.close(); }
+            }
+        } finally { dom.window.close(); }
+    }
+    assert.deepEqual(offer, original);
+});
+
+test('发送战报点击后立即关闭面板，未返回的真实会话继续发送并结算', async (t) => {
+    const { JSDOM } = await import('jsdom');
+    const dom = new JSDOM('<div id="igs-overlay"></div>', { url: 'http://127.0.0.1/', pretendToBeVisual: true });
+    t.after(() => dom.window.close());
+    const chat = [{ is_user: false, mes: '[igs-combat:start|发送验证|史莱姆|我|normal]', swipe_id: 0 }];
+    const located = locateCombatStart(chat, 0);
+    const input = setup();
+    input.canEscape = true;
+    const storage = createCountingStorage();
+    storage.setItem(sessionKeyFor('send-close'), JSON.stringify({ v: SESSION_VERSION, combatId: located.combatId,
+        anchor: located.anchor, seed: 7, setup: input, actions: [{ type: 'escape' }], encounter: located.start.encounter, tiers: ['normal'], expTargets: [] }));
+    let release;
+    let entered;
+    const gate = new Promise(resolve => { release = resolve; });
+    const started = new Promise(resolve => { entered = resolve; });
+    let sends = 0;
+    const actual = createCombatSession({ chat, storage, userName: '主角', getChatId: () => 'send-close',
+        ledger: { read: async () => ({ ok: true, entries: [] }), append: async () => ({ ok: true }), scan: async () => ({ ok: true }) },
+        send: async text => { sends += 1; entered(); await gate; chat.push({ is_user: true, mes: text }); return { ok: true, messageId: chat.length - 1 }; } });
+    t.after(() => { release(); actual.dispose(); });
+    assert.equal(actual.resume().ok, true);
+    let task;
+    const session = { ...actual, finish: () => { task = actual.finish(); return task; } };
+    const closed = [];
+    const panel = createCombatPanelController(dom.window.document, { getSession: () => session, skin: () => 'initial', reducedMotion: () => true,
+        onClose: result => closed.push(result) });
+    t.after(() => panel.dispose());
+    assert.equal(panel.open(dom.window.document.querySelector('#igs-overlay'), { messageId: 0 }).ok, true);
+    const button = dom.window.document.querySelector('[data-combat-act="finish"]');
+    assert.ok(button);
+    button.click();
+    assert.equal(panel.isOpen(), false);
+    assert.equal(closed[0].dismissed, false);
+    assert.equal(dom.window.document.querySelector('#igs-combat-panel'), null);
+    await started;
+    assert.equal(sends, 1);
+    assert.equal(actual.state().status, 'ended');
+    release();
+    assert.equal((await task).ok, true);
+    assert.equal(actual.state().status, 'done');
+    assert.equal(sends, 1);
+    assert.equal(panel.isOpen(), false);
 });

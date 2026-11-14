@@ -743,12 +743,19 @@ ${C} .igs-combat-loot-face{display:flex;flex-direction:column;align-items:center
 ${C} .igs-combat-loot-tag{color:var(--rar);font-size:11px;font-weight:700;letter-spacing:.12em;}
 ${C} .igs-combat-loot-name{max-width:100%;font-size:15px;font-weight:700;line-height:1.3;overflow-wrap:anywhere;}
 ${C} .igs-combat-loot-origin{max-width:100%;color:var(--igs-cb-ink-soft);font-size:11px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+${C} .igs-combat-loot-choices:not(.is-full){align-items:stretch;}
+${C} .igs-combat-loot-choices:not(.is-full)>.igs-combat-loot-card{width:min(260px,calc((100% - (var(--n,1) - 1) * 12px) / var(--n,1)));aspect-ratio:auto;}
+${C} .igs-combat-loot-choices:not(.is-full) .igs-combat-loot-face{position:relative;min-height:180px;height:100%;gap:8px;padding:16px 12px;}
+${C} .igs-combat-loot-effect{max-width:100%;font-size:13px;line-height:1.6;overflow-wrap:anywhere;white-space:normal;}
+${C} .igs-combat-loot-choices .igs-combat-loot-origin{display:block;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere;}
+${C} .igs-combat-loot-choices.is-full{flex-direction:column;align-items:center;gap:8px;}
+${C} .igs-combat-loot-description{max-width:100%;margin:0;color:var(--igs-cb-ink-soft);font-size:12px;line-height:1.5;text-align:center;overflow-wrap:anywhere;}
 ${combatRarityStyle(`${C} .igs-combat-loot-card`)}
 ${C} .igs-combat-loot-card:is([data-rarity="epic"],[data-rarity="mythic"]) .igs-combat-loot-name{color:var(--rar);}
 ${C} .igs-combat-loot-card.is-chosen{transform:translateY(-6px);}
 ${C} .igs-combat-loot-card.is-chosen .igs-combat-loot-face{box-shadow:0 0 22px -2px color-mix(in srgb,var(--rar) 70%,transparent),0 14px 28px -14px rgba(0,0,0,.7),inset 0 1.5px 0 var(--rar);}
 ${C} .igs-combat-loot-card.is-dim{opacity:.6;}
-${C} .igs-combat-loot-tools{display:flex;justify-content:center;}
+${C} .igs-combat-loot-tools{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;}
 ${C} .igs-combat-purge-sheet{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;}
 ${C} .igs-combat-purge-veil{position:absolute;inset:0;background:rgba(0,0,0,.6);cursor:pointer;}
 ${C} .igs-combat-purge-box{position:relative;display:flex;flex-direction:column;gap:12px;width:min(520px,100%);max-height:100%;padding:16px;box-sizing:border-box;overflow:auto;border-radius:var(--igs-cb-r-m);background:rgba(${N},.96);}
@@ -828,6 +835,20 @@ ${COMBAT_PANEL_SKIN_VEIL_STYLE_TEXT}
 ${COMBAT_ENTRY_SKIN_STYLE_TEXT}
 ${COMBAT_PANEL_LAYOUT_STYLE_TEXT}
 ${CANVAS_STYLE_TEXT}
+${P} .igs-combat-loot-detail{--loot-detail-bg:rgba(17,22,29,.36);--loot-detail-ink:var(--igs-cb-ink);--loot-detail-soft:var(--igs-cb-ink-soft);position:absolute;z-index:5;left:var(--loot-detail-left,0px);top:var(--loot-detail-top,0px);width:var(--loot-detail-width,420px);max-width:calc(100% - 16px);max-height:var(--loot-detail-height,260px);box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:14px 18px;border:0;border-radius:var(--igs-cb-r-m);background:var(--loot-detail-bg);color:var(--loot-detail-ink);box-shadow:none;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);text-align:center;pointer-events:auto;visibility:hidden;overflow:auto;}
+${P} .igs-combat-loot-detail[data-positioned]{visibility:visible;}
+${P} .igs-combat-loot-detail-text{display:flex;flex-direction:column;align-items:center;gap:8px;min-height:0;overflow:auto;}
+${P} .igs-combat-loot-detail-text>*{flex:none;max-width:100%;margin:0;text-align:center;white-space:normal;overflow-wrap:anywhere;}
+${P} .igs-combat-loot-detail-meta{color:var(--loot-detail-soft);font-size:11px;line-height:1.4;letter-spacing:.08em;}
+${P} .igs-combat-loot-detail-name{font-size:18px;line-height:1.35;}
+${P} .igs-combat-loot-detail-effect{font-size:13px;line-height:1.6;}
+${P} .igs-combat-loot-detail-origin{color:var(--loot-detail-soft);font-size:12px;line-height:1.5;}
+${P} .igs-combat-loot-detail-tools{flex:none;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;}
+${P} .igs-combat-loot-detail-tools .igs-combat-btn{flex:none;width:auto;min-width:64px;min-height:32px;height:auto;padding:7px 16px;background:var(--loot-detail-button,rgba(255,255,255,.09));color:var(--loot-detail-ink);font-size:13px;line-height:1.3;letter-spacing:0;}
+${P} .igs-combat-loot-detail-tools .igs-combat-btn.is-primary{background:var(--loot-detail-action,#e9e3d6);color:var(--loot-detail-action-ink,#192128);}
+${P} .igs-combat-loot-detail[data-skin^="soft-"]{--loot-detail-bg:rgba(255,250,240,.48);--loot-detail-ink:#263841;--loot-detail-soft:#526568;--loot-detail-button:rgba(61,91,87,.1);--loot-detail-action:#b8d9cd;--loot-detail-action-ink:#263841;}
+${P} .igs-combat-loot-detail[data-skin="ink"]{--loot-detail-bg:rgba(18,20,22,.36);--loot-detail-ink:#ece7dd;--loot-detail-soft:#9aa6a1;--loot-detail-action:#b8402e;--loot-detail-action-ink:#f3ead8;border-radius:3px;font-family:var(--font-song);}
+${P} .igs-combat-loot-detail[data-skin="mystic"]{--loot-detail-bg:rgba(15,16,21,.36);--loot-detail-ink:#ebe7da;--loot-detail-soft:#a8a595;--loot-detail-action:#e3d49c;}
 ${COMBAT_POWER_STYLE_TEXT}
 ${C} :is(.igs-combat-unit,.cx-unit)[data-swap="out"]{animation:igs-combat-swap-out 520ms var(--igs-cb-ease) var(--swap-t,0ms) both;pointer-events:none;}
 ${C} :is(.igs-combat-unit,.cx-unit)[data-swap="in"]{animation:igs-combat-swap-in 620ms cubic-bezier(.2,.9,.25,1.15) var(--swap-t,0ms) both;}

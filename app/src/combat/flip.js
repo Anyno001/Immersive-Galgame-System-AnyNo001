@@ -36,9 +36,12 @@ export const revealedOf = (reward, set) => shuffledIndexes(slotsOf(reward, set).
 
 // 选定位置对应的槽位（未选时为 null）。
 const chosenSlot = (reward, set, choice) => (choice === null ? null : slotsOf(reward, set)[flipOrder(reward, set)[choice]] || null);
-// 槽位是否要再三选一（规则 v6 卡牌槽）。
-export const hasCardChoices = (slot) => slot?.kind === 'card' && Array.isArray(slot.choices) && slot.choices.length > 0;
-const validCardPick = (value, slot) => value === 'skip' || (Number.isInteger(value) && value >= 0 && value < (slot?.choices?.length || 0));
+// 卡牌槽的候选：带 choices 时为候选列表，否则为槽位上那一张牌（预定牌、旧槽位）；不是卡牌槽时为空。
+export const rewardCardChoices = (slot) => (slot?.kind !== 'card' ? []
+    : Array.isArray(slot.choices) && slot.choices.length ? slot.choices : slot.card ? [slot.card] : []);
+// 卡牌槽选定后是否还要接受 / 放弃或在候选里选一张。
+export const hasCardChoices = (slot) => rewardCardChoices(slot).length > 0;
+const validCardPick = (value, slot) => value === 'skip' || (Number.isInteger(value) && value >= 0 && value < rewardCardChoices(slot).length);
 // 删卡 / 升级选择：卡组副本 ID（与账本副本 ID 同字符集）或 'skip'。
 const validCopyPick = (value) => typeof value === 'string' && (value === 'skip' || /^[A-Za-z0-9_:.-]{1,200}$/.test(value));
 
