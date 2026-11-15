@@ -494,8 +494,9 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
     }
 
     // 缺表时在用户当前模板上补建，建完核对。
-    function ensure() {
+    function ensure({ shouldStart = () => true } = {}) {
         return serial(async () => {
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
             const support = probe();
             if (!support.ok) return support;
             const loaded = loadSheets(client);
@@ -519,6 +520,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                     ...(hidden.length && { hidden }), ...(extra.length && { extra }),
                 };
             }
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
             writing = true;
             let imported;
             try {
@@ -526,6 +528,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
             } finally {
                 writing = false;
             }
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
             if (!imported.ok) return { ok: false, reason: 'combat-table-create-failed', detail: imported.message || imported.reason };
             if (imported.result?.runtimeReady === false) {
                 return {

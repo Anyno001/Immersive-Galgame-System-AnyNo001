@@ -103,6 +103,31 @@ test('空导出（数据库尚未载入）不进缓存：载入后的下一次�
     assert.equal(api.calls.insert.length, 0);
 });
 
+test('建表租约：排队期间或模板读取后目标失效，不向新聊天导入', async () => {
+    const api = fakeApi();
+    const tables = createCombatTables({ api });
+    let release;
+    const busy = tables.serial(() => new Promise(resolve => { release = resolve; }));
+    await Promise.resolve();
+    let active = true;
+    const queued = tables.ensure({ shouldStart: () => active });
+    active = false;
+    release();
+    await busy;
+    assert.equal((await queued).reason, 'request-stale');
+    assert.equal(api.calls.imports, 0);
+    active = true;
+    const getTemplate = api.getTableTemplate;
+    api.getTableTemplate = () => {
+        const template = getTemplate();
+        active = false;
+        return template;
+    };
+    assert.equal((await tables.ensure({ shouldStart: () => active })).reason, 'request-stale');
+    assert.equal(api.calls.imports, 0);
+    tables.client.dispose();
+});
+
 test('D2 旧预算定义经表读回不改卡面，新写入仍严格校验且非法旧数据保留诊断', async () => {
     const api = fakeApi();
     const tables = await ready(api);

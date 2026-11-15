@@ -77,6 +77,9 @@ export function createOriginEngine(host) {
     let databaseState = null;
     let databaseTail = Promise.resolve();
     let databaseEpoch = 0;
+    let databaseOff = null;
+    let databaseRecovery = null;
+    let databaseReadBlocked = false;
     let pendingSave = null;
     let deferredEvents = [];
     let staging = null;
@@ -116,11 +119,18 @@ export function createOriginEngine(host) {
 
     function load() {
         databaseEpoch += 1;
+        detachDatabase();
         database = databaseOf();
         pendingSave = null;
         deferredEvents = [];
         databaseState = null;
-        if (database) return loadDatabase();
+        if (database) {
+            const loaded = loadDatabase();
+            if (offs.length && typeof database.subscribe === 'function') {
+                try { databaseOff = database.subscribe(onDatabaseUpdated); } catch { /* 手动重试仍可用 */ }
+            }
+            return loaded;
+        }
         return loadMetadata();
     }
     function loadMetadata() {
@@ -144,7 +154,7 @@ export function createOriginEngine(host) {
         remember();
     }
     function ensure() {
-        if (!ledger || idOf(ctx()) !== chatId) load();
+        if (!ledger || idOf(ctx()) !== chatId || (!pendingSave && databaseOf() !== database)) load();
     }
     // 不主动 saveChat：只把账本写进 chatMetadata，落盘交给宿主的防抖保存。
     function persist() {
@@ -243,6 +253,26 @@ export function createOriginEngine(host) {
         walletValue = amount;
         return { ok: true, balance: amount };
     }
+    function detachDatabase() {
+        const off = databaseOff;
+        databaseOff = null;
+        databaseRecovery = null;
+        databaseReadBlocked = false;
+        try { off?.(); } catch { /* */ }
+    }
+    function onDatabaseUpdated() {
+        if (databaseRecovery || !offs.length || !settings().enabled) return;
+        const task = { alive: databaseLease() };
+        databaseRecovery = task;
+        const run = () => {
+            if (databaseRecovery !== task) return;
+            databaseRecovery = null;
+            if (!task.alive() || !databaseReadBlocked || pendingSave) return;
+            return loadDatabase();
+        };
+        databaseTail.then(run, run).catch(() => {});
+    }
+    const transientDatabaseRead = (result) => result?.reason === 'combat-table-not-ready' || result?.reason === 'combat-table-read-failed';
     function databaseFailure(result) {
         blocked = result?.reason || 'origin-database-write-failed';
         notify('warn', `随身系统保存未完成：${blocked}`);
@@ -254,6 +284,7 @@ export function createOriginEngine(host) {
         meta = { world: '', direction: '' };
         cache = null;
         blocked = 'origin-database-loading';
+        databaseReadBlocked = false;
         remember();
         const alive = databaseLease();
         const store = database;
@@ -261,7 +292,10 @@ export function createOriginEngine(host) {
             if (!alive()) return { ok: false, reason: 'request-stale' };
             let read = await store.load({ shouldStart: alive });
             if (!alive()) return { ok: false, reason: 'request-stale' };
-            if (!read.ok) return databaseFailure(read);
+            if (!read.ok) {
+                databaseReadBlocked = transientDatabaseRead(read);
+                return databaseFailure(read);
+            }
             if (!read.raw) {
                 const old = metaOf(ctx())?.[ORIGIN_META_KEY];
                 const raw = old == null ? databaseRaw() : old;
@@ -277,10 +311,14 @@ export function createOriginEngine(host) {
             databaseState = read;
             const wallet = await readWallet();
             if (!alive()) return { ok: false, reason: 'request-stale' };
-            if (!wallet.ok) return databaseFailure(wallet);
+            if (!wallet.ok) {
+                databaseReadBlocked = transientDatabaseRead(wallet);
+                return databaseFailure(wallet);
+            }
             blocked = null;
             remember();
             emit('load');
+            drainDatabaseEvents();
             return { ok: true };
         };
         databaseTail = databaseTail.then(run, run).catch((error) => alive()
@@ -680,6 +718,7 @@ export function createOriginEngine(host) {
 
     function detach() {
         databaseEpoch += 1;
+        detachDatabase();
         for (const off of offs) { try { off(); } catch (e) { /* */ } }
         offs = [];
         generating = null;

@@ -4,9 +4,10 @@ import { createCombatTables } from '../src/data/shujuku/combat-tables.js';
 import { createOriginStore } from '../src/data/shujuku/origin-store.js';
 import { createLedger, serializeLedger, setEntry, makeEntry } from '../src/scene/origin/origin-ledger.js';
 import { createLedgerMockHost, userInventorySheet } from './helpers/combat-mock-host-ledger.js';
+import { createHarness, blk } from './origin-host.js';
 
-async function setup() {
-    const host = createLedgerMockHost();
+async function setup(options) {
+    const host = createLedgerMockHost(options);
     host.sheets.sheet_userbag = userInventorySheet();
     const tables = createCombatTables({ api: host.api });
     assert.equal((await tables.ensure()).ok, true);
@@ -88,8 +89,7 @@ test('分段写入中断：余额读取拒绝残缺记录，同一意图重试�
 });
 
 test('数据库队列：并发重试同一意图只发布一次事件与通知', async (t) => {
-    const h = await setup();
-    const { createHarness } = await import('./origin-host.js');
+    const h = await setup({ supportCallbacks: true });
     const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
     t.after(() => game.engine.stop());
     await game.engine.whenSaved();
@@ -100,6 +100,12 @@ test('数据库队列：并发重试同一意图只发布一次事件与通知',
     assert.equal((await game.engine.dispatch({ type: 'draw' })).ok, false);
     assert.equal(game.notes.filter((note) => note.kind === 'gacha').length, 0);
     h.host.api.insertRow = insert;
+    const writes = h.host.calls.insertRow;
+    h.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked() != null, true);
+    assert.equal(h.host.calls.insertRow, writes, '表更新不得自动补交失败的消费');
+    assert.equal(game.notes.filter((note) => note.kind === 'gacha').length, 0);
     const results = await Promise.all([game.engine.retrySave(), game.engine.retrySave()]);
     assert.ok(results.every((result) => result.ok), JSON.stringify(results));
     assert.equal(events.filter((event) => event.type === 'op').length, 1);
@@ -123,7 +129,7 @@ test('Origin经济读回：损坏凭据拒收并阻止消费，不覆盖数据�
         ['回执锚点不符', p => { p.receipts[0].anchor = { ...anchor, floorId: 'other' }; }],
     ];
     for (const [name, corrupt] of cases) await t.test(name, async t => {
-        const h = await setup();
+        const h = await setup({ supportCallbacks: true });
         const ledger = createLedger('chat-a');
         const entry = makeEntry(null, '已确认来源', 1);
         entry.economy = economyPlan('origin:chat-a:test', anchor);
@@ -137,10 +143,111 @@ test('Origin经济读回：损坏凭据拒收并阻止消费，不覆盖数据�
         assert.deepEqual(originPointsOf(h.store.read(), []), { ok: false, reason: 'origin-economy-invalid' });
         const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
         t.after(() => game.engine.stop());
+        t.after(() => h.tables.client.dispose());
+        await game.engine.whenSaved();
+        assert.equal(game.engine.isBlocked(), 'origin-economy-invalid');
+        h.host.fireTableUpdated();
         await game.engine.whenSaved();
         assert.equal(game.engine.isBlocked(), 'origin-economy-invalid');
         assert.equal((await game.engine.dispatch({ type: 'draw' })).ok, false);
         assert.equal(JSON.stringify(h.store.read().raw), original);
         assert.equal(h.host.calls.insertRow, writes);
     });
+});
+
+test('数据库延迟就绪：自动恢复旧存档、补处理等待楼层，重复通知不重复结算', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const seed = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
+    await seed.engine.whenSaved();
+    assert.equal((await seed.engine.dispatch({ type: 'setWorld', value: '原有世界' })).ok, true);
+    seed.engine.stop();
+    const original = JSON.stringify(h.host.sheets);
+    const writes = h.host.calls.insertRow;
+    const exported = h.host.api.exportTableAsJson;
+    let ready = false;
+    h.host.api.exportTableAsJson = () => ready ? exported() : {};
+    h.tables.client.invalidate();
+    const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
+    t.after(() => game.engine.stop());
+    t.after(() => h.tables.client.dispose());
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked(), 'combat-table-not-ready');
+    assert.equal(JSON.stringify(h.host.sheets), original);
+    assert.equal(h.host.calls.insertRow, writes);
+    game.user(); game.ai('等待期间收入' + blk('积分|+7|恢复'));
+    await game.engine.whenSaved();
+    ready = true;
+    h.host.fireTableUpdated(); h.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked(), null);
+    assert.equal(game.state().world, '原有世界');
+    assert.equal(game.state().points, 507);
+    const saved = h.host.calls.insertRow;
+    h.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    assert.equal(game.state().points, 507);
+    assert.equal(h.host.calls.insertRow, saved);
+});
+
+test('数据库恢复监听：关闭时退订，已排队的恢复在停止后不读写', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const exported = h.host.api.exportTableAsJson;
+    let ready = false;
+    h.host.api.exportTableAsJson = () => ready ? exported() : {};
+    h.tables.client.invalidate();
+    const callbacks = new Set();
+    const register = h.host.api.registerTableUpdateCallback;
+    const unregister = h.host.api.unregisterTableUpdateCallback;
+    h.host.api.registerTableUpdateCallback = cb => { callbacks.add(cb); register(cb); };
+    h.host.api.unregisterTableUpdateCallback = cb => { callbacks.delete(cb); unregister(cb); };
+    const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
+    t.after(() => game.engine.stop());
+    t.after(() => h.tables.client.dispose());
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked(), 'combat-table-not-ready');
+    assert.equal(callbacks.size, 1);
+    ready = true;
+    h.host.fireTableUpdated();
+    game.engine.stop();
+    const before = { ...h.host.calls };
+    await game.engine.whenSaved();
+    h.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    assert.equal(callbacks.size, 0);
+    assert.deepEqual(h.host.calls, before);
+});
+
+test('数据库恢复隔离：切聊天撤销旧恢复与等待楼层，旧通知不触碰新存档', async t => {
+    const old = await setup({ supportCallbacks: true });
+    const next = await setup({ supportCallbacks: true });
+    const exported = old.host.api.exportTableAsJson;
+    let ready = false;
+    old.host.api.exportTableAsJson = () => ready ? exported() : {};
+    old.tables.client.invalidate();
+    let active = old.store;
+    const game = createHarness({ achieveOn: false }, { database: () => active, wallet: () => 500 });
+    t.after(() => { game.engine.stop(); old.tables.client.dispose(); next.tables.client.dispose(); });
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked(), 'combat-table-not-ready');
+    game.user(); game.ai('旧聊天等待收入' + blk('积分|+7|旧聊天'));
+    await game.engine.whenSaved();
+    const before = { ...old.host.calls };
+    ready = true;
+    old.host.fireTableUpdated();
+    active = next.store;
+    Object.assign(game.ctx, { chatId: 'chat-b', chat: [], chatMetadata: {} });
+    game.emit('chat_changed', 'chat-b');
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked(), null);
+    assert.equal(game.state().points, 500);
+    assert.deepEqual(old.host.calls, before);
+    const saved = next.host.calls.insertRow;
+    old.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    assert.equal(next.host.calls.insertRow, saved);
+    assert.deepEqual(old.host.calls, before);
+    game.user(); game.ai('新聊天收入' + blk('积分|+3|新聊天'));
+    await game.engine.whenSaved();
+    assert.equal(game.state().points, 503);
+    assert.equal(old.host.calls.insertRow, 0);
 });

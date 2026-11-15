@@ -22,9 +22,26 @@ export function createOriginStore({ tables } = {}) {
         }
         return recoverable && merged.ok ? { ...merged, incomplete: true } : merged;
     }
+    function subscribe(listener) {
+        const client = tables.client;
+        let active = true;
+        const updated = () => {
+            if (!active) return;
+            client?.invalidate?.();
+            listener();
+        };
+        const off = () => {
+            if (!active) return;
+            active = false;
+            client?.unregisterCallback?.(updated);
+        };
+        try { client?.registerCallback?.(updated); }
+        catch { off(); }
+        return off;
+    }
     async function load({ shouldStart = () => true } = {}) {
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-        const made = await tables.ensure();
+        const made = await tables.ensure({ shouldStart });
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
         return made?.ok ? read() : { ok: false, reason: made?.reason || 'origin-database-ensure-failed' };
     }
@@ -48,5 +65,5 @@ export function createOriginStore({ tables } = {}) {
         if (verified.ok && verified.revision === intent.revision) return verified;
         return { ok: false, reason: result?.reason || verified.reason || 'origin-database-write-unverified' };
     }
-    return { read, load, prepare: prepareOriginWrite, commit, isRecord: isOriginRecord };
+    return { read, load, subscribe, prepare: prepareOriginWrite, commit, isRecord: isOriginRecord };
 }
