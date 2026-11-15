@@ -107,7 +107,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.59';
+const IGS_VERSION = '0.40.60';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -1663,6 +1663,7 @@ export function bootstrapIGS(options = {}) {
         state.metaDigestCleanup = null;
         close(() => state.combatSettingsOff?.());
         close(() => state.combatFloorOff?.());
+        close(() => combatServices.dispose?.());
         close(() => state.statsSettingsOff?.());
         close(() => state.statsFxOff?.());
         close(() => app.statsRuntime?.destroy());
