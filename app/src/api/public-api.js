@@ -54,7 +54,7 @@ export function createPublicApi(app) {
                 return Array.isArray(rows) ? JSON.parse(JSON.stringify(rows)) : [];
             } catch (error) { return []; }
         },
-        // 角色对主角的好感快照：[{ name, value, stage, romance }]；出错、未启用数值系统返回 []。
+        // 角色对主角的好感快照：[{ name, aliases, value(好感), dims:{好感,信任,了解,芥蒂,欲望}, stage, romance }]；出错、未启用数值系统返回 []。
         favor() {
             try {
                 const rows = app.statsReaders && typeof app.statsReaders.favor === 'function' ? app.statsReaders.favor() : [];
