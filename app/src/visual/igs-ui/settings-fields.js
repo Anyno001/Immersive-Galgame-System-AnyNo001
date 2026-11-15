@@ -570,6 +570,8 @@ export function renderCharacterAssetList(characters, options = {}) {
                 menuItem(`scene-set-user-char:${encSeg(charName)}`, isUserChar ? '取消User立绘' : '设为User立绘'),
                 hasSprite ? menuItem(`status-avatar-crop:${encSeg(charName)}`, '调整头像取景') : '',
                 avatarCrop ? menuItem(`status-avatar-crop-clear:${encSeg(charName)}`, '头像取景恢复默认') : '',
+                avatarUrl ? menuItem(`status-avatar-clear:${encSeg(charName)}`, '清除当前头像') : '',
+                hasSprite && options.statusAvatarSource !== 'sprite' ? menuItem('status-avatar-follow-sprite', '头像跟随当前立绘') : '',
                 renderCharacterCreatureMenuItem(charName, dna),
                 folderSelect(charName, { menu: true }),
                 String((moods || {}).默认 || '').trim() ? menuItem(`scene-migrate-outfit:${encSeg(charName)}`, '原装迁成差分服装') : '',

@@ -2649,6 +2649,15 @@ export async function handleSettingsAction(action, ctx) {
         return rerenderSettings();
     }
 
+    if (normalizedAction === 'status-avatar-follow-sprite') {
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        readerDraft.statusHud = { ...normalizeStatusHudSettings(readerDraft.statusHud), avatarSource: 'sprite' };
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        showGeneratedNotice(options.global || globalThis, '状态栏头像已改为跟随立绘（对所有角色生效）。', 'info');
+        return rerenderSettings();
+    }
+
     if (normalizedAction.startsWith('status-avatar-crop-clear:')) {
         const charName = decodeSeg(normalizedAction.slice('status-avatar-crop-clear:'.length));
         const root = settingsState.draft.bridge.sceneAssets = settingsState.draft.bridge.sceneAssets || {};

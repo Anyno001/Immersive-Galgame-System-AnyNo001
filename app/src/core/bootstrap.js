@@ -107,7 +107,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.51';
+const IGS_VERSION = '0.40.57';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -398,6 +398,7 @@ export function bootstrapIGS(options = {}) {
         // 公开接口 IGS.stats 的只读读取器；runtime 在 app 之后创建，调用时再取。
         statsReaders: {
             fame: () => (app.statsRuntime && typeof app.statsRuntime.fameSnapshot === 'function' ? app.statsRuntime.fameSnapshot() : []),
+            favor: () => (app.statsRuntime && typeof app.statsRuntime.favorSnapshot === 'function' ? app.statsRuntime.favorSnapshot() : []),
         },
         // 公开接口 IGS.api.notify 的播放回调；igsUi 在 app 之后挂载，调用时再取。
         notifyPlayer: {

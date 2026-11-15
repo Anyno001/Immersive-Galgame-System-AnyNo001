@@ -710,6 +710,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 moodGroups: sceneAssets.moodGroups || [],
                 expandedSlots: asyncState.expandedSpriteSlots instanceof Set ? asyncState.expandedSpriteSlots : new Set(),
                 statusAvatars: sceneAssets.statusAvatars || {},
+                statusAvatarSource: normalizeStatusHudSettings(draft.readerSettings && draft.readerSettings.statusHud).avatarSource,
                 statusAvatarCrops: (draft.bridge && draft.bridge.sceneAssets && draft.bridge.sceneAssets.statusAvatarCrops) || {},
                 // 角色学院只在魔法世界观下有意义；其他世界观的魔法星夜只当星空框用，不显示这一行。
                 magicHouse: reader.dialogSkin === DIALOG_SKIN_MAGIC_ACADEMY && resolveWorldview(worldviewAssets) === 'magic' ? { sceneAssets, fallback: reader.magicHouse } : null,
