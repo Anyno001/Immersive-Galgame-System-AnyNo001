@@ -3355,6 +3355,13 @@ export function createStatsRuntime({
         refreshBuildAsk,
         getState: () => (ledger ? currentStatsState(ledger) : null),
         getLedger: () => ledger,
+        // 公开接口 IGS.stats.favor：已登记角色对主角的好感值与关系阶段；未启用返回 []。
+        favorSnapshot() {
+            try {
+                const overview = this.favorOverview();
+                return overview && Array.isArray(overview.people) ? overview.people.map(p => ({ name: p.name, value: Number(p.dims && p.dims.好感) || 0, stage: p.stage, romance: Boolean(p.romance) })) : [];
+            } catch (error) { return []; }
+        },
         // 只读：声望快照 [{ name, owner, cls, value, tier, pairs? }]；未开声望、无账本、无聊天都返回 []，每次全新对象。
         fameSnapshot() {
             try {

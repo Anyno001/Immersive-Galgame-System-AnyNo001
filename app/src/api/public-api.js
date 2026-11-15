@@ -54,6 +54,13 @@ export function createPublicApi(app) {
                 return Array.isArray(rows) ? JSON.parse(JSON.stringify(rows)) : [];
             } catch (error) { return []; }
         },
+        // 角色对主角的好感快照：[{ name, value, stage, romance }]；出错、未启用数值系统返回 []。
+        favor() {
+            try {
+                const rows = app.statsReaders && typeof app.statsReaders.favor === 'function' ? app.statsReaders.favor() : [];
+                return Array.isArray(rows) ? JSON.parse(JSON.stringify(rows)) : [];
+            } catch (error) { return []; }
+        },
     };
     groupedApi.stats = statsApi;
     // 对外播手机通知卡：只播演出，不写正文与聊天数据；阅读器没开不播；同步返回，异常吞掉。
