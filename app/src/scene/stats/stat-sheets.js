@@ -376,9 +376,11 @@ export function buildStartRelationRequest(people, { prompt, hero = '', plot = ''
     const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${ownOf(p) || '（没有资料）'}`);
     const heroText = String(hero || '').trim();
     const plotText = String(plot || '').trim();
+    // 主角资料与世界书常写满其他角色，只列资料时模型会回成别人；判断名单单独放在最后。
+    const names = people.slice(0, SHEET_BATCH_MAX).map((p) => p.name).join('、');
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
-        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}`,
+        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}\n本次只判断这些角色与主角的关系：${names}。资料里写到的其他人物不要输出，JSON 的键只能是这些名字。`,
     };
 }
 
