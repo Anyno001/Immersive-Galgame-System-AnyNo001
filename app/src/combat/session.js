@@ -48,7 +48,8 @@ import { equippedGear } from './gear-slots.js';
 import { allCleanOf, freeRerollOf } from './trait-reward-bias.js';
 import { battleRandomFields, resolveBattleRandomKey } from './random-domain.js';
 import { encounterByName, encounterEntryByName } from './enemies/encounters.js';
-import { KIN_FIELDS } from './kin.js';
+import { GARDENER_FORMATION, validEncounterFormation } from './encounter-formation.js';
+import { KIN_FIELDS, kinUnitDefinition } from './kin.js';
 import { findReportFloor, resumableCombat } from './session-state.js';
 export { findReportFloor } from './session-state.js';
 
@@ -265,7 +266,8 @@ function bossPhases(template, difficulty) {
 // M8：名字解析到遭遇条目（kind 'encounter'，由目录物化）时，由程序展开成员表，同一组成员写同一个 encounter（同组同名的甲乙丙由引擎建局命名）；
 // 同一遭遇名数量大于 1 时每组各自一个分组。
 const isEncounter = (value) => value?.kind === 'encounter' && Array.isArray(value.members);
-export const encounterSize = (value) => (isEncounter(value) ? value.members.reduce((sum, member) => sum + member.count, 0) : 1);
+export const encounterSize = (value) => (isEncounter(value) ? value.members.reduce((sum, member) => sum + member.count
+    + (member.initialKin || []).reduce((total, kin) => total + kin.count, 0), 0) : 1);
 export function enemyUnits(start, templates, partyLevel, difficulty, enemyAttributes = new Map(), crowd = 1, battleWins = 0, archetype) {
     const units = [];
     const tiers = [];
@@ -284,7 +286,7 @@ export function enemyUnits(start, templates, partyLevel, difficulty, enemyAttrib
         const maxHp = Math.max(1, Math.min(9999, Math.round(vitals.hp * factor * combat.hp)));
         const damageScale = Math.min(5, Math.round(scaled.damageScale * factor * combat.damage * 100) / 100);
         return (id, shownName, extra = {}) => {
-            units.push({
+            const unit = {
                 id, name: shownName,
                 side: 'enemy', kind: 'skill', maxHp, damageScale, speed: Math.max(1, Math.round(enemySpeedFor(vitals.speed) * combat.speed)),
                 skills: scaleSkills(skills, attributes), passives, phases,
@@ -295,8 +297,10 @@ export function enemyUnits(start, templates, partyLevel, difficulty, enemyAttrib
                 ...(template.tier === 'elite' || template.tier === 'boss' ? { tier: template.tier } : {}),
                 ...abilityFields(attributes),
                 ...extra,
-            });
+            };
+            units.push(unit);
             tiers.push(template.tier);
+            return unit;
         };
     };
     for (const { name, count } of start.enemies) {
@@ -309,7 +313,20 @@ export function enemyUnits(start, templates, partyLevel, difficulty, enemyAttrib
                 template.members.forEach((member, slot) => {
                     const add = build(member.profile, member.profile.name, attributes);
                     for (let index = 0; index < member.count; index += 1) {
-                        add(`${encounter}-m${slot + 1}-${index + 1}`.slice(0, 64), member.profile.name, { encounter });
+                        const owner = add(`${encounter}-m${slot + 1}-${index + 1}`.slice(0, 64), member.profile.name, { encounter });
+                        (member.initialKin || []).forEach((kin, kinIndex) => {
+                            for (let child = 0; child < kin.count; child += 1) {
+                                const def = kinUnitDefinition(owner, kin.key);
+                                const opener = kin.openers?.[child];
+                                if (opener != null) {
+                                    def.script = { ...def.script, opener };
+                                    delete def.script.openers;
+                                }
+                                units.push({ ...def, id: `${owner.id}-k${kinIndex + 1}-${child + 1}`.slice(0, 64),
+                                    side: 'enemy', kind: 'skill', encounter, minion: true, minionOf: owner.id,
+                                    kinOf: owner.id, kinKey: kin.key });
+                            }
+                        });
                     }
                 });
             }
@@ -553,6 +570,17 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     const crowd = crowdScaleFor(totalFoes, battleWins);
     const archetype = lobby.allies.find(ally => ally.id === lobby.heroId)?.classProfile?.archetype;
     const { units: enemies, tiers } = enemyUnits(start, lobby.enemies, partyLevel, difficulty, lobby.enemyAttributes, crowd, battleWins, archetype);
+    // 初始绑定随从必须与主人同场，不能进入普通后备拆分。
+    if (enemies.some((unit) => unit.minion === true) && enemies.length > COMBAT_RULES.maxFoesOnField) {
+        return { ok: false, reason: 'combat-encounter-capacity' };
+    }
+    const fixedGardeners = start.enemies.some(({ name }) => lobby.enemies.get(name)?.id === GARDENER_FORMATION.id);
+    const encounterFormation = fixedGardeners ? { id: GARDENER_FORMATION.id, unitIds: enemies.map((unit) => unit.id) } : null;
+    if (encounterFormation && !validEncounterFormation({
+        rulesVersion: COMBAT_RULES.version, units: enemies, encounterFormation,
+    })) {
+        return { ok: false, reason: 'combat-encounter-capacity' };
+    }
     const allies = allyUnits(lobby, difficulty);
     const curse = difficultyRule(difficulty).curse;
     const hero = curse > 0 ? allies.find((unit) => unit.id === lobby.heroId && unit.kind === 'deck') : null;
@@ -566,10 +594,11 @@ export function buildSetup(lobby, start, { controlledId, difficulty = 'normal', 
     const setup = {
         rulesVersion: COMBAT_RULES.version, attributeRules: ATTRIBUTE_POLICY_VERSION, hpLossRules: 1, cardUpgradeRules: CARD_UPGRADE_RULES, exhaustRules: 1, controlledId: controlled, canEscape: start.tier !== 'boss', overkill: true, wipe: true,
         openingCharged: true, randomTargets: true, foeCap: COMBAT_RULES.maxFoesOnField, crowd, trackHpLoss: true, rewardOwner: lobby.heroId, units: [...allies, ...enemies],
+        ...(encounterFormation ? { encounterFormation } : {}),
     };
     // 规则 v6 G3d：弱敌战标记只在为真时写进新建 setup，战报、奖励与账本重放只认已存值。
     if (lobby.weakFoes === true) setup.weakFoes = true;
-    const reserve = reserveQueue(enemies, tiers, combatId);
+    const reserve = encounterFormation ? null : reserveQueue(enemies, tiers, combatId);
     if (reserve) setup.reserve = reserve;
     // 敌人模板 M7 盗金：只在本场有会盗金的敌人且剧情货币可读时快照余额；其余 setup 形状不变。
     const stealsGold = enemies.some((unit) => (unit.skills || []).some((skill) => (skill.effects || []).some((effect) => effect?.op === 'steal-gold'))

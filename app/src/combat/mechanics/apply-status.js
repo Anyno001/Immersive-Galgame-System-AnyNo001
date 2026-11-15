@@ -140,6 +140,7 @@ export const APPLY_STATUSES = Object.freeze({
     imbalanced: Object.freeze({ max: 1, value: -4 }),
     tender: Object.freeze({ debuff: true, max: 3, value: 5 }),
     soar: Object.freeze({ max: 1, value: 8 }),
+    burrowed: Object.freeze({ max: 1, value: 8 }),
     // 敌人模板 M6（foe-afflict.js）。硬壳、蒸汽、滑溜等层数是绝对值，不随档位换算。
     slow: Object.freeze({ max: 1, value: 6 }),
     chrono: Object.freeze({ max: 5, value: 5 }),

@@ -3,7 +3,7 @@
 import { registerMechanic } from './registry.js';
 
 // barbed：折甲巨像双重猛击卸下尖壳（刺甲，按攻击牌反伤）。
-const SHED_STATUSES = Object.freeze(['thorns', 'strength', 'dexterity', 'plating', 'soar', 'barbed']);
+const SHED_STATUSES = Object.freeze(['thorns', 'strength', 'dexterity', 'plating', 'soar', 'barbed', 'burrowed']);
 const st = (unit, key) => unit?.statuses?.[key] || 0;
 const statusSource = (unit, id) => ({ unitId: unit.id, kind: 'status', id });
 const foesOf = (state, unit) => state.order.map((id) => state.units[id]).filter((other) => other?.alive && other.side !== unit.side);
@@ -113,6 +113,7 @@ registerMechanic({
         { key: 'imbalanced', label: '失重', debuff: true },
         { key: 'tender', label: '酥软', debuff: true },
         { key: 'soar', label: '翱翔' },
+        { key: 'burrowed', label: '潜地', clearBlockOnRemove: true },
         { key: 'asleep', label: '睡眠' },
         { key: 'about-to-blow', label: '将爆' },
     ],
@@ -270,6 +271,9 @@ registerMechanic({
         'incoming-mult': (attacker, target, value) => (st(target, 'soar') ? value * 0.5 : value),
     },
     hooks: {
+        'turn-start-before'(ctx, payload) {
+            if (st(payload.unit, 'burrowed')) payload.clearBlock = false;
+        },
         'hp-loss-after'(ctx, { target, hpLoss }, kit) {
             const sleep = target.script?.sleep;
             const asleep = st(target, 'asleep');

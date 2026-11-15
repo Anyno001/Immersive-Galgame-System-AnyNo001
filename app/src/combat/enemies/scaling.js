@@ -50,7 +50,7 @@ function scaleEffects(effects, scale) {
     return (effects || []).map((effect) => {
         const next = { ...effect };
         if (DAMAGE_OPS.has(effect.op)) next.amount = Math.max(1, Math.floor(effect.amount * scale.damage + 1e-9));
-        else if (effect.op === 'block') next.amount = Math.max(1, Math.round(effect.amount * scale.block));
+        else if (effect.op === 'block' || effect.op === 'protect-ally') next.amount = Math.max(1, Math.round(effect.amount * scale.block));
         if (effect.op === 'foe-surge') for (const key of SURGE_KEYS) if (effect[key] !== undefined) next[key] = Math.max(1, Math.floor(effect[key] * scale.damage + 1e-9));
         if (effect.op === 'apply-status' && STATUS_SCALE[effect.status]) next.stacks = scaledStacks(effect.stacks, scale[STATUS_SCALE[effect.status]], APPLY_STATUSES[effect.status].max);
         // 缠绕每回合造成层数伤害，随伤害换算。

@@ -13,14 +13,14 @@ const turretSource = '106-sts2-turret-living-shield.md';
 const ROWS = [
     [2, 'Scroll of Biting', '噬咬卷轴', [31, 38], 'pending', 18, audit(16), 234, 'HP 与历史冲突；咀嚼后分支权重与禁连用作用域未展开；削减最大生命无算子。'],
     [3, 'Axebot', '斧械', [70, 78], 'beta', 19, audit(17), 235, 'Beta 内容；被杀后原位补货生成新实例不可表达。'],
-    [4, 'Fabricator', '造械师', 150, 'release', 20, audit(18), 236, '按存活同伴数分支召唤四种指定机器人，不支持。'],
-    [5, 'Zapbot', '电击机', [18, 23], 'release', 21, audit(19), 237, '仅由造械师召唤的随从；高压成长时点来源冲突。'],
-    [6, 'Stabbot', '刺击机', [18, 23], 'release', 22, audit(20), 237, '仅由造械师召唤的随从，不单独成档。'],
-    [7, 'Guardbot', '护卫机', [16, 20], 'release', 23, audit(21), 237, '仅由造械师召唤，格挡目标绑定造械师。'],
-    [8, 'Noisebot', '噪声机', [18, 23], 'release', 24, audit(22), 237, '仅由造械师召唤；眩晕牌在两个牌堆的张数分配未明。'],
+    [4, 'Fabricator', '造械师', 150, 'release', 20, ref('149-fabricator-runtime-boundary.md', 5, 24), 236, 'allies数量分支与指定召唤已有；避免连续同种的历史规则、Guardbot绑定召唤者支援缺完整链路，High Voltage时点和Noise牌区数量仍缺证，整组保留excluded。'],
+    [5, 'Zapbot', '电击机', [18, 23], 'release', 21, audit(19), 237, '仅随造械师实现；High Voltage2的回合开始/结束成长来源冲突未解，见101与149。'],
+    [6, 'Stabbot', '刺击机', [18, 23], 'release', 22, audit(20), 237, '基础刺击11并脆弱1已证，须随造械师完整接线，不独立入池；本体仍被召唤规则及其他机器人缺口阻断，见149。'],
+    [7, 'Guardbot', '护卫机', [16, 20], 'release', 23, audit(21), 237, '仅随造械师实现；格挡15必须绑定造械师，现有ally最低生命比例回落不能替代，见149。'],
+    [8, 'Noisebot', '噪声机', [18, 23], 'release', 24, audit(22), 237, '仅随造械师实现；向抽牌堆和弃牌堆加入2张眩晕的各堆数量及位置未闭合，见101与149。'],
     [10, 'Globe Head', '球首', 148, 'pending', 26, audit(24), 239, '电涌附着牌区、新生成牌、来源死亡与复制交互未闭合。'],
     [12, 'Slimed Berserker', '黏浊狂战士', 266, 'pending', 28, audit(26), 241, '信息框 HP 与历史冲突，跨页版本归属未统一。'],
-    [13, 'Living Shield', '活体盾', 55, 'release', 29, ref(turretSource, 16, 18), 242, '按炮手存活切换招式集，护盾目标绑定炮手，不支持。'],
+    [13, 'Living Shield', '活体盾', 55, 'release', 29, ref(turretSource, 16, 25), 242, '须与炮手固定同场；Rampart25在玩家回合开始给指定炮手格挡，不能用随机protect-ally、自保或伤害重定向替代。现有encounter只分组，allies条件只计数，缺指定搭档存活与护垒绑定链路；来源死亡解除、清盾/加盾顺序及炮手死亡后意图刷新仍待证，整组不可物化。'],
     [16, 'The Forgotten', '遗忘者', 106, 'pending', 32, ref(lostSource, 18, 27), 245, '敏捷伤害与逐来源返还已可表达；Miasma 格挡8与本次敏捷+2的结算顺序缺证，暂不收录；须与迷失者同场。'],
 ];
 
@@ -42,8 +42,8 @@ export const STS2_GLORY = Object.freeze([
     enemy('sts2', 'glory', 14, '炮塔操作员', 'normal', 'release',
         { skills: [skill('unload', '倾泻火力', 'attack', [atk(3, 5)], fields), skill('loading', '装填', 'buff', [st('strength', 1, 'self')], fields)],
             script: cycle(['unload', 'unload', 'loading']) },
-        { sourceKey: 'Turret Operator', hp: 41, evidence: [base(30), ref(turretSource, 15), matrix(243)],
-            notes: ['倾泻、倾泻、装填三步循环；倾泻3×5五段保留，装填力量+1逐段生效。', '活体盾的护垒格挡来源属遭遇层，单体模板不带；A9伤害4×5及高阶HP51只记备注。'] }),
+        { sourceKey: 'Turret Operator', hp: 41, encounterOnly: true, evidence: [base(30), ref(turretSource, 14, 25), matrix(243)],
+            notes: ['倾泻、倾泻、装填三步循环；倾泻3×5五段保留，装填力量+1逐段生效。', '仅随固定遭遇「炮手与活体盾」物化，不独立抽取；活体盾的护垒绑定和时序待证时整组不可物化。两者均为Normal，不套用Minion绑定退场；A9伤害4×5及高阶HP51只记备注。'] }),
     enemy('sts2', 'glory', 11, '鸮法官', 'normal', 'release',
         { skills: [
             skill('scrutiny', '审视', 'attack', [atk(16)], fields),

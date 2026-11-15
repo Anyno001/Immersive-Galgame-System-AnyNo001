@@ -7,6 +7,8 @@ export const HOOK_POINTS = Object.freeze([
     'damage-before', 'damage-after', 'hp-loss-before', 'hp-loss-after', 'defeated',
     // 一次出手（出牌、技能单位出手、人物技能）结算完：{ unit, kind: 'card' | 'skill' | 'hero-skill', card?, skill?, effects }。
     'action-after',
+    // 一次完整牌效果结算后、下一次重演前：{ unit }；挂起选择恢复后仍只触发一次。
+    'play-run-after',
     // 每段攻击结算后（含零伤害），反伤之前：{ attacker, target, hpLoss, blockBefore }；不冒充 damage-after。
     'attack-after',
     // 获得格挡之后、「获得格挡」总线之前：{ target, amount, source, shared? }，可追加格挡并改写 amount 为本次合计。
@@ -69,7 +71,7 @@ function invalid(key, reason) {
 }
 
 // def：{ key, family, archetypes, unitKinds, ops: { 算子: { validate, apply, value?, damage?, estimateDamage?, estimateBlock?, describe?, brief?, scale? } },
-//       statuses?: [{ key, label?, debuff?, decay? }], hooks?: { 时机: fn }, modifiers?: { 阶段: (attacker, target, value) => value },
+//       statuses?: [{ key, label?, debuff?, decay?, clearBlockOnRemove? }], hooks?: { 时机: fn }, modifiers?: { 阶段: (attacker, target, value) => value },
 //       lossKinds?: [失去生命类伤害种类], describe?, report? }
 // 先整体校验再写入，任一项不合法即抛错且不留下部分登记。archetypes 为空表示所有职业可用。
 export function registerMechanic(def) {
@@ -91,6 +93,7 @@ export function registerMechanic(def) {
         const name = status?.key;
         if (!isKey(name) || seen.has(name) || RESERVED_STATUSES.has(name) || STATUS_OWNERS.has(name)) invalid(key, `status:${name}`);
         if (status.label !== undefined && (typeof status.label !== 'string' || !status.label.trim() || status.label.length > 8)) invalid(key, `status-label:${name}`);
+        if (status.clearBlockOnRemove !== undefined && typeof status.clearBlockOnRemove !== 'boolean') invalid(key, `status-clear-block:${name}`);
         seen.add(name);
     }
     const hooks = Object.entries(def.hooks || {});
@@ -105,7 +108,8 @@ export function registerMechanic(def) {
     const mechanic = Object.freeze({ key, family: def.family, archetypes: Object.freeze([...def.archetypes]), unitKinds, describe: def.describe, report: def.report });
     MECHANICS.set(key, mechanic);
     for (const [op, handler] of ops) OP_OWNERS.set(op, Object.freeze({ ...handler, ...(handler.scale ? { scale: Object.freeze({ ...handler.scale }) } : {}), ...(handler.attribute && !isFn(handler.attribute) ? { attribute: Object.freeze({ ...handler.attribute }) } : {}), op, mechanic: key, unitKinds }));
-    for (const status of statuses) STATUS_OWNERS.set(status.key, Object.freeze({ key: status.key, label: status.label?.trim() || null, debuff: Boolean(status.debuff), decay: Boolean(status.decay), mechanic: key }));
+    for (const status of statuses) STATUS_OWNERS.set(status.key, Object.freeze({ key: status.key, label: status.label?.trim() || null, debuff: Boolean(status.debuff), decay: Boolean(status.decay), mechanic: key,
+        ...(status.clearBlockOnRemove === true ? { clearBlockOnRemove: true } : {}) }));
     for (const [point, run] of hooks) HOOKS.get(point).push(Object.freeze({ mechanic: key, run }));
     for (const [stage, fn] of modifiers) DAMAGE_MODS.get(stage).push(Object.freeze({ mechanic: key, fn }));
     for (const kind of lossKinds) LOSS_KINDS.add(kind);

@@ -12,6 +12,7 @@ export function describeEnemySuitability(profile) {
     const fits = [];
     const add = (when, text) => { if (when) fits.push(text); };
     add(hasOp('summon-kin'), '统领、巢母、召唤师等驱使随从的敌人');
+    add(hasOp('protect-ally'), '为同伴提供掩护、独处后转入进攻的护卫');
     add(hasOp('split-into'), '可分裂的黏体、虫群或聚合生物');
     add(profile?.deathSpawns?.length, '倒下后孵化或解体产生新个体的敌人');
     add(hasOp('drain'), '吸血、寄生或吞噬生命的敌人');
@@ -19,6 +20,7 @@ export function describeEnemySuitability(profile) {
     add(hasOp('steal-gold'), '劫匪、窃贼等掠夺财物的敌人');
     add(hasOp('offer-curse'), '以诅咒迫使对手作出抉择的恶魔或术士');
     add(profile?.script?.sleep, '休眠守卫或受惊后苏醒的巨兽');
+    add(hasStatus('burrowed'), '潜伏于地下或护盾之中、破防后短暂停顿的敌人');
     add(hasStatus('fuse') || hasOp('release', 'self-destruct'), '蓄压爆炸的机关、构装体或危险生物');
     add(hasStatus('thorns', 'barbed'), '带尖刺、棘皮或反击外壳的敌人');
     add(hasStatus('plated', 'plating', 'metallicize', 'barricade', 'shell'), '甲壳生物、盾卫或重装构装体');

@@ -3,6 +3,7 @@
 // 滑溜 slippery、胆怯 skittish、流沙 sandpit、来源绑定缠绕 constricted；蒸汽 steam 只作 M4 致死转爆炸（needs）的存量。
 // 来源未闭合的边界（重置归属、零伤害与完全格挡、触发时点）按下面注释的实现选择处理，见 CONTRACT.md 与研究台账。
 import { registerMechanic } from './registry.js';
+import { GARDENER_FORMATION } from '../encounter-formation.js';
 
 export const SLOW_STEP = 10;
 export const CHRONO_CARDS = 12;
@@ -14,6 +15,12 @@ function tidyRes(unit, key) {
     if (!unit.res) return;
     delete unit.res[key];
     if (!Object.keys(unit.res).length) delete unit.res;
+}
+function grantSkittish(ctx, ids, kit) {
+    for (const id of ids) {
+        const foe = ctx.state.units[id];
+        if (foe?.alive && !ctx.state.outcome && st(foe, 'skittish')) kit.gainBlock(ctx, foe, st(foe, 'skittish'), src(foe, 'skittish'));
+    }
 }
 // 往卡组单位的牌堆塞状态牌（由对方塞入，不算它自己生成临时牌）。
 function junk(ctx, victim, cardId, where, count, kit) {
@@ -116,19 +123,28 @@ registerMechanic({
             // 胆怯：每回合首次被攻击命中，在攻击者这次出手结算完后获得层数格挡。
             if (st(target, 'skittish') && target.res?.skittishTurn !== ctx.state.turn) {
                 kit.resOf(ctx, target).skittishTurn = ctx.state.turn;
-                if (!ctx.skittishHits) ctx.skittishHits = new Map();
-                if (!ctx.skittishHits.has(attacker.id)) ctx.skittishHits.set(attacker.id, new Set());
-                ctx.skittishHits.get(attacker.id).add(target.id);
+                const formation = ctx.state.encounterFormation;
+                const play = ctx.state.play;
+                if (formation?.id === GARDENER_FORMATION.id && formation.unitIds.includes(target.id) && play?.unitId === attacker.id) {
+                    play.skittishHits = [...(play.skittishHits || []), target.id];
+                } else {
+                    if (!ctx.skittishHits) ctx.skittishHits = new Map();
+                    if (!ctx.skittishHits.has(attacker.id)) ctx.skittishHits.set(attacker.id, new Set());
+                    ctx.skittishHits.get(attacker.id).add(target.id);
+                }
             }
+        },
+        'play-run-after'(ctx, { unit }, kit) {
+            const play = ctx.state.play;
+            if (play?.unitId !== unit.id || !play.skittishHits) return;
+            grantSkittish(ctx, play.skittishHits, kit);
+            delete play.skittishHits;
         },
         'action-after'(ctx, { unit }, kit) {
             const startled = ctx.skittishHits?.get(unit.id);
             if (!startled) return;
             ctx.skittishHits.delete(unit.id);
-            for (const id of startled) {
-                const foe = ctx.state.units[id];
-                if (foe?.alive && !ctx.state.outcome && st(foe, 'skittish')) kit.gainBlock(ctx, foe, st(foe, 'skittish'), src(foe, 'skittish'));
-            }
+            grantSkittish(ctx, startled, kit);
         },
         // 滑溜：每次失去生命至多 1 点；硬壳：两次重置之间累计失去生命不超过层数。
         'hp-loss-before'(ctx, pre) {

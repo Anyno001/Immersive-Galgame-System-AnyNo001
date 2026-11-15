@@ -11,7 +11,7 @@ const ROWS = [
     [1, 'Bygone Effigy', '旧日神像', 127, 'pending', 17, 16, 259, '迟缓是否计入当前牌及重置事件未证，不借相近倍率补足。'],
     [2, 'Byrdonis', '巢鸟领主', [81, 84], 'release', 18, 17, 260, '俯冲17与啄击3×3交替；领地1：每个自身回合结束力量+1，力量逐段加到啄击。A9伤害19与4×3、高阶HP90只记备注。'],
     [3, 'Phrog Parasite', '寄生蛙', [61, 64], 'release', 19, 18, 261, '死亡召唤4只指定随从且须继续击败；感染卡牌定义未读。'],
-    [4, 'Phantasmal Gardener', '幻影园丁', [26, 31], 'release', 20, 19, 262, '精英强度由四体错位同场构成，单体模板失真。'],
+    [4, 'Phantasmal Gardener', '幻影园丁', [26, 31], 'release', 20, 19, 262, '仅随固定四体遭遇幻影园丁同场：从左到右Flail、Bite、Lash、Enlarge起手，之后各自沿Bite→Lash→Flail→Enlarge循环；开场Skittish6，首次完整打出后给盾，不在多段之间给盾。', ['四体均为非爪牙；经批准仅该固定编组例外完整同场，不拆后备。', '每回合重置归属、完全格挡/零伤害、致死、多目标与Osty边界未闭合，沿用skittish项目口径，见59。A8/A9与高阶HP不混入基础模型。'], { encounterOnly: true }],
     [5, 'Skulking Colony', '潜伏虫群', 75, 'release', 21, 20, 263, '固定循环疾冲14、疾冲、惯性9并力量+2、穿刺7×2；硬化外壳20经 M6 shell（两次重置间累计失血≤层数，主角与自身回合开始各重置）。Boot/Doom 特例来源未闭合；A9力量3/4冲突、高阶数值与HP80只记备注。'],
     [6, 'Terror Eel', '恐鳗', 140, 'pending', 22, 21, 264, '阈值插入眩晕后的意图替换时点与恢复位置未给；易伤99层超状态上限。'],
     [7, 'Decimillipede', '十节蜈', [40, 46], 'release', 23, 22, 265, '多节段同场复活，复活后随机续招未给。'],
@@ -33,6 +33,17 @@ const MODELS = {
         script: cycle(['swoop', 'peck']),
         passives: [passive('territorial', '领地', 'turn-end', [st('strength', 1, 'self')])],
     },
+    'Phantasmal Gardener': {
+        skills: [
+            skill('bite', '撕咬', 'attack', [atk(5)], fields),
+            skill('lash', '抽击', 'attack', [atk(7)], fields),
+            skill('flail', '乱舞', 'attack', [atk(1, 3)], fields),
+            skill('enlarge', '膨胀', 'buff', [st('strength', 2, 'self')], fields),
+        ],
+        script: { opener: 'bite', next: { bite: [{ skill: 'lash', weight: 1 }], lash: [{ skill: 'flail', weight: 1 }],
+            flail: [{ skill: 'enlarge', weight: 1 }], enlarge: [{ skill: 'bite', weight: 1 }] } },
+        passives: [passive('skittish', '胆怯', 'battle-start', [ap('skittish', 6, 'self')])],
+    },
     'Skulking Colony': {
         skills: [
             skill('zoom', '疾冲', 'attack', [atk(14)], fields),
@@ -52,9 +63,10 @@ const MODELS = {
     },
 };
 
-export const STS2_ELITES = Object.freeze(ROWS.map(([no, sourceKey, name, hp, status, line, auditLine, matrixLine, reason]) => {
+export const STS2_ELITES = Object.freeze(ROWS.map(([no, sourceKey, name, hp, status, line, auditLine, matrixLine, reason, notes = [], flags = {}]) => {
     const evidence = [base(line), audit(auditLine), matrix(matrixLine)];
+    if (sourceKey === 'Phantasmal Gardener') evidence.push(ref('59-sts2-gardener-card-boundary.md', 14, 29));
     return MODELS[sourceKey]
-        ? enemy('sts2', 'elite', no, name, 'elite', status, MODELS[sourceKey], { sourceKey, hp, evidence, notes: [reason] })
+        ? enemy('sts2', 'elite', no, name, 'elite', status, MODELS[sourceKey], { ...flags, sourceKey, hp, evidence, notes: [reason, ...notes] })
         : unavailableEnemy('sts2', 'elite', no, name, 'elite', status, { sourceKey, hp, reason, evidence });
 }));

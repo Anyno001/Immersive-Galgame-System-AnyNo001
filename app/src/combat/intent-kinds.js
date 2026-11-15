@@ -28,7 +28,7 @@ export function intentKinds(state, unit, skill, attacks) {
     const kinds = [];
     const add = (kind) => { if (!kinds.includes(kind)) kinds.push(kind); };
     if (attacks.length) add(has('self-destruct') ? 'explode' : 'attack');
-    if (has('block')) add('defend');
+    if (has('block', 'protect-ally')) add('defend');
     for (const e of effects) {
         if (['status', 'apply-status'].includes(e.op)) {
             if (e.status === 'steam') continue;

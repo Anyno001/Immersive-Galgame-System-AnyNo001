@@ -20,6 +20,8 @@ import {
 import { chooseAllyPlay, chooseSkillIntent, isScriptOpener, nextScriptStep, pickCards, scriptNodeSkills, scriptPlan, skillHasUses } from './policy.js';
 import { SCRIPT_CONDITION_MAX, isScriptCondition } from './script-conditions.js';
 import { INSERT_MAX, INTERRUPT_EVENTS, INTERRUPT_MAX, INTERRUPT_SEQ_MAX, INTERRUPT_THEN, REBIRTH_CLEAR, SKILL_USES_MAX, SLEEP_HURT_MODES, SLEEP_SHED_MAX, STATUSES, normalizeEffect, normalizeEnemyTemplate, normalizeKinFields } from './schema.js';
+import { kinUnitDefinition } from './kin.js';
+import { GARDENER_FORMATION, validEncounterFormation } from './encounter-formation.js';
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { canAttributeSift, validAttributePolicy, validAttributeRules } from './attribute-policy.js';
@@ -129,6 +131,7 @@ function setStatus(unit, status, stacks, attribute, powerSource, signed = false)
     updatePowerStatuses(unit, status, previous, stacks, powerSource);
     if (stacks > 0 || (signed && status === 'dexterity' && stacks < 0)) unit.statuses[status] = stacks;
     else delete unit.statuses[status];
+    if (previous > 0 && stacks <= 0 && statusDef(status)?.clearBlockOnRemove === true) unit.block = 0;
 }
 const statusSources = (unit, status) => unit.res?.attributeStatuses?.[status]
     || [{ stacks: unit.statuses[status] || 0 }];
@@ -273,9 +276,10 @@ const phaseInvalid = (phase, skillIds) => turnPhaseInvalid(phase)
 
 // 注册状态复用档案校验；旧 setup 的 apply-status 内置状态别名保留原行为。
 // 其他效果可能已按等级换算，不套用档案数值上限。
+// protect-ally 为新增技能算子，两入口共用字段与数值约束。
 function statusEffectsInvalid(effects) {
     return Array.isArray(effects) && effects.some((effect) => {
-        if (effect?.op === 'apply-status' && !STATUSES.includes(effect.status)) {
+        if (effect?.op === 'protect-ally' || (effect?.op === 'apply-status' && !STATUSES.includes(effect.status))) {
             const definition = { ...effect };
             delete definition._attribute;
             if (!normalizeEffect(definition).ok) return true;
@@ -370,6 +374,7 @@ function validateSetup(setup) {
     // 显式 v6 默认限制 3 名普通敌人；旧版本及未标版本的历史 setup 沿用原 foeCap 语义。
     const foeMax = setup.rulesVersion >= 6 ? COMBAT_RULES.maxFoesOnField : COMBAT_RULES.maxEnemiesOnField;
     if (setup.foeCap !== undefined && !(Number.isInteger(setup.foeCap) && setup.foeCap >= 1 && setup.foeCap <= foeMax)) return { reason: 'invalid-setup' };
+    if (setup.encounterFormation !== undefined && !validEncounterFormation(setup)) return { reason: 'invalid-encounter-formation' };
     // crowd 已烘焙进单位数值，只校验保存值，不在恢复时再次缩放。
     if (setup.crowd !== undefined && !(typeof setup.crowd === 'number' && setup.crowd > 0 && setup.crowd <= 1)) return { reason: 'invalid-setup' };
     // weakFoes（规则 v6 G3d）：弱敌战标记，只影响奖励、积分与场次，不进战斗状态；只在为真时写。
@@ -385,6 +390,14 @@ function validateSetup(setup) {
         ids.add(unit.id);
         // M8 遭遇分组：只限规则 v5 起的敌方技能单位，取值同单位 id 规则。
         if (unit.encounter !== undefined && (unit.side !== 'enemy' || unit.kind !== 'skill' || typeof unit.encounter !== 'string' || !ID_PATTERN.test(unit.encounter) || !(setup.rulesVersion >= 5))) return { reason: 'invalid-encounter', detail: { path } };
+        if (['minion', 'minionOf', 'kinOf', 'kinKey'].some((key) => unit[key] !== undefined)) {
+            const owner = setup.units.find((other) => other?.id === unit.minionOf);
+            if (!(setup.rulesVersion >= 5) || unit.side !== 'enemy' || unit.kind !== 'skill' || unit.minion !== true
+                || !owner || owner === unit || owner.side !== 'enemy' || owner.kind !== 'skill' || owner.minion === true
+                || !unit.encounter || unit.encounter !== owner.encounter || unit.kinOf !== owner.id
+                || typeof unit.kinKey !== 'string' || !Object.hasOwn(owner.kin || {}, unit.kinKey)
+                || owner.kin[unit.kinKey]?.minion !== true) return { reason: 'invalid-minion', detail: { path } };
+        }
         const problem = validateUnit(unit, path, setup.attributeRules);
         if (problem) return problem;
     }
@@ -394,9 +407,13 @@ function validateSetup(setup) {
     const reserve = setup.reserve ?? [];
     const isEnemy = (id) => setup.units.some((unit) => unit.id === id && unit.side === 'enemy');
     if (!Array.isArray(reserve) || reserve.length >= enemyCount || reserve.some((id, index) => typeof id !== 'string' || reserve.indexOf(id) !== index || !isEnemy(id))) return { reason: 'invalid-reserve' };
+    if (setup.units.some((unit) => unit.minion === true && (reserve.includes(unit.id) || reserve.includes(unit.minionOf)))) {
+        return { reason: 'invalid-reserve' };
+    }
     if (enemyCount - reserve.length > COMBAT_RULES.maxEnemiesOnField) return { reason: 'too-many-enemies', detail: { max: COMBAT_RULES.maxEnemiesOnField } };
     const foeCap = setup.foeCap ?? (setup.rulesVersion >= 6 ? COMBAT_RULES.maxFoesOnField : undefined);
-    if (foeCap !== undefined && enemyCount - reserve.length > foeCap) return { reason: 'too-many-enemies', detail: { max: foeCap } };
+    const initialCap = setup.encounterFormation ? GARDENER_FORMATION.openers.length : foeCap;
+    if (initialCap !== undefined && enemyCount - reserve.length > initialCap) return { reason: 'too-many-enemies', detail: { max: initialCap } };
     const hero = setup.units.find((unit) => unit.id === setup.controlledId);
     return !hero || hero.side !== 'ally' || hero.kind !== 'deck' ? { reason: 'invalid-controlled' } : null;
 }
@@ -687,14 +704,7 @@ function createKin(ctx, owner, key, mode, hp) {
     const def = owner?.kin?.[key];
     if (!(state.rulesVersion >= 5) || state.outcome || !def || owner.side !== 'enemy' || (mode === 'summon' && !owner.alive)) return null;
     const minion = def.minion ?? (mode === 'summon' ? true : owner.minion === true);
-    const maxHp = Math.max(1, Math.min(9999, Math.round(hp ?? def.maxHp * (owner.kinScale ?? 1))));
-    const unit = spawnUnit(ctx, owner, {
-        name: typeof def.name === 'string' && def.name ? def.name : key, maxHp, hp: maxHp,
-        speed: def.speed ?? owner.speed, damageScale: owner.damageScale, skills: def.skills, passives: def.passives || [],
-        ...(def.phases ? { phases: def.phases } : {}), ...(def.script ? { script: def.script } : {}),
-        ...(def.art ? { art: def.art } : owner.art ? { art: owner.art } : {}), ...(def.deathSpawns ? { deathSpawns: def.deathSpawns } : {}),
-        kin: owner.kin, ...(owner.kinScale !== undefined ? { kinScale: owner.kinScale } : {}),
-    }, 'k', minion);
+    const unit = spawnUnit(ctx, owner, kinUnitDefinition(owner, key, hp), 'k', minion);
     if (!unit) return null;
     unit.kinOf = owner.id;
     unit.kinKey = key;
@@ -1963,6 +1973,7 @@ function resolvePlay(ctx) {
             applyEffect(ctx, unit, effect, play.targetId, source);
         }
         if (state.outcome || !unit.alive) break;
+        runHooks(ctx, 'play-run-after', { unit });
         play.run += 1;
         play.index = 0;
     }
@@ -2301,6 +2312,9 @@ function buildUnit(def, attributeRules) {
     // M8 遭遇分组与同组编号前的原名：只在定义中带有时写入，旧战斗形状不变。
     if (def.kind === 'skill' && typeof def.encounter === 'string' && def.encounter) unit.encounter = def.encounter;
     if (def.kind === 'skill' && typeof def.baseName === 'string' && def.baseName) unit.baseName = def.baseName;
+    if (def.minion === true) {
+        for (const key of ['minion', 'minionOf', 'kinOf', 'kinKey']) unit[key] = def[key];
+    }
     // 每次出手连用技能次数（只技能单位）：大于 1 时才写字段，旧战斗形状不变。
     if (def.kind === 'skill' && Number.isInteger(def.actions) && def.actions > 1) unit.actions = def.actions;
     // 敌人模板：行动脚本与按回合进入的阶段（按回合数升序），只在定义中带有时写入。
@@ -2366,6 +2380,7 @@ export function createBattle(setup, seed) {
         ...(setup.openingCharged === true ? { openingDebt: true } : {}),
         ...(setup.randomTargets === true ? { randomTargets: true } : {}),
         ...(setup.foeCap !== undefined || setup.rulesVersion >= 6 ? { foeCap: setup.foeCap ?? COMBAT_RULES.maxFoesOnField } : {}),
+        ...(setup.encounterFormation ? { encounterFormation: deepCopy(setup.encounterFormation) } : {}),
         ...(setup.crowd !== undefined ? { crowd: setup.crowd } : {}),
         ...(setup.hpLossRules === 1 ? { hpLossRules: 1 } : {}),
         ...(setup.cardUpgradeRules === CARD_UPGRADE_RULES ? { cardUpgradeRules: CARD_UPGRADE_RULES } : {}),

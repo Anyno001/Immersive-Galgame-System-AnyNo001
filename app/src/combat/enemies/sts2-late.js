@@ -11,7 +11,7 @@ const bossAudit = (from, to) => ref('115-sts2-boss-behavior-audit.md', from, to)
 
 const BOSSES = [
     [1, 'Ceremonial Beast', '祭仪巨兽', 252, 'pending', [17], [16], 285, '扰鸣定义及持续期来源冲突，失血阈值插招的意图时机未闭合。'],
-    [2, 'Kin Priest / Kin Follower', '血亲祭司', 190, 'release', [18, 19], [17, 18], 286, '首领遭遇由祭司与两名随从三体构成，随从不能按身份召唤。', ['随从 HP 58–59 只记备注；HP 字段取祭司。']],
+    [2, 'Kin Priest / Kin Follower', '血亲祭司', 190, 'release', [18, 19], [17, 18], 286, '仅随固定遭遇血亲出现：祭司四步循环，两名Follower初始同场，分别从Quick Slash和Power Dance起手并独立循环；随从绑定祭司，不独立入池。', ['Follower生命按来源58–59的中点58.5换算后取整，继承祭司最终伤害倍率；不重复乘首领倍率。', '两种起手未绑定原作左右阵位；退场、Fatal、同回合Doom及多体死亡精确队列仍缺证，沿用已批准Minion退场约定，见55。'], { encounterOnly: true }],
     [3, 'Vantom', '墨魇', 173, 'pending', [20], [19], 287, '基础伤害27/26与滑溜9/8存在版本冲突。'],
     [4, 'Lagavulin Matriarch', '酣眠石卫母', 222, 'release', [21], [20], 288, '开场镀甲12、睡眠3（M4 sleep：失血即醒或睡满自然醒，醒来移除镀甲）；醒后斩击19→剖腹9×2→回斩12并格挡12→汲魂（对方攻击力/防御力各降2、自身力量+2）循环。', ['三回合计时锚点、失血唤醒是否占空行动与意图刷新未闭合（116:30），按 M4 实现：不带晕厥、自身回合结束计时、完全格挡不唤醒（116:23）。', '汲魂按 S1 已醒型先例以 atk-down/def-down 表达力量/敏捷-2；A8/A9 数值与高阶HP233只记备注。']],
     [5, 'Soul Fysh', '魂鱼', 211, 'beta', [22], [21], 289, 'Beta 内容；召引卡牌定义未读。'],
@@ -25,7 +25,7 @@ const BOSSES = [
     [10, 'Aeonglass', '永劫沙漏', 512, 'beta', [39], [33], 294, 'Beta 内容；X 的首次求值与递增顺序、凋零定义及跨回合计数未决。'],
     [11, 'Queen', '女王', 400, 'beta', [34], [28], 295, 'Beta 内容；按随从存亡即时切换意图与束缚牌生命周期不能由当前脚本表达。'],
     [12, 'Torch Head Amalgam', '炬首聚合体', 199, 'release', [35], [29], 296, '仅为女王随从，不独立成档；指定随从及领袖联动不能表达。'],
-    [13, 'Test Subject（Phase 1 / 2 / 3）', '实验体', 100, 'release', [36, 38], [30, 32], 297, '同一本体三阶段零HP转阶段并清全部状态不支持；第二阶段多爪段数按使用次数增长已可表达，但跨阶段的计数重置/继承规则未列。', ['阶段 HP 100 / 200 / 300 不相加；HP 字段取第一阶段。']],
+    [13, 'Test Subject（Phase 1 / 2 / 3）', '实验体', 100, 'release', [36, 38], [30, 32], 297, '每阶段击杀/Fatal与复活前不可选中窗口缺少完整运行链路；复活时点、占行动、第一阶段首招、Painful Stabs数量与Nemesis首周期未闭合，不能以onDefeat立即重生或E11不灭替代。', ['阶段 HP 100 / 200 / 300 不相加；HP 字段取第一阶段。', '第二阶段10×3、每次使用后加1段已有foe-volley，运行时不裁段；跨阶段计数及同张牌剩余效果、多段停止顺序仍缺证。']],
     [14, 'Doormaker', '造门者', 489, 'deprecated', [33], [27], 298, '已废弃；门形态与本体变身及出牌限制切换不能表达。'],
 ];
 
@@ -42,6 +42,24 @@ const curse = (id, name, stacks, other, otherStacks) => skill(id, name, 'debuff'
     [op('offer-curse', { options: [{ status: 'disintegration', stacks }, { status: other, stacks: otherStacks }] })], fields);
 // 已收录首领的原版模型，按来源键对应上表同一行；该行 reason 改作备注首项。
 const MODELS = {
+    'Kin Priest / Kin Follower': {
+        skills: [
+            skill('frailty', '脆弱法球', 'attack-debuff', [atk(8), st('frail', 1, 'enemy')], fields),
+            skill('weakness', '虚弱法球', 'attack-debuff', [atk(8), st('weak', 1, 'enemy')], fields),
+            skill('beam', '灵魂光束', 'attack', [atk(3, 3)], fields),
+            skill('ritual', '黑暗仪式', 'buff', [st('strength', 2, 'self')], fields),
+        ],
+        script: cycle(['frailty', 'weakness', 'beam', 'ritual']),
+        kin: { follower: { name: '血亲随从', maxHp: 58.5, minion: true,
+            skills: [
+                skill('slash', '快斩', 'attack', [atk(5)], fields),
+                skill('boomerang', '回旋击', 'attack', [atk(2, 2)], fields),
+                skill('dance', '力量之舞', 'buff', [st('strength', 2, 'self')], fields),
+            ],
+            script: { opener: 'slash', next: { slash: [{ skill: 'boomerang', weight: 1 }],
+                boomerang: [{ skill: 'dance', weight: 1 }], dance: [{ skill: 'slash', weight: 1 }] } },
+        } },
+    },
     'Lagavulin Matriarch': {
         skills: [
             skill('sleep', '酣眠', 'idle', [op('idle')], fields),
@@ -113,11 +131,13 @@ const MODELS = {
 };
 const crabSource = ref('118-sts2-kaiser-crab-source-recheck.md', 12, 32);
 const EXTRA_EVIDENCE = {
+    'Kin Priest / Kin Follower': ref('55-sts2-kin-offset-cycles.md', 14, 43),
     'Lagavulin Matriarch': ref('116-sts2-matriarch-source-recheck.md', 12, 30),
     'Waterfall Giant': ref('52-sts2-waterfall-giant-death.md', 12, 47),
     'Knowledge Demon': ref('117-sts2-knowledge-demon-source-recheck.md', 12, 37),
     'Kaiser Crab（Crusher）': crabSource,
     'Kaiser Crab（Rocket）': crabSource,
+    'Test Subject（Phase 1 / 2 / 3）': ref('51-sts2-test-subject-phases.md', 12, 44),
 };
 
 export const STS2_BOSSES = Object.freeze(BOSSES.map(([no, sourceKey, name, hp, status, [b1, b2 = b1], [a1, a2 = a1], matrixLine, reason, notes = [], extra = {}]) => {

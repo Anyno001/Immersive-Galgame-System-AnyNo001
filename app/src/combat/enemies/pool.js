@@ -13,8 +13,8 @@ const copy = (value) => JSON.parse(JSON.stringify(value));
 const roll = (seed) => nextRandom(hash32(seed)).value;
 // 自爆与纯待机脱离原脚本后语义改变；随从引用由 stitchKits 连带。
 const STITCH_SKIP_OPS = new Set(['self-destruct', 'idle']);
-// 缝合不取给自己挂撤离/自爆倒计时的效果：脱离原脚本后会让缝合敌人无端离场。
-const STITCH_SKIP_STATUSES = new Set(['flee', 'fuse']);
+// 这些状态依赖原脚本的退出条件，不作为独立缝合素材。
+const STITCH_SKIP_STATUSES = new Set(['flee', 'fuse', 'burrowed']);
 const STITCH_PASSIVE_TRIGGERS = new Set(['battle-start', 'turn-start', 'turn-end']);
 const opsOf = (effects) => (Array.isArray(effects) ? effects.flatMap((e) => [e?.op, ...opsOf(e?.then)]) : []);
 const statusesOf = (effects) => (Array.isArray(effects) ? effects.flatMap((e) => [e?.op === 'apply-status' ? e.status : null, ...statusesOf(e?.then)]) : []);

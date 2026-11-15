@@ -5,7 +5,7 @@ import { statusLabel } from '../mechanics/registry.js';
 export const UNKNOWN_TEXT = '特殊效果';
 export const DESCRIBE_TEXT_MAX = 40;
 const DEBUFF_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', frail: '脆弱', poison: '中毒', 'no-draw': '禁抽' });
-const KNOWN_OPS = new Set(['damage', 'drain', 'block', 'heal', 'status', 'apply-status', 'create', 'shed', 'idle', 'self-destruct', 'seize-might', 'conditional', 'steal-gold', 'offer-curse', 'foe-surge', 'release', 'summon-kin', 'split-into', 'constrict']);
+const KNOWN_OPS = new Set(['damage', 'drain', 'block', 'protect-ally', 'heal', 'status', 'apply-status', 'create', 'shed', 'idle', 'self-destruct', 'seize-might', 'conditional', 'steal-gold', 'offer-curse', 'foe-surge', 'release', 'summon-kin', 'split-into', 'constrict']);
 const GROWTH = new Set(['strength', 'ritual']);
 const GUARD = new Set(['plated', 'plating', 'metallicize', 'barricade', 'artifact', 'dexterity']);
 
@@ -20,6 +20,7 @@ const skillDamage = (skill) => (skill.effects || []).filter((e) => e?.op === 'da
 function patternOf(profile) {
     const script = profile?.script;
     if (Array.isArray(profile?.phases) && profile.phases.length) return '濒危变招';
+    if (script?.interrupts?.some((rule) => rule.on === 'block-broken' && rule.status === 'burrowed' && rule.then === 'restart')) return '破盾后重启循环';
     if (Array.isArray(script?.cycle) && script.cycle.length) return '出招固定循环';
     if (script?.next) return '按上一招接招';
     return '出招随机';
@@ -47,6 +48,8 @@ export function describeEnemy(profile) {
     if (effects.some((e) => e?.op === 'drain')) add('吸血回复');
     const armorPause = effects.some((e) => e?.op === 'idle') && profile?.script?.interrupts?.some((rule) => rule.on === 'status-lost' && rule.status === 'plated');
     if (armorPause) add('破甲后停顿');
+    const burrowPause = effects.some((e) => isStatus(e) && e.status === 'burrowed');
+    if (burrowPause) add('潜地保盾');
     const hp = Number(profile?.base?.hp) || 0;
     if (hp >= tier.hp * 1.25) add('皮糙肉厚');
     else if (hp && hp <= tier.hp * 0.75) add('体格单薄');
@@ -67,11 +70,12 @@ export function describeEnemy(profile) {
     const debuffs = [...new Set(effects.filter((e) => isStatus(e) && onFoe(e)).map((e) => debuffName(e.status)))];
     if (debuffs.length) add(debuffs.length <= 2 && debuffs.every(Boolean) ? `施加${debuffs.join('/')}` : '施加减益');
     if (effects.some((e) => isStatus(e) && !onFoe(e) && GROWTH.has(e.status))) add('逐步变强');
+    if (effects.some((e) => e?.op === 'protect-ally')) add('保护同伴');
     if (effects.some((e) => e?.op === 'block' || (isStatus(e) && !onFoe(e) && GUARD.has(e.status)))) add('善于防守');
     if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'thorns')) add('带荆棘');
     if (effects.some((e) => e?.op === 'heal')) add('会回血');
     if (effects.some((e) => isStatus(e) && e.status === 'soar')) add('会腾空');
-    if (!armorPause && effects.some((e) => e?.op === 'idle')) add('时而蓄势');
+    if (!armorPause && !burrowPause && effects.some((e) => e?.op === 'idle')) add('时而蓄势');
     if (!traits.length) add('攻守平平');
     const pattern = patternOf(profile);
     const kept = traits.slice(0, 4);

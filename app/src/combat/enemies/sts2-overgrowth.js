@@ -1,5 +1,5 @@
 // S2 Overgrowth：基础难度；来源区间保留，进阶差异只入备注。条目只登记原版模型。
-import { enemy, unavailableEnemy, skill, passive, atk, blk, st, op, cycle } from './dsl.js';
+import { enemy, unavailableEnemy, skill, passive, atk, blk, st, ap, op, cycle } from './dsl.js';
 
 const research = '.limcode/cache/enemy-research/';
 const ref = (file, from, to = from) => ({ file: `${research}${file}`, lines: [from, to] });
@@ -12,11 +12,8 @@ const raiders = '67-sts2-ruby-raiders-cycles.md';
 const UNAVAILABLE = [
     [7, 'Eye With Teeth', '齿眼幻影', 6, 'release', [base(22), ref('70-sts2-fogmog-illusion-gaps.md', 17), matrix(143)], '仅由雾沼兽召唤的随从，带死亡后复活的幻影特性，不单独成档。'],
     [9, 'Fogmog', '雾沼兽', 74, 'pending', [base(24), ref('70-sts2-fogmog-illusion-gaps.md', 24, 28), matrix(145)], '开场召唤后的选招禁连用作用域自相矛盾，状态机未闭合。'],
-    [11, 'Inklet', '墨滴灵', [11, 17], 'release', [base(26), ref('71-sts2-cubex-inklet-behavior.md', 27, 30), matrix(147)], '固定步与随机节点交替已可表达；但滑溜特性不支持（M6），且首招按三体阵位区分（M8）。'],
-    [12, 'Leaf Slime (M)', '中叶黏体', [32, 35], 'pending', [base(27), ref('68-sts2-slimes-behavior.md', 20), matrix(148)], 'S2 黏液状态牌当前定义未核实，不能用本项目同名状态牌冒充。'],
-    [13, 'Leaf Slime (S)', '小叶黏体', [11, 15], 'pending', [base(28), ref('68-sts2-slimes-behavior.md', 19), matrix(149)], '首招权重未给；黏液状态牌定义同样未核实。'],
+    [13, 'Leaf Slime (S)', '小叶黏体', [11, 15], 'pending', [base(28), ref('68-sts2-slimes-behavior.md', 19), matrix(149)], 'S2黏液已独立登记为1费抽1张后消耗；首招权重仍未给，不据两招禁连用反推等权或固定首招，见缓存164。'],
     [16, 'Shrinker Beetle', '缩身甲虫', [38, 40], 'pending', [base(31), ref('73-sts2-mawler-shrinker-behavior.md', 27, 29), matrix(152)], '交替段起始相位未给；缩身需绑定施加者存活的状态。'],
-    [19, 'Twig Slime (M)', '中枝黏体', [26, 28], 'pending', [base(35), ref('68-sts2-slimes-behavior.md', 22), matrix(155)], '黏液状态牌未核实；猛咬可无限连用，不能用连用上限近似，67:33 也不改写。'],
     [21, 'Vine Shambler', '蔓行者', 61, 'pending', [base(37), ref('75-sts2-jaxfruit-vine-cycles.md', 27, 29), matrix(157)], '缠蔓层数与持续期、加费优先级未给，不能用既有加费状态冒充。'],
     [22, 'Wriggler（事件版）', '扭蠕虫', [17, 21], 'pending', [base(38), ref('58-sts2-phrog-wriggler-spawn.md', 29, 31), matrix(158)], '感染卡牌定义未读取；召唤版先眩晕与多体错位起手属遭遇层。'],
 ];
@@ -54,6 +51,23 @@ export const STS2_OVERGROWTH = Object.freeze([
         ], script: cycle(['butt', 'slice', 'hiss']) },
         flags('Nibbit', [42, 46], [base(30), ref('72-sts2-nibbit-encounter-openers.md', 15, 23), matrix(151)],
             ['单体从顶撞起手；双体错位起手属遭遇层。', '格挡高阶阈值A8/A9标注冲突、A9伤害13/7与力量3及高阶HP44–48只记备注；累计力量不写回基础值。'])),
+    enemy('sts2', 'overgrowth', 12, '中叶黏体', 'normal', 'release',
+        { skills: [
+            skill('sticky', '黏液射击', 'debuff', [op('create', { card: 'status-slime-sts2', amount: 2, to: 'discard' })], fields),
+            skill('clump', '团块射击', 'attack', [atk(8)], fields),
+        ], script: cycle(['sticky', 'clump']) },
+        flags('Leaf Slime (M)', [32, 35], [base(27), ref('68-sts2-slimes-behavior.md', 20), matrix(148), ref('164-sts2-slimes-wiring.md', 5, 13)],
+            ['首招往弃牌堆加入S2黏液2张，之后与团块射击8交替；黏液1费、抽1张后消耗，使用独立status-slime-sts2，不改变S1黏浊。',
+                'A9伤害9及高阶HP33–36只记备注；Easy/Hard Slimes的随机成员、四体编组与遭遇概率不由本单体模板推定。'])),
+    enemy('sts2', 'overgrowth', 19, '中枝黏体', 'normal', 'release',
+        { skills: [
+            skill('sticky', '黏液射击', 'debuff', [op('create', { card: 'status-slime-sts2', amount: 1, to: 'discard' })], { ...fields, maxRepeat: 1 }),
+            skill('chomp', '猛咬', 'attack', [atk(11)], { ...fields, maxRepeat: 0 }),
+        ], script: { opener: 'sticky', next: { sticky: [{ skill: 'chomp', weight: 1 }],
+            chomp: [{ skill: 'chomp', weight: 67 }, { skill: 'sticky', weight: 33 }] } } },
+        flags('Twig Slime (M)', [26, 28], [base(35), ref('68-sts2-slimes-behavior.md', 22, 25), matrix(155), ref('164-sts2-slimes-wiring.md', 5, 13)],
+            ['首招往弃牌堆加入S2黏液1张；其后猛咬11与黏液射击按67:33，黏液射击禁二连、猛咬不限连用。',
+                '受限候选采用本地加权转移，不宣称复现原作重抽、取整或RNG消费；A9伤害12及高阶HP27–29只记备注。遭遇组合不进入本单体模板。'])),
     enemy('sts2', 'overgrowth', 20, '小枝黏体', 'normal', 'release',
         { skills: [skill('tackle', '冲撞', 'attack', [atk(4)], fields)], script: cycle(['tackle']) },
         flags('Twig Slime (S)', [7, 11], [base(36), ref('68-sts2-slimes-behavior.md', 21), matrix(156)],
@@ -82,6 +96,17 @@ export const STS2_OVERGROWTH = Object.freeze([
             script: cycle(['goop', 'inhale', 'goop']) },
         flags('Fuzzy Wurm Crawler', [55, 57], [base(25), ref('69-sts2-flyconid-fuzzy-behavior.md', 28, 29), matrix(146)],
             ['酸涎、吸气、酸涎三步循环，循环边界连续两次酸涎；吸气力量+7并保留，基础伤害仍为4。', 'A9酸涎6及高阶HP58–59只记备注。'])),
+    enemy('sts2', 'overgrowth', 11, '墨滴灵', 'normal', 'release',
+        { skills: [
+            skill('jab', '戳刺', 'attack', [atk(3)], { ...fields, maxRepeat: 0 }),
+            skill('whirl', '旋击', 'attack', [atk(2, 3)], { ...fields, maxRepeat: 0 }),
+            skill('gaze', '穿透凝视', 'attack', [atk(10)], { ...fields, maxRepeat: 0 }),
+        ], script: cycle(['jab', [{ skill: 'gaze', weight: 1 }, { skill: 'whirl', weight: 1 }]]),
+        passives: [passive('slippery', '滑溜', 'battle-start', [ap('slippery', 1, 'self')])] },
+        { ...flags('Inklet', [11, 17], [base(26), ref('71-sts2-cubex-inklet-behavior.md', 27, 36), matrix(147)],
+            ['仅随三体遭遇同场，两侧戳刺、中间旋击起手；之后戳刺与等权凝视/旋击节点交替，不加连用限制。',
+                '开场滑溜1，失血至多1点并减层，完全格挡不消耗；零伤害交互、眩晕后相位与原作随机数消耗未闭合。',
+                '集中表Windup Punch与独立页Whirlwind名称差异保留；A9伤害4、3×3、11及高阶HP12–18只记备注。']), encounterOnly: true }),
     enemy('sts2', 'overgrowth', 14, '裂喉兽', 'normal', 'release',
         { skills: [
             skill('claw', '爪击', 'attack', [atk(4, 2)], { ...fields, maxRepeat: 1 }),

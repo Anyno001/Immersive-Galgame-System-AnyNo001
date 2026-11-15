@@ -3,55 +3,9 @@
 import { COMBAT_RULES, SKILL_COUNT_MAX, difficultyRule, skillTarget } from './rules.js';
 import { SKILL_TEMPLATES, skillFromTemplate } from './card-templates.js';
 import { hash32 } from './random.js';
+import { ENEMY_AFFIXES } from './enemy-affixes.js';
+export { ENEMY_AFFIXES } from './enemy-affixes.js';
 
-// 构造一个 status 效果。
-const statusEffect = (status, stacks, target = 'self') => ({ op: 'status', status, stacks, target });
-
-// 构造一个规则 v5 施加通用状态的效果（自身）。
-const selfApply = (status, stacks) => ({ op: 'apply-status', status, stacks, target: 'self' });
-
-// 构造一条词缀定义：extra 里可带 cardType、debuff 标记，以及 tiers（只在这些阶级可抽到，未写为全部阶级）。
-const affix = (name, trigger, effects, extra = {}) => Object.freeze({ name, trigger, effects: Object.freeze(effects), ...extra });
-
-export const ENEMY_AFFIXES = Object.freeze({
-    rite: affix('祭仪', 'turn-start', [statusEffect('strength', 1)]),
-    plate: affix('铁甲', 'turn-end', [{ op: 'block', amount: 6, target: 'self' }]),
-    spikes: affix('棘刺', 'battle-start', [statusEffect('thorns', 3)]),
-    renew: affix('复生', 'turn-end', [{ op: 'heal', amount: 4, target: 'self' }]),
-    fury: affix('怒意', 'on-hit', [statusEffect('strength', 1)]),
-    curl: affix('蜷身', 'on-hit', [{ op: 'block', amount: 3, target: 'self' }]),
-    relic: affix('秘器', 'battle-start', [statusEffect('artifact', 2)]),
-    rile: affix('躁怒', 'foe-card-played', [statusEffect('strength', 1)], { cardType: 'skill' }),
-    sap: affix('萎靡之气', 'battle-start', [statusEffect('weak', 2, 'all-enemies')], { debuff: true }),
-    breach: affix('破绽', 'battle-start', [statusEffect('vulnerable', 2, 'all-enemies')], { debuff: true }),
-    brittle: affix('蚀骨', 'battle-start', [statusEffect('frail', 2, 'all-enemies')], { debuff: true }),
-    pulse: affix('心律', 'foe-card-played', [{ op: 'damage', amount: 1, hits: 1, target: 'enemy' }], { debuff: true }),
-    daze: affix('晕眩', 'turn-end', [{ op: 'create', card: 'status-daze', amount: 1, to: 'draw' }], { debuff: true }),
-    wound: affix('撕伤', 'battle-start', [{ op: 'create', card: 'status-wound', amount: 2, to: 'draw' }], { debuff: true }),
-    // 规则 v5 P4a 敌方状态反应（mechanics/foe.js）。
-    flight: affix('翱翔', 'battle-start', [selfApply('flying', 3)], { tiers: ['normal', 'elite'] }),
-    unsteady: affix('失衡', 'battle-start', [selfApply('unsteady', 1)], { tiers: ['elite'] }),
-    adapt: affix('应变', 'battle-start', [selfApply('adapt', 1)], { tiers: ['elite'] }),
-    harden: affix('硬化', 'battle-start', [selfApply('harden', 3)], { tiers: ['normal'] }),
-    enrage: affix('激怒', 'battle-start', [selfApply('enrage', 1)], { tiers: ['elite', 'boss'] }),
-    barbed: affix('刺甲', 'battle-start', [selfApply('barbed', 3)], { tiers: ['elite'] }),
-    'time-warp': affix('时滞', 'battle-start', [selfApply('time-warp', 1)], { tiers: ['boss'] }),
-    // 规则 v5 P4b 分裂与复生（mechanics/foe-units.js）；复生只在有其他敌人存活时生效。
-    split: affix('分裂', 'battle-start', [selfApply('split', 1)], { tiers: ['normal', 'boss'] }),
-    revive: affix('不灭', 'battle-start', [selfApply('revive', 1)], { tiers: ['normal'] }),
-    // 规则 v5 P4b E17 自爆倒计时与限时撤离（mechanics/foe-units.js）；撤离按 D11 记胜利、不给战利品。
-    fuse: affix('自爆', 'battle-start', [selfApply('fuse', 3)], { tiers: ['normal'] }),
-    flee: affix('遁逃', 'battle-start', [selfApply('flee', 4)], { tiers: ['normal'] }),
-    // 规则 v5 P4c 无敌上限与最大生命损伤（mechanics/foe-seize.js）。
-    invincible: affix('无敌', 'battle-start', [selfApply('invincible', 3)], { tiers: ['boss'] }),
-    'hit-cap': affix('坚韧', 'battle-start', [selfApply('hit-cap', 2)], { tiers: ['boss'] }),
-    maim: affix('摧魄', 'battle-start', [selfApply('maim', 2)], { tiers: ['boss'] }),
-    // 规则 v5 P4d E18 出牌上限光环（mechanics/foe-restrict.js）：敌方存活时对方每回合最多打出层数张牌 / 技能牌。
-    'play-cap': affix('束缚', 'battle-start', [selfApply('play-cap', 6)], { tiers: ['elite', 'boss'] }),
-    'skill-cap': affix('封技', 'battle-start', [selfApply('skill-cap', 3)], { tiers: ['elite'] }),
-    // 规则 v5 P4d E20 降级（只限首领，开战即对我方全体生效）。
-    downgrade: affix('降级', 'battle-start', [{ op: 'apply-status', status: 'downgrade', stacks: 1, target: 'all-enemies' }], { tiers: ['boss'], debuff: true }),
-});
 
 // 补技能时可选的模板键 -> 技能名。
 const FILL_SKILL_NAMES = Object.freeze({

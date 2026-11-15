@@ -20,12 +20,12 @@ const ROWS = [
     [10, 'Myte', '螨蚁', [61, 67], 'pending', 31, audit(25), 211, '双体首招与后续循环相位的衔接未给；Toxic 卡牌定义未核。'],
     [11, 'Ovicopter', '产卵飞蛾', [124, 130], 'release', 32, audit(26), 212, '召唤指定随从并按存活同伴数分支选招，不支持。'],
     [12, 'Tough Egg', '硬壳卵', [14, 18], 'release', 33, audit(27), 213, '仅由产卵飞蛾召唤；孵化变形不支持。'],
-    [13, 'Slumbering Beetle', '眠甲虫', 86, 'release', 34, audit(28), 214, '失血或回合双计数唤醒的状态机不支持。'],
+    [13, 'Slumbering Beetle', '眠甲虫', 86, 'release', 34, ref('90-sts2-slumbering-beetle-spiny-toad.md', 18, 39), 214, '开场镀甲15、睡眠3；自身回合结束或每次失血减一层，醒来卸甲，之后每回合滚击16并力量+2。', ['复用 M4 sleep.hurt:tick：完全格挡不减睡眠，减完立即重排意图、不附晕厥；自身回合末仍自然减层。失血与回合末的合并顺序、已行动/未行动的唤醒差异为项目既有语义，不宣称原作已证。', '来源未闭合开场格挡，不额外施加；A8镀甲18、A9伤害18及高阶HP89只记备注。']],
     [14, 'Spiny Toad', '棘背蟾', [116, 119], 'release', 35, audit(29), 215, '突刺（荆棘+5）、棘爆23并移除自身5层荆棘、舌鞭17三步循环；棘爆是单次攻击，不是自毁。', ['A9伤害25与19、高阶HP121–124只记备注。']],
     [15, 'The Obscura', '晦影', 123, 'release', 36, audit(30), 216, '召唤指定随从；之后三招随机权重未给。'],
     [16, 'Parafright', '惧影', 21, 'release', 37, audit(31), 217, '仅由晦影召唤的幻影随从，不单独成档。'],
     [17, 'Thieving Hopper', '窃牌跳虫', 79, 'release', 38, audit(32), 218, '偷取长期牌组成员并逃跑，依赖战斗外牌组。'],
-    [18, 'Tunneler', '掘地虫', 87, 'release', 39, audit(33), 219, '按格挡被打破切换的潜地状态机不支持；格挡阈值冲突。'],
+    [18, 'Tunneler', '掘地虫', 87, 'release', 39, ref('93-sts2-tunneler-burrow-loop.md', 14, 32), 219, '首招啃咬13，之后潜地获得Burrowed与格挡32，持续每回合地底突袭23；潜地保留自身回合开始格挡，破盾后停顿一次，再从啃咬重启。', ['复用block-broken打断、shed与then:restart，按既有逐段伤害后立即改写意图；不额外叠加晕厥。移除潜地清空格挡，非伤害清盾与状态移除的联动、反伤/已行动时停顿消费、致死和Doom竞争仍保留来源边界。', 'A7/A8格挡37阈值冲突只记备注；A9伤害15/26及高阶HP92不混入基础档。现行固定搭档未证，不登记历史双体遭遇。']],
 ];
 
 const fields = { weight: 1, cooldown: 0, maxRepeat: 2 };
@@ -64,6 +64,14 @@ const MODELS = {
         script: { opener: 'ram' },
         passives: [passive('armament', '武备', 'battle-start', [st('strength', 6, 'self'), ap('plating', 6, 'self')])],
     },
+    'Slumbering Beetle': {
+        skills: [
+            skill('snore', '鼾眠', 'idle', [op('idle')], fields),
+            skill('roll', '滚击', 'attack-buff', [atk(16), st('strength', 2, 'self')], fields),
+        ],
+        script: { ...cycle(['roll']), sleep: { skill: 'snore', turns: 3, hurt: 'tick', shed: ['plating'] } },
+        passives: [passive('plating', '镀甲', 'battle-start', [ap('plating', 15, 'self')])],
+    },
     'Spiny Toad': {
         skills: [
             skill('spikes', '突刺', 'buff', [st('thorns', 5, 'self')], fields),
@@ -71,6 +79,16 @@ const MODELS = {
             skill('lash', '舌鞭', 'attack', [atk(17)], fields),
         ],
         script: cycle(['spikes', 'explosion', 'lash']),
+    },
+    Tunneler: {
+        skills: [
+            skill('bite', '啃咬', 'attack', [atk(13)], fields),
+            skill('burrow', '潜地', 'defend', [ap('burrowed', 1, 'self'), blk(32)], fields),
+            skill('below', '地底突袭', 'attack', [atk(23)], { ...fields, maxRepeat: 0 }),
+            skill('emerge', '破盾停顿', 'idle', [op('idle')], fields),
+        ],
+        script: { opener: 'bite', cycle: ['burrow', 'below'], loopFrom: 1,
+            interrupts: [{ on: 'block-broken', status: 'burrowed', seq: ['emerge'], then: 'restart', shed: ['burrowed'] }] },
     },
 };
 

@@ -60,6 +60,33 @@ registerMechanic({
 });
 
 registerMechanic({
+    key: 'foe-support', family: 'general', archetypes: [], unitKinds: ['skill'],
+    ops: {
+        'protect-ally': {
+            validate(effect, path, state, kit) {
+                kit.checkKnownFields(effect, ['op', 'amount'], path, state);
+                if (kit.scope) return kit.addIssue(state, path, 'skill-only');
+                return { op: 'protect-ally', amount: kit.intField(effect.amount, kit.joinPath(path, 'amount'), state, 1, 99) };
+            },
+            apply(ctx, unit, effect, aimId, source, kit) {
+                const others = ctx.state.order.map((id) => ctx.state.units[id])
+                    .filter((other) => other?.alive && other.side === unit.side && other.id !== unit.id);
+                const target = others.length ? others[kit.rollInt(ctx.state, others.length)] : unit;
+                kit.gainBlock(ctx, target, kit.computeBlock(unit, effect.amount, target, ctx.state.rulesVersion, source?.kind), source);
+            },
+            value: (e) => e.amount * 1.6,
+            estimateBlock: (e, kit) => kit.state?.order.some((id) => {
+                const other = kit.state.units[id];
+                return other?.alive && other.side === kit.unit.side && other.id !== kit.unit.id;
+            }) ? 0 : kit.computeBlock(kit.unit, e.amount, kit.unit, kit.rulesVersion),
+            describe: (e, kit) => `随机一名其他友方获得 ${kit.fmt(e.amount)} 点格挡；没有其他友方时由自身获得`,
+            brief: (e) => `保护${e.amount}`,
+            scale: { ability: 'con', key: 'amount', max: 99 },
+        },
+    },
+});
+
+registerMechanic({
     key: 'minion-call', family: 'general', archetypes: [], unitKinds: ['skill'],
     ops: {
         'summon-minion': {
