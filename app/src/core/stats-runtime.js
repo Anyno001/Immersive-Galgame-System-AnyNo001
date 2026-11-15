@@ -73,6 +73,8 @@ const TRAIT_REVIEW_PROMPT_EVENTS = Object.freeze(['救命', '帮忙', '报恩', 
 const SKILLS_LINE_MAX = 20;
 const PRESENT_MAX = 3;
 const BACKGROUND_TIMEOUT_MS = 60000;
+// 起始关系一次带多人资料与世界书，提示词常过万 token，经反代时一分钟内回不来。
+const START_TIMEOUT_MS = 180000;
 // 补填起始关系时，好感、信任、了解都在这个范围内的角色视为还没定过初值。
 const START_FILL_SPAN = 10;
 // 起始关系只管这三项，芥蒂不参与补填。
@@ -2115,9 +2117,9 @@ export function createStatsRuntime({
         return typeof request === 'function' ? request : null;
     }
 
-    async function ask(request, prompt) {
+    async function ask(request, prompt, ms = BACKGROUND_TIMEOUT_MS) {
         let timer = null;
-        const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), BACKGROUND_TIMEOUT_MS); });
+        const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), ms); });
         try {
             const reply = await Promise.race([Promise.resolve().then(() => request(prompt)), timeout]);
             if (reply && reply.timedOut) throw new Error('timeout');
@@ -3112,6 +3114,7 @@ export function createStatsRuntime({
         const run = async () => {
             const relations = {};
             const mods = {};
+            let failDetail = '';
             // 主角资料（用户人设）只取一次，每批都带上。
             let hero = '';
             try { if (typeof describePeople === 'function') { const h = (await describeWithHero([PROTAGONIST]))[0] || {}; hero = String((h.own ?? h.summary) || ''); } }
@@ -3126,18 +3129,19 @@ export function createStatsRuntime({
                 const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations, hero, plot });
                 let parsed = null;
                 for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
-                    try { parsed = parseStartRelationReply(await ask(request, prompt), { names: batch }); }
-                    catch (error) { parsed = { ok: false, reason: 'stats-start-request-failed' }; }
+                    try { parsed = parseStartRelationReply(await ask(request, prompt, START_TIMEOUT_MS), { names: batch }); }
+                    catch (error) { parsed = { ok: false, reason: 'stats-start-request-failed', detail: error && error.message === 'timeout' ? `等待超过 ${START_TIMEOUT_MS / 1000} 秒未收到回复` : String((error && error.message) || error).slice(0, 120) }; }
+                    if (parsed && parsed.reason === 'stats-start-empty') parsed.detail = `模型回复的角色：${(parsed.keys || []).join('、') || '无'}；本批角色：${batch.join('、')}`;
                 }
                 if (parsed && parsed.ok) {
                     Object.assign(relations, parsed.relations);
                     Object.assign(mods, parsed.mods || {});
                     for (const n of batch) startAsked.names.add(n);
-                } else diag(parsed ? parsed.reason : 'stats-start-request-failed');
+                } else { diag(parsed ? parsed.reason : 'stats-start-request-failed', parsed && parsed.detail ? { detail: parsed.detail } : { names: batch.join('、') }); failDetail = (parsed && parsed.detail) || failDetail; }
             }
             if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
             if (generating) return { ok: false, reason: 'stats-generating' };
-            if (!Object.keys(relations).length) return { ok: false, reason: 'stats-start-failed' };
+            if (!Object.keys(relations).length) return { ok: false, reason: 'stats-start-failed', detail: failDetail };
             // 等回复期间可能又结算了新楼，按最新一楼重新取当前值。
             const latest = activeEntryBefore(ledger, Infinity);
             for (const n of touched()) moved.add(n);

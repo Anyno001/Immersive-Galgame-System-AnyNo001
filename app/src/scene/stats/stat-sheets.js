@@ -396,7 +396,7 @@ export function parseStartRelationReply(reply, { names = [] } = {}) {
         relations[name] = parsed.tier;
         if (parsed.mods.length) mods[name] = parsed.mods;
     }
-    return Object.keys(relations).length ? { ok: true, relations, mods } : { ok: false, reason: 'stats-start-empty', relations, mods };
+    return Object.keys(relations).length ? { ok: true, relations, mods } : { ok: false, reason: 'stats-start-empty', relations, mods, keys: Object.keys(obj) };
 }
 
 // 补全写回 NPC 卡：已有的非临时值不改，只填空（§6.2 第三层）。返回新卡。
