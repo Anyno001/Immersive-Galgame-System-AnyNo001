@@ -62,7 +62,7 @@ import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL } from '../../
 import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
 import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
 import { probeCombatTableSupport } from '../../data/shujuku/combat-tables.js';
-import { originChatStatus, runAttachedOriginOp } from './origin-attach.js';
+import { getAttachedOrigin, originChatStatus, runAttachedOriginOp } from './origin-attach.js';
 import { resolveSecondaryLlm } from '../../scene/mood-classify.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
@@ -208,11 +208,45 @@ export function createSettingsHost(deps) {
         if (current) current.draftRevision = (current.draftRevision || 0) + 1;
     }
 
+    function syncOriginWatch(panel) {
+        const signal = panel.recoveryController.signal;
+        const engine = !signal.aborted && currentSettingsPage(panel) === 'origin' ? getAttachedOrigin()?.engine : null;
+        if (panel.originWatch?.engine === engine) return;
+        panel.originWatch?.off();
+        panel.originWatch = null;
+        if (!engine) return;
+        const status = () => {
+            try { return JSON.stringify(typeof options.originChat === 'function' ? options.originChat() : originChatStatus()); }
+            catch { return 'null'; }
+        };
+        const watch = { engine, signature: status(), pending: false, off: () => {} };
+        panel.originWatch = watch;
+        const unsubscribe = engine.subscribe(() => {
+            if (watch.pending || state.activeSettings !== panel || panel.originWatch !== watch) return;
+            watch.pending = true;
+            queueMicrotask(() => {
+                watch.pending = false;
+                if (state.activeSettings !== panel || panel.originWatch !== watch || panel.recoveryController.signal.aborted) return;
+                const signature = status();
+                if (signature === watch.signature) return;
+                watch.signature = signature;
+                rerenderSettings({ draftUnchanged: true });
+            });
+        });
+        watch.off = () => {
+            unsubscribe();
+            signal.removeEventListener('abort', watch.off);
+            if (panel.originWatch === watch) panel.originWatch = null;
+        };
+        signal.addEventListener('abort', watch.off, { once: true });
+    }
+
     // renderOptions.draftUnchanged：只换页、展开折叠这类不碰草稿的重绘，草稿修订号没变就复用上次整理结果。
     function rerenderSettings(renderOptions) {
         if (!state.activeSettings) {
             return { ok: false, reason: 'settings-not-open' };
         }
+        syncOriginWatch(state.activeSettings);
         state.activeSettings.reuseNormalized = Boolean(renderOptions && renderOptions.draftUnchanged === true);
         syncNaiQuota(state.activeSettings);
         const snapshot = buildSettingsSnapshot(state.activeSettings);
@@ -312,6 +346,8 @@ export function createSettingsHost(deps) {
         settingsDialogs.cancel();
         if (current.stopVoicesWatch) current.stopVoicesWatch();
         current.stopVoicesWatch = null;
+        current.originWatch?.off();
+        current.originWatch = null;
         if (current.dom && typeof current.dom.dispose === 'function') {
             current.dom.dispose();
         }

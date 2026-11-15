@@ -28,6 +28,10 @@ const TASK_OPS = new Set(['completeTask', 'deleteTask', 'editTask']);
 export function getSharedOriginEngine(host) {
     const g = globalThis;
     let hub = g[ORIGIN_ENGINE_SYMBOL];
+    if (hub && !hub.hosts.length) {
+        hub.engine.stop();
+        hub = null;
+    }
     if (!hub) {
         const hosts = [];
         const enabledOf = (h) => { try { return Boolean(h.settings() && h.settings().enabled); } catch (e) { return false; } };
@@ -57,8 +61,19 @@ export function getSharedOriginEngine(host) {
     }
     if (host && !hub.hosts.includes(host)) hub.hosts.push(host);
     const { engine, hosts } = hub;
+    let released = false;
     return Object.assign(Object.create(engine), {
-        release: () => { const i = hosts.indexOf(host); if (i >= 0) hosts.splice(i, 1); if (!hosts.length) engine.stop(); else engine.sync(); },
+        release: () => {
+            if (released) return;
+            released = true;
+            const i = hosts.indexOf(host);
+            if (i < 0) return;
+            hosts.splice(i, 1);
+            if (!hosts.length) {
+                engine.stop();
+                if (g[ORIGIN_ENGINE_SYMBOL] === hub) delete g[ORIGIN_ENGINE_SYMBOL];
+            } else engine.sync();
+        },
     });
 }
 

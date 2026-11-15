@@ -5,6 +5,8 @@ import { createOriginStore } from '../src/data/shujuku/origin-store.js';
 import { createLedger, serializeLedger, setEntry, makeEntry } from '../src/scene/origin/origin-ledger.js';
 import { createLedgerMockHost, userInventorySheet } from './helpers/combat-mock-host-ledger.js';
 import { createHarness, blk } from './origin-host.js';
+import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
+import { attachOriginEngine } from '../src/visual/igs-ui/origin-attach.js';
 
 async function setup(options) {
     const host = createLedgerMockHost(options);
@@ -250,4 +252,61 @@ test('数据库恢复隔离：切聊天撤销旧恢复与等待楼层，旧通�
     await game.engine.whenSaved();
     assert.equal(game.state().points, 503);
     assert.equal(old.host.calls.insertRow, 0);
+});
+
+test('随身系统设置：数据库恢复后当前页面自动更新，未保存草稿保留，关闭后退订', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const exported = h.host.api.exportTableAsJson;
+    let ready = false;
+    h.host.api.exportTableAsJson = () => ready ? exported() : {};
+    h.tables.client.invalidate();
+    const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
+    const watching = new Set();
+    const subscribe = game.engine.subscribe;
+    game.engine.subscribe = listener => {
+        watching.add(listener);
+        const off = subscribe(listener);
+        return () => { watching.delete(listener); off(); };
+    };
+    const detach = attachOriginEngine(game.engine);
+    const ui = createIgsReaderHost({
+        global: {},
+        getUnifiedSettings: () => ({ bridge: { origin: { enabled: true } }, readerSettings: {} }),
+        saveUnifiedSettings: () => ({ ok: true }),
+    });
+    t.after(() => { ui.destroy(); detach(); game.engine.stop(); h.tables.client.dispose(); });
+    await game.engine.whenSaved();
+    const opened = ui.openSettings({ page: 'origin' });
+    assert.equal(opened.ok, true);
+    assert.match(ui.getState().activeSettings.snapshot.html, /combat-table-not-ready/);
+    opened.controller.setValue('bridge.origin.keepFloors', 17);
+    ready = true;
+    h.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    await Promise.resolve();
+    assert.equal(game.engine.isBlocked(), null);
+    const restored = ui.getState().activeSettings.snapshot;
+    assert.doesNotMatch(restored.html, /combat-table-not-ready/);
+    assert.match(restored.html, /本聊天正在运行/);
+    assert.equal(restored.draft.bridge.origin.keepFloors, 17);
+    assert.equal(watching.size, 1);
+    assert.equal(opened.controller.switchPage('dash').ok, true);
+    assert.equal(watching.size, 0);
+    assert.equal(opened.controller.switchPage('origin').ok, true);
+    assert.equal(watching.size, 1);
+    const pausing = game.engine.dispatch({ type: 'pause' });
+    assert.equal(opened.controller.close().ok, true);
+    assert.equal(watching.size, 0);
+    await pausing;
+    await game.engine.dispatch({ type: 'setWorld', value: '关闭后' });
+    await Promise.resolve();
+    assert.equal(ui.getState().activeSettings, null);
+    const reopened = ui.openSettings({ page: 'origin' });
+    assert.equal(reopened.ok, true);
+    const fresh = ui.getState().activeSettings;
+    assert.equal(watching.size, 1);
+    assert.match(fresh.snapshot.html, /本聊天已暂停/);
+    assert.equal(reopened.controller.setValue('bridge.origin.keepFloors', 23).ok, true);
+    assert.equal(ui.destroy().ok, true);
+    assert.equal(watching.size, 0);
 });

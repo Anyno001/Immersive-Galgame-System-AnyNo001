@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { blk, createHarness } from './origin-host.js';
 import { fillSettings } from '../src/scene/origin/origin-state.js';
+import { getSharedOriginEngine, ORIGIN_ENGINE_SYMBOL } from '../src/scene/origin/origin-engine.js';
 
 const TASKLINE = '新任务|类型:主线|标题:找猫|描述:d|条件:c|奖励:积分20|惩罚:|时限:|对象:宿主';
 
@@ -56,5 +57,37 @@ test('旧存档导入：检测 chatMetadata.origin 与楼层 originBlocks，按�
     assert.deepEqual(s.skills.map((k) => k.name), ['旧技']);
     assert.equal(h.ctx.chatMetadata.origin, legacy, '原插件数据原样保留');
     assert.equal(h.engine.legacyDetected(), false);
+});
+
+test('共享引擎生命周期：最后宿主释放后重新创建，重复释放不影响新实例', t => {
+    const savedHub = globalThis[ORIGIN_ENGINE_SYMBOL];
+    delete globalThis[ORIGIN_ENGINE_SYMBOL];
+    const h = createHarness();
+    h.engine.stop();
+    const first = getSharedOriginEngine(h.host);
+    const peer = getSharedOriginEngine({ ...h.host });
+    let next, rejoined;
+    t.after(() => {
+        first.release(); peer.release(); next?.release(); rejoined?.release();
+        if (savedHub) globalThis[ORIGIN_ENGINE_SYMBOL] = savedHub;
+        else delete globalThis[ORIGIN_ENGINE_SYMBOL];
+    });
+    first.start();
+    const original = globalThis[ORIGIN_ENGINE_SYMBOL].engine;
+    first.release();
+    assert.equal(globalThis[ORIGIN_ENGINE_SYMBOL].engine, original);
+    rejoined = getSharedOriginEngine(h.host);
+    first.release();
+    assert.ok(globalThis[ORIGIN_ENGINE_SYMBOL].hosts.includes(h.host));
+    rejoined.release();
+    peer.release();
+    assert.equal(globalThis[ORIGIN_ENGINE_SYMBOL], undefined);
+    next = getSharedOriginEngine(h.host);
+    next.start();
+    assert.notEqual(globalThis[ORIGIN_ENGINE_SYMBOL].engine, original);
+    const active = globalThis[ORIGIN_ENGINE_SYMBOL];
+    peer.release();
+    assert.equal(globalThis[ORIGIN_ENGINE_SYMBOL], active);
+    assert.equal(next.sync().attached, true);
 });
 
