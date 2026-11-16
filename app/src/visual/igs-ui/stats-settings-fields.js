@@ -418,6 +418,7 @@ function sheetOps(name, hasSheet) {
 function renameOps(name, model) {
     const aliases = Object.entries((model && model.renames) || {}).filter(([, to]) => to === name).map(([from]) => from);
     return `<button class="igs-settings-action" data-action="stats-op:person-rename:${esc(encodeURIComponent(name))}" type="button">改名</button>`
+        + `<button class="igs-settings-action" data-action="stats-op:person-remove:${esc(encodeURIComponent(name))}" type="button">删除角色</button>`
         + aliases.map((a) => `<button class="igs-settings-action" data-action="stats-op:alias-drop:${esc(encodeURIComponent(a))}" type="button">移除曾用名「${esc(a)}」</button>`).join('');
 }
 

@@ -64,3 +64,23 @@ test('改名：新名已有档案时先拒绝，确认合并后两份并成一�
     say('[igs-stat:trust|黑衣人|上升]');
     assert.ok(favorOf(rt, '黑衣人') > 0);
 });
+
+test('删除角色：档案、备注、改名表清掉，重新读档后仍不在；主角与未知名被拒绝', async () => {
+    const { rt, say, make } = setup();
+    rt.enableForChat();
+    say('[igs-stat:trust|黑衣人|上升]');
+    say('[igs-stat:trust|沈砚|上升]');
+    rt.relationOp('note', '黑衣人', { text: '有点在意' });
+    assert.equal(rt.relationOp('remove', '黑衣人', {}).ok, true);
+    assert.equal(favorOf(rt, '黑衣人'), undefined);
+    assert.ok(favorOf(rt, '沈砚') > 0);
+    assert.equal(rt.archive().heroNotes.黑衣人, undefined);
+    assert.equal(rt.archive().log.some((r) => r.target === '黑衣人'), false);
+    assert.equal(rt.relationOp('remove', '黑衣人', {}).reason, 'stats-relation-missing');
+    assert.equal(rt.relationOp('remove', '主角', {}).ok, false);
+    await new Promise((r) => setTimeout(r, 10));
+    const again = make();
+    again.sync();
+    assert.equal(favorOf(again, '黑衣人'), undefined);
+    assert.ok(favorOf(again, '沈砚') > 0);
+});

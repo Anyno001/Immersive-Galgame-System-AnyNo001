@@ -110,3 +110,54 @@ export function renameCatalog(catalog, from, to) {
         intimacyForced: [],
     };
 }
+
+// 删除角色：状态、变动记录、手改记录、聊天级目录里这个名字的数据全部去掉；指向此人的曾用名一并去掉，之后正文写旧名不再回到此人。
+export function removeInState(state, name) {
+    if (!state || !plain(state.characters) || !Object.hasOwn(state.characters, name)) return state;
+    const { [name]: gone, ...rest } = state.characters;
+    return { ...state, characters: rest };
+}
+
+export function removeChangeRows(rows, name) {
+    if (!Array.isArray(rows) || !rows.some((r) => r && r.target === name)) return rows;
+    return rows.filter((r) => !(r && r.target === name));
+}
+
+export function removeFloorMeta(meta, name) {
+    if (!plain(meta) || !plain(meta.manual) || !Object.hasOwn(meta.manual, name)) return meta;
+    const { [name]: gone, ...rest } = meta.manual;
+    return { ...meta, manual: rest };
+}
+
+const dropKey = (map, name) => {
+    if (!plain(map) || !Object.hasOwn(map, name)) return map;
+    const { [name]: gone, ...rest } = map;
+    return rest;
+};
+const dropItem = (list, name) => (Array.isArray(list) ? list.filter((n) => n !== name) : list);
+
+export function removeFromCatalog(catalog, name) {
+    const renames = {};
+    for (const [k, v] of Object.entries(plain(catalog.renames) ? catalog.renames : {})) if (k !== name && v !== name) renames[k] = v;
+    const queue = catalog.queue || {};
+    return {
+        ...catalog,
+        renames,
+        sheets: dropKey(catalog.sheets, name),
+        traits: dropKey(catalog.traits, name),
+        aptitude: dropKey(catalog.aptitude, name),
+        heroNotes: dropKey(catalog.heroNotes, name),
+        traitNotes: dropKey(catalog.traitNotes, name),
+        landmineKnown: dropKey(catalog.landmineKnown, name),
+        softKnown: dropKey(catalog.softKnown, name),
+        statuses: dropKey(catalog.statuses, name),
+        cycles: dropKey(catalog.cycles, name),
+        counters: dropKey(catalog.counters, `瘾:${name}`),
+        romanceSeen: dropItem(catalog.romanceSeen, name),
+        notified: dropItem(catalog.notified, name),
+        traitInit: dropItem(catalog.traitInit, name),
+        queue: { ...queue, people: dropItem(queue.people, name) },
+        fameBars: Array.isArray(catalog.fameBars) ? catalog.fameBars.filter((b) => !(b && b.owner === name)) : catalog.fameBars,
+        intimacyForced: [],
+    };
+}

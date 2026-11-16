@@ -30,7 +30,7 @@ import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics 
 import { FAME_BAR_MAX, buildFameFillPrompt, fameDraftText, fameHudMetrics, famePairs, fameRows, fameTemplateBar, fameTier, fameValue, parseFameDraft, parseFameFill } from '../scene/stats/stat-fame.js';
 import { stageLabel } from '../scene/stats/stat-relation-label.js';
 import { swipeTextOf } from '../scene/stats/stat-log.js';
-import { canonPersonName, renameCatalog, renameChangeRows, renameFloorMeta, renameInState, validPersonName } from '../scene/stats/stat-rename.js';
+import { canonPersonName, removeChangeRows, removeFloorMeta, removeFromCatalog, removeInState, renameCatalog, renameChangeRows, renameFloorMeta, renameInState, validPersonName } from '../scene/stats/stat-rename.js';
 import { statsRivalSet } from '../scene/stats/stat-rivals.js';
 import { SKILL_TIER_ORDER, describeClockTrail, heroSkillCap, resolveHeroSlots, statsArchiveModel, statsClockTrail, statsFavorOverview, tierWordOfValue } from '../scene/stats/stat-archive.js';
 import { BUILD_PICK_SLOTS, backfillHeroSlots, slotValue } from '../scene/stats/stat-build.js';
@@ -2738,8 +2738,18 @@ export function createStatsRuntime({
         if (to === PROTAGONIST || isHero(to)) return { ok: false, reason: 'stats-rename-hero' };
         const exists = knownPerson(to);
         if (exists && !merge) return { ok: false, reason: 'stats-rename-exists' };
+        const records = rewriteLedgerPeople({ state: (s) => renameInState(s, from, to), rows: (r) => renameChangeRows(r, from, to), meta: (m) => renameFloorMeta(m, from, to) });
+        catalog = sanitizeCatalog(renameCatalog(catalog, from, to));
+        persist(records);
+        onChange(currentStatsState(ledger), null);
+        push();
+        return { ok: true, merged: exists };
+    }
+
+    // 改名与删除共用：把账本里每楼的状态、变动记录、手改记录按给定函数重写，返回需要补写的存档记录（差分链随之改接）。
+    function rewriteLedgerPeople({ state: mapState, rows: mapRows, meta: mapMeta }) {
         const memo = new Map();
-        const moved = (state) => { if (!memo.has(state)) memo.set(state, renameInState(state, from, to)); return memo.get(state); };
+        const moved = (state) => { if (!memo.has(state)) memo.set(state, mapState(state)); return memo.get(state); };
         const chat = messages(ctx());
         const records = [];
         const idMap = new Map();
@@ -2747,7 +2757,7 @@ export function createStatsRuntime({
         if (initial !== ledger.initial) { ledger.initial = initial; records.push(initRecord(initial, { createdAt: Date.now() })); }
         const ordered = [...ledger.entries.entries()].sort((a, b) => a[1].messageId - b[1].messageId || a[1].swipeId - b[1].swipeId);
         for (const [key, entry] of ordered) {
-            const next = { ...entry, before: moved(entry.before), after: moved(entry.after), changes: renameChangeRows(entry.changes, from, to), meta: renameFloorMeta(entry.meta, from, to) };
+            const next = { ...entry, before: moved(entry.before), after: moved(entry.after), changes: mapRows(entry.changes), meta: mapMeta(entry.meta) };
             const baseId = entry.baseId != null && idMap.has(entry.baseId) ? idMap.get(entry.baseId) : entry.baseId ?? null;
             const text = swipeTextOf(chat, entry.messageId, entry.swipeId);
             if (text !== null && entry.recordId) {
@@ -2757,12 +2767,21 @@ export function createStatsRuntime({
             next.baseId = baseId;
             ledger.entries.set(key, next);
         }
-        ledger.log = renameChangeRows(ledger.log, from, to);
-        catalog = sanitizeCatalog(renameCatalog(catalog, from, to));
+        ledger.log = mapRows(ledger.log);
+        return records;
+    }
+
+    // 删除其他角色：账本、手改记录与聊天级目录里这个人的数据一并去掉。之后正文若再用标签写到此名，会重新建档。
+    function removePerson(name) {
+        if (generating) return { ok: false, reason: 'stats-generating' };
+        if (!knownPerson(name)) return { ok: false, reason: 'stats-relation-missing' };
+        if (name === PROTAGONIST || isHero(name)) return { ok: false, reason: 'stats-rename-hero' };
+        const records = rewriteLedgerPeople({ state: (s) => removeInState(s, name), rows: (r) => removeChangeRows(r, name), meta: (m) => removeFloorMeta(m, name) });
+        catalog = sanitizeCatalog(removeFromCatalog(catalog, name));
         persist(records);
         onChange(currentStatsState(ledger), null);
         push();
-        return { ok: true, merged: exists };
+        return { ok: true };
     }
 
     // 移除曾用名：之后正文再写这个名字不再记到现用名身上，已结算的楼不变。
@@ -2786,6 +2805,7 @@ export function createStatsRuntime({
         if (op === 'aptitude') return setAptitude(name, payload && payload.level);
         if (op === 'rename') return renamePerson(name, payload && payload.to, payload && payload.merge === true);
         if (op === 'rename-drop') return dropAlias(name);
+        if (op === 'remove') return removePerson(name);
         if (op === 'note') return setHeroNote(name, payload && payload.text);
         if (op === 'note-prompt') return heroNotePrompt(name);
         if (op === 'hero-prompt') return heroNotePrompt(name, true);

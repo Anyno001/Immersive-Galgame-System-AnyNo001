@@ -1064,6 +1064,8 @@ export function createSettingsHost(deps) {
                 if (result && result.reason === 'stats-rename-exists') {
                     result = await settingsDialogs.confirm(`已有名为「${to}」的角色。是否把「${name}」并入「${to}」？两份数值相加，特质、角色卡与备注以「${to}」为准。`) ? await op('relation', 'rename', name, { to, merge: true }) : { ok: true, cancelled: true };
                 }
+            } else if (kind === 'person-remove') {
+                result = await settingsDialogs.confirm(`删除角色「${name}」？人际数值、角色卡、特质、声望和变动记录都会清掉。之后正文若再写到「${name}」，会重新建档。`) ? await op('relation', 'remove', name, {}) : { ok: true, cancelled: true };
             } else if (kind === 'alias-drop') {
                 result = await settingsDialogs.confirm(`移除曾用名「${name}」？之后正文再写「${name}」会当作另一个人。`) ? await op('relation', 'rename-drop', name, {}) : { ok: true, cancelled: true };
             } else if (kind === 'sheet-remove') {
