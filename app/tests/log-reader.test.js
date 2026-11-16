@@ -58,6 +58,7 @@ test('渲染副本：去立绘与同屏，关打字机、运镜、漫画泡、�
     assert.equal(copy.readerSettings.fxTags.call, true, '通话不吞');
     assert.equal(copy.readerSettings.fxTags.callSprite, 'hide');
     assert.equal(copy.readerSettings.stageCast.enabled, false);
+    assert.equal(copy.readerSettings.liveFx.enabled, false, '列表背景不放直播手机');
     assert.equal(snapshot.content.spriteImage, 'a.png');
     assert.equal(snapshot.readerSettings.typewriter.enabled, true);
 });
@@ -95,5 +96,19 @@ test('DOM：同一人连续只显示一次头像，没开朗读不出 ▶，情�
     assert.ok(overlay.querySelector('.igs-log-av .igs-fx-symbol[data-kind="heart"]'));
     syncLogReader(overlay, viewOf(rows, { canSpeak: (row) => row.kind !== 'narr' }));
     assert.equal(overlay.querySelectorAll('.igs-log-play').length, 0, '已渲染的行不重建');
+});
+
+test('DOM：本页在直播时出现手机按钮，点击交给宿主切直播间，直播收了按钮撤掉', () => {
+    const { overlay } = mountDom();
+    const rows = logRowsOf([page('dialogue', '一', { bubbleSpeaker: '小雪' })], { keyOf: (n) => n });
+    let opened = 0;
+    syncLogReader(overlay, viewOf(rows, { view: { liveRoom: { name: '小雪', title: '深夜电台' }, onLiveRoom: () => { opened += 1; } } }));
+    const btn = overlay.querySelector('#igs-log .igs-log-live');
+    assert.ok(btn, '直播中出现手机按钮');
+    assert.ok(btn.querySelector('svg'), '图标用 SVG');
+    btn.click();
+    assert.equal(opened, 1);
+    syncLogReader(overlay, viewOf(rows));
+    assert.equal(overlay.querySelector('#igs-log .igs-log-live'), null, '直播收了按钮撤掉');
 });
 

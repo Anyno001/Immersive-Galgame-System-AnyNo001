@@ -51,6 +51,7 @@ import { createMissedHint, detectMissedAssets } from './missed-assets.js';
 import { createStatsChip } from './stats-chip.js';
 import { cancelFxEffects, playExternalNotify, playStatsFeedbackWithHud } from './fx-runtime.js';
 import { cancelDanmaku } from './danmaku-runtime.js';
+import { normalizeLiveFxSettings } from './danmaku-settings.js';
 import { cancelStageDirection } from './stage-direction-runtime.js';
 import { cancelSceneGrade } from './scene-grade.js';
 import { closeRomanceFx } from './romance-runtime.js';
@@ -3140,9 +3141,25 @@ export function createIgsReaderHost(options = {}) {
 
     // ── 窄屏阅读模式（log 列表）：取数、翻批、朗读在这里，DOM 在 log-reader-layer。──
     // 窄屏或内嵌长屏、开关开着、没开漫画模式时为 true（不看当前页是不是聊天 / 卡片页）。
+    // 本页正在直播且手机能亮出（回忆、梦境、聊天页、卡片页里手机收起，不算）：返回直播信息，否则 null。
+    function liveOfPage(snapshot) {
+        const rs = (snapshot && snapshot.readerSettings) || {};
+        const content = (snapshot && snapshot.content) || {};
+        const fx = content.fx || {};
+        const live = normalizeLiveFxSettings(rs.liveFx);
+        if (!live.enabled || !fx.live || (live.muteOnNsfw && content.sceneNsfw === true)) return null;
+        if (content.chatPage === true || content.htmlCardPage === true || fx.flashback === true || fx.dream === true) return null;
+        return fx.live;
+    }
+
+    // 纵向模式里点了直播手机：这段直播按普通直播间看，直播收了（本页不再有直播）自动回到纵向列表。
     function logReaderBase(current, snapshot) {
         const overlay = current.dom && current.dom.overlay;
         if (!overlay || !snapshot || !snapshot.readerSettings) return false;
+        if (current.logLiveOpen) {
+            if (liveOfPage(snapshot)) return false;
+            current.logLiveOpen = false;
+        }
         const rect = overlay.getBoundingClientRect ? overlay.getBoundingClientRect() : { width: 0, height: 0 };
         const win = overlay.ownerDocument && overlay.ownerDocument.defaultView;
         const phone = Boolean(win && typeof win.matchMedia === 'function' && win.matchMedia(STATUS_HUD_PHONE_MEDIA).matches);
@@ -3468,6 +3485,12 @@ ${row.key}`;
                 if (state.activeSettings) { closeSettings(); return; }
                 if (handleOptionBubbleBlankClick(current, current.snapshot)) return;
                 void handleReaderAction('next');
+            },
+            liveRoom: liveOfPage(snapshot),
+            onLiveRoom: () => {
+                if (state.activeReader !== current) return;
+                current.logLiveOpen = true;
+                rerenderActiveReader();
             },
             onPlay: (i) => logSpeak(i),
             onReplay: (i) => { if (state.activeReader === current) jumpReaderSegment(i); },

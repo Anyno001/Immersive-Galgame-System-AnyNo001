@@ -464,7 +464,7 @@ function duckBgm(soundSettings, ratio, ms) {
     try { duckSceneAudio({ ratio, durationMs: ms }); } catch { /* 无音频环境 */ }
 }
 
-const RANGE_FLASH_LIFE = Object.freeze({ flashback: 520, dream: 900 });
+const RANGE_FLASH_LIFE = Object.freeze({ dream: 900 });
 const RANGE_SOUND = Object.freeze({ flashback: 'range-flashback', dream: 'range-dream', letterbox: 'range-letterbox', whisper: 'range-whisper' });
 
 function playRangeTransitions(ctx, before) {

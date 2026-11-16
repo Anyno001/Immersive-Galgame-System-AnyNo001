@@ -27,7 +27,7 @@ export function logRenderSnapshot(snapshot) {
         readerSettings: {
             ...rs,
             stageCast: off(rs.stageCast), comicMode: off(rs.comicMode), camera: off(rs.camera), cameraPackFx: off(rs.cameraPackFx),
-            itemFx: off(rs.itemFx), sceneTransition: off(rs.sceneTransition), titleCard: off(rs.titleCard), typewriter: off(rs.typewriter), fxTags, dailyFx,
+            itemFx: off(rs.itemFx), sceneTransition: off(rs.sceneTransition), titleCard: off(rs.titleCard), typewriter: off(rs.typewriter), liveFx: off(rs.liveFx), fxTags, dailyFx,
         },
     };
 }

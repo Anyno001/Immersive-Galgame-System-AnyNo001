@@ -111,6 +111,11 @@ function bindLog(overlay, log) {
             replayMood(overlay, row);
             return;
         }
+        if (target.closest('.igs-log-live')) {
+            event.stopPropagation();
+            if (s.view && s.view.onLiveRoom) s.view.onLiveRoom();
+            return;
+        }
         if (!target.closest('.igs-log-scroll')) return;
         if (s.view && s.view.onTap) s.view.onTap();
     });
@@ -529,6 +534,23 @@ function scrollEnd(log, smooth) {
     else scroll.scrollTop = scroll.scrollHeight;
 }
 
+const LIVE_PHONE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18.2" r="1" fill="currentColor"/><path d="M10 7.2 15 10l-5 2.8z" fill="currentColor"/></svg>';
+
+// 本页在直播时右上角给一个手机按钮：列表里不放直播手机，点它才切到普通直播间。
+function syncLiveButton(overlay, log, view) {
+    let btn = log.querySelector('.igs-log-live');
+    const room = view.liveRoom;
+    if (!room) { if (btn) btn.remove(); return; }
+    if (!btn) {
+        btn = el(overlay.ownerDocument, 'button', 'igs-log-live');
+        btn.type = 'button';
+        btn.innerHTML = LIVE_PHONE_SVG;
+        log.appendChild(btn);
+    }
+    const label = `进入直播间${room.name ? `：${room.name}` : ''}`;
+    if (btn.getAttribute('aria-label') !== label) { btn.setAttribute('aria-label', label); btn.title = label; }
+}
+
 function applyLogAttrs(overlay, log, view) {
     const set = (name, value, node = log) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
     set('data-igs-log-skin', view.skin, overlay);
@@ -566,6 +588,7 @@ export function syncLogReader(overlay, view) {
     const s = stateOf(overlay);
     s.view = view;
     applyLogAttrs(overlay, log, view);
+    syncLiveButton(overlay, log, view);
     const list = log.querySelector('.igs-log-list');
     const sig = JSON.stringify([view.floorKey, view.settings.avatarShape, view.settings.breakSquare, view.settings.userAvatar, view.settings.chip, view.settings.emotion, view.skin, view.nameColorSig || '']);
     // 换楼、换头像样式等：清空重建；往回退批：删掉多出的行。

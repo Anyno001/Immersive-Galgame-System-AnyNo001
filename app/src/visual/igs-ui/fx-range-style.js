@@ -15,11 +15,7 @@ export const RANGE_FX_STYLE_TEXT = `
 @keyframes igs-fx-dream-rise{to{transform:translate3d(0,-120px,0);}}
 #igs-stage-motion[data-igs-fx-dream] #igs-sprite{filter:saturate(.78) brightness(1.02) contrast(.96) drop-shadow(0 0 12px #c9bdff)!important;-webkit-filter:saturate(.78) brightness(1.02) contrast(.96) drop-shadow(0 0 12px #c9bdff)!important;}
 .igs-fx-range-flash{position:absolute;inset:0;pointer-events:none;}
-.igs-fx-range-flash[data-kind="flashback"]{background:radial-gradient(ellipse at 50% 50%,#fffaf0 0,#fff0d0 55%,#d9b97a 100%);animation:igs-fx-range-in var(--igs-fx-life,500ms) ease-out both;}
-.igs-fx-range-flash[data-kind="flashback"][data-dir="out"]{animation-name:igs-fx-range-out;}
 .igs-fx-range-flash[data-kind="dream"]{background:#f1edff;animation:igs-fx-range-dream var(--igs-fx-life,900ms) ease-in-out both;}
-@keyframes igs-fx-range-in{0%{opacity:0;scale:1.5;}22%{opacity:1;scale:1.15;}100%{opacity:0;scale:1;}}
-@keyframes igs-fx-range-out{0%{opacity:0;scale:1;}30%{opacity:.9;scale:1.1;}100%{opacity:0;scale:1.4;}}
 @keyframes igs-fx-range-dream{0%{opacity:0;}35%{opacity:.8;}100%{opacity:0;}}
 #igs-stage-motion[data-igs-fx-whisper="1"] .igs-dialog{scale:.97;box-shadow:0 0 22px 6px rgba(0,0,0,.28);transition:scale .5s ease;}
 #igs-stage-motion[data-igs-fx-whisper="1"] #igs-fx-stage{background:rgba(0,0,0,.2);}

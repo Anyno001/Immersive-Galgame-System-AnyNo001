@@ -39,6 +39,8 @@ ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!
 /* 自下而上的渐变：下半段实色，往上很快转浓，只在最顶端一小段过渡到透明。 */
 #igs-log .igs-log-veil{position:absolute;left:0;right:0;bottom:0;height:var(--igs-log-h);background:linear-gradient(to top,rgb(var(--igs-log-veil)) 0%,rgb(var(--igs-log-veil)) 62%,rgb(var(--igs-log-veil) / .94) 78%,rgb(var(--igs-log-veil) / .7) 90%,rgb(var(--igs-log-veil) / 0) 100%);}
 /* 闪白只闪背景：压在渐变之下。 */
+#igs-log .igs-log-live{position:absolute;top:12px;right:12px;z-index:6;width:36px;height:36px;padding:0;border:0;border-radius:999px;background:var(--igs-log-plate);color:var(--igs-log-acc);display:grid;place-items:center;cursor:pointer;pointer-events:auto;}
+#igs-log .igs-log-live svg{width:20px;height:20px;}
 #igs-log .igs-log-flash{position:absolute;inset:0;background:#fff;opacity:0;}
 #igs-log .igs-log-flash.is-on{animation:igs-log-flash .8s ease-out both;}
 @keyframes igs-log-flash{0%{opacity:.85;}100%{opacity:0;}}
