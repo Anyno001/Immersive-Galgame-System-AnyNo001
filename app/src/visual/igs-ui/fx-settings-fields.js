@@ -10,6 +10,17 @@ import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
 import { LOG_PERCENTS } from './log-reader-settings.js';
 
+// 纵向阅读模式的头像样式：按钮图标画出底框外形；破框的头从底框里伸出来（底框淡色、头实色）。
+const AVATAR_ICON = (plate) => `<svg viewBox="0 0 24 24" focusable="false">${plate}</svg>`;
+const HEAD = '<circle cx="12" cy="8.5" r="4.2" fill="currentColor"/>';
+const LOG_AVATAR_STYLE_ITEMS = [
+    ['card', '圆角方', AVATAR_ICON('<rect x="4" y="4" width="16" height="16" rx="4.5" fill="currentColor"/>')],
+    ['circle', '圆形', AVATAR_ICON('<circle cx="12" cy="12" r="8" fill="currentColor"/>')],
+    ['break-square', '破框·方形', AVATAR_ICON(`<rect x="4" y="11" width="16" height="11" rx="2" fill="currentColor" opacity=".4"/>${HEAD}`)],
+    ['break-circle', '破框·圆形', AVATAR_ICON(`<circle cx="12" cy="15" r="7.5" fill="currentColor" opacity=".4"/>${HEAD}`)],
+    ['break-diamond', '破框·菱形', AVATAR_ICON(`<path d="M12 7 20 15 12 23 4 15Z" fill="currentColor" opacity=".4"/>${HEAD}`)],
+];
+
 const encSeg = (value) => encodeURIComponent(String(value == null ? '' : value));
 
 export function renderWordListField(path, label, words) {
@@ -115,8 +126,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + perfSubhead('泡的外形 · 触发情绪')
         + toneWords(COMIC_TONE_KINDS));
     const lr = s.logReader;
-    const logReader = featureRow(more, 'log-reader', `${p}.logReader.on`, lr.on, '纵向阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarShape`, '头像样式', segmentedInput(`${p}.logReader.avatarShape`, lr.avatarShape, [['card', '圆角方'], ['circle', '圆形'], ['break', '破框']], '头像样式'))
-        + checkbox(`${p}.logReader.breakSquare`, lr.breakSquare, '破框头像用直角底板')
+    const logReader = featureRow(more, 'log-reader', `${p}.logReader.on`, lr.on, '纵向阅读模式', '手机与内嵌长屏改为对话列表', field(`${p}.logReader.avatarStyle`, '头像样式', segmentedInput(`${p}.logReader.avatarStyle`, lr.avatarStyle, LOG_AVATAR_STYLE_ITEMS, '头像样式'))
         + field(`${p}.logReader.perTap`, '每次显示', segmentedInput(`${p}.logReader.perTap`, lr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
         + field(`${p}.logReader.reveal`, '文字出现', segmentedInput(`${p}.logReader.reveal`, lr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入'], ['off', '直接显示']], '文字出现'))
         + field(`${p}.logReader.speed`, '出字速度', segmentedInput(`${p}.logReader.speed`, lr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出字速度'))

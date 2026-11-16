@@ -2,7 +2,7 @@ import { stripWrappingQuotes } from './reader-floor-plan.js';
 import { FALLBACK_HEAD } from './fx-anchor.js';
 import { normalizeLogReaderSettings } from './log-reader-settings.js';
 
-export { LOG_AVATAR_SHAPES, LOG_EMOTIONS, LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_PERCENTS, LOG_REVEALS, clampLogAdjust, normalizeLogReaderSettings } from './log-reader-settings.js';
+export { LOG_AVATAR_SHAPES, LOG_AVATAR_STYLES, LOG_BREAK_PLATES, LOG_EMOTIONS, LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_PERCENTS, LOG_REVEALS, clampLogAdjust, normalizeLogReaderSettings } from './log-reader-settings.js';
 
 // 窄屏阅读模式：窄屏或楼层内嵌的长屏上，对话框换成自下而上的 log 列表（头颈肩头像 + 台词），点一下出 3~5 条。
 // 窄屏判断与状态栏同一口径（宽 ≤640）；内嵌楼层按阅读器高宽比判断长屏。
@@ -11,12 +11,13 @@ export const LOG_EMBED_TALL_RATIO = 1.2;
 // 情绪符号循环最多给最新的两枚。
 export const LOG_LOOP_LIMIT = 2;
 
-// 头像取景框（px）：样式与裁切共用。faceY 是脸中心离框顶的距离；破框的底板只占框底 plate 高，头顶伸出底板。
+// 头像取景框（px）：样式与裁切共用。faceY 是脸中心离框顶的距离；破框的底框只占框底 plate 高，头顶伸出底框。
 export const LOG_AVATAR_BOX = Object.freeze({
     card: Object.freeze({ w: 56, h: 56, faceY: 24 }),
+    // plate 与框宽相同：圆形、菱形底框才是正圆、正菱形，三种底框占同一块 56×56。
     // room：破框时头顶往上再留的空间，头发、发饰不被切掉（只往上伸，不占行高）。
     // zoom：破框默认放大，脸往上提，框底露到锁骨。
-    break: Object.freeze({ w: 56, h: 80, faceY: 36, plate: 44, room: 28, zoom: 1.3 }),
+    break: Object.freeze({ w: 56, h: 92, faceY: 48, plate: 56, room: 28, zoom: 1.3 }),
 });
 // 头颈肩取景宽度（头宽的倍数）。头位探测会把长发、帽子、武器算进头宽，算缩放前先封顶。
 export const LOG_BUST_SPAN = 2.3;

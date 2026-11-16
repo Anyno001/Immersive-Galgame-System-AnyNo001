@@ -1,5 +1,16 @@
 // 窄屏阅读模式的设置。不依赖其他模块，供 fx-settings 登记默认值与整理（与漫画演出模式同一处）。
 export const LOG_AVATAR_SHAPES = Object.freeze(['card', 'circle', 'break']);
+// 破框头像的底框形状：头顶伸出底框，底框本身有三种外形。
+export const LOG_BREAK_PLATES = Object.freeze(['square', 'circle', 'diamond']);
+// 设置里的头像样式是单选一项：圆角方 / 圆形 / 破框（按底框外形分三种）。
+export const LOG_AVATAR_STYLES = Object.freeze(['card', 'circle', ...LOG_BREAK_PLATES.map((p) => `break-${p}`)]);
+
+// 存的是 avatarStyle；旧版只存 avatarShape，其中 break 当作破框·方形。
+function avatarStyleOf(src) {
+    if (LOG_AVATAR_STYLES.includes(src.avatarStyle)) return src.avatarStyle;
+    if (src.avatarShape === 'break') return 'break-square';
+    return LOG_AVATAR_SHAPES.includes(src.avatarShape) ? src.avatarShape : 'card';
+}
 export const LOG_REVEALS = Object.freeze(['flow', 'type', 'fade', 'off']);
 // 出字速度：逐字间隔的倍率（越小越快），只作用于流水展开与打字机。
 export const LOG_SPEEDS = Object.freeze({ slow: 1.6, normal: 1, fast: 0.6, faster: 0.35 });
@@ -50,8 +61,10 @@ export function normalizeLogReaderSettings(value) {
         enabled: src.on === true,
         userAvatar: src.userAvatar !== false,
         userSide: src.userSide === 'right' ? 'right' : 'same',
-        avatarShape: LOG_AVATAR_SHAPES.includes(src.avatarShape) ? src.avatarShape : 'card',
-        breakSquare: src.breakSquare === true,
+        avatarStyle: avatarStyleOf(src),
+        // 渲染用：avatarShape 是 card / circle / break，breakPlate 是破框的底框外形。
+        avatarShape: avatarStyleOf(src).split('-')[0],
+        breakPlate: avatarStyleOf(src).split('-')[1] || 'square',
         emotion: LOG_EMOTIONS.includes(src.emotion) ? src.emotion : 'once',
         chip: src.chip !== false,
         // 连续播放：开着时点一下出一批（每次显示几条），逐条出字、念完接着出下一条；关了点一下只出一条。

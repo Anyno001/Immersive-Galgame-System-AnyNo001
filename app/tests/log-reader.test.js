@@ -112,3 +112,13 @@ test('DOM：本页在直播时出现手机按钮，点击交给宿主切直播�
     assert.equal(overlay.querySelector('#igs-log .igs-log-live'), null, '直播收了按钮撤掉');
 });
 
+
+test('头像样式：旧存档 break 当作破框·方形，新值拆成形状与底框，乱值回落圆角方', () => {
+    const pick = (value) => { const s = normalizeLogReaderSettings(value); return [s.avatarStyle, s.avatarShape, s.breakPlate]; };
+    assert.deepEqual(pick({}), ['card', 'card', 'square']);
+    assert.deepEqual(pick({ avatarShape: 'break' }), ['break-square', 'break', 'square']);
+    assert.deepEqual(pick({ avatarShape: 'circle' }), ['circle', 'circle', 'square']);
+    assert.deepEqual(pick({ avatarStyle: 'break-diamond' }), ['break-diamond', 'break', 'diamond']);
+    assert.deepEqual(pick({ avatarStyle: 'break-circle', avatarShape: 'card' }), ['break-circle', 'break', 'circle']);
+    assert.deepEqual(pick({ avatarStyle: 'x', avatarShape: 'y' }), ['card', 'card', 'square']);
+});
