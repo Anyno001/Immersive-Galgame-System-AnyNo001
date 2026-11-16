@@ -450,6 +450,7 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['fill-item-images', '补全物品图'],
     ['save', '保存图片'],
     ['hide', '隐藏对话框'],
+    ['log-mode', '纵向阅读模式开关'],
     ['sprite-edit', '调整立绘'],
     ['live2d-settings', 'Live2D 角色绑定'],
     ['combat-status', '人物状态'],

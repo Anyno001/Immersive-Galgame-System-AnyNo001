@@ -96,6 +96,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'cg-gallery', group: 'create', title: 'CG 库', html: ITEM_CG_ICONS.cgGallery },
     { id: 'save', group: 'view', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', group: 'view', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
+    { id: 'log-mode', group: 'view', title: '纵向阅读模式：关', html: ORIGINAL_READER_ICONS.logModeOff },
     { id: 'live2d-settings', group: 'view', title: 'Live2D 角色绑定', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M8 1 15 5v6l-7 4-7-4V5Zm0 0v14M1 5l7 4 7-4"/></svg>' },
     { id: 'sprite-edit', group: 'view', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
     // 人物状态：只在卡牌战斗扩展开启时显示（applyToolbarState 按设置隐藏），打开与资料菜单「人物状态」项同一面板。

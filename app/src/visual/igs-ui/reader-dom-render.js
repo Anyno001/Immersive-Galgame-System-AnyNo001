@@ -537,6 +537,19 @@ export function applyToolbarState(root, current) {
         setAttrIfChanged(chainButton, 'aria-label', title);
         setAttrIfChanged(chainButton, 'aria-pressed', String(on));
     }
+    const modeButton = root.querySelector('#igs-btn-log-mode');
+    if (modeButton) {
+        const on = (readerSettings.logReader || {}).on === true;
+        const key = on ? 'on' : 'off';
+        if (modeButton.getAttribute('data-igs-icon') !== key) {
+            modeButton.innerHTML = on ? ORIGINAL_READER_ICONS.logModeOn : ORIGINAL_READER_ICONS.logModeOff;
+            modeButton.setAttribute('data-igs-icon', key);
+        }
+        const title = on ? '纵向阅读模式：开（点一下切回普通模式）' : '纵向阅读模式：关（点一下开启）';
+        setAttrIfChanged(modeButton, 'title', title);
+        setAttrIfChanged(modeButton, 'aria-label', title);
+        setAttrIfChanged(modeButton, 'aria-pressed', String(on));
+    }
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));
     // 默认顶部固定：只有明确选了「紧贴对话框」才是 float。

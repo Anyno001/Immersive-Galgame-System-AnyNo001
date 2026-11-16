@@ -159,7 +159,7 @@ import { resolveChatTheme } from './chat-themes.js';
 import { isSystemRole, normalizeSystemRoleSettings } from './system-role.js';
 import { formatChatBlockAsText, parseChatMarker } from '../../scene/chat-blocks.js';
 import { comicContentKey, isComicModeActive } from './comic-settings.js';
-import { batchStartsUpTo, isLogReaderActive, logRowsOf, nextBatchEnd } from './log-reader-model.js';
+import { batchStartsUpTo, isLogReaderActive, logRowsOf, nextBatchEnd, normalizeLogReaderSettings } from './log-reader-model.js';
 import { syncPageScrubber } from './page-scrubber.js';
 import { createLogHtml, logCardsOf, logFontsOf, logRenderSnapshot, logSettingsOf, logSkinOf } from './log-reader-view.js';
 import { dialogTextEffectCss } from './dialog-text-effect.js';
@@ -2665,6 +2665,10 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'log-chain') {
             const rs = state.activeReader.snapshot.readerSettings || {};
             return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), chain: !logSettingsOf(rs).chain } });
+        }
+        if (normalizedAction === 'log-mode') {
+            const rs = state.activeReader.snapshot.readerSettings || {};
+            return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), on: !normalizeLogReaderSettings(rs.logReader).on } });
         }
         if (normalizedAction === 'tts-reroll') {
             return rerollTts();
