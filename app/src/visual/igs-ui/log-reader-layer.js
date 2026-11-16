@@ -257,7 +257,8 @@ function paintAvatar(overlay, av) {
     target.style.backgroundSize = `${crop.size}px auto`;
     // 破框的头像层往上多出 room：同一取景整体下移 room。
     const lift = shape === 'break' ? (LOG_AVATAR_BOX.break.room || 0) : 0;
-    target.style.backgroundPosition = `${crop.x}px ${crop.y + lift}px`;
+    const shift = shape === 'break' ? (LOG_AVATAR_BOX.break.side || 0) : 0;
+    target.style.backgroundPosition = `${crop.x + shift}px ${crop.y + lift}px`;
     // 情绪符号锚在头顶右侧（与舞台上的符号同一口径）；取景框外的部分收回框边。
     const head = probed && probed.head;
     if (head && aspect > 0) {

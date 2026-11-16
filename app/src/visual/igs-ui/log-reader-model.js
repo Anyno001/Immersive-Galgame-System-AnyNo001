@@ -17,7 +17,8 @@ export const LOG_AVATAR_BOX = Object.freeze({
     // plate 与框宽相同：圆形、菱形底框才是正圆、正菱形，三种底框占同一块 56×56。
     // room：破框时头顶往上再留的空间，头发、发饰不被切掉（只往上伸，不占行高）。
     // zoom：破框默认放大，脸往上提，框底露到锁骨。
-    break: Object.freeze({ w: 56, h: 92, faceY: 48, plate: 56, room: 28, zoom: 1.3 }),
+    // side：头像层左右各多出的宽度，兽耳、发饰伸出底框两侧不被竖直边切掉；底框中线以下仍按底框宽裁。
+    break: Object.freeze({ w: 56, h: 92, faceY: 48, plate: 56, room: 28, side: 8, zoom: 1.3 }),
 });
 // 头颈肩取景宽度（头宽的倍数）。头位探测会把长发、帽子、武器算进头宽，算缩放前先封顶。
 export const LOG_BUST_SPAN = 2.3;

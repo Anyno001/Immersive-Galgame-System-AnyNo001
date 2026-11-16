@@ -14,6 +14,10 @@ const BREAK = LOG_AVATAR_BOX.break;
 const PLATE_R = 0;
 const CUT_H = BREAK.h + BREAK.room;
 const PLATE_MID = CUT_H - BREAK.plate / 2;
+// 头像层左右各比底框宽出 side：底框中线以上两侧不裁，中线以下按底框外形收回。
+const SIDE = BREAK.side;
+const CUT_W = BREAK.w + SIDE * 2;
+const CUT_IN = SIDE + BREAK.w;
 // 菱形框线：转 45° 的正方形，对角线等于底框宽。
 const DIAMOND_SIDE = Math.round(BREAK.plate / Math.SQRT2 * 10) / 10;
 const ON = '#igs-overlay[data-igs-log-reader="on"]';
@@ -82,13 +86,13 @@ ${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;
 #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::before{content:"";position:absolute;left:0;right:0;bottom:0;height:${BREAK.plate}px;border-radius:${PLATE_R}px;background:var(--igs-log-plate);}
 #igs-log .igs-log-cut{display:none;}
 /* 破框：头像层比框高出 room，头顶伸出底框不被切；叠在框线之上，框线不会横过脸。底边按底框外形裁。 */
-#igs-log[data-shape="break"] .igs-log-cut{display:block;position:absolute;z-index:1;left:0;right:0;bottom:0;height:${CUT_H}px;border-radius:0 0 ${PLATE_R}px ${PLATE_R}px;background-repeat:no-repeat;pointer-events:none;}
+#igs-log[data-shape="break"] .igs-log-cut{display:block;position:absolute;z-index:1;left:-${SIDE}px;right:-${SIDE}px;bottom:0;height:${CUT_H}px;border-radius:0;clip-path:polygon(0 0,${CUT_W}px 0,${CUT_W}px ${PLATE_MID}px,${CUT_IN}px ${PLATE_MID}px,${CUT_IN}px ${CUT_H}px,${SIDE}px ${CUT_H}px,${SIDE}px ${PLATE_MID}px,0 ${PLATE_MID}px);background-repeat:no-repeat;pointer-events:none;}
 #igs-log[data-shape="break"] .igs-log-av{margin-top:${CARD.h - BREAK.h}px;height:${BREAK.h}px;}
 #igs-log[data-shape="break"] .igs-log-av.is-letter{margin-top:${CARD.h - BREAK.plate}px;height:${BREAK.plate}px;border-radius:${PLATE_R}px;}
 #igs-log[data-shape="break"][data-plate="circle"] .igs-log-av:not(.is-letter)::before,#igs-log[data-shape="break"][data-plate="circle"] .igs-log-av.is-letter{border-radius:50%;}
-#igs-log[data-shape="break"][data-plate="circle"] .igs-log-cut{border-radius:0;clip-path:path("M0 0H${BREAK.w}V${PLATE_MID}A${BREAK.w / 2} ${BREAK.w / 2} 0 0 1 0 ${PLATE_MID}Z");}
+#igs-log[data-shape="break"][data-plate="circle"] .igs-log-cut{border-radius:0;clip-path:path("M0 0H${CUT_W}V${PLATE_MID}H${CUT_IN}A${BREAK.w / 2} ${BREAK.w / 2} 0 0 1 ${SIDE} ${PLATE_MID}H0Z");}
 #igs-log[data-shape="break"][data-plate="diamond"] .igs-log-av:not(.is-letter)::before,#igs-log[data-shape="break"][data-plate="diamond"] .igs-log-av.is-letter{border-radius:0;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);}
-#igs-log[data-shape="break"][data-plate="diamond"] .igs-log-cut{border-radius:0;clip-path:polygon(0 0,100% 0,100% ${PLATE_MID}px,50% 100%,0 ${PLATE_MID}px);}
+#igs-log[data-shape="break"][data-plate="diamond"] .igs-log-cut{border-radius:0;clip-path:polygon(0 0,${CUT_W}px 0,${CUT_W}px ${PLATE_MID}px,${CUT_IN}px ${PLATE_MID}px,50% 100%,${SIDE}px ${PLATE_MID}px,0 ${PLATE_MID}px);}
 #igs-log .igs-log-body{grid-column:2;min-width:0;transition:opacity .35s;}
 /* 名字贴头像上沿；只有一行台词时正好落在头像下沿，多行时往下长。 */
 #igs-log .igs-log-row:not(.is-narr):not(.is-cont):not(.is-noav) .igs-log-body{display:flex;flex-direction:column;justify-content:space-between;min-height:${CARD.h}px;}
