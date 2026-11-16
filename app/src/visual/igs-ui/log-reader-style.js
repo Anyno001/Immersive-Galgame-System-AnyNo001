@@ -72,10 +72,13 @@ ${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;
 /* 破框：头顶伸出底板。 */
 #igs-log[data-shape="break"] .igs-log-av:not(.is-letter){background:none;}
 #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::before{content:"";position:absolute;left:0;right:0;bottom:0;height:${BREAK.plate}px;border-radius:14px;background:var(--igs-log-plate);}
+#igs-log[data-break-square="on"] .igs-log-av:not(.is-letter)::before{border-radius:0;}
 #igs-log .igs-log-cut{display:none;}
 /* 破框：头像层比框高出 room，头顶伸出底板不被切；叠在框线之上，框线不会横过脸。 */
 #igs-log[data-shape="break"] .igs-log-cut{display:block;position:absolute;z-index:1;left:0;right:0;bottom:0;height:${BREAK.h + BREAK.room}px;border-radius:0 0 14px 14px;background-repeat:no-repeat;pointer-events:none;}
+#igs-log[data-shape="break"][data-break-square="on"] .igs-log-cut{border-radius:0;}
 #igs-log[data-shape="break"] .igs-log-av{margin-top:${CARD.h - BREAK.h}px;height:${BREAK.h}px;}
+#igs-log[data-shape="break"][data-break-square="on"] .igs-log-av.is-letter{border-radius:0;}
 #igs-log[data-shape="break"] .igs-log-av.is-letter{margin-top:${CARD.h - BREAK.plate}px;height:${BREAK.plate}px;}
 #igs-log .igs-log-body{grid-column:2;min-width:0;transition:opacity .35s;}
 /* 名字贴头像上沿；只有一行台词时正好落在头像下沿，多行时往下长。 */

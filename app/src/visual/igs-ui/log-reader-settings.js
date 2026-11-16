@@ -51,6 +51,7 @@ export function normalizeLogReaderSettings(value) {
         userAvatar: src.userAvatar !== false,
         userSide: src.userSide === 'right' ? 'right' : 'same',
         avatarShape: LOG_AVATAR_SHAPES.includes(src.avatarShape) ? src.avatarShape : 'card',
+        breakSquare: src.breakSquare === true,
         emotion: LOG_EMOTIONS.includes(src.emotion) ? src.emotion : 'once',
         chip: src.chip !== false,
         // 连续播放：开着时点一下出一批（每次显示几条），逐条出字、念完接着出下一条；关了点一下只出一条。

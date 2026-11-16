@@ -8,8 +8,6 @@ export const RANGE_FX_STYLE_TEXT = `
 @property --igs-lg{syntax:'<number>';inherits:false;initial-value:0;}
 .igs-fx-letterbox-bar{height:11%;}
 #igs-stage-motion[data-igs-fx-letterbox] #igs-bg{scale:1.03;transition:scale .8s ease;}
-.igs-fx-flashback-tag{position:absolute;left:14px;top:13%;padding:2px 10px 2px 12px;font-size:12px;letter-spacing:.3em;color:#f2e2bd;background:#3a2a14;border:1px solid #c9a96a;opacity:0;transition:opacity .5s ease;pointer-events:none;}
-#igs-stage-motion[data-igs-fx-flashback] .igs-fx-flashback-tag{opacity:1;transition-delay:.5s;}
 @keyframes igs-fx-film-flick{0%,100%{opacity:1;}46%{opacity:1;}48%{opacity:.7;}50%{opacity:1;}83%{opacity:.86;}}
 #igs-stage-motion[data-igs-fx-flashback] .igs-fx-flashback-grain{animation:igs-fx-grain .5s steps(2) infinite,igs-fx-film-flick 5s linear infinite;background:radial-gradient(ellipse at 50% 50%,transparent 50%,rgba(40,24,8,.55) 100%),repeating-linear-gradient(90deg,transparent 0 31%,rgba(255,240,210,.16) 31% 31.12%,transparent 31.12% 68%,rgba(255,240,210,.12) 68% 68.1%,transparent 68.1% 100%),repeating-radial-gradient(circle at 30% 40%,rgba(255,240,210,.08) 0 1px,transparent 1px 3px);}
 .igs-fx-dream-mist::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-120px;opacity:.6;background:radial-gradient(circle,#fff 0 1.5px,transparent 2.5px) 0 0/90px 120px,radial-gradient(circle,#e6ddff 0 1px,transparent 2px) 40px 60px/70px 60px;}

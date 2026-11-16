@@ -534,6 +534,7 @@ function applyLogAttrs(overlay, log, view) {
     set('data-igs-log-skin', view.skin, overlay);
     set('data-tone', view.tone);
     set('data-shape', view.settings.avatarShape);
+    set('data-break-square', view.settings.breakSquare === true ? 'on' : 'off');
     set('data-mood-size', view.settings.moodSize);
     set('data-igs-log-edge', view.settings.edge, overlay);
     set('data-user-side', view.settings.userSide);
@@ -566,7 +567,7 @@ export function syncLogReader(overlay, view) {
     s.view = view;
     applyLogAttrs(overlay, log, view);
     const list = log.querySelector('.igs-log-list');
-    const sig = JSON.stringify([view.floorKey, view.settings.avatarShape, view.settings.userAvatar, view.settings.chip, view.settings.emotion, view.skin, view.nameColorSig || '']);
+    const sig = JSON.stringify([view.floorKey, view.settings.avatarShape, view.settings.breakSquare, view.settings.userAvatar, view.settings.chip, view.settings.emotion, view.skin, view.nameColorSig || '']);
     // 换楼、换头像样式等：清空重建；往回退批：删掉多出的行。
     if (sig !== s.sig || view.upto + 1 < s.rendered) {
         if (s.reveal) s.reveal.finish();
