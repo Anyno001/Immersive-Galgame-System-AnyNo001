@@ -26,7 +26,8 @@ import { categoryOfPage, currentSettingsPage, defaultPageOfCategory, isSettingsC
 import { recordSettingsRecent, settingsRecentLabel } from './settings-recent.js';
 import { migrateTables, MIGRATE_BACKUP_KEY } from '../../data/shujuku/table-migrate.js';
 import { downloadStatsTemplate, fetchStatsTemplate, importStatsTemplate, statsTemplateChatDiff, STATS_TEMPLATE_PRESET_NAME } from './stats-template-link.js';
-import { FAME_TEMPLATES, FAME_TEMPLATE_GROUPS } from '../../scene/stats/stat-fame.js';
+import { FAME_TEMPLATES, FAME_TEMPLATE_GROUPS, fameDraftText, parseFameDraft } from '../../scene/stats/stat-fame.js';
+import { fameBarFromForm, fameFormFields, fameFormProblem } from './fame-form.js';
 import { createShujukuClient } from '../../data/shujuku/client.js';
 import { VN_THEME_PRESETS } from './reader-host-constants.js';
 import { cloneData } from './reader-value-utils.js';
@@ -835,6 +836,8 @@ export function createSettingsHost(deps) {
                 // 开条或改条：模板、一句话补全、已有条各自生成草稿文本，用户确认可改后再写入。
                 let draft = null;
                 const editing = kind === 'fame-edit';
+                // 新建时参数是归属角色名（从角色卡里点进来），空为主角。
+                const presetOwner = editing ? '' : name;
                 if (editing) { const got = await op('relation', 'fame-draft', name, {}); draft = got && got.ok ? got.draft : null; }
                 else {
                     const way = await settingsDialogs.choose('选择开条方式：', [{ value: 'template', label: '模板', note: '按世界观分组，一键填好' }, { value: 'sentence', label: '一句话', note: '由辅助模型补全' }], 'template');
@@ -842,9 +845,9 @@ export function createSettingsHost(deps) {
                         const group = await settingsDialogs.choose('选择世界观分组：', FAME_TEMPLATE_GROUPS.map((value) => ({ value, label: value })), FAME_TEMPLATE_GROUPS[0], { dropdown: true });
                         const list = FAME_TEMPLATES.filter((t) => t.group === group);
                         const picked = list.length ? await settingsDialogs.choose('选择模板：', list.map((t) => ({ value: t.name, label: t.name, note: `${t.cls} · ${t.zero}到${t.full}` })), list[0].name, { dropdown: true }) : null;
-                        if (picked && list.some((t) => t.name === picked)) { const got = await op('relation', 'fame-draft', '', { template: picked }); draft = got && got.ok ? got.draft : null; }
+                        if (picked && list.some((t) => t.name === picked)) { const got = await op('relation', 'fame-draft', '', { template: picked, owner: presetOwner }); draft = got && got.ok ? got.draft : null; }
                     } else if (way === 'sentence') {
-                        const sentence = await settingsDialogs.prompt('用一句话描述这条声望，如「哪吒在陈塘关百姓中的声望」：', '');
+                        const sentence = await settingsDialogs.prompt(presetOwner ? `用一句话描述「${presetOwner}」的这条声望，如「${presetOwner}在陈塘关百姓中的声望」：` : '用一句话描述这条声望，如「哪吒在陈塘关百姓中的声望」：', '');
                         if (sentence != null && String(sentence).trim()) {
                             const busy = typeof settingsDialogs.busy === 'function' ? settingsDialogs.busy('正在补全。') : null;
                             let got;
@@ -857,8 +860,17 @@ export function createSettingsHost(deps) {
                 if (result) { /* 补全失败，沿用其原因提示 */ }
                 else if (typeof draft !== 'string') result = { ok: true, cancelled: true };
                 else {
-                    const confirmed = await settingsDialogs.edit(editing ? `修改声望「${name}」，每行一项：` : '确认这条声望的设定，可直接修改，每行一项：', draft, { okLabel: editing ? '保存' : '建立' });
-                    result = confirmed == null ? { ok: true, cancelled: true } : await op('relation', 'fame-add', '', { draft: String(confirmed), replace: editing ? name : '' });
+                    const parsed = parseFameDraft(draft);
+                    const context = await op('relation', 'fame-context', '', {});
+                    if (!parsed.ok) result = { ok: false, reason: 'stats-fame-draft', field: parsed.field };
+                    else {
+                        const values = await settingsDialogs.form(editing ? `修改声望「${name}」` : '确认这条声望的设定，可直接修改', fameFormFields(parsed.bar, { editing, presetOwner, people: context && context.people }), {
+                            okLabel: editing ? '保存' : '建立',
+                            advancedLabel: '各档描写与满格归零事项（留空则按上面的设定自动生成）',
+                            validate: (v) => fameFormProblem(v, editing ? [] : (context && context.names) || []),
+                        });
+                        result = values == null ? { ok: true, cancelled: true } : await op('relation', 'fame-add', '', { draft: fameDraftText(fameBarFromForm(values)), replace: editing ? name : '' });
+                    }
                 }
             }
             else if (kind === 'fame-remove') {

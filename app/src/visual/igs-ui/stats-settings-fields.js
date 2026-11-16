@@ -287,7 +287,8 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
 // 「我的角色」技能之后：观赏区（特质、声望只读小标签）与默认折叠的「编辑」（特质与声望编辑列表、修改属性）。
 export function renderStatsHeroTail(model, advancedOpen = () => '') {
     if (!model) return '';
-    const fame = Array.isArray(model.fame) ? model.fame : [];
+    const split = fameSplit(model);
+    const fame = split.hero;
     // 主角的金钱按钮改的是剧情货币（物品表余额）；货币未就绪时不可点。
     const currency = model.currency;
     const moneyEdit = `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:money-set:${esc(encodeURIComponent(PROTAGONIST_KEY))}|${esc(String(currency && currency.ready ? currency.balance : ''))}" type="button"${currency && currency.ready ? '' : ' disabled'}>修改${esc((currency && currency.name) || '剧情货币')}</button>`
@@ -297,9 +298,23 @@ export function renderStatsHeroTail(model, advancedOpen = () => '') {
         + (model.heroAttrs ? '<button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button>' : '') + '</div>'
         + (advancedOpen('stats-expenses') ? renderExpenses(model) : '');
     return renderTraitView(PROTAGONIST_KEY, model)
-        + viewBlock('data-stats-fame', '声望', `${fame.length}/${FAME_BAR_MAX}`, fame.map((r) => `<span class="igs-mood-review-chip igs-trait-chip is-tag" data-stats-fame-row="${esc(r.name)}"><b>${esc(r.owner && r.owner !== '主角' ? `${r.owner}·${r.name}` : r.name)} · ${esc(r.tier || r.kind)}</b></span>`).join(''))
-        + editFold('stats-hero-edit', advancedOpen, advancedOpen('stats-hero-edit') ? renderTraitEdit(PROTAGONIST_KEY, model, advancedOpen) + renderFameEdit(fame) + moneyEdit : '');
+        + viewBlock('data-stats-fame', '声望', fameCount(fame.length, split.all.length), fameChips(fame))
+        + editFold('stats-hero-edit', advancedOpen, advancedOpen('stats-hero-edit') ? renderTraitEdit(PROTAGONIST_KEY, model, advancedOpen) + renderFameEdit(fame, '', split.all.length) + moneyEdit : '');
 }
+
+// 声望按归属拆开：主角（含归属人物没登记的条）显示在「我的角色」，其余各归各的角色卡。
+function fameSplit(model) {
+    const all = Array.isArray(model && model.fame) ? model.fame : [];
+    const names = new Set([...((model && model.characters) || []).map((c) => c.name), ...((model && model.sheets) || []).map((s) => s.name)]);
+    return { all, hero: all.filter((r) => !r.owner || r.owner === PROTAGONIST_KEY || !names.has(r.owner)), of: (name) => all.filter((r) => r.owner === name) };
+}
+const fameCount = (own, total) => (own === total ? `${total}/${FAME_BAR_MAX}` : `${own} · 全部 ${total}/${FAME_BAR_MAX}`);
+const fameChips = (list) => list.map((r) => `<span class="igs-mood-review-chip igs-trait-chip is-tag" data-stats-fame-row="${esc(r.name)}"><b>${esc(r.owner && r.owner !== PROTAGONIST_KEY ? `${r.owner}·${r.name}` : r.name)} · ${esc(r.tier || r.kind)}</b></span>`).join('');
+// 角色卡里的声望观赏区：没有条时不占位。
+const personFameView = (name, model) => {
+    const own = fameSplit(model).of(name);
+    return own.length ? viewBlock(`data-stats-fame-of="${esc(name)}"`, '声望', String(own.length), fameChips(own)) : '';
+};
 
 // 固定支出：数值页内可展开的列表，每行名称、金额、每隔几天与删除，下方「＋ 添加」；输入框失焦即写聊天存档。
 function renderExpenses(model) {
@@ -315,15 +330,15 @@ function renderExpenses(model) {
 }
 
 // 声望编辑列表：每行名字 + 归属·谁在看·类·每日变化·档位 + 「修改」「关闭」，末行「＋ 新增声望」（最多十条）。按钮直接写聊天存档；类与每日变化在「修改」里改。
-function renderFameEdit(list) {
+function renderFameEdit(list, owner = '', total = list.length) {
     const rows = list.map((r) => {
         const pairs = r.pairs ? (r.pairs.length ? r.pairs.map((p) => `与${p.partner}的组合：${p.tier}`).join(' · ') : '暂无搭档') : '';
         const key = encodeURIComponent(r.name);
-        const desc = [r.owner || '主角', r.watcher, r.cls || r.kind, r.daily ? (r.daily === '无' ? '无自然变化' : r.daily.startsWith('每天') ? r.daily : `每天${r.daily}`) : '', r.tier, pairs].filter(Boolean).join(' · ');
+        const desc = [owner ? '' : r.owner || '主角', r.watcher, r.cls || r.kind, r.daily ? (r.daily === '无' ? '无自然变化' : r.daily.startsWith('每天') ? r.daily : `每天${r.daily}`) : '', r.tier, pairs].filter(Boolean).join(' · ');
         return editRow(r.name, desc, dropButton(`stats-op:fame-edit:${key}`, '修改') + dropButton(`stats-op:fame-remove:${key}`, '关闭'));
     }).join('');
-    const add = list.length < FAME_BAR_MAX ? '<button type="button" class="igs-edit-add" data-action="stats-op:fame-add" title="记录某一群体对主角或其他角色的看法，可用模板或一句话开条；开条后写进提示词并参与结算，最多十条">＋ 新增声望</button>' : '';
-    return editCard('声望', `${list.length}/${FAME_BAR_MAX}`, rows, add);
+    const add = total < FAME_BAR_MAX ? `<button type="button" class="igs-edit-add" data-action="stats-op:fame-add:${esc(encodeURIComponent(owner))}" title="记录某一群体对${owner ? esc(owner) : '主角或其他角色'}的看法，可用模板或一句话开条；开条后写进提示词并参与结算，全聊天最多十条">＋ 新增声望</button>` : '';
+    return editCard('声望', fameCount(list.length, total), rows, add);
 }
 
 // 「我的角色」技能下方的「高级」折叠：擅长技能八格（选完后）、编辑技能、检定记录。
@@ -421,7 +436,7 @@ const HERO_NOTE_MAX = 40;
 
 // 「编辑」折叠里的内容：特质编辑列表，之后是备注（记录主角态度数值时不显示备注）。数值与角色卡按钮由调用方放在前面。
 function personEdit(name, model, drafts, lead = '', advancedOpen = () => '') {
-    return lead + renderTraitEdit(name, model, advancedOpen) + (model.heroFeelings === true ? '' : heroNoteField(name, model.heroNotes, drafts));
+    return lead + renderTraitEdit(name, model, advancedOpen) + renderFameEdit(fameSplit(model).of(name), name, fameSplit(model).all.length) + (model.heroFeelings === true ? '' : heroNoteField(name, model.heroNotes, drafts));
 }
 
 // 「其他角色」：每人一张卡，人际数值在上，角色卡折叠在下。
@@ -448,6 +463,7 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
             + `<div class="igs-stats-hero-grid">${cells}</div>`
             + (heroOn ? `<div class="igs-source-filter-note">主角对TA</div><div class="igs-stats-hero-grid">${Object.entries(heroDims[c.name] || {}).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => statCell(k, k === '芥蒂' ? grudgeTier(v) : n(v))).join('')}</div>` : '')
             + renderTraitView(c.name, model)
+            + personFameView(c.name, model)
             + (sheet ? renderSheetPart(sheet) : '')
             + editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(c.name, model, noteDrafts, `<div class="igs-stats-hero-actions">`
                 + `<button class="igs-settings-action" data-action="stats-op:relation-set:${id}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改数值</button>`
@@ -460,7 +476,7 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
     const sheetOnly = [...sheetOf.values()].map((s) => {
         const key = `stats-person-${s.name}`;
         const editKey = `stats-edit-${s.name}`;
-        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(s.name)}</b>${renderPersonChips(s.name, '', model)}</summary>${renderSheetPart(s)}`
+        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(s.name)}</b>${renderPersonChips(s.name, '', model)}</summary>${personFameView(s.name, model)}${renderSheetPart(s)}`
             + `${editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(s.name, model, noteDrafts, `<div class="igs-stats-hero-actions">${sheetOps(s.name, true)}${renameOps(s.name, model)}</div>`, advancedOpen) : '')}</details>`;
     });
     const list = [...people, ...sheetOnly].join('') || '<div class="igs-source-filter-note">还没有登记的角色。</div>';

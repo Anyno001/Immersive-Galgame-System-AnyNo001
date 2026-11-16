@@ -23,6 +23,17 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-dialog-actions [data-settings-dialog="all"]{margin-right:auto}
 #igs-unified-settings .igs-settings-dialog-select{display:block;box-sizing:border-box;min-width:0;max-width:100%;width:100%;margin:10px 0 4px;padding:6px 8px;font-size:14px}
 #igs-unified-settings .igs-settings-dialog-choice:focus-visible{outline:2px solid var(--igs-settings-accent);outline-offset:2px}
+#igs-unified-settings .igs-settings-dialog.is-form{width:min(560px,calc(100% - 32px))}
+#igs-unified-settings .igs-settings-dialog-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+#igs-unified-settings .igs-settings-dialog-form .igs-settings-field{min-width:0}
+#igs-unified-settings .igs-settings-dialog-form .igs-settings-field.is-wide{grid-column:1/-1}
+#igs-unified-settings .igs-settings-dialog-form .igs-settings-field[hidden]{display:none}
+#igs-unified-settings .igs-settings-dialog-form input,#igs-unified-settings .igs-settings-dialog-form select{width:100%;box-sizing:border-box;min-width:0}
+#igs-unified-settings .igs-settings-dialog-form textarea{width:100%;box-sizing:border-box;min-height:56px;resize:vertical;padding:6px 8px;border:1px solid var(--igs-settings-line,rgba(128,128,128,.22));border-radius:var(--igs-settings-radius-small);background:var(--igs-settings-field);color:var(--igs-settings-ink);font:inherit;font-size:12px;line-height:1.5;outline:none}
+#igs-unified-settings .igs-settings-dialog-form input[readonly]{opacity:.7}
+#igs-unified-settings .igs-settings-dialog-form-advanced{grid-column:1/-1}
+#igs-unified-settings .igs-settings-dialog-form-advanced>.igs-settings-dialog-form{margin-top:8px}
+@media (max-width:520px){#igs-unified-settings .igs-settings-dialog-form{grid-template-columns:minmax(0,1fr)}}
 `;
 
 function nativeFallback(globalObj) {
@@ -37,6 +48,17 @@ function nativeFallback(globalObj) {
                 const v = Number(String(answer == null ? '' : answer).trim());
                 if (answer == null || !String(answer).trim() || !Number.isInteger(v) || v < field.min || v > field.max) return null;
                 values[field.key] = v;
+            }
+            return values;
+        }
+        // 表单退回逐项输入框；有一项取消就整体作废，不合格的由调用方的校验兜底。
+        if (kind === 'form') {
+            if (!globalObj || typeof globalObj.prompt !== 'function') return null;
+            const values = {};
+            for (const field of fields) {
+                const answer = globalObj.prompt(`${message}\n${field.label}`, field.value);
+                if (answer == null) return null;
+                values[field.key] = String(answer).trim();
             }
             return values;
         }
@@ -97,7 +119,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const doc = host.ownerDocument;
         if (!doc || typeof doc.createElement !== 'function') return null;
         const el = doc.createElement('div');
-        el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose' || entry.kind === 'pick' || entry.kind === 'numbers'
+        el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose' || entry.kind === 'pick' || entry.kind === 'numbers' || entry.kind === 'form'
             ? `igs-settings-dialog is-${entry.kind}`
             : 'igs-settings-dialog';
         el.setAttribute('role', entry.kind === 'busy' ? 'status' : entry.kind === 'confirm' || entry.kind === 'alert' ? 'alertdialog' : 'dialog');
@@ -159,6 +181,85 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 totalNote.setAttribute('data-result', 'dialog-total');
                 el.appendChild(totalNote);
             }
+        }
+        // 表单：每项按 type 画成单行输入、下拉、数字框或多行框，值记在 entry.fields[i].value，重绘补回时保留。
+        // field.when = { key, is } 时，只有另一项取到该值才显示；field.group === 'advanced' 的收进折叠；field.readonly 只读。
+        const formInputs = [];
+        let formFirst = null;
+        let formError = null;
+        if (entry.kind === 'form') {
+            const grid = doc.createElement('div');
+            grid.className = 'igs-settings-dialog-form';
+            const advancedGrid = doc.createElement('div');
+            advancedGrid.className = 'igs-settings-dialog-form';
+            const wraps = [];
+            const syncWhen = () => {
+                for (const { field, wrap } of wraps) {
+                    if (!field.when) continue;
+                    const src = entry.fields.find((f) => f.key === field.when.key);
+                    wrap.hidden = !src || String(src.value) !== field.when.is;
+                }
+            };
+            for (const field of entry.fields) {
+                const wrap = doc.createElement('label');
+                wrap.className = field.type === 'area' ? 'igs-settings-field is-wide' : 'igs-settings-field';
+                const name = doc.createElement('span');
+                name.textContent = field.label;
+                let box;
+                if (field.type === 'select') {
+                    box = doc.createElement('select');
+                    box.className = 'igs-asset-move';
+                    for (const choice of field.options) {
+                        const opt = doc.createElement('option');
+                        opt.value = choice.value;
+                        opt.textContent = choice.label;
+                        if (choice.value === field.value) opt.selected = true;
+                        box.appendChild(opt);
+                    }
+                    box.disabled = field.readonly;
+                } else if (field.type === 'area') {
+                    box = doc.createElement('textarea');
+                    box.value = field.value;
+                    if (field.max) box.maxLength = field.max;
+                    if (field.placeholder) box.placeholder = field.placeholder;
+                } else {
+                    box = doc.createElement('input');
+                    box.type = field.type === 'number' ? 'number' : 'text';
+                    if (field.type === 'number') {
+                        box.inputMode = 'numeric';
+                        box.step = '1';
+                        if (Number.isFinite(field.min)) box.min = String(field.min);
+                        if (Number.isFinite(field.maxValue)) box.max = String(field.maxValue);
+                    } else if (field.max) box.maxLength = field.max;
+                    if (field.placeholder) box.placeholder = field.placeholder;
+                    box.value = field.value;
+                    box.readOnly = field.readonly;
+                    if (!field.readonly) formInputs.push(box);
+                }
+                box.setAttribute('aria-label', field.label);
+                if (field.note) box.title = field.note;
+                const onChange = () => { field.value = box.value; if (formError) formError.hidden = true; syncWhen(); };
+                box.addEventListener(field.type === 'select' ? 'change' : 'input', onChange);
+                wrap.append(name, box);
+                (field.group === 'advanced' ? advancedGrid : grid).appendChild(wrap);
+                wraps.push({ field, wrap });
+                if (!formFirst && !field.readonly) formFirst = box;
+            }
+            el.appendChild(grid);
+            if (advancedGrid.childNodes.length) {
+                const fold = doc.createElement('details');
+                fold.className = 'igs-settings-sub igs-settings-advanced igs-settings-dialog-form-advanced';
+                const sum = doc.createElement('summary');
+                sum.textContent = entry.advancedLabel;
+                fold.append(sum, advancedGrid);
+                el.appendChild(fold);
+            }
+            formError = doc.createElement('div');
+            formError.className = 'igs-source-filter-note';
+            formError.setAttribute('data-result', 'dialog-form-error');
+            formError.hidden = true;
+            el.appendChild(formError);
+            syncWhen();
         }
         let current = null;
         // 下拉式选择：一个下拉框加确定 / 取消，选项少而说明短时比一排大按钮清爽。
@@ -271,7 +372,19 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             if (entry.total && Object.values(values).reduce((sum, v) => sum + v, 0) > entry.total.max) return;
             settle(entry, values);
         };
-        const accept = () => entry.kind === 'numbers' ? acceptNumbers() : settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
+        // 表单：取各项文字交给调用方校验；校验不过则在表单内提示，不关掉。
+        const acceptForm = () => {
+            const values = {};
+            for (const field of entry.fields) values[field.key] = String(field.value == null ? '' : field.value).trim();
+            const problem = typeof entry.validate === 'function' ? entry.validate(values) : null;
+            if (problem) {
+                formError.textContent = String(problem);
+                formError.hidden = false;
+                return;
+            }
+            settle(entry, values);
+        };
+        const accept = () => entry.kind === 'numbers' ? acceptNumbers() : entry.kind === 'form' ? acceptForm() : settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
         el.addEventListener('click', (event) => {
             event.stopPropagation();
             const btn = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-settings-dialog]') : null;
@@ -296,13 +409,13 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : entry.kind === 'numbers' ? numberInputs.includes(event.target) : true)) {
+            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : entry.kind === 'numbers' ? numberInputs.includes(event.target) : entry.kind === 'form' ? formInputs.includes(event.target) : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
             }
         });
-        entry.focusTarget = () => input || numberInputs[0] || current || actions.lastChild || el;
+        entry.focusTarget = () => input || numberInputs[0] || formFirst || current || actions.lastChild || el;
         if (entry.kind === 'busy') el.tabIndex = -1;
         return el;
     }
@@ -341,6 +454,8 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 fields,
                 selected: new Set(selected),
                 dropdown: kind === 'choose' && labels.dropdown === true,
+                validate: kind === 'form' && typeof labels.validate === 'function' ? labels.validate : null,
+                advancedLabel: labels.advancedLabel || '更多',
                 total: kind === 'numbers' && labels.total && Number.isFinite(Number(labels.total.max)) && typeof labels.total.note === 'function' ? { max: Number(labels.total.max), note: labels.total.note } : null,
                 resolve,
                 el: null,
@@ -378,6 +493,25 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         numbers: (message, fields = [], labels) => open('numbers', message, '', labels || {}, [], [], (Array.isArray(fields) ? fields : [])
             .map((f) => ({ key: String(f && f.key || ''), label: String(f && (f.label || f.key) || ''), value: f && f.value != null ? String(f.value) : '', min: Number(f && f.min), max: Number(f && f.max) }))
             .filter((f) => f.key && Number.isFinite(f.min) && Number.isFinite(f.max))),
+        // 表单：fields 为 [{ key, label, type: text|select|number|area, value, options?, max?, min?, maxValue?, readonly?, group?: 'advanced', when?: { key, is }, note?, placeholder? }]。
+        // labels.validate(values) 返回错误文字时留在表单里提示；labels.advancedLabel 为折叠标题。确定返回 { key: 文字 }，取消返回 null。
+        form: (message, fields = [], labels) => open('form', message, '', labels || {}, [], [], (Array.isArray(fields) ? fields : [])
+            .filter((f) => f && f.key)
+            .map((f) => ({
+                key: String(f.key),
+                label: String(f.label || f.key),
+                type: f.type === 'select' || f.type === 'number' || f.type === 'area' ? f.type : 'text',
+                value: f.value != null ? String(f.value) : '',
+                options: Array.isArray(f.options) ? f.options.map((o) => ({ value: String(o.value), label: String(o.label != null ? o.label : o.value) })) : [],
+                max: Number(f.max) || 0,
+                min: f.min == null ? NaN : Number(f.min),
+                maxValue: f.maxValue == null ? NaN : Number(f.maxValue),
+                readonly: f.readonly === true,
+                group: f.group === 'advanced' ? 'advanced' : '',
+                when: f.when && f.when.key ? { key: String(f.when.key), is: String(f.when.is) } : null,
+                note: String(f.note || ''),
+                placeholder: String(f.placeholder || ''),
+            }))),
         remount(container) {
             const el = mount(container || getContainer());
             if (!el && pending) settle(pending, cancelValue(pending));
@@ -387,6 +521,6 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             if (pending) settle(pending, cancelValue(pending));
         },
         isOpen: () => Boolean(pending),
-        hasTextInput: () => Boolean(pending && (pending.kind === 'prompt' || pending.kind === 'edit' || pending.kind === 'numbers')),
+        hasTextInput: () => Boolean(pending && (pending.kind === 'prompt' || pending.kind === 'edit' || pending.kind === 'numbers' || pending.kind === 'form')),
     };
 }

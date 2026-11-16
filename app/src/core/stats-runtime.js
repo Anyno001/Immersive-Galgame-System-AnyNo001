@@ -2798,9 +2798,14 @@ export function createStatsRuntime({
         if (op === 'money-set') return setMoneyBalance(name, payload && payload.value);
         if (op === 'address-set') return setAddress(name, payload || {});
         if (op.startsWith('status-') || op.startsWith('cycle-')) return statusEditOp(op, name, payload || {});
+        if (op === 'fame-context') {
+            const entry = ledger ? activeEntryBefore(ledger, Infinity) : null;
+            const chars = ledger ? Object.keys((entry ? entry.after : ledger.initial).characters || {}) : [];
+            return { ok: true, people: [...new Set([...chars, ...Object.keys(catalog.sheets || {})])], names: catalog.fameBars.map((b) => b.name) };
+        }
         if (op === 'fame-add') return addFameBar(payload || {});
         if (op === 'fame-fill') return fameFill(payload && payload.sentence);
-        if (op === 'fame-draft') { const bar = payload && payload.template ? fameTemplateBar(payload.template) : catalog.fameBars.find((b) => b.name === name); return bar ? { ok: true, draft: fameDraftText(bar) } : { ok: false, reason: 'stats-fame-kind' }; }
+        if (op === 'fame-draft') { const bar = payload && payload.template ? fameTemplateBar(payload.template, null, payload.owner || '主角') : catalog.fameBars.find((b) => b.name === name); return bar ? { ok: true, draft: fameDraftText(bar) } : { ok: false, reason: 'stats-fame-kind' }; }
         if (op === 'fame-remove') return removeFameBar(name);
         if (op !== 'set' && op !== 'set-hero') return { ok: false, reason: 'stats-relation-op-unknown' };
         if (generating) return { ok: false, reason: 'stats-generating' };
