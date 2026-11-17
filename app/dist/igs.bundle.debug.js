@@ -11317,7 +11317,7 @@ __igsDefine(exports, "XIANXIA_HUD_THEME", () => XIANXIA_HUD_THEME);
 });
 __igsRegister("src/visual/igs-ui/dialog-theme-wuxia.js", function(module, exports, require) {
 const { buildDialogFrameCss } = require("src/visual/igs-ui/dialog-skin-frame.js");
-const { WX_BAR, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, wxEdge } = require("src/visual/igs-ui/wuxia-ink-svg.js");
+const { WX_BAR, WX_HAITANG_LINE, WX_HAITANG_MASK, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, wxEdge } = require("src/visual/igs-ui/wuxia-ink-svg.js");
 const DIALOG_SKIN_WUXIA_INK = 'wuxia-ink';
 
 // 水墨武侠：夜墨拓本。几何、渐变节点、纹理与笔形一律取 plan/wuxia-ink-ui/v6 定稿原值（笔形与滤镜见 wuxia-ink-svg.js）。
@@ -11438,6 +11438,41 @@ const WUXIA_ITEM_STYLE = [
     `${IO} .igs-fx-item-stack .igs-fx-item-more{border:0;border-radius:0;background:rgba(12,11,10,.9);color:#c7c1b6;font-family:${SONG};}`,
 ].join('\n');
 
+// 纵向阅读：水墨武侠专用配件，排在 logPartsStyleText() 之后。
+const LOG = '#igs-overlay[data-igs-log-skin="wuxia-ink"] #igs-log';
+const BRUSH_FONT = '"IGS-MaShanZheng","LXGW WenKai",serif';
+const mk = (n) => `calc(${n}px * var(--igs-log-mk))`;
+const AV = `${LOG}:is(:not([data-shape]),[data-shape="card"]) .igs-log-row:not(.is-cont) .igs-log-av`;
+// 只裁背景层，让头像子元素中的情绪符号完整显示在右上角。
+// 行内背景由 ::before 继承；两侧 padding 将本体背景内容区收至零宽。
+const HAITANG = [
+    `${AV}{z-index:0;border-radius:0;}`,
+    // 编辑立绘时保留强调色描边。
+    `${LOG}:is(:not([data-shape]),[data-shape="card"]) .igs-log-av.is-letter,${LOG}:not([data-editing]):is(:not([data-shape]),[data-shape="card"]) .igs-log-av{box-shadow:none;}`,
+    `${AV}:not(.is-letter){box-sizing:border-box;padding:0 28px;background-clip:content-box;}`,
+    `${AV}.is-letter{background-color:transparent;}`,
+    `${AV}::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:inherit;background-clip:border-box;${maskOf(WX_HAITANG_MASK)}}`,
+    `${AV}.is-letter::before{background-color:var(--igs-log-hue);}`,
+    `${AV}::after{content:"";position:absolute;inset:0;pointer-events:none;background:${WX_HAITANG_LINE} center/100% 100% no-repeat;}`,
+];
+const WUXIA_LOG_READER_STYLE = [
+    // 情绪印：三档字号 15 / 13.5 / 12px，行高 1.2，适配 22px 姓名行。
+    `${LOG} .igs-log-chip{height:auto;min-height:0;padding:${mk(2)} ${mk(7)} ${mk(1)} ${mk(8)};border-radius:0;background:#a8382a;color:#f5ece0;font-family:${BRUSH_FONT};font-weight:400;font-size:calc(9px + ${mk(6)});line-height:1.2;letter-spacing:.16em;text-shadow:none;transform:rotate(-2deg);${maskOf(WX_SEAL_MASK_WIDE)}}`,
+    // 姓名：马善政月白。
+    `${LOG} .igs-log-name{font-family:${BRUSH_FONT};font-weight:400;font-size:18px;letter-spacing:.1em;color:#f3eee4;}`,
+    `${LOG} .igs-log-name>b{font-weight:400;}`,
+    ...HAITANG,
+    // 行间：从正文列起笔的月白干笔。
+    `${LOG} .igs-log-row+.igs-log-row::before{left:70px;right:18%;top:-3px;height:6px;border-top:0;clip-path:none;background:${moon('.22')};${maskOf(WX_LEAD)}}`,
+    // 换场景：两侧干笔，实墨一端朝向文字。
+    `${LOG} .igs-log-scene{gap:14px;font-family:${BRUSH_FONT};font-size:14px;letter-spacing:.4em;color:#c7c1b6;}`,
+    `${LOG} .igs-log-scene::before,${LOG} .igs-log-scene::after{width:72px;height:6px;border-top:0;background:${moon('.4')};${maskOf(WX_LEAD)}}`,
+    `${LOG} .igs-log-scene::before{transform:scaleX(-1);}`,
+    // 物品 / 来电小卡：拓片小品，碑框双线。
+    `${LOG} .igs-log-card{border-radius:0;background:${RUB};box-shadow:inset 0 0 0 1px ${moon('.1')},inset 0 0 0 4px rgba(12,11,10,.92),inset 0 0 0 5px ${moon('.2')};font-family:${SONG};}`,
+    `${LOG} .igs-log-card b{color:#f3eee4;font-family:${BRUSH_FONT};font-weight:400;}`,
+].join('\n');
+
 
 __igsDefine(exports, "DIALOG_SKIN_WUXIA_INK", () => DIALOG_SKIN_WUXIA_INK);
 __igsDefine(exports, "wuxiaInk", () => wuxiaInk);
@@ -11449,6 +11484,7 @@ __igsDefine(exports, "WUXIA_DIALOG_STYLE", () => WUXIA_DIALOG_STYLE);
 __igsDefine(exports, "WUXIA_CHOICE_STYLE", () => WUXIA_CHOICE_STYLE);
 __igsDefine(exports, "WUXIA_HUD_THEME", () => WUXIA_HUD_THEME);
 __igsDefine(exports, "WUXIA_ITEM_STYLE", () => WUXIA_ITEM_STYLE);
+__igsDefine(exports, "WUXIA_LOG_READER_STYLE", () => WUXIA_LOG_READER_STYLE);
 });
 __igsRegister("src/visual/igs-ui/wuxia-ink-svg.js", function(module, exports, require) {
 // 水墨武侠的笔形、滤镜与遮罩：一律照 plan/wuxia-ink-ui/v6 定稿原值移植，打包成自带滤镜的 data-URI SVG。
@@ -11494,6 +11530,10 @@ const WX_SEAL_MASK = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2
 const WX_SEAL_MASK_WIDE = WX_SEAL_MASK.replace("viewBox='0 0 60 60'", "viewBox='0 0 60 60' preserveAspectRatio='none'");
 // 28px 左右的小方印：同一毛边与斑驳，按缩小倍数放粗起伏、位移与颗粒，颗粒密度与横向拉开的情绪印一致，不糊成实心方块。
 const WX_SEAL_MASK_SMALL = WX_SEAL_MASK.replace("baseFrequency='.09'", "baseFrequency='.04'").replace("scale='2.4'", "scale='5.6'").replace("baseFrequency='.7'", "baseFrequency='.3'");
+// 海棠窗：四瓣外凸、对角内收，56×56 随头像拉伸，月白细线描边。
+const HAITANG_D = 'M12 12 A18 18 0 0 1 44 12 A18 18 0 0 1 44 44 A18 18 0 0 1 12 44 A18 18 0 0 1 12 12Z';
+const WX_HAITANG_MASK = url(`<svg ${NS} viewBox='0 0 56 56' preserveAspectRatio='none'><path d='${HAITANG_D}' fill='#fff'/></svg>`);
+const WX_HAITANG_LINE = url(`<svg ${NS} viewBox='0 0 56 56' preserveAspectRatio='none'><path d='${HAITANG_D}' fill='none' stroke='#ece7dd' stroke-opacity='.75' stroke-width='2'/></svg>`);
 
 
 // 中招：四边洇墨的噪声遮罩（v6 .hurt 原样）。
@@ -11524,6 +11564,8 @@ __igsDefine(exports, "WX_TAG_V", () => WX_TAG_V);
 __igsDefine(exports, "WX_SEAL_MASK", () => WX_SEAL_MASK);
 __igsDefine(exports, "WX_SEAL_MASK_WIDE", () => WX_SEAL_MASK_WIDE);
 __igsDefine(exports, "WX_SEAL_MASK_SMALL", () => WX_SEAL_MASK_SMALL);
+__igsDefine(exports, "WX_HAITANG_MASK", () => WX_HAITANG_MASK);
+__igsDefine(exports, "WX_HAITANG_LINE", () => WX_HAITANG_LINE);
 __igsDefine(exports, "WX_HURT_MASK", () => WX_HURT_MASK);
 __igsDefine(exports, "WX_TBAND_MASK", () => WX_TBAND_MASK);
 __igsDefine(exports, "WX_MAD_MASK", () => WX_MAD_MASK);
@@ -157656,6 +157698,7 @@ const { logThemeStyleText } = require("src/visual/igs-ui/log-reader-theme.js");
 const { LOG_AVATAR_BOX, LOG_PERCENTS } = require("src/visual/igs-ui/log-reader-model.js");
 const { getLogFrameStyleText } = require("src/visual/igs-ui/dialog-theme-item-frames.js");
 const { logPartsStyleText } = require("src/visual/igs-ui/log-reader-parts.js");
+const { WUXIA_LOG_READER_STYLE } = require("src/visual/igs-ui/dialog-theme-wuxia.js");
 // 情绪胶囊的字色取漫画符号同一套色相（fx-style 里 .igs-fx-symbol[data-kind] 的 --igs-fx-hue），不另抄一份。
 const CHIP_HUES = [...FX_STYLE_TEXT.matchAll(/\.igs-fx-symbol\[data-kind="([a-z-]+)"\]\{--igs-fx-hue:(#[0-9a-fA-F]{3,8})/g)]
     .map(([, kind, hue]) => `#igs-log .igs-log-chip[data-kind="${kind}"]{--igs-log-hue:${hue};}`).join('');
@@ -157818,6 +157861,7 @@ ${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;
 /* 位置：有头位时锚在头顶右侧（--igs-log-sym-x/y 由裁切算出），否则落在头像右上角。 */
 ${getLogFrameStyleText()}
 ${logPartsStyleText()}
+${WUXIA_LOG_READER_STYLE}
 #igs-log{--igs-log-plate-h:${BREAK.plate}px;}
 /* 破框的皮肤框线跟着底框外形走：各皮肤自带的圆角（0 / 2 / 12 等）不再带进来，三种外形各一套。 */
 ${ON} #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::after{border-radius:${PLATE_R}px;}

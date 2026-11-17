@@ -1,5 +1,5 @@
 import { buildDialogFrameCss } from './dialog-skin-frame.js';
-import { WX_BAR, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, wxEdge } from './wuxia-ink-svg.js';
+import { WX_BAR, WX_HAITANG_LINE, WX_HAITANG_MASK, WX_LEAD, WX_RUBBING, WX_SEAL_MASK, WX_SEAL_MASK_WIDE, maskOf, wxEdge } from './wuxia-ink-svg.js';
 
 export const DIALOG_SKIN_WUXIA_INK = 'wuxia-ink';
 
@@ -123,5 +123,41 @@ export const WUXIA_ITEM_STYLE = [
     // 单字印钤在卡片右下角（基础规则是贴顶）；整张卡只这一方印。
     `${IO} .igs-fx-item-stack .igs-fx-item-seal{align-self:flex-end;width:22px;height:22px;font-size:14px;${SEAL}}`,
     `${IO} .igs-fx-item-stack .igs-fx-item-more{border:0;border-radius:0;background:rgba(12,11,10,.9);color:#c7c1b6;font-family:${SONG};}`,
+].join('\n');
+
+// 纵向阅读：水墨武侠专用配件，排在 logPartsStyleText() 之后。
+const LOG = '#igs-overlay[data-igs-log-skin="wuxia-ink"] #igs-log';
+const BRUSH_FONT = '"IGS-MaShanZheng","LXGW WenKai",serif';
+const mk = (n) => `calc(${n}px * var(--igs-log-mk))`;
+const AV = `${LOG}:is(:not([data-shape]),[data-shape="card"]) .igs-log-row:not(.is-cont) .igs-log-av`;
+// 只裁背景层，让头像子元素中的情绪符号完整显示在右上角。
+// 行内背景由 ::before 继承；两侧 padding 将本体背景内容区收至零宽。
+const HAITANG = [
+    `${AV}{z-index:0;border-radius:0;}`,
+    // 编辑立绘时保留强调色描边。
+    `${LOG}:is(:not([data-shape]),[data-shape="card"]) .igs-log-av.is-letter,${LOG}:not([data-editing]):is(:not([data-shape]),[data-shape="card"]) .igs-log-av{box-shadow:none;}`,
+    `${AV}:not(.is-letter){box-sizing:border-box;padding:0 28px;background-clip:content-box;}`,
+    `${AV}.is-letter{background-color:transparent;}`,
+    `${AV}::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:inherit;background-clip:border-box;${maskOf(WX_HAITANG_MASK)}}`,
+    `${AV}.is-letter::before{background-color:var(--igs-log-hue);}`,
+    `${AV}::after{content:"";position:absolute;inset:0;pointer-events:none;background:${WX_HAITANG_LINE} center/100% 100% no-repeat;}`,
+];
+
+export const WUXIA_LOG_READER_STYLE = [
+    // 情绪印：三档字号 15 / 13.5 / 12px，行高 1.2，适配 22px 姓名行。
+    `${LOG} .igs-log-chip{height:auto;min-height:0;padding:${mk(2)} ${mk(7)} ${mk(1)} ${mk(8)};border-radius:0;background:#a8382a;color:#f5ece0;font-family:${BRUSH_FONT};font-weight:400;font-size:calc(9px + ${mk(6)});line-height:1.2;letter-spacing:.16em;text-shadow:none;transform:rotate(-2deg);${maskOf(WX_SEAL_MASK_WIDE)}}`,
+    // 姓名：马善政月白。
+    `${LOG} .igs-log-name{font-family:${BRUSH_FONT};font-weight:400;font-size:18px;letter-spacing:.1em;color:#f3eee4;}`,
+    `${LOG} .igs-log-name>b{font-weight:400;}`,
+    ...HAITANG,
+    // 行间：从正文列起笔的月白干笔。
+    `${LOG} .igs-log-row+.igs-log-row::before{left:70px;right:18%;top:-3px;height:6px;border-top:0;clip-path:none;background:${moon('.22')};${maskOf(WX_LEAD)}}`,
+    // 换场景：两侧干笔，实墨一端朝向文字。
+    `${LOG} .igs-log-scene{gap:14px;font-family:${BRUSH_FONT};font-size:14px;letter-spacing:.4em;color:#c7c1b6;}`,
+    `${LOG} .igs-log-scene::before,${LOG} .igs-log-scene::after{width:72px;height:6px;border-top:0;background:${moon('.4')};${maskOf(WX_LEAD)}}`,
+    `${LOG} .igs-log-scene::before{transform:scaleX(-1);}`,
+    // 物品 / 来电小卡：拓片小品，碑框双线。
+    `${LOG} .igs-log-card{border-radius:0;background:${RUB};box-shadow:inset 0 0 0 1px ${moon('.1')},inset 0 0 0 4px rgba(12,11,10,.92),inset 0 0 0 5px ${moon('.2')};font-family:${SONG};}`,
+    `${LOG} .igs-log-card b{color:#f3eee4;font-family:${BRUSH_FONT};font-weight:400;}`,
 ].join('\n');
 
