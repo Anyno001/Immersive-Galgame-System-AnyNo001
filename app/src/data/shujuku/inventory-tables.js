@@ -511,5 +511,77 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
         });
     }
 
-    return { probe, read, ensure, changeQuantities, setGearRow, isWriting: () => writing, client };
+    function inspectRename(snapshot, guard, preparing = false) {
+        if (!snapshot.ok) return snapshot;
+        const { inventory } = snapshot;
+        const from = normalizeItemName(guard.from), to = normalizeItemName(guard.to);
+        if (!from || !to || !Number.isSafeInteger(guard.balance) || guard.balance < 0)
+            return { ok: false, reason: 'inventory-rename-invalid' };
+        const issue = snapshot.diagnostics.find(d => [from, to].includes(normalizeItemName(d.name)));
+        if (issue) return { ok: false, reason: issue.code };
+        const source = inventory.items.find(item => item.key === from);
+        const target = inventory.items.find(item => item.key === to);
+        if (target && target !== source && (preparing || source || !guard.exists))
+            return { ok: false, reason: 'inventory-rename-target-occupied' };
+        const item = source || target;
+        const table = snapshot.tables.find(t => t.name === inventory.name);
+        const cellsOf = row => row.map((value, at) => at === inventory.index.name ? null : String(value ?? ''));
+        if (preparing) {
+            if (source?.lost || (source ? source.quantity : 0) !== guard.balance)
+                return { ok: false, reason: 'inventory-quantity-conflict' };
+            return { ok: true, guard: { version: 1, from: guard.from, to: guard.to, balance: guard.balance,
+                exists: Boolean(source), sourceName: source?.name || '', tableName: inventory.name,
+                columns: [...inventory.columns], cells: source ? cellsOf(table.rows[source.rowIndex - 1]) : null } };
+        }
+        if (guard.version !== 1 || guard.tableName !== inventory.name
+            || JSON.stringify(guard.columns) !== JSON.stringify(inventory.columns))
+            return { ok: false, reason: 'inventory-rename-conflict' };
+        if (!guard.exists) return !item && guard.balance === 0
+            ? { ok: true, complete: true } : { ok: false, reason: 'inventory-rename-conflict' };
+        if (!item || item.lost || item.quantity !== guard.balance
+            || JSON.stringify(cellsOf(table.rows[item.rowIndex - 1])) !== JSON.stringify(guard.cells))
+            return { ok: false, reason: 'inventory-rename-conflict' };
+        if (item.name === guard.to) return { ok: true, complete: true };
+        return item === source && item.name === guard.sourceName
+            ? { ok: true, complete: false, item } : { ok: false, reason: 'inventory-rename-conflict' };
+    }
+
+    function prepareRename({ from, to, balance }, { shouldStart = () => true } = {}) {
+        return runSerial(() => {
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            const support = probe();
+            if (!support.ok) return support;
+            client.invalidate?.();
+            return inspectRename(readInventoryTables(client), { from, to, balance }, true);
+        });
+    }
+
+    function rename(guard, { shouldStart = () => true } = {}) {
+        return runSerial(async () => {
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            const support = probe();
+            if (!support.ok) return support;
+            client.invalidate?.();
+            const snapshot = readInventoryTables(client);
+            const checked = inspectRename(snapshot, guard);
+            if (!checked.ok || checked.complete) return checked;
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            let written;
+            writing = true;
+            try {
+                written = await client.updateRow(snapshot.inventory.name, checked.item.rowIndex,
+                    { [snapshot.inventory.columns[snapshot.inventory.index.name]]: guard.to }, BATCH_WRITE_OPTIONS);
+            } catch { written = { ok: false }; }
+            finally { writing = false; client.invalidate?.(); }
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            const verified = inspectRename(readInventoryTables(client), guard);
+            if (!verified.ok) return verified;
+            if (!verified.complete) return { ok: false, reason: written?.ok ? 'inventory-write-unverified' : 'inventory-write-failed' };
+            const refreshFailure = await refreshAfterWrite(true);
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            return refreshFailure ? { ok: false, reason: refreshFailure } : { ok: true, complete: true };
+        });
+    }
+
+    return { probe, read, ensure, changeQuantities, prepareRename, rename, setGearRow, isWriting: () => writing, client };
 }

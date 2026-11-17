@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseChallengeStart } from '../src/scene/challenge-directives.js';
+import { challengeQuota, parseChallengeStart } from '../src/scene/challenge-directives.js';
 import { extractCombatStart } from '../src/scene/combat-directives.js';
+import { createStatsState } from '../src/scene/stats/stat-state.js';
 
 const codes = (result) => result.diagnostics.map((d) => d.code);
 
@@ -82,6 +83,22 @@ test('额度不通过时标签被忽略并记额度诊断', () => {
     assert.equal(result.start, null);
     assert.deepEqual(codes(result), ['challenge-quota']);
     assert.ok(parseChallengeStart('正文\n[igs-challenge:终面]', { quota: { ok: true } }).start);
+});
+
+test('首次挑战没有历史楼号时不冷却，真实第零楼仍执行冷却', () => {
+    const state = createStatsState();
+    const settings = { perDay: 3, cooldownFloors: 8, floor: 4 };
+    for (const lastChallengeFloor of [state.clock.lastChallengeFloor, undefined, '']) {
+        const quota = challengeQuota({ ...state, clock: { ...state.clock, lastChallengeFloor } }, settings);
+        assert.equal(quota.ok, true, `尚未挑战：${String(lastChallengeFloor)}`);
+        assert.ok(parseChallengeStart('正文\n[igs-challenge:终面]', { quota }).start);
+    }
+    assert.equal(challengeQuota(state, { ...settings, floor: 0 }).ok, true);
+    state.clock.lastChallengeFloor = 0;
+    assert.equal(challengeQuota(state, settings).reason, 'cooldown');
+    assert.equal(challengeQuota(state, { ...settings, floor: 8 }).ok, true);
+    state.clock.challenges = 3;
+    assert.equal(challengeQuota(state, { ...settings, floor: 8 }).reason, 'quota');
 });
 
 test('全角分隔符可用，且与开战标签互不干扰', () => {

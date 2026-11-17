@@ -292,8 +292,6 @@ export function renderStatsHeroTail(model, advancedOpen = () => '') {
     // 主角的金钱按钮改的是剧情货币（物品表余额）；货币未就绪时不可点。
     const currency = model.currency;
     const moneyEdit = `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:money-set:${esc(encodeURIComponent(PROTAGONIST_KEY))}|${esc(String(currency && currency.ready ? currency.balance : ''))}" type="button"${currency && currency.ready ? '' : ' disabled'}>修改${esc((currency && currency.name) || '剧情货币')}</button>`
-        + `<button class="igs-settings-action" data-action="stats-op:money-config:" type="button"${currency && currency.name ? '' : ' disabled'}>货币设置</button>`
-        // 四个按钮同在一个两列等宽网格里；没有「修改属性」时「固定支出」独占一行。
         + `<button class="igs-settings-action${model.heroAttrs ? '' : ' is-wide'}" data-action="stats-op:expenses-toggle:" type="button">固定支出</button>`
         + (model.heroAttrs ? '<button class="igs-settings-action" data-action="stats-op:hero-attrs" type="button">修改属性</button>' : '') + '</div>'
         + (advancedOpen('stats-expenses') ? renderExpenses(model) : '');

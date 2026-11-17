@@ -1247,7 +1247,7 @@ export function createCombatSession(options = {}) {
             const names = [...new Set(initNames.map((name) => (PROTAGONIST_ALIASES.includes(name) ? userName : findCharacter(ledgerState, name)?.name || name)))];
             const buildMode = resolveOption(options.buildMode) || null;
             const enemyNames = new Set(located.start.enemies.map((enemy) => enemy.name));
-            const wantsInit = (name) => wantsAutoInit({ mode: buildMode?.mode ?? null, choice: buildMode?.choices?.[name] ?? null, protagonist: name === userName, enemy: enemyNames.has(name) });
+            const wantsInit = (name) => buildMode?.ready !== false && wantsAutoInit({ mode: buildMode?.mode ?? null, choice: buildMode?.choices?.[name] ?? null, protagonist: name === userName, enemy: enemyNames.has(name) });
             entities = withCombatInitialization(entities, names.filter((name) => !abilitiesForName(ledgerState, name, userName)?.initialized && wantsInit(name)));
         }
         const filledIds = new Set();
@@ -1311,6 +1311,10 @@ export function createCombatSession(options = {}) {
             for (const accepted of generated.accepted || []) {
                 if (!stillWanted()) { setState({ status: 'idle' }); return fail('request-stale'); }
                 if (!accepted.init) continue;
+                const policy = resolveOption(options.buildMode) || null;
+                if (policy?.ready === false) { initDiagnostics.push({ code: policy.reason || 'stats-build-policy-waiting', name: accepted.init.name }); continue; }
+                if (!wantsAutoInit({ mode: policy?.mode ?? null, choice: policy?.choices?.[accepted.init.name] ?? null,
+                    protagonist: accepted.init.name === userName, enemy: located.start.enemies.some((enemy) => enemy.name === accepted.init.name) })) continue;
                 wrote = true;
                 let initResult;
                 try {

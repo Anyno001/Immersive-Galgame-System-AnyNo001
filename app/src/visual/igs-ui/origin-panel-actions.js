@@ -3,6 +3,7 @@
 // dispatch 的参数形状集中在 OP 里，与核心 origin-apply.js 的 applyManual 一致：字段平铺，任务类型字段名 taskType，
 // 列表项可传下标（核心按下标取名字入账），设世界 / 方向用 value，清空对话为 chatClear。
 
+import { describeCurrencyFailure } from '../../scene/stats/stat-currency.js';
 export const TASK_TYPES = Object.freeze(['主线', '支线', '日常']);
 
 export const OP = Object.freeze({
@@ -58,7 +59,11 @@ const REASON_TEXT = Object.freeze({
 async function runExchangeAction(name, ctx) {
     if (!ctx.exchange) return { ok: false, reason: 'points-exchange-unavailable' };
     const report = result => {
-        if (!result?.ok) ctx.notice('warn', `兑换未完成：${REASON_TEXT[result?.reason] || result?.reason || 'unknown'}。可在更多菜单中重试兑换。`);
+        if (!result?.ok) {
+            const text = result?.stage === 'read' || result?.done ? describeCurrencyFailure(result)
+                : `兑换未完成：${REASON_TEXT[result?.reason] || result?.reason || 'unknown'}。可在更多菜单中重试兑换。`;
+            ctx.notice('warn', text);
+        }
         return result;
     };
     ctx.closeMenu();
@@ -102,6 +107,8 @@ export async function runOriginAction(name, el, ctx) {
     const generate = async (fn) => report(await fn.call(engine));
 
     switch (name) {
+    case 'retry-read': return report(await engine.retryRead());
+    case 'retry-save': return report(await engine.retrySave());
     case 'exchange':
     case 'exchange-retry': return runExchangeAction(name, ctx);
     case 'tab': ctx.setTab(id); return { ok: true };

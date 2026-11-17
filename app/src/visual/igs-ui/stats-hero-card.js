@@ -1,4 +1,5 @@
 import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
+import { describeCurrencyFailure } from '../../scene/stats/stat-currency.js';
 import { esc } from './reader-value-utils.js';
 
 const number = (value) => Math.round(Number(value) || 0);
@@ -35,19 +36,29 @@ function meter(label, value, max, kind) {
     return `<div class="igs-stats-meter is-${kind}"><div class="igs-stats-meter-head"><span>${label}</span><b>${current}<small> / ${max}</small></b></div><div class="igs-stats-meter-track" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${Math.max(0, Math.min(max, current))}"><i style="width:${width}%"></i></div></div>`;
 }
 
+export function renderStatsWallets(model) {
+    const currency = model.currency;
+    const retry = currency && !currency.ready
+        ? `<button class="igs-settings-action" data-action="stats-op:currency-retry" type="button"${currency.pending ? ' disabled' : ''}${currency.reason ? ` title="${esc(describeCurrencyFailure(currency))}"` : ''}>${currency.pending ? currency.slow ? '仍在处理' : '处理中' : currency.editing ? '恢复货币修改' : '重试货币判定'}</button>` : '';
+    const edit = currency?.name ? `<button class="igs-settings-action" data-action="stats-op:money-config:" type="button"${currency.pending || currency.editing || !currency.ready ? ' disabled' : ''}>修改货币</button>` : '';
+    const pointsIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 9-8 9-8-9Z"/><path d="m8 12 4-5 4 5-4 5Z"/></svg>';
+    const moneyIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9z"/></svg>';
+    return `<div class="igs-stats-wallets"><div class="igs-stats-wallet"><span>${pointsIcon}积分</span><b>${number(model.wallet ?? model.bars?.money)}</b></div>`
+        + `<div class="igs-stats-wallet"><span>${moneyIcon}${esc(currency?.name || '剧情货币')}</span><b>${currency?.ready ? number(currency.balance) : currency?.name ? '未知' : '未定'}</b></div>${edit}${retry}</div>`;
+}
+
+export function refreshStatsWallets(root, model) {
+    const wallet = root?.querySelector('.igs-stats-wallets');
+    if (!wallet || !model) return;
+    wallet.outerHTML = renderStatsWallets(model);
+}
+
 export function renderStatsHeroDashboard(model) {
     if (!model) return '<div class="igs-stats-empty">暂无数值存档</div>';
     const bars = model.bars || {};
-    const currency = model.currency;
     const life = model.vitals && Number(model.vitals.maxHp) > 0
         ? meter('生命', model.vitals.down ? 0 : model.vitals.hp, number(model.vitals.maxHp), 'life') : '';
-    const retry = currency && !currency.ready
-        ? `<button class="igs-settings-action" data-action="stats-op:currency-retry" type="button"${currency.pending ? ' disabled' : ''}>${currency.pending ? '处理中' : '重试货币判定'}</button>` : '';
-    // 积分与剧情货币并进「当前状态」同一块，和生命、体力、压力同一块：两项各占半行，数字紧跟在名称后面，不用左右对着找。
-    const pointsIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 9-8 9-8-9Z"/><path d="m8 12 4-5 4 5-4 5Z"/></svg>';
-    const moneyIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9z"/></svg>';
-    const wallet = `<div class="igs-stats-wallets"><div class="igs-stats-wallet"><span>${pointsIcon}积分</span><b>${number(model.wallet ?? bars.money)}</b></div>`
-        + `<div class="igs-stats-wallet"><span>${moneyIcon}${esc(currency?.name || '剧情货币')}</span><b>${currency?.ready ? number(currency.balance) : currency?.name ? '未知' : '未定'}</b></div>${retry}</div>`;
+    const wallet = renderStatsWallets(model);
     // 天数挂在「当前状态」标题行右端，不单独占一行。
     const day = model.day != null ? `<span class="igs-stats-day">第 ${number(model.day)} 天</span>` : '';
     return `<div class="igs-stats-dash">`

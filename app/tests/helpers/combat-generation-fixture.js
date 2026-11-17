@@ -18,6 +18,8 @@ export function modelReply(prompt) {
         else if (e.kind === 'profile-gear') value = { gear: [['长剑', 'weapon', 'common']] };
         else if (e.kind === 'draw-card') value = { card: ['雷光斩', 'strike'] };
         else if (e.kind === 'trait') value = { name: '雷光特性', origin: '战斗中的领悟' };
+        else if (e.kind === 'profile-init') value = {};
+        if (e.input?.combatInit) value = { ...value, init: { className: '剑士', role: 'warrior', major: 'str', minor: 'con', weak: 'int' } };
         return { key: e.key, value };
     }) });
 }

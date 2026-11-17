@@ -72,7 +72,7 @@ export function challengeQuota(state, settings = {}) {
     const clock = state?.clock || {};
     const used = Math.max(0, Math.floor(Number(clock.challenges)) || 0);
     if (perDay > 0 && used >= perDay) return { ok: false, reason: 'quota', used, perDay };
-    const last = Number(clock.lastChallengeFloor);
+    const last = clock.lastChallengeFloor === null || clock.lastChallengeFloor === '' || clock.lastChallengeFloor === undefined ? NaN : Number(clock.lastChallengeFloor);
     const floor = Number(settings.floor);
     if (Number.isInteger(last) && Number.isInteger(floor) && floor - last < cooldown) return { ok: false, reason: 'cooldown', used, perDay };
     return { ok: true, used, perDay };

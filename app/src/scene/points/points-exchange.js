@@ -13,8 +13,13 @@ export function createPointsExchange({ run, fresh, commit, blocked, wallet, chat
         return run(async held => {
             const result = await task(held);
             if (!held.valid()) return fail('request-stale');
-            await wallet();
-            return held.valid() ? result : fail('request-stale');
+            if (!result?.ok) return result;
+            let balance;
+            try { balance = await wallet(); }
+            catch { balance = fail('points-wallet-unavailable'); }
+            if (!held.valid()) return fail('request-stale');
+            return balance?.ok === true ? result
+                : { ...result, ok: false, stage: 'read', reason: balance?.reason || 'points-wallet-unavailable', walletReady: false };
         });
     }
     function quoteExchange(points, currency) {

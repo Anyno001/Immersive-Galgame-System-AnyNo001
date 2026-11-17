@@ -1,4 +1,4 @@
-// 剧情货币：物品表里固定一行（数量即余额）。货币名、四档价格与积分兑换比例由开局判定后固定在聊天级记录 chat:currency。
+// 剧情货币：物品表里固定一行（数量即余额）；配置保存在 chat:currency，修改走可恢复意图。
 // 纯函数：只做校验、请求构造与回复解析，不读写宿主。
 import { MONEY_TIERS } from './stat-vocab.js';
 
@@ -6,9 +6,9 @@ export const CURRENCY_NAME_MAX = 6;
 export const CURRENCY_INITIAL_FACTOR = 10;
 export const CURRENCY_RATE_MIN = 0.01;
 export const CURRENCY_RATE_MAX = 100;
-export const CURRENCY_ATTEMPTS = 3;
 export const CURRENCY_CATEGORY = '货币';
 
+export const currencyNameKey = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 const NAME_RE = /^[^\s|｜\[\]【】<>]+$/u;
 
 const positiveInt = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
@@ -31,7 +31,8 @@ export function normalizeCurrencyTable(raw) {
 export function normalizeCurrencyConfig(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || typeof raw.name !== 'string') return null;
     const name = String(raw.name ?? '').trim();
-    if (!name || name === '积分' || [...name].length > CURRENCY_NAME_MAX || !NAME_RE.test(name)) return null;
+    const key = currencyNameKey(name);
+    if (!key || key === '积分' || [...name].length > CURRENCY_NAME_MAX || !NAME_RE.test(name) || !NAME_RE.test(key)) return null;
     const table = normalizeCurrencyTable(raw.table);
     const rate = Number(raw.rate);
     if (!table || !Number.isFinite(rate) || rate < CURRENCY_RATE_MIN || rate > CURRENCY_RATE_MAX) return null;
@@ -56,7 +57,7 @@ export function normalizeCurrencyRecord(raw) {
     const config = normalizeCurrencyConfig(raw);
     if (!config) return null;
     const initial = Number(raw.initial);
-    if (!Number.isSafeInteger(initial) || initial < 0 || initial > config.table.巨额 * CURRENCY_INITIAL_FACTOR) return null;
+    if (!Number.isSafeInteger(initial) || initial < 0) return null;
     const seed = raw.seed === undefined ? null : normalizeCurrencyWrite(raw.seed);
     if (raw.seed !== undefined && (!seed || seed.after - seed.before !== initial)) return null;
     return Object.freeze({ ...config, initial, seeded: raw.seeded === true, ...(seed && { seed }) });
@@ -69,11 +70,10 @@ export const currencyRecordValue = (record) => ({
 
 export function currencyBalanceOf(snapshot, name) {
     if (snapshot?.ok !== true || !Array.isArray(snapshot.inventory?.items)) return { ok: false, reason: snapshot?.reason || 'inventory-table-read-failed' };
-    const keyOf = (value) => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
-    const key = keyOf(name);
-    const issue = (snapshot.diagnostics || []).find((entry) => keyOf(entry.name) === key);
+    const key = currencyNameKey(name);
+    const issue = (snapshot.diagnostics || []).find((entry) => currencyNameKey(entry.name) === key);
     if (issue) return { ok: false, reason: issue.code || 'stats-currency-balance-invalid' };
-    const item = snapshot.inventory.items.find((row) => keyOf(row.name) === key && !row.lost);
+    const item = snapshot.inventory.items.find((row) => currencyNameKey(row.name) === key && !row.lost);
     const balance = item ? item.quantity : 0;
     return Number.isSafeInteger(balance) && balance >= 0 ? { ok: true, balance, exists: Boolean(item) } : { ok: false, reason: 'stats-currency-balance-invalid' };
 }
@@ -108,13 +108,61 @@ export function parseCurrencyReply(text) {
     const raw = String(text || '');
     const start = raw.indexOf('{');
     const end = raw.lastIndexOf('}');
-    if (start < 0 || end <= start) return { ok: false, reason: 'stats-currency-invalid' };
+    if (start < 0 || end <= start) return { ok: false, reason: raw.trim() ? 'stats-currency-not-json' : 'stats-currency-reply-empty' };
     let data;
-    try { data = JSON.parse(raw.slice(start, end + 1)); } catch { return { ok: false, reason: 'stats-currency-invalid' }; }
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, reason: 'stats-currency-invalid' };
+    try { data = JSON.parse(raw.slice(start, end + 1)); } catch { return { ok: false, reason: 'stats-currency-not-json' }; }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, reason: 'stats-currency-config-invalid' };
     const config = normalizeCurrencyConfig({ name: data.name, table: data.prices, rate: data.rate });
-    if (!config) return { ok: false, reason: 'stats-currency-invalid' };
+    if (!config) return { ok: false, reason: 'stats-currency-config-invalid' };
     const initial = Number(data.initial);
     if (!Number.isSafeInteger(initial) || initial < 0 || initial > config.table.巨额 * CURRENCY_INITIAL_FACTOR) return { ok: false, reason: 'stats-currency-initial-invalid' };
     return { ok: true, config, initial };
+}
+const REQUEST_REASONS = new Set(['request-stale', 'request-timeout', 'stats-no-model', 'invalid-llm-messages',
+    'ordered-messages-unsupported', 'secondary-llm-http-failed', 'secondary-llm-transport-failed', 'secondary-llm-backend-unreachable']);
+
+export function currencyRequestFailure(error) {
+    const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : null;
+    return { ok: false, stage: 'request', reason: REQUEST_REASONS.has(error?.reason) ? error.reason : 'stats-currency-request-failed',
+        ...(status && { status }) };
+}
+
+const CURRENCY_STAGES = Object.freeze({ request: '请求', parse: '解析', seed: '初始化', recover: '恢复', read: '余额读取', edit: '修改' });
+const CURRENCY_FAILURES = Object.freeze({
+    'stats-no-model': '辅助模型不可用',
+    'stats-currency-request-failed': '请求失败，发送状态未知',
+    'secondary-llm-http-failed': '接口拒绝或服务端错误',
+    'secondary-llm-transport-failed': '传输失败，发送状态未知',
+    'secondary-llm-backend-unreachable': '酒馆后端未能连接上游',
+    'request-timeout': '请求已结束但未收到成功回执，上游可能仍在执行',
+    'invalid-llm-messages': '请求消息格式无效',
+    'ordered-messages-unsupported': '当前宿主不支持请求消息顺序',
+    'stats-currency-reply-empty': '回复为空',
+    'stats-currency-not-json': '回复不是有效 JSON',
+    'stats-currency-config-invalid': '货币名称、四档金额或兑换比例不合法',
+    'stats-currency-initial-invalid': '初始金额不合法',
+    'points-wallet-unavailable': '共享积分钱包暂不可读',
+    'inventory-table-read-failed': '物品表读取失败',
+    'inventory-table-ambiguous': '物品表不唯一',
+    'inventory-quantity-invalid': '物品数量不合法',
+    'inventory-quantity-conflict': '余额已变化，未覆盖外部修改',
+    'inventory-write-unverified': '物品写入尚未确认',
+    'stats-currency-edit-pending': '原货币修改尚未完成，请恢复原操作',
+    'stats-currency-edit-stale': '聊天或货币配置已变化，请重新打开表单',
+    'stats-currency-edit-conflict': '货币配置与原意图不一致，未覆盖现有数据',
+    'stats-currency-edit-log-conflict': '货币修改记录残缺或不一致，已停止后续写入',
+    'stats-currency-edit-invalid': '货币修改意图不合法',
+    'stats-currency-edit-intent-invalid': '本地待提交意图不合法',
+    'stats-currency-edit-intent-read-failed': '本地待提交意图读取失败',
+    'stats-currency-edit-intent-save-failed': '本地待提交意图保存未确认',
+    'inventory-rename-target-occupied': '目标名称已被物品占用',
+    'inventory-rename-conflict': '原物品行已变化，未覆盖外部修改',
+});
+
+export function describeCurrencyFailure({ stage = 'recover', reason = '', status, done = false } = {}) {
+    const code = /^[a-z][a-z0-9-]{0,79}$/.test(reason) ? reason : 'stats-currency-failed';
+    const detail = CURRENCY_FAILURES[code] || code;
+    const http = Number.isInteger(status) && status >= 400 && status <= 599 ? `（HTTP ${status}）` : '';
+    if (done) return `兑换已完成，余额暂不可确认：${detail}${http}。可重试读取，请勿再次提交兑换`;
+    return `剧情货币${CURRENCY_STAGES[stage] || '处理'}失败：${detail}${http}。可手动重试`;
 }

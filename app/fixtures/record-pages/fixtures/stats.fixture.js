@@ -1,4 +1,6 @@
 import { buildCombatSheet, encodeCombatRecord } from '../../../src/data/shujuku/combat-tables.js';
+import { planInventoryTemplate } from '../../../src/data/shujuku/inventory-tables.js';
+import { parseTables } from '../../../src/data/shujuku/table-parser.js';
 import { chatEntries, diffChatRecords, initRecord } from '../../../src/scene/stats/stat-log.js';
 import { createStatsState } from '../../../src/scene/stats/stat-state.js';
 
@@ -22,6 +24,9 @@ export function createStatsPreview({ retry = false } = {}) {
         content: [['row_id', '物品名称', '数量', '描述/效果', '类别'], ['1', '铜钱', '240', '', '货币']] };
     tables.sheet_previewhero = { uid: 'sheet_previewhero', name: '主角信息表', orderNo: 6,
         content: [['姓名', '积分', '铜钱'], ['主角', '525', '240']] };
+    const inventory = planInventoryTemplate(tables, parseTables(tables));
+    if (!inventory.ok) throw new Error(`stats-preview-inventory:${inventory.reason}`);
+    Object.assign(tables, inventory.template);
     const reject = () => false;
     const api = {
         exportTableAsJson: () => structuredClone(tables), getTableTemplate: () => structuredClone(tables),

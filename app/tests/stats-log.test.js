@@ -91,3 +91,29 @@ test('旧存档拒收原因透传；倾向由六维推导', () => {
     assert.equal(prefs.minor, 'dex');
     assert.equal(prefs.weak, 'cha');
 });
+
+
+test('货币编辑日志：意图与完成往返，旧档不受影响，非法记录保留阻断原因', async () => {
+    const { normalizeCurrencyEdit, currencyEditRecord } = await import('../src/scene/stats/stat-currency-edit.js');
+    const before = { name: '铜钱', table: { 少量: 7, 普通: 30, 昂贵: 90, 巨额: 300 }, rate: 0.25, initial: 100, seeded: true };
+    const after = { ...before, name: '金币', table: { 少量: 1, 普通: 2, 昂贵: 3, 巨额: 4 } };
+    const intent = normalizeCurrencyEdit({ version: 1, id: 'ce-log', chatId: 'c', createdAt: 12,
+        before, after, balance: 0, fromKey: '铜钱', toKey: '金币', done: false,
+        guard: { version: 1, from: '铜钱', to: '金币', balance: 0, exists: false, sourceName: '',
+            tableName: '背包物品表', columns: ['物品名称', '数量'], cells: null } });
+    assert.ok(intent);
+    const base = chatEntries({ chatEnabled: true, currency: before });
+    const pending = chatEntries({ chatEnabled: true, currency: before, currencyEdit: intent });
+    const rows = [initRecord({ n: 0 }), ...diffChatRecords(new Map(), base, { tag: 'old' }),
+        ...diffChatRecords(base, pending, { tag: 'pending' })];
+    const read = records => mergeStatLog(records, { chatId: 'c', chat: [] });
+    assert.deepEqual(read(rows).currencyEdit, intent);
+    assert.equal(read(rows).currencyEditError, '');
+    const done = read([...rows, currencyEditRecord(intent, 'config'), currencyEditRecord(intent, 'done')]);
+    assert.deepEqual(done.currencyEdit, { ...intent, done: true });
+    assert.deepEqual(done.currency, after);
+    assert.equal(diffChatRecords(done.baseline, chatEntries(done)).length, 0);
+    const invalid = currencyEditRecord({ ...intent, guard: { ...intent.guard, balance: 1 } }, 'intent');
+    assert.equal(read([...rows, invalid]).currencyEditError, 'stats-currency-edit-invalid');
+    assert.equal(read([initRecord({ n: 0 })]).currencyEdit, null);
+});

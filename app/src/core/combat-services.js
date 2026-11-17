@@ -6,6 +6,7 @@
 //   - 成长监听者只在有效状态签名变化时才被通知（内部缓存照常更新）；
 //   - 同一事件内账本有效状态只取一次并传递。
 import { createCachedTableClient, createCombatTables } from '../data/shujuku/combat-tables.js';
+import { createTableReadiness } from '../data/shujuku/table-readiness.js';
 import { createOriginStore } from '../data/shujuku/origin-store.js';
 import { createPointsStore } from '../data/shujuku/points-store.js';
 import { GAME_IDS, newPointsId, pointFloors, pointsFloorId, pointsSwipe } from '../scene/points/points-policy.js';
@@ -24,7 +25,7 @@ import {
 } from '../scene/check-rolls.js';
 import {
     classTierEntity, deckProfileEntities, drawCardEntity, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
-    withCharacterLore, withStoryContext,
+    withCharacterLore, withCombatInitialization, withStoryContext,
 } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
 import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
@@ -140,6 +141,17 @@ export function createCombatServices(options = {}) {
             return null;
         }
     };
+    const protagonistBuildPolicy = () => {
+        if (typeof options.buildMode !== 'function') return { ready: true, mode: 'auto', choices: {} };
+        const policy = getBuildMode();
+        if (!policy || policy.ready === false || (policy.chatId && policy.chatId !== getChatId())) {
+            return { ready: false, reason: policy?.reason || 'stats-build-policy-waiting' };
+        }
+        const mode = policy.mode;
+        return ['auto', 'manual', 'relative'].includes(mode)
+            ? { ready: true, mode, choices: policy.choices || {} }
+            : { ready: false, reason: 'stats-build-mode-invalid' };
+    };
 
     // ---- 统计（便于测试与诊断） ----
     const counters = {
@@ -215,6 +227,7 @@ export function createCombatServices(options = {}) {
     function retireBundle(old) {
         if (!old) return;
         stopProtagonistTableWatch(old);
+        old.readiness?.dispose();
         counters.retiredExports += old.client.stats.exports;
         try { old.client.dispose(); } catch { /* */ }
     }
@@ -550,6 +563,7 @@ export function createCombatServices(options = {}) {
                 if (!valid()) return { ok: false, reason: 'request-stale' };
                 const target = String(name || '').trim();
                 const buildMode = getBuildMode();
+                if (typeof options.buildMode === 'function' && (!buildMode || buildMode.ready === false)) return { ok: false, reason: buildMode?.reason || 'stats-build-policy-waiting' };
                 const protagonist = PROTAGONIST_ALIASES.includes(target) || (!!getUserName() && target === getUserName());
                 if (!wantsAutoInit({ mode: buildMode?.mode ?? null, choice: buildMode?.choices?.[target] ?? null, protagonist })) return { ok: true, unchanged: true, skipped: 'build-mode' };
                 const written = await getLedger().writeInit(name, value, { signal, shouldStart: valid });
@@ -576,6 +590,9 @@ export function createCombatServices(options = {}) {
         if (written?.ok === true && stillValid()) {
             await refreshLife();
             if (settings().enabled) await refreshGrowth();
+            if (stillValid() && settings().enabled) {
+                void prepareProtagonist();
+            }
         }
         return written;
     }
@@ -627,6 +644,8 @@ export function createCombatServices(options = {}) {
                 // 数值侧缓存同时跟随宿主接口替换和表更新，不能只认自己的写入次数。
                 get version() { return `${generation}:${client.version()}`; },
                 read: (readOptions) => raw.read(readOptions),
+                invalidate: () => client.invalidate(),
+                matchesIncomplete: record => raw.matchesIncomplete('stats', record),
                 append: (records, appendOptions) => raw.append('stats', records, appendOptions),
                 ensure: () => {
                     const chatKey = getChatId();
@@ -642,6 +661,24 @@ export function createCombatServices(options = {}) {
     function inventoryTables() {
         getTables();
         return bundle.inventory;
+    }
+
+    function databaseReadiness() {
+        getTables();
+        const owner = bundle;
+        const chatId = getChatId();
+        const epoch = chatEpoch;
+        if (!owner.readiness || owner.readinessChat !== chatId || owner.readinessEpoch !== epoch) {
+            owner.readiness?.dispose();
+            owner.readinessChat = chatId;
+            owner.readinessEpoch = epoch;
+            owner.readiness = createTableReadiness({
+                client: owner.client, chatId, generation: owner.generation, serial: owner.raw.serial,
+                isCurrent: () => !disposed && bundle === owner && chatEpoch === epoch && !!chatId
+                    && getChatId() === chatId && owner.api === (global.AutoCardUpdaterAPI || null),
+            });
+        }
+        return owner.readiness;
     }
 
     // 积分独立于战斗界面开关；原钱包份额与战斗净流水均只读。
@@ -968,7 +1005,7 @@ export function createCombatServices(options = {}) {
 
     // ---- 成长生成 ----
     // 为待生成的成长条目请求 LLM 并写入账本。reuseSnapshot：自动成长刚刷新过，表与楼层没变时复用那次的扫描与状态
-    async function generateGrowth({ signal, messageIds = null, reuseSnapshot = false } = {}) {
+    async function generateGrowth({ signal, messageIds = null, reuseSnapshot = false, includeEquipment = true } = {}) {
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
         const ledgerImpl = getLedger();
         if (!ledgerImpl) return { ok: false, reason: 'combat-generate-unavailable' };
@@ -989,6 +1026,7 @@ export function createCombatServices(options = {}) {
         const wanted = Array.isArray(messageIds) ? new Set(messageIds.map(Number)) : null;
         // 专属卡到期项（v0.39.2）与成长标签同一套楼层范围：锚点是跨级的 EXP 记录。
         for (const pending of [...(scan.pendingGeneration || []), ...signaturePending(state)]) {
+            if (!includeEquipment && pending.kind === 'equip') continue;
             if (wanted && !wanted.has(Number(pending.anchor?.messageId))) continue;
             const character = pending.characterId ? state.characters.get(pending.characterId) : null;
             const built = growthEntity(pending, character, { classes: state.classes, now: Date.now(), profileMeta: state.profileMeta, traits: traitsOf(character?.name) });
@@ -1034,7 +1072,7 @@ export function createCombatServices(options = {}) {
         if (running) {
             try { await running; } catch { /* 自动成长失败不影响手动重试 */ }
         }
-        return generateGrowth({ signal });
+        return generateGrowth({ signal, includeEquipment: false });
     }
 
     function cancelAutoGrowth() {
@@ -1103,7 +1141,7 @@ export function createCombatServices(options = {}) {
 
     // ---- 牌组档案 ----
     // 生成一个角色的牌组档案（盟友或主角）
-    async function generateDeckProfileCore({ name, classRef = null, role = 'ally', signal, onStart, onRetry, generationHint, materialSelection, materialChatId, readState, shouldStart } = {}) {
+    async function generateDeckProfileCore({ name, classRef = null, role = 'ally', signal, onStart, onRetry, generationHint, materialSelection, materialChatId, readState, shouldStart, prepareMissing = false } = {}) {
         const actionChatId = getChatId();
         const epoch = chatEpoch;
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
@@ -1123,7 +1161,13 @@ export function createCombatServices(options = {}) {
         const state = await (readState ? readState() : ledgerImpl.effectiveState());
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!state.ok) return { ok: false, reason: state.reason };
-        if (state.characters.get(characterId)?.kind === 'deck-character') return { ok: false, reason: 'combat-profile-exists', id: characterId };
+        const deckReady = prepareMissing ? hasDeckCharacter(state, target) : state.characters.get(characterId)?.kind === 'deck-character';
+        if (deckReady && !prepareMissing) return { ok: false, reason: 'combat-profile-exists', id: characterId };
+        const policy = prepareMissing ? protagonistBuildPolicy() : null;
+        if (prepareMissing && !policy.ready) return { ok: false, reason: policy.reason || 'stats-build-policy-waiting' };
+        const needInit = prepareMissing && !abilitiesForName(state, target, getUserName())?.initialized
+            && wantsAutoInit({ mode: policy.mode, choice: policy.choices?.[target], protagonist: true });
+        if (deckReady && !needInit) return { ok: true, id: characterId };
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return { ok: false, reason: llm.reason, ...(llm.missing ? { missing: llm.missing } : {}) };
         if (!alive()) return { ok: false, reason: 'request-stale' };
@@ -1132,7 +1176,8 @@ export function createCombatServices(options = {}) {
         const usableClass = classRef && state.classes.has(classRef) ? classRef : null;
         // 按剧情给初始装备：随卡组档案同批请求；可省略，失败不影响卡组档案。
         // 主角的初始装备至少 1 件（v0.39.2），队友剧情没写到可为空。
-        const entities = await withCharacterLore([...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })], readLore);
+        const profileEntities = deckReady ? [] : [...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })];
+        const entities = await withCharacterLore(needInit ? withCombatInitialization(profileEntities, [target]) : profileEntities, readLore);
         if (!alive()) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch { /* */ }
         const context = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [target, getUserName()], signal, persona: target !== getUserName() });
@@ -1141,19 +1186,40 @@ export function createCombatServices(options = {}) {
         if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return { ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}), requested: true };
         const writes = generationWrites(generated, { createdAt: Date.now() });
-        if (!writes.profiles.some((profile) => profile.id === characterId)) {
-            return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed', rejected: generated.rejected, requested: true };
+        let profileFailure = '';
+        if (!deckReady) {
+            if (!writes.profiles.some((profile) => profile.id === characterId)) profileFailure = generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed';
+            else {
+                const written = await tables.append('profile', writes.profiles, { signal, shouldStart: alive });
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (written?.ok !== true) profileFailure = 'combat-profile-write-failed';
+            }
         }
-        const written = await tables.append('profile', writes.profiles, { signal, shouldStart: alive });
-        if (!alive()) return { ok: false, reason: 'request-stale' };
-        if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', write: written, requested: true };
+        let initFailure = '';
+        if (needInit) {
+            const currentPolicy = protagonistBuildPolicy();
+            const init = generated.accepted?.find((item) => item.init?.name === target)?.init;
+            if (!currentPolicy.ready) initFailure = currentPolicy.reason || 'stats-build-policy-waiting';
+            else if (wantsAutoInit({ mode: currentPolicy.mode, choice: currentPolicy.choices?.[target], protagonist: true })) {
+                if (!init) initFailure = generated.requestFailure ? 'combat-llm-request-failed' : 'combat-init-invalid';
+                else {
+                    let written;
+                    try { written = await ledgerImpl.writeInit(target, init.value, { signal, shouldStart: alive }); }
+                    catch { written = { ok: false, reason: 'combat-init-write-failed' }; }
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    if (written?.ok !== true) initFailure = written?.reason || 'combat-init-write-failed';
+                }
+            }
+        }
         const after = await (readState ? readState() : ledgerImpl.effectiveState());
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!after.ok) return { ok: false, reason: after.reason, requested: true };
-        if (after.characters.get(characterId)?.kind !== 'deck-character') return { ok: false, reason: 'combat-profile-unverified', id: characterId, requested: true };
+        if (!hasDeckCharacter(after, target)) profileFailure ||= 'combat-profile-unverified';
+        if (needInit && !abilitiesForName(after, target, getUserName())?.initialized) initFailure ||= 'combat-init-unverified';
         // 初始装备：档案读回确认后锚定最新楼层写 equip；写失败只记诊断，卡组档案照常生效。
         const gearDiagnostics = [];
-        if (alive()) await grantGeneratedGear(ledgerImpl, generated, (owner) => (owner === target ? characterId : null), { diagnostics: gearDiagnostics });
+        if (!profileFailure && alive()) await grantGeneratedGear(ledgerImpl, generated, (owner) => (owner === target ? characterId : null), { diagnostics: gearDiagnostics });
+        if (profileFailure || initFailure) return { ok: false, reason: profileFailure || initFailure, requested: true, id: characterId };
         return { ok: true, id: characterId, reusedClass: !!usableClass, ...(gearDiagnostics.length ? { gearDiagnostics } : {}) };
     }
 
@@ -1449,16 +1515,17 @@ export function createCombatServices(options = {}) {
         if (!watch || (owner && watch.owner !== owner)) return;
         protagonistTableWatch = null;
         protagonistRefresh = null;
-        try { watch.owner.client.unregisterCallback(watch.callback); } catch { /* */ }
+        watch.off?.();
     }
 
     function watchProtagonistTables(owner) {
         if (protagonistTableWatch?.owner === owner) return;
         stopProtagonistTableWatch();
-        if (typeof owner?.api?.registerTableUpdateCallback !== 'function') return;
-        const watch = { owner, callback: null };
-        watch.callback = () => {
-            if (protagonistTableWatch !== watch || protagonistRefresh || !combatBattleOn(settings())) return;
+        const watch = { owner, callback: null, off: null };
+        let initial = true;
+        watch.callback = (value) => {
+            if (initial || value?.status !== 'ready') return;
+            if (protagonistTableWatch !== watch || protagonistRefresh || !settings().enabled) return;
             const key = protagonistKey();
             if (!key) return;
             const refresh = { watch, key };
@@ -1468,7 +1535,7 @@ export function createCombatServices(options = {}) {
                 if (active?.key === key) await active.promise;
                 await owner.raw.serial(() => null);
                 if (protagonistRefresh !== refresh || protagonistTableWatch !== watch || bundle !== owner
-                    || protagonistKey() !== key || !combatBattleOn(settings())) return;
+                    || protagonistKey() !== key || !settings().enabled) return;
                 protagonistRefresh = null;
                 await prepareProtagonist();
             }).catch(() => {}).finally(() => {
@@ -1476,11 +1543,11 @@ export function createCombatServices(options = {}) {
             });
         };
         protagonistTableWatch = watch;
-        try { owner.client.registerCallback(watch.callback); }
-        catch { stopProtagonistTableWatch(owner); }
+        watch.off = databaseReadiness().subscribe(watch.callback);
+        initial = false;
     }
 
-    // 换聊天后数据库载入当前聊天需要时间：读表暂时失败（未载入 / 读失败）时每 1.5 秒重试，最多 8 次（约 12 秒）；测试可经 options 缩短。
+    // 暂时读错统一按配置间隔有界重试；通知不跳过等待、不额外消耗次数。
     const protagonistReadRetries = Number.isInteger(options.protagonistReadRetries) ? options.protagonistReadRetries : 8;
     const protagonistReadDelayMs = Number.isFinite(options.protagonistReadDelayMs) ? options.protagonistReadDelayMs : 1500;
     // 主角键：聊天 + 用户名，缺一则无主角
@@ -1492,7 +1559,10 @@ export function createCombatServices(options = {}) {
 
     function getProtagonist() {
         const key = protagonistKey();
-        return !settings().enabled || !key || protagonistState.key !== key ? null : { name: getUserName().trim(), status: protagonistState.status, reason: protagonistState.reason, attempt: protagonistState.attempt };
+        return !settings().enabled || !key || protagonistState.key !== key ? null : {
+            name: getUserName().trim(), status: protagonistState.status, reason: protagonistState.reason, attempt: protagonistState.attempt,
+            attributesReady: protagonistState.attributesReady === true, deckReady: protagonistState.deckReady === true,
+        };
     }
 
     function setProtagonistState(patch) {
@@ -1545,13 +1615,15 @@ export function createCombatServices(options = {}) {
             }
             if (!alive()) return { ok: false, reason: 'request-stale' };
             if (state?.ok || !TRANSIENT_TABLE_REASONS.has(state?.reason) || attempt >= protagonistReadRetries) return state;
-            if (!changed) await new Promise(resolve => setTimeout(resolve, protagonistReadDelayMs));
+            await databaseReadiness().delay(protagonistReadDelayMs, {
+                signal: task.controller?.signal, shouldStart: alive,
+            });
         }
     }
 
     function prepareProtagonist({ manual = false, generationHint, materialSelection, materialChatId } = {}) {
         if (disposed) return Promise.resolve({ ok: false, reason: 'request-stale' });
-        if (!combatBattleOn(settings())) {
+        if (!settings().enabled) {
             stopProtagonistTableWatch();
             cancelProtagonist();
             return Promise.resolve({ ok: false, reason: 'combat-disabled' });
@@ -1576,7 +1648,10 @@ export function createCombatServices(options = {}) {
         const skipRetry = !manual && previous?.status === 'failed' && previous.requested === true;
         const task = { key, ledgerImpl, owner: bundle, controller: typeof AbortController === 'function' ? new AbortController() : null, promise: null };
         protagonistTask = task;
-        const alive = () => protagonistTask === task && protagonistKey() === key && combatBattleOn(settings())
+        if (!previous || previous.status === 'idle') {
+            setProtagonistState({ key, status: 'waiting', reason: 'combat-table-not-ready', attempt: 0, requested: false, attributesReady: false, deckReady: false });
+        }
+        const alive = () => !disposed && !task.controller?.signal.aborted && protagonistTask === task && protagonistKey() === key && settings().enabled
             && bundle === task.owner && task.owner.api === (global.AutoCardUpdaterAPI || null);
         task.promise = (async () => {
             try {
@@ -1585,27 +1660,60 @@ export function createCombatServices(options = {}) {
                 if (!alive()) return { ok: false, reason: 'request-stale' };
                 if (!state?.ok) {
                     const reason = state?.reason || 'combat-ledger-read-failed';
-                    if (!skipRetry) setProtagonistState({ key, status: 'idle', reason, attempt: 0, requested: false });
+                    if (!skipRetry) setProtagonistState({ key, status: reason === 'combat-table-not-ready' ? 'waiting' : 'failed', reason, attempt: 0, requested: false, attributesReady: false, deckReady: false });
                     return { ok: false, reason };
                 }
-                if (hasDeckCharacter(state, getUserName().trim())) {
-                    setProtagonistState({ key, status: 'ready', reason: '', attempt: 0, requested: false });
+                const name = getUserName().trim();
+                const facts = { attributesReady: abilitiesForName(state, name, getUserName())?.initialized === true, deckReady: hasDeckCharacter(state, name) };
+                const publishReady = async () => {
+                    lifeStamp = null;
+                    const life = await refreshLife();
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    const growth = life?.ok === true ? await refreshGrowth() : life;
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    const cached = lifeCache?.chatId === getChatId() ? lifeCache.state : null;
+                    const confirmed = {
+                        attributesReady: cached?.ok === true && abilitiesForName(cached, name, getUserName())?.initialized === true,
+                        deckReady: cached?.ok === true && hasDeckCharacter(cached, name),
+                    };
+                    if (life?.ok !== true || growth?.ok !== true || !confirmed.attributesReady || !confirmed.deckReady) {
+                        const reason = life?.reason || growth?.reason || 'combat-init-unverified';
+                        setProtagonistState({ key, status: 'failed', reason, attempt: 0, requested: previous?.requested === true, ...confirmed });
+                        return { ok: false, status: 'failed', reason };
+                    }
+                    setProtagonistState({ key, status: 'ready', reason: '', attempt: 0, requested: false, attributesReady: true, deckReady: true });
                     return { ok: true, status: 'ready' };
+                };
+                if (facts.attributesReady && facts.deckReady) return await publishReady();
+                const policy = protagonistBuildPolicy();
+                if (!policy.ready) {
+                    setProtagonistState({ key, status: 'waiting', reason: policy.reason, attempt: 0, requested: false, ...facts });
+                    return { ok: false, status: 'waiting', reason: policy.reason };
+                }
+                if (!facts.attributesReady && !wantsAutoInit({ mode: policy.mode, choice: policy.choices?.[name], protagonist: true })) {
+                    setProtagonistState({ key, status: 'manual', reason: 'combat-init-manual', attempt: 0, requested: false, ...facts });
+                    return { ok: false, status: 'manual', reason: 'combat-init-manual' };
                 }
                 if (skipRetry) return { ok: false, reason: previous.reason, status: 'failed' };
                 const generated = await generateDeckProfileCore({
-                    readState, shouldStart: alive,
+                    readState, shouldStart: alive, prepareMissing: true,
                     name: getUserName().trim(), role: 'protagonist', signal: task.controller?.signal, generationHint, materialSelection, materialChatId,
                     onStart: () => { if (alive()) setProtagonistState({ key, status: 'generating', reason: '', attempt: 0, requested: false }); },
                     onRetry: ({ attempt }) => { if (alive()) setProtagonistState({ key, status: 'retrying', attempt }); },
                 });
                 if (!alive()) return { ok: false, reason: 'request-stale' };
-                if (generated.ok || generated.reason === 'combat-profile-exists') {
-                    setProtagonistState({ key, status: 'ready', reason: '', attempt: 0, requested: false });
-                    return { ok: true, status: 'ready' };
+                const after = await readState();
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                const confirmed = { attributesReady: after?.ok === true && abilitiesForName(after, name, getUserName())?.initialized === true, deckReady: after?.ok === true && hasDeckCharacter(after, name) };
+                if (confirmed.attributesReady && confirmed.deckReady) return await publishReady();
+                const currentPolicy = protagonistBuildPolicy();
+                if (after?.ok && !confirmed.attributesReady && currentPolicy.ready && !wantsAutoInit({ mode: currentPolicy.mode, choice: currentPolicy.choices?.[name], protagonist: true })) {
+                    setProtagonistState({ key, status: 'manual', reason: 'combat-init-manual', attempt: 0, requested: false, ...confirmed });
+                    return { ok: false, status: 'manual', reason: 'combat-init-manual' };
                 }
-                setProtagonistState({ key, status: 'failed', reason: generated.reason, attempt: 0, requested: generated.requested === true });
-                return { ok: false, reason: generated.reason, status: 'failed' };
+                const reason = generated.reason || after?.reason || 'combat-init-unverified';
+                setProtagonistState({ key, status: 'failed', reason, attempt: 0, requested: generated.requested === true, ...confirmed });
+                return { ok: false, reason, status: 'failed' };
             } catch {
                 if (alive()) setProtagonistState({ key, status: 'failed', reason: 'combat-action-threw', attempt: 0, requested: true });
                 return { ok: false, reason: 'combat-action-threw' };
@@ -1737,6 +1845,7 @@ export function createCombatServices(options = {}) {
         chatEpoch += 1;
         ensureTask = null;
         stopProtagonistTableWatch();
+        bundle?.readiness?.dispose();
         traitEpoch += 1;
         retireSession();
         session = null;
@@ -1782,7 +1891,7 @@ export function createCombatServices(options = {}) {
 
     return {
         getSession, getLedger, ensureTables, statsTables, inventoryTables, syncRegex, resetChat, dispose, settings, inspectGenerationMaterials: materialContext.inspect, generateDeckProfile, regenerateDeck, respecClass, ascendClass,
-        originStore, points, gamePointsRounds, mahjongPointsRounds, ensurePointsFloor, pointsSpendingGate, readSharedPoints, readOriginWallet, pointsSnapshot, withPointsLock,
+        originStore, databaseReadiness, points, gamePointsRounds, mahjongPointsRounds, ensurePointsFloor, pointsSpendingGate, readSharedPoints, readOriginWallet, pointsSnapshot, withPointsLock,
         drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, upgradeCard, refreshGrowth, getGrowth, onGrowthUpdated, retryGrowth, setAllyTier, lifeSource, refreshLife,
         prepareProtagonist, getProtagonist, onProtagonistUpdated, autoPrepare, challengePromptQuota, intimateGate, intimatePrepared, combatSinceStart, challengeHistory, autoGrowth, checkReplayFor, checkPromptInput, partyPromptInput,
         getDiagnostics: () => diagnostics.map((item) => ({ ...item })), captureCombatInit, writeManualInit, buildCandidates, useInventoryItem, setGear,

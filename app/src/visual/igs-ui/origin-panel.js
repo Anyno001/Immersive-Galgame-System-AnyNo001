@@ -99,6 +99,20 @@ export function createOriginPageController(doc, options = {}) {
             boxes.foot.hidden = true;
             return;
         }
+        const recovery = engine.recoveryStatus?.();
+        if (engine.isBlocked?.()) {
+            const reason = engine.isBlocked();
+            const text = recovery?.status === 'waiting' ? '等待本聊天数据库就绪'
+                : recovery?.busy ? (recovery.stage === 'save' ? '正在重试保存' : '正在读取本聊天存档')
+                    : recovery?.stage === 'save' ? '保存未完成' : '读取失败';
+            const action = recovery?.canRetrySave ? 'retry-save' : recovery?.canRetryRead ? 'retry-read' : '';
+            setBox('top', boxes.top, '');
+            setBox('tabs', boxes.tabs, '');
+            setBox('body', boxes.body, `<div class="igs-or-empty" role="status">${esc(text)}（${esc(reason)}）${action ? `<button class="igs-settings-action" type="button" data-oa="${action}">${action === 'retry-save' ? '重试保存' : '重试读取'}</button>` : ''}</div>`);
+            setBox('foot', boxes.foot, '');
+            boxes.foot.hidden = true;
+            return;
+        }
         if (!visibleOriginTabs(settings).some((t) => t.id === view.tab)) view.tab = 'task';
         const shown = page || view.tab;
         let lastFloor = null;

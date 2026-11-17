@@ -11,8 +11,9 @@
   var m = /^([0-9]{2,4})x([0-9]{2,4})$/.exec(q.get('frame') || '');
   if (!m || window.top !== window) return;
   q.delete('frame');
-  document.write('<body style="margin:0;background:#0b0d10"><iframe src="' + location.pathname + '?' + q + '" style="display:block;margin:0 auto;border:0;width:' + m[1] + 'px;height:' + m[2] + 'px"></iframe></body>');
+  document.write('<body style="margin:0;background:#0b0d10"><iframe style="display:block;margin:0 auto;border:0;width:' + m[1] + 'px;height:' + m[2] + 'px"></iframe></body>');
   window.stop();
+  document.querySelector('iframe').src = location.pathname + '?' + q;
 })();
 </script>
 <style>
@@ -289,13 +290,25 @@ function openSettingsScene() {
       editor?.querySelector('[data-settings-dialog="ok"]')?.click();
     }, 0);
   }
-  for (const step of (q.get('act') || '').split(',').filter(Boolean)) {
+  const actionSteps = (q.get('act') || '').split(',').filter(Boolean);
+  let actionsClosed = false;
+  const runActions = async () => { for (const step of actionSteps) {
     const [command, ...rest] = step.split(':');
     // ui-toggle-open 的键本身带冒号，整段当一个参数。
     const segs = command === 'ui-toggle-open' ? [rest.join(':')] : rest;
     const action = [command, ...segs.map(encodeURIComponent)].join(':');
-    document.querySelector(`[data-action="${CSS.escape(action)}"]`)?.click();
-  }
+    let button;
+    for (let attempt = 0; attempt < 80 && !actionsClosed; attempt += 1) {
+      button = document.querySelector(`[data-action="${CSS.escape(action)}"]`);
+      if (button && !button.disabled) break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    if (actionsClosed) return;
+    if (!button || button.disabled) throw new Error(`preview-action-unavailable:${command}`);
+    button.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  } };
+  void runActions().catch(error => { document.getElementById('errlog').textContent = error.message; });
   // ?menu=CSS 选择器：打开对应的 ⋯ 下拉菜单。
   const menuSel = q.get('menu');
   if (menuSel) { const menu = document.querySelector(menuSel); if (menu) menu.open = true; }
@@ -314,17 +327,19 @@ function openSettingsScene() {
   if (q.get('open')) for (const ms of [400, 900, 1500]) setTimeout(openFolds, ms);
   // ?nav=open：窄屏下把分类抽屉展开再截图。
   if (q.get('nav') === 'open') document.getElementById('igs-unified-settings')?.setAttribute('data-igs-nav', 'open');
-  return { close: () => opened.controller?.close?.() };
+  return { close: () => { actionsClosed = true; opened.controller?.close?.(); } };
 }
 // 战斗面板预览：内存战斗表与存档；?combat=battle 直接开战，?combat=end 打到结束。
 const attributePreview = new URLSearchParams(location.search).get('attributes') === '1';
 const templatePreview = new URLSearchParams(location.search).get('templates') === '1';
-const combatPreview = createCombatPreview({ attributes: attributePreview, templates: templatePreview });
+const powersPreview = new URLSearchParams(location.search).get('powers') === '1';
+const combatPreview = createCombatPreview({ attributes: attributePreview, templates: templatePreview, powers: powersPreview });
 // ?res=mage|mage3|bard|priest|warrior|summoner|all：给主战者叠一组假资源，只改面板读到的快照，不写引擎状态，用于看资源条排版。
 const RES_PREVIEW = {
   mage: { orbs: { slots: 10, list: ['lightning', 'frost', 'dark', 'plasma', 'glass', 'lightning', 'frost'].map(kind => ({ kind })) }, focus: 2 },
   mage3: { orbs: { slots: 3, list: [{ kind: 'lightning' }, { kind: 'frost' }] }, focus: 0 },
   bard: { stance: 'wrath', momentum: 7 },
+  calm: { stance: 'calm', momentum: 3 },
   priest: { radiance: 6 },
   warrior: { forge: { value: 14 } },
   summoner: { minion: { hp: 9, maxHp: 15 } },
@@ -337,10 +352,15 @@ const marksPreview = new URLSearchParams(location.search).get('marks') === '1';
 // ?inscribe=1：给主战者手牌前五张依次挂规则 v5 P5b 刻印（锋利、灵巧、稳持、蚀心、预燃）；?inscribe=键1,键2 可指定刻印。只改面板读到的快照，可与 ?marks=1 同用。
 const inscribeParam = new URLSearchParams(location.search).get('inscribe') || '';
 const INSCRIBE_PREVIEW = inscribeParam === '1' ? ['sharp', 'deft', 'steady', 'corrode', 'kindle'] : inscribeParam.split(',').map((s) => s.trim()).filter(Boolean);
+// ?statuses=1：给主战者挂虚弱与止水、给每名敌人挂易伤与禁攻，只改面板读到的快照，用于看状态片的悬停注释；可与 ?res= 同用。
+const statusesPreview = new URLSearchParams(location.search).get('statuses') === '1';
+const withStatuses = (unit, extra) => ({ ...unit, statuses: { ...unit.statuses, ...extra } });
 const previewBattle = (b) => {
   const id = b && b.controlledId;
   if (!b || !b.units || !b.units[id]) return b;
   let next = b;
+  if (statusesPreview) next = { ...next, units: Object.fromEntries(Object.entries(next.units).map(([key, unit]) => [key,
+    key === id ? withStatuses(unit, { weak: 1, 'calm-guard': 2 }) : unit.side !== next.units[id].side ? withStatuses(unit, { vulnerable: 2, 'no-attack': 1 }) : unit])) };
   if (resPreview) next = { ...next, units: { ...next.units, [id]: { ...next.units[id], res: { ...next.units[id].res, ...resPreview } } } };
   const hand = marksPreview || INSCRIBE_PREVIEW.length ? (next.piles?.[id]?.hand || []) : [];
   if (hand.length) {
@@ -351,12 +371,13 @@ const previewBattle = (b) => {
   }
   return next;
 };
-const baseSession = !resPreview && !marksPreview && !INSCRIBE_PREVIEW.length ? combatPreview.session : { ...combatPreview.session, state() {
+const baseSession = !resPreview && !marksPreview && !statusesPreview && !INSCRIBE_PREVIEW.length ? combatPreview.session : { ...combatPreview.session, state() {
   const st = combatPreview.session.state();
   return st.battle ? { ...st, battle: previewBattle(st.battle) } : st;
 } };
 // ?loot=v6（配合 ?combat=end）：结算时换成一份规则 v6 示例战利品（卡牌槽三选一：本职业固定、无色固定、本职业随机），翻牌、取候选与跳过只改内存。
-const lootPreview = new URLSearchParams(location.search).get('loot') === 'v6';
+const lootMode = new URLSearchParams(location.search).get('loot');
+const lootPreview = ['v6', 'single'].includes(lootMode);
 const warriorPool = fixedClassPool('warrior');
 const lootOffer = {
   combatId: 'preview-loot', reveal: 0,
@@ -370,6 +391,11 @@ const lootOffer = {
     { index: 2, kind: 'item', rarity: 'common', name: '止血草', origin: '', item: { count: 1 } },
   ],
 };
+if (lootMode === 'single') {
+  const card = lootOffer.slots[0].choices[1];
+  lootOffer.slots[0] = { index: 0, kind: 'card', rarity: card.rarity, name: card.name,
+    origin: '桥头一战后，从狼群的夹击中领悟的招式。', card };
+}
 let lootPick = emptyPick();
 const lootStep = (next) => { if (next.ok) lootPick = next.pick; return Promise.resolve(next.ok ? { ok: true } : { ok: false, reason: next.reason }); };
 // ?purge=1（配合 ?combat=end&loot=v6）：本场视为第 5 场普通胜利，结算页同时给一次删牌机会（75 金钱）；?purge=poor 为金钱不足。只改内存。
@@ -407,6 +433,19 @@ async function openCombat() {
   combatState.want = want;
   for (let i = 0; i < 40 && combat.view()?.status !== 'lobby'; i += 1) await new Promise(r => setTimeout(r, 25));
   if (want !== 'lobby') combat.invoke('start');
+  // ?powers=1（配合 ?combat=battle）：开战后依次打出起手的能力牌，停在玩家回合，结束回合即可看到触发反馈。
+  if (powersPreview && want === 'battle') {
+    const until = Date.now() + 15000;
+    while (Date.now() < until) {
+      await new Promise(r => setTimeout(r, 40));
+      const battle = combat.view()?.battle;
+      if (combat.view()?.status !== 'battle' || !battle) continue;
+      const card = battle.hand.find(c => c.type === 'power' && c.playable);
+      if (!card) break;
+      const r = combat.invoke('card', card.inst);
+      if (!r.ok && r.reason !== 'combat-busy') combat.invoke('target', card.affects[0] ?? card.targets[0]);
+    }
+  }
   // 结束回合后面板会锁住演出（combat-busy），每步之间让出事件循环，等演出播完再继续出牌。
   const deadline = Date.now() + 120000;
   while (want === 'end' && Date.now() < deadline && combat.view()?.status === 'battle') {
