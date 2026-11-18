@@ -53,7 +53,7 @@ const localConfig = {
     localBundle: true,
 };
 
-const loader = fs.readFileSync(loaderPath, 'utf8');
+const loader = fs.readFileSync(loaderPath, 'utf8').replace(/\r\n?/g, '\n');
 const strictHeader = "(function () {\n    'use strict';\n";
 if (!loader.startsWith(strictHeader)) throw new Error('loader 文件头和本地包生成器不一致。');
 const cssUrl = `data:text/css;charset=utf-8;base64,${Buffer.from(css).toString('base64')}`;

@@ -11,6 +11,7 @@ import { DIALOG_SKIN_HORROR_WARD, WARD_HUD_THEME } from './dialog-theme-horror-w
 import { DIALOG_SKIN_HORROR_PSYCH, PSYCH_HUD_THEME } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HUD_THEME } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HUD_THEME } from './dialog-theme-wasteland.js';
+import { DIALOG_SKIN_YUME_KAWAII, YUME_KAWAII_HUD_THEME } from './dialog-theme-yume-kawaii.js';
 import { ORIGIN_DERIVED_TOKENS } from './origin-panel-style.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
@@ -172,6 +173,7 @@ const HUD_THEMES = Object.freeze({
     [DIALOG_SKIN_HORROR_PSYCH]: PSYCH_HUD_THEME,
     [DIALOG_SKIN_SCIFI_HOLO]: SCIFI_HUD_THEME,
     [DIALOG_SKIN_WASTELAND_RUST]: WASTELAND_HUD_THEME,
+    [DIALOG_SKIN_YUME_KAWAII]: YUME_KAWAII_HUD_THEME,
     [DIALOG_SKIN_PLANT_COFFEE]: {
         neutral: '#a49186',
         panel: `background:#f6f1eb;border:1.5px solid #5c4949;border-radius:${s(18)};box-shadow:0 ${s(3)} 0 rgba(92,73,73,.2);`,

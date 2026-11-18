@@ -25,6 +25,7 @@ import { DIALOG_SKIN_HORROR_WARD } from './dialog-theme-horror-ward.js';
 import { DIALOG_SKIN_HORROR_PSYCH } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST } from './dialog-theme-wasteland.js';
+import { DIALOG_SKIN_YUME_KAWAII } from './dialog-theme-yume-kawaii.js';
 import { listDlcSkins } from './dlc-skin-registry.js';
 import { DIALOG_SKIN_MERMAID } from './dialog-theme-mermaid.js';
 import { resolvePlaceAmbience } from '../../scene/place-ambience.js';
@@ -32,7 +33,7 @@ import { resolvePlaceAmbience } from '../../scene/place-ambience.js';
 // 世界观 → 推荐的对话框皮肤，第一个是该世界观的默认皮肤。主界面选世界观页按这张表出小样与预选；
 // 不在表里的皮肤仍可在「其他皮肤」里选，存进角色卡后照样生效。现代排在第一的是默认皮肤，老用户不选也不变样。
 export const WORLDVIEW_DIALOG_SKINS = Object.freeze({
-    modern: Object.freeze([DIALOG_SKIN_DEFAULT, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_WARM_PICTUREBOOK, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_GRADIENT_VEIL]),
+    modern: Object.freeze([DIALOG_SKIN_DEFAULT, DIALOG_SKIN_DAY_MINIMAL, DIALOG_SKIN_PLANT_COFFEE, DIALOG_SKIN_CUTE_PINK, DIALOG_SKIN_YUME_KAWAII, DIALOG_SKIN_WARM_PICTUREBOOK, DIALOG_SKIN_BLACK_WHITE_MANGA, DIALOG_SKIN_GRADIENT_VEIL]),
     ancient: Object.freeze([DIALOG_SKIN_QINGLV, DIALOG_SKIN_XIANXIA_INK, DIALOG_SKIN_WUXIA_INK]),
     fantasy: Object.freeze([DIALOG_SKIN_ELEGANT_EUROPEAN, DIALOG_SKIN_WESTERN_CLASSIC, DIALOG_SKIN_ADVENTURE_JOURNEY, DIALOG_SKIN_FAIRY_TALE]),
     scifi: Object.freeze([DIALOG_SKIN_SCIFI_HOLO, DIALOG_SKIN_GRADIENT_VEIL]),

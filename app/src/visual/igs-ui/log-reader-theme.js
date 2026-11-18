@@ -32,6 +32,7 @@ export const LOG_READER_THEMES = Object.freeze({
     'day-minimal': { tone: 'light', veil: '#f5f7fa', ink: '#3a3935', narr: '#5f5d55', thought: '#b0503f', sub: '#93918a', line: '#e1e4ea', plate: '#e8ebf0' },
     'black-white-manga': { tone: 'light', veil: '#ffffff', ink: '#231f1c', narr: '#2f2925', thought: '#5e5750', sub: '#8a847e', line: '#dedad6', plate: '#eeebe8' },
     'cute-pink': { tone: 'light', veil: '#fff0f5', ink: '#5d3a4a', narr: '#7d6070', thought: '#c65f86', sub: '#c47f98', line: '#f5cddc', plate: '#ffd9e6' },
+    'yume-kawaii': { tone: 'light', veil: '#eef3fa', ink: '#3f4b62', narr: '#5f6f88', thought: '#6f88ad', sub: '#8a9bb6', line: '#d4dfec', plate: '#dfe8f4' },
     'horror-psych': { tone: 'light', veil: '#fdf3f8', ink: '#6b4a5c', narr: '#8f7a86', thought: '#8c72c4', sub: '#a8939f', line: '#efdde6', plate: '#f4e4ec' },
 });
 

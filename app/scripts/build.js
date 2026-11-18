@@ -114,7 +114,10 @@ for (const asset of bundledFontAssets) {
     const sliceManifest = readSliceManifest(fontSliceManifestDir, asset.file);
     if (sliceManifest) slicedFonts.set(asset.file, { manifest: sliceManifest, css: renderSliceFontFaces(asset, sliceManifest.slices) });
 }
+// 服务已按 unicode-range 切片的字体沿用原始分片地址；本地包不能指向尚未发布的新仓库字体文件。
+const hostedFontStylesheets = ['https://fontsapi.zeoseven.com/88/main/result.css'];
 const css = [
+    ...hostedFontStylesheets.map((url) => `@import url("${url}");`),
     ...[...slicedFonts].map(([file, sliced]) => `@import url("./fonts/${fontSliceName(file)}/font.css?v=${contentHash(sliced.css)}");`),
     ...bundledFontAssets.filter(({ file }) => !slicedFonts.has(file)).map(({ family, file, weight, style, format }) => `@font-face { font-family: "${family}"; font-style: ${style}; font-weight: ${weight}; font-display: swap; src: url("./fonts/${file}") format("${format}"); }`),
     '.igs-stage { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; background: #0b0d12; }',
@@ -140,6 +143,7 @@ const fontLicenseFiles = [
     'HuiwenMincho-CC0.txt', 'TsangerYuYangT-MIT.txt', 'SmileySans-OFL.txt',
     'Cinzel-OFL.txt', 'ZCOOLKuaiLe-OFL.txt', 'GreatVibes-OFL.txt', 'PinyonScript-OFL.txt',
     'Quicksand-OFL.txt', 'Caveat-OFL.txt', 'IMFellEnglish-OFL.txt', 'ChillRoundF-OFL.txt', 'Oswald-OFL.txt',
+    'MaokenZhuyuanTi-OFL.txt',
 ];
 fs.mkdirSync(fontTargetDir, { recursive: true });
 for (const weight of roundedFontWeights) {
