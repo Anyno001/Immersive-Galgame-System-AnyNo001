@@ -98,7 +98,7 @@ import { SETTINGS_CATEGORIES, categoryOfPage, currentSettingsPage, openSettingsP
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule, PROMPT_RULE_OUTFIT_HINT, scenePromptRuleOutfitHint, READER_SETTINGS_SCHEMA_VERSION, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { eventToShortcut, findShortcutAction, resolveShortcuts } from './reader-shortcuts.js';
-import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
+import { isDockReaderMode, isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 import { buildWaitStageModel, createWaitStageRuntime } from './wait-stage-runtime.js';
 import { getWaitStageGamePack, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
 import { onDlcSkinsChange } from './dlc-skin-registry.js';
@@ -2453,7 +2453,7 @@ export function createIgsReaderHost(options = {}) {
         hideOptionBubbles(container);
         const text = await resolveOptionSendText(rawText, check);
         if (cfg.clickAction === 'fill' || forceFill) {
-            if (state.activeReader && isEmbeddedReaderMode(state.activeReader.mode)) {
+            if (state.activeReader && (isEmbeddedReaderMode(state.activeReader.mode) || isDockReaderMode(state.activeReader.mode))) {
                 const fill = typeof options.setInputText === 'function'
                     ? options.setInputText
                     : async () => ({ ok: false, reason: 'missing-input-api' });
