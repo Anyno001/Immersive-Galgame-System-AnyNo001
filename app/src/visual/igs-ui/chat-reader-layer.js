@@ -8,6 +8,7 @@ import { cachedSpriteNameColor, spriteNameColor } from './character-name-color.j
 import { armTextFx, disarmTextFx } from './text-fx.js';
 import { LOG_SPEEDS } from './log-reader-settings.js';
 import { VOICE_ICON } from './voice-icon.js';
+import { chatSfxKindForSide, playChatSfx } from './chat-sfx.js';
 
 // 线上聊天阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-chat-reader，同一人连着说的话归一组，整条气泡弹出。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view（形状同纵向的 view，另带 theme）。
@@ -451,6 +452,12 @@ function replayMood(overlay, group, chip) {
     winOf(overlay).setTimeout(() => { if (!sym.isConnected) return; sym.classList.remove('is-once'); sym.classList.add('is-done'); refreshLoops(overlay); }, ONCE_MS);
 }
 
+function playPopSound(view, built, row) {
+    const sound = view.sound;
+    if (!sound || sound.enabled === false || !(sound.volume > 0)) return;
+    try { playChatSfx(chatSfxKindForSide(built.right ? 'right' : 'left'), { volume: sound.volume, preset: sound.preset }); } catch { /* 无音频环境 */ }
+}
+
 // 出现：角色台词先插「正在输入」三点（组头第一条；续行只停一小会儿），再原地换成正文并弹出；旁白、分隔线、卡片淡入。
 // 返回的 promise 在弹出完成后 resolve；s.reveal.finish 可把整条立即补完。
 function reveal(overlay, built, view, row) {
@@ -494,11 +501,12 @@ function reveal(overlay, built, view, row) {
             bubble.classList.remove('is-typing');
             text.innerHTML = html;
             bubble.hidden = false;
-            if (!calm) bubble.classList.add('is-pop');
+            bubble.classList.add('is-pop');
+            playPopSound(view, built, row);
             armTextFx(text, () => 0);
             let total = POP_MS;
             if (text.querySelector('.igs-tfx-big,.igs-tfx-roar')) total = Math.max(total, TFX_POP_MS);
-            tail = win.setTimeout(finish, calm ? 0 : total);
+            tail = win.setTimeout(finish, total);
         };
         const job = { finish };
         s.reveal = job;

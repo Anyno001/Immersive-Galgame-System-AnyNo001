@@ -3530,6 +3530,7 @@ ${row.key}`;
             live: log.live == null ? -1 : log.live,
             running: Boolean(log.running),
             more: index < log.rows.length - 1,
+            sound: chat ? normalizeChatShowSettings(rs.chatShow).sound : null,
             settings, skin, tone,
             fonts: logFontsOf(snapshot),
             textEffect: dialogTextEffectCss(rs),

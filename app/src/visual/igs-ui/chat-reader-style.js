@@ -34,6 +34,9 @@ ${R} .igs-cr-col{min-width:0;display:flex;flex-direction:column;gap:4px;}
 ${R} .igs-cr-group.is-left .igs-cr-col{align-items:flex-start;}
 ${R} .igs-cr-group.is-right .igs-cr-col{align-items:flex-end;}
 ${R} .igs-cr-time+.igs-cr-group,${R} .igs-cr-narr+.igs-cr-group,${R} .igs-cr-solo+.igs-cr-group{margin-top:calc(var(--igs-cr-gap) - 4px);}
+/* User 组没有名字行（18px + 列间隙 4px）：补上同样的高度，换人时气泡到气泡的视觉间距左右一致。 */
+${R} .igs-cr-list>.igs-cr-group.is-right:not(:first-child){margin-top:calc(var(--igs-cr-gap) + 22px);}
+${R} .igs-cr-list>:is(.igs-cr-time,.igs-cr-narr,.igs-cr-solo)+.igs-cr-group.is-right{margin-top:calc(var(--igs-cr-gap) + 18px);}
 ${R} .igs-cr-av{position:relative;flex:none;width:${AV}px;height:${AV}px;border-radius:12px;background-color:#26242b;background-repeat:no-repeat;transition:box-shadow .2s;}
 ${R}[data-av="circle"] .igs-cr-av{border-radius:50%;}
 ${R} .igs-cr-av.is-letter{display:grid;place-items:center;font-size:16px;font-weight:600;color:#121212;background-color:var(--igs-cr-hue);}
@@ -118,5 +121,5 @@ ${R} #igs-log-edit-bar button[data-log-zoom]{min-width:36px;padding:0;font-size:
 ${R} #igs-log-edit-bar button[aria-pressed="true"]{box-shadow:inset 0 0 0 1.5px var(--igs-log-acc);color:var(--igs-log-acc);}
 ${R} #igs-log-edit-bar button:disabled{color:var(--igs-log-sub);cursor:default;}
 ${R} #igs-log-edit-bar button[data-log-edit="save"]{background:var(--igs-log-acc);color:rgb(var(--igs-log-veil));font-weight:600;}
-@media (prefers-reduced-motion:reduce){${R} .igs-cr-dots i,${R} .igs-cr-bubble.is-pop,${R} .igs-fx-symbol,${R} .igs-fx-symbol *{animation:none!important;}}
+@media (prefers-reduced-motion:reduce){${R} .igs-cr-dots i,${R} .igs-fx-symbol,${R} .igs-fx-symbol *{animation:none!important;}}
 `;
