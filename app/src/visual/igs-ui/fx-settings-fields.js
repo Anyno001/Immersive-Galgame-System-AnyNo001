@@ -182,7 +182,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')
         + checkbox(`${p}.forumReader.scrubber`, fr.scrubber, '页码进度条')
         + collapsible('forum-registry', '本聊天的帖子（标题、代号）', renderForumRegistryFields(forumRegistry))
-        + collapsible('forum-prompt', '高级：论坛提示词', field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule, forumDefaultPromptText(fr)), '留空使用内置写法；填写后整段替换（含标题、代号、回帖写法）')
+        + collapsible('forum-prompt', '高级：论坛提示词', field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule || forumDefaultPromptText(fr)), '框里是当前生效的写法，可直接修改；改后整段替换内置写法（含标题、代号、回帖写法），改回与内置一致或清空即用内置')
             + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`));
 
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));

@@ -1,3 +1,4 @@
+import { forumPromptText } from './forum-reader-lines.js';
 import { FORUM_MODES, FORUM_PALETTE_IDS } from './forum-reader-palettes.js';
 import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log-reader-settings.js';
 
@@ -21,7 +22,7 @@ function clampInt(value, min, max, fallback) {
 
 export function normalizeForumReaderSettings(value) {
     const src = plain(value);
-    return {
+    const out = {
         on: src.on === true,
         enabled: src.on === true,
         poster: FORUM_POSTERS.includes(src.poster) ? src.poster : 'auto',
@@ -41,4 +42,6 @@ export function normalizeForumReaderSettings(value) {
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',
     };
+    if (out.promptRule && out.promptRule === forumPromptText({ ...out, promptRule: '' }, null).trim()) out.promptRule = '';
+    return out;
 }
