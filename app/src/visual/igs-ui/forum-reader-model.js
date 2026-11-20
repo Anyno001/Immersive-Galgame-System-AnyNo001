@@ -12,7 +12,8 @@ export { threadAt, titleAt } from './forum-reader-threads.js';
 export const FORUM_USER_KEY = '{{user}}';
 const NO_BASE = 5500000;
 const NO_STEP = 7;
-const FLOOR_SLOTS = 10;
+const FLOOR_SLOTS = 40;
+const BUILTIN_SLOTS = 10;
 const REPLY_MINUTES = [2, 9];
 const QUOTE_MAX = 18;
 const PASSERS = 6;
@@ -36,7 +37,7 @@ function base36(seed, length = 8) {
     return out;
 }
 
-// 楼号：每个酒馆楼占 10 个序号，显示值单调递增，同一聊天重看不变。
+// 楼号：每个酒馆楼占 40 个序号，显示值单调递增，同一聊天重看不变。
 export function forumSlot(messageId, k) {
     return (Math.max(0, Number(messageId) || 0)) * FLOOR_SLOTS + Math.min(FLOOR_SLOTS - 1, Math.max(0, k)) + 1;
 }
@@ -520,7 +521,7 @@ export function forumPlan(rows, ctx) {
             return out;
         }
         const count = perGap[1] === 0 ? 0 : feedStableCount(`${seedBase}:r${n}`, perGap[0], perGap[1]);
-        for (let r = 0; r < count && k < FLOOR_SLOTS; r++) {
+        for (let r = 0; r < count && k < BUILTIN_SLOTS; r++) {
             if (post.image) {
                 const own = posterKind === 'witness' ? FORUM_LINES.imageWitness : posterKind === 'char' ? FORUM_LINES.imageSelf : [];
                 const pool = [...FORUM_LINES.image, ...own].filter((line) => !used.has(line));

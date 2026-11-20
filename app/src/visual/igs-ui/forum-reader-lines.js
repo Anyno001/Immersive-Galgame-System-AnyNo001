@@ -18,13 +18,13 @@ export const FORUM_LINES = Object.freeze({
 });
 
 // 匿名版颜文字：只挑中性的（围观、发呆、点头、疑惑），不带强烈喜怒。
-// 内置回帖约一半在句末缀一个，约一成半整条只发颜文字。
+// 内置回帖以颜文字为主：约六成整条只发颜文字，约两成半句末缀一个，其余只发句子。
 export const FORUM_KAOMOJI = Object.freeze([
     '( ﾟ∀。)', '(´ﾟДﾟ`)', '( ´_ゝ`)', '(｀・ω・)', '( ・_・)', '( ˙-˙ )', '(・∀・)', '( ´ー`)',
     '(　ﾟдﾟ)', '(ﾟーﾟ)', '( ´・ω・)', '(・ω・)', '( ˘•ω•˘ )', '(ーー;)', '( ´∀｀)', '(・_・;)',
 ]);
-export const FORUM_KAOMOJI_TAIL_RATE = 50;
-export const FORUM_KAOMOJI_ONLY_RATE = 15;
+export const FORUM_KAOMOJI_TAIL_RATE = 25;
+export const FORUM_KAOMOJI_ONLY_RATE = 60;
 
 // 带 >>No. 指回附图那一楼的回帖。
 export const FORUM_IMAGE_REF_LINES = Object.freeze(['原图呢', '求原图']);

@@ -9,6 +9,7 @@ import {
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
+import { FORUM_KAOMOJI } from '../src/visual/igs-ui/forum-reader-lines.js';
 import { createForumRegistry } from '../src/visual/igs-ui/forum-reader-registry.js';
 import { finishForumReveal, syncForumReader } from '../src/visual/igs-ui/forum-reader-layer.js';
 import { FORUM_READER_STYLE_TEXT } from '../src/visual/igs-ui/forum-reader-style.js';
@@ -235,6 +236,16 @@ test('AI 回帖跨轮接话：>上N 摘引上一轮那条，同名路人跨轮�
     assert.ok(!collectGrammarBlocks({ forumReader: { on: true, replies: 'off' }, _forumPrev: prev }).find((b) => b.key === 'forum').full.includes('上一轮回帖'));
 });
 
+test('正文分成很多段时 AI 写的回帖一条不丢，楼号不重复', () => {
+    const rows = forumRowsOf(rowsOf(Array.from({ length: 24 }, (_, i) => page('narration', `第${i}句。`))), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const mes = Array.from({ length: 6 }, (_, i) => `[igs-reply:路人${i}|第${i}条]`).join('');
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 5, settings: { perPost: 2, replies: 'normal' }, aiReplies: forumRepliesOf(mes) });
+    assert.equal(plan.length, 8);
+    assert.deepEqual(plan.flatMap((p) => p.replies).map((r) => r.text), Array.from({ length: 6 }, (_, i) => `第${i}条`));
+    const nos = plan.flatMap((p) => [p.no, ...p.replies.map((r) => r.no)]);
+    assert.equal(new Set(nos).size, nos.length);
+});
+
 test('登记读写：写之前核对聊天没换；读不到元数据时留在内存不报错', () => {
     const meta = {};
     let chat = 'a';
@@ -361,7 +372,9 @@ test('附图：换场景附一次场景图，CG 首次出现那行附上且优�
     const plan = forumPlan(rows, { chatId: 'c', messageId: 3, settings: { perPost: 2, replies: 'normal' }, images, posterKind: 'witness' });
     const lines = ['有图有真相', '原图呢', 'PO主手别抖', '这角度……你在哪拍的', '偷拍的吧', 'PO主危'];
     for (const reply of plan[0].replies) {
-        assert.ok(lines.includes(reply.text));
+        const face = FORUM_KAOMOJI.find((f) => reply.text.endsWith(f)) || '';
+        const word = reply.text.slice(0, reply.text.length - face.length);
+        assert.ok(word === '' ? Boolean(face) : lines.includes(word), reply.text);
         if (reply.text === '原图呢') assert.equal(reply.ref, plan[0].no);
     }
 
