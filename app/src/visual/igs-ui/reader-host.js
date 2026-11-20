@@ -6054,6 +6054,19 @@ ${row.key}`;
             // 刚进这一楼、停在楼首且不在生成中：自动播第一批（第一行也走出字）。
             logRows.enteredKey = logRows.key;
             logRows.fresh = Number(current.index) === 0 && !logRows.running && !current.awaitingReply && current.streamPhase === 'idle';
+            const showAll = readerKindOf(current) === 'forum' && forumSettingsOf(snapshot.readerSettings || {}).perTap >= 1e6 && !logRows.running && !current.awaitingReply && current.streamPhase === 'idle';
+            if (showAll) {
+                logRows.fresh = false;
+                let last = logRows.rows.length - 1;
+                while (last > 0 && logRows.rows[last].solo) last -= 1;
+                if (last > Number(current.index || 0)) setTimeout(() => {
+                    if (state.activeReader !== current || current.logReader !== logRows || logRows.running) return;
+                    logRows.live = -1;
+                    current.index = last;
+                    current.pageRenderAt = Date.now();
+                    rerenderActiveReader();
+                }, 0);
+            }
             if (logRows.fresh) setTimeout(() => {
                 logRows.fresh = false;
                 if (state.activeReader === current && current.logReader === logRows) void runLogBatch(current, 0);
