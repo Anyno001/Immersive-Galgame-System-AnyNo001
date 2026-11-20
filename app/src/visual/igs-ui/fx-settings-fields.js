@@ -1,6 +1,6 @@
 import { listDlcFx, normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 import { esc } from './reader-value-utils.js';
-import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput, textareaInput } from './settings-fields.js';
+import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput, textareaInput, textInput } from './settings-fields.js';
 import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
 import { FX_PROMPT_KEYS, FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxPromptsSettings, normalizeFxReaderSettings } from './fx-settings.js';
@@ -11,6 +11,7 @@ import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
 import { LOG_PERCENTS } from './log-reader-settings.js';
 import { CHAT_READER_DIMS, CHAT_READER_RADII } from './chat-reader-settings.js';
 import { forumDefaultPromptText } from './forum-reader-lines.js';
+import { FORUM_PALETTES } from './forum-reader-palettes.js';
 import { FORUM_PER_POST_MAX, FORUM_PER_POST_MIN } from './forum-reader-settings.js';
 import { renderForumRegistryFields } from './forum-reader-fields.js';
 
@@ -165,22 +166,25 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.chatReader.charAvatar`, cr.charAvatar, '显示对方头像')
         + checkbox(`${p}.chatReader.userAvatar`, cr.userAvatar, '显示User头像'));
     const fr = s.forumReader;
-    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.poster`, '楼主', segmentedInput(`${p}.forumReader.poster`, fr.poster, [['auto', '让 AI 挑'], ['char', '角色本人'], ['witness', '围观路人'], ['user', 'User']], '楼主'))
+    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.poster`, '楼主', segmentedInput(`${p}.forumReader.poster`, fr.poster, [['auto', '让 AI 挑'], ['char', '角色本人'], ['witness', '围观路人'], ['user', 'User'], ['pair', '双楼主']], '楼主'))
+        + (fr.poster === 'pair' ? field(`${p}.forumReader.posterPair.0`, '第一位楼主', textInput(`${p}.forumReader.posterPair.0`, fr.posterPair[0], '角色名、{{user}} 或 路人:身份')) + field(`${p}.forumReader.posterPair.1`, '第二位楼主', textInput(`${p}.forumReader.posterPair.1`, fr.posterPair[1], '两人之间交替发帖')) : '')
         + field(`${p}.forumReader.othersThoughts`, '其他人的心里话', segmentedInput(`${p}.forumReader.othersThoughts`, fr.othersThoughts, [['hide', '不显示'], ['show', '照常显示']], '其他人的心里话'))
         + field(`${p}.forumReader.replies`, '路人回帖', segmentedInput(`${p}.forumReader.replies`, fr.replies, [['off', '关'], ['few', '少'], ['normal', '标准']], '路人回帖'))
+        + field(`${p}.forumReader.palette`, '配色', selectInput(`${p}.forumReader.palette`, fr.palette, FORUM_PALETTES.map((x) => [x.id, x.name])))
+        + field(`${p}.forumReader.mode`, '明暗', segmentedInput(`${p}.forumReader.mode`, fr.mode, [['light', '浅色'], ['dark', '黑夜'], ['auto', '跟随系统']], '明暗'))
         + field(`${p}.forumReader.perPost`, '一楼最多行数', selectInput(`${p}.forumReader.perPost`, fr.perPost, Array.from({ length: FORUM_PER_POST_MAX - FORUM_PER_POST_MIN + 1 }, (_, i) => [FORUM_PER_POST_MIN + i, `${FORUM_PER_POST_MIN + i}行`])))
         + field(`${p}.forumReader.fontSize`, '正文字号', selectInput(`${p}.forumReader.fontSize`, fr.fontSize, [13, 14, 15, 16, 17, 18, 19].map((n) => [n, `${n}px`])))
         + field(`${p}.forumReader.perTap`, '每次显示', segmentedInput(`${p}.forumReader.perTap`, fr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
         + field(`${p}.forumReader.reveal`, '文字出现', segmentedInput(`${p}.forumReader.reveal`, fr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入'], ['off', '直接显示']], '文字出现'))
         + field(`${p}.forumReader.speed`, '出现节奏', segmentedInput(`${p}.forumReader.speed`, fr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出现节奏'))
-        + field(`${p}.forumReader.barColor`, '工具栏颜色', colorInput(`${p}.forumReader.barColor`, fr.barColor || '#a9a3b2'))
         + checkbox(`${p}.forumReader.showMood`, fr.showMood, '台词前显示情绪（如 B（开心）：）')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
-        + field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule, forumDefaultPromptText(fr)), '留空使用内置写法；填写后整段替换（含标题、代号、回帖写法）')
-        + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')
         + checkbox(`${p}.forumReader.scrubber`, fr.scrubber, '页码进度条')
-        + renderForumRegistryFields(forumRegistry));
+        + collapsible('forum-registry', '本聊天的帖子（标题、代号）', renderForumRegistryFields(forumRegistry))
+        + collapsible('forum-prompt', '高级：论坛提示词', field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule, forumDefaultPromptText(fr)), '留空使用内置写法；填写后整段替换（含标题、代号、回帖写法）')
+            + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`));
+
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));
     const crowd = featureRow(more, 'crowd-fx', `${p}.crowdFx.enabled`, s.crowdFx.enabled, '人群氛围', '人多的地点', checkbox(`${p}.crowdFx.react`, s.crowdFx.react, '正文写到鼓掌、欢呼时整群反应'));
     const notifyCenter = featureRow(more, 'notify-center', `${p}.notifyCenter.enabled`, s.notifyCenter.enabled, '通知中心', '攒下没点开的消息');

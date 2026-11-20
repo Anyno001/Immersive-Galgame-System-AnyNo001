@@ -5,8 +5,8 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { logRowsOf } from '../src/visual/igs-ui/log-reader-model.js';
 import {
-    FORUM_USER_KEY, emptyForum, ensureAliases, forumClock, forumNo, forumPasserId, forumPlan, forumPoId, forumRowsOf, forumTagsOf, mergeForumTag,
-    normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock,
+    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, floorMarks, forumClock, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumRowsOf, forumTagsOf,
+    normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
 import { createForumRegistry } from '../src/visual/igs-ui/forum-reader-registry.js';
@@ -55,35 +55,92 @@ test('标签解析：楼主三种写法与代号', () => {
     assert.equal(forumTagsOf('正文\n[igs-forum:标题|楼主=A]\n').length, 1);
 });
 
-test('登记合并：未登记角色丢弃、manual 不被覆盖、poster 锁定忽略 AI 楼主', () => {
-    const known = (n) => (['阿吒', '霜见'].includes(n) ? n : '');
-    const tag = parseForumTag('新标题|楼主=霜见|阿吒=红衣服|路人甲=无关');
-    let r = mergeForumTag(emptyForum(), tag, { known });
-    assert.equal(r.data.title, '新标题');
-    assert.deepEqual(r.data.po, { kind: 'char', key: '霜见' });
-    assert.equal(r.data.alias['阿吒'], '红衣服');
-    assert.deepEqual(r.dropped, ['路人甲']);
-    const manual = normalizeForum({ title: '我写的', alias: { 阿吒: '手改' }, manual: { title: true, alias: { 阿吒: true } } });
-    r = mergeForumTag(manual, tag, { known });
-    assert.equal(r.data.title, '我写的');
-    assert.equal(r.data.alias['阿吒'], '手改');
-    r = mergeForumTag(emptyForum(), tag, { known, posterLock: 'witness' });
-    assert.equal(r.data.po, null);
+const known = (n) => (['阿吒', '霜见'].includes(n) ? n : '');
+const tagsOf = (text) => forumTagsOf(text);
+const A = { kind: 'char', key: '阿吒' };
+const B = { kind: 'char', key: '霜见' };
+const floor = (data, id, text, extra = {}) => applyFloorTags(data, id, tagsOf(text), { known, chatId: 'c', fallbackPo: A, firstFloor: 3, fallbackTitle: '【连载】兜底', ...extra }).data;
+const woven = () => {
+    let d = floor(emptyForum(), 3, '[igs-forum:【求助】在线等|楼主=阿吒|霜见=银发那个]');
+    d = floor(d, 8, '[igs-forum:【吐槽】隔壁|楼主=霜见|阿吒=那个木头]');
+    return floor(d, 10, '[igs-forum:【求助】在线等|楼主=阿吒]');
+};
+
+test('交错：换人新开帖、同人接着原帖写，代号与 PO 主 ID 沿用', () => {
+    const d = woven();
+    assert.equal(d.threads.length, 2);
+    const at = (n) => threadAt(d, n).po.key;
+    assert.deepEqual([3, 7, 8, 9, 10, 20].map(at), ['阿吒', '阿吒', '霜见', '霜见', '阿吒', '阿吒']);
+    assert.equal(threadAt(d, 3).id, threadAt(d, 10).id);
+    assert.notEqual(threadAt(d, 3).poId, threadAt(d, 8).poId);
+    assert.equal(threadAt(d, 3).alias['霜见'], '银发那个');
+    assert.equal(threadAt(d, 8).alias['阿吒'], '那个木头');
+    assert.equal(floorMarks(d, 8).start && floorMarks(d, 10).start && floorMarks(d, 3).start, true);
+    assert.equal(floorMarks(d, 5).start, false);
 });
 
-test('楼主兜底：锁定 > 登记 > 本卡主角 > 首个说话人，之后固定', () => {
-    assert.deepEqual(resolvePoster({ data: emptyForum(), settings: {}, defaultChar: '阿吒', firstSpeaker: '霜见' }), { kind: 'char', key: '阿吒' });
-    assert.deepEqual(resolvePoster({ data: emptyForum(), settings: {}, defaultChar: '', firstSpeaker: '霜见' }), { kind: 'char', key: '霜见' });
-    assert.deepEqual(resolvePoster({ data: { po: { kind: 'char', key: '霜见' } }, settings: { poster: 'user' }, defaultChar: '阿吒' }), { kind: 'user' });
-    assert.deepEqual(resolvePoster({ data: { po: { kind: 'char', key: '霜见' } }, settings: {}, defaultChar: '阿吒' }), { kind: 'char', key: '霜见' });
+test('改标题：之后的楼用新标题，帖子第一条不算修改，同一楼换帖子头时不重复出小字', () => {
+    let d = floor(emptyForum(), 3, '[igs-forum:旧标题|楼主=阿吒]');
+    d = floor(d, 12, '[igs-forum:旧标题（已解决）]');
+    const t = threadAt(d, 12);
+    assert.equal(titleAt(t, 11), '旧标题');
+    assert.equal(titleAt(t, 12), '旧标题（已解决）');
+    assert.equal(floorMarks(d, 3).retitle, '');
+    assert.equal(floorMarks(d, 12).retitle, '旧标题（已解决）');
+    assert.equal(floorMarks(d, 13).retitle, '');
 });
 
-test('兜底代号 A/B/C 按出场顺序、固定不变，楼主本人不占代号', () => {
-    let r = ensureAliases(emptyForum(), ['阿吒', '霜见', FORUM_USER_KEY], '阿吒');
-    assert.deepEqual(r.data.alias, { 霜见: 'A', [FORUM_USER_KEY]: 'B' });
-    r = ensureAliases(r.data, ['霜见', '小云'], '阿吒');
-    assert.equal(r.data.alias['霜见'], 'A');
-    assert.equal(r.data.alias['小云'], 'C');
+test('同一楼重新解析幂等：swipe 换标签或去掉标签，旧条目被替换；渲染顺序不影响', () => {
+    let d = woven();
+    const again = floor(d, 8, '[igs-forum:【吐槽】隔壁|楼主=霜见|阿吒=那个木头]');
+    assert.deepEqual(again, d);
+    d = floor(d, 8, '没有标签的正文');
+    assert.equal(threadAt(d, 9).po.key, '阿吒');
+    let swapped = floor(floor(emptyForum(), 8, '[igs-forum:B帖|楼主=霜见]'), 3, '[igs-forum:A帖|楼主=阿吒]');
+    assert.equal(threadAt(swapped, 3).po.key, '阿吒');
+    assert.equal(threadAt(swapped, 8).po.key, '霜见');
+});
+
+test('各帖代号只按本帖算，同一角色两帖代号不同；兜底代号按帖排序', () => {
+    const d = woven();
+    assert.notEqual(threadAt(d, 3).alias['霜见'], threadAt(d, 8).alias['阿吒']);
+    const r = ensureAliases(threadAt(d, 3), ['阿吒', '小云', FORUM_USER_KEY], '阿吒');
+    assert.deepEqual([r.thread.alias['小云'], r.thread.alias[FORUM_USER_KEY]], ['A', 'B']);
+});
+
+test('删楼后 from 超出聊天长度的条目不生效（查表只认当前楼号之前的条目）', () => {
+    const d = woven();
+    assert.equal(threadAt(d, 5).po.key, '阿吒');
+    assert.equal(threadAt(normalizeForum({ ...d, timeline: d.timeline.filter((e) => e.from <= 5) }), 9).po.key, '阿吒');
+});
+
+test('锁定：双楼主丢弃第三人；单人锁定忽略楼主但标题仍生效；manual 标题不被覆盖', () => {
+    const pair = forumPairOf({ poster: 'pair', posterPair: ['阿吒', '霜见'] });
+    assert.deepEqual(pair, [A, B]);
+    const d = applyFloorTags(emptyForum(), 3, tagsOf('[igs-forum:标题|楼主=路人:同学]'), { known, pair, fallbackPo: pair[0], firstFloor: 3, chatId: 'c' });
+    assert.equal(threadAt(d.data, 3).po.key, '阿吒');
+    assert.ok(d.dropped.includes('路人:同学'));
+    const locked = applyFloorTags(emptyForum(), 3, tagsOf('[igs-forum:锁定也改标题|楼主=霜见]'), { known, posterLock: 'user', fallbackPo: { kind: 'user' }, firstFloor: 3, chatId: 'c' }).data;
+    assert.equal(threadAt(locked, 3).po.kind, 'user');
+    assert.equal(titleAt(threadAt(locked, 3), 3), '锁定也改标题');
+    const hand = normalizeForum({ threads: [{ id: 't1', po: A, titles: [{ from: 3, title: '我写的' }], manual: { title: true } }], timeline: [{ from: 3, thread: 't1' }] });
+    assert.equal(titleAt(threadAt(floor(hand, 5, '[igs-forum:AI想改]'), 5), 5), '我写的');
+});
+
+test('兜底：没有标签时建 t1 并记兜底标题，之后 AI 标题顶替兜底而不算「修改」', () => {
+    let d = floor(emptyForum(), 3, '正文');
+    assert.equal(threadAt(d, 3).titles[0].title, '【连载】兜底');
+    d = floor(d, 4, '[igs-forum:真标题]');
+    assert.deepEqual(threadAt(d, 4).titles.map((t) => t.title), ['真标题']);
+    assert.equal(floorMarks(d, 4).retitle, '');
+});
+
+test('楼主兜底：锁定 > 本帖登记 > 双楼主第一位 > 本卡主角 > 首个说话人', () => {
+    assert.deepEqual(resolvePoster({ thread: null, settings: {}, defaultChar: '阿吒', firstSpeaker: '霜见' }), A);
+    assert.deepEqual(resolvePoster({ thread: null, settings: {}, defaultChar: '', firstSpeaker: '霜见' }), B);
+    assert.deepEqual(resolvePoster({ thread: { po: B }, settings: { poster: 'user' }, defaultChar: '阿吒' }), { kind: 'user' });
+    assert.deepEqual(resolvePoster({ thread: { po: B }, settings: {}, defaultChar: '阿吒' }), B);
+    assert.deepEqual(resolvePoster({ thread: null, settings: {}, defaultChar: '路', pair: [B, A] }), B);
 });
 
 const rowsOf = (pages) => logRowsOf(pages, { keyOf: (n) => n, userKey: '我' });
@@ -155,18 +212,18 @@ test('登记读写：写之前核对聊天没换；读不到元数据时留在�
     const saved = [];
     const ctx = { chatMetadata: meta, saveMetadata: () => { saved.push(1); } };
     const reg = createForumRegistry({ getContext: () => ctx, getChatId: () => chat });
-    assert.equal(reg.stage({ title: '标题', po: { kind: 'user' } }), true);
-    assert.equal(reg.read().title, '标题');
+    assert.equal(reg.stage({ board: '板块甲' }), true);
+    assert.equal(reg.read().board, '板块甲');
     assert.equal(meta.igs_forum, undefined);
     chat = 'b';
-    assert.equal(reg.read().title, '');
+    assert.equal(reg.read().board, '');
     chat = 'a';
     assert.equal(reg.flush(), true);
-    assert.equal(meta.igs_forum.title, '标题');
+    assert.equal(meta.igs_forum.board, '板块甲');
     assert.equal(saved.length, 1);
     const bare = createForumRegistry({ getContext: () => null, getChatId: () => 'x' });
-    assert.equal(bare.stage({ title: '仅内存' }), true);
-    assert.equal(bare.read().title, '仅内存');
+    assert.equal(bare.stage({ board: '仅内存' }), true);
+    assert.equal(bare.read().board, '仅内存');
     assert.equal(bare.flush(), false);
 });
 
@@ -180,7 +237,7 @@ test('提示词块：开着才出现，登记前给完整写法，登记后折�
     assert.equal(collectGrammarBlocks({ forumReader: { on: true, prompt: false } }).some((b) => b.key === 'forum'), false);
     const fresh = collectGrammarBlocks({ forumReader: { on: true } }).find((b) => b.key === 'forum');
     assert.ok(fresh.full.includes('[igs-forum:帖子标题|楼主='));
-    const done = collectGrammarBlocks({ forumReader: { on: true }, _forum: normalizeForum({ title: '求助', po: { kind: 'char', key: '阿吒' }, alias: { 霜见: 'B' } }) }).find((b) => b.key === 'forum');
+    const done = collectGrammarBlocks({ forumReader: { on: true }, _forum: floor(emptyForum(), 3, '[igs-forum:求助|楼主=阿吒|霜见=B]') }).find((b) => b.key === 'forum');
     assert.ok(done.full.includes('求助') && done.full.includes('霜见=B') && done.full.length < fresh.full.length + 40);
     const locked = collectGrammarBlocks({ forumReader: { on: true, poster: 'user' } }).find((b) => b.key === 'forum');
     assert.ok(!locked.full.includes('楼主='.concat('角色名')) && locked.full.includes('楼主是{{user}}'));
@@ -225,4 +282,28 @@ test('论坛层：live 行出现后可补完，不留悬挂', async () => {
 test('样式只用实色并只在论坛开关属性下生效', () => {
     assert.ok(FORUM_READER_STYLE_TEXT.includes('#igs-overlay[data-igs-forum-reader="on"]'));
     assert.ok(!/rgba\(|linear-gradient|gradient\(/.test(FORUM_READER_STYLE_TEXT));
+});
+
+test('提示词：有两个帖子时事实句列出另一帖，一帖时不出现；双楼主与 auto 各补一句', () => {
+    const two = collectGrammarBlocks({ forumReader: { on: true }, _forum: woven() }).find((b) => b.key === 'forum').full;
+    assert.ok(two.includes('当前帖：楼主 阿吒') && two.includes('另有帖子：霜见《【吐槽】隔壁》') && two.includes('两人交替讲述'));
+    const one = collectGrammarBlocks({ forumReader: { on: true }, _forum: floor(emptyForum(), 3, '[igs-forum:求助|楼主=阿吒]') }).find((b) => b.key === 'forum').full;
+    assert.ok(!one.includes('另有帖子'));
+    const pair = collectGrammarBlocks({ forumReader: { on: true, poster: 'pair', posterPair: ['阿吒', '霜见'] } }).find((b) => b.key === 'forum').full;
+    assert.ok(pair.includes('只在 阿吒、霜见 之间交替'));
+});
+
+test('回帖：两个帖子的路人 ID 不同，楼主回帖用本帖 PO 主 ID', () => {
+    assert.notEqual(forumPasserId('c', 1, 't1'), forumPasserId('c', 1, 't2'));
+    assert.notEqual(forumPoId('c', 't1'), forumPoId('c', 't2'));
+    const d = woven();
+    assert.notEqual(threadAt(d, 3).poId, threadAt(d, 8).poId);
+});
+
+test('论坛层：改标题出系统小字，换帖子头时不出小字', () => {
+    const { overlay } = mountOverlay();
+    const rows = forumRowsOf(rowsOf([page('dialogue', '一句。', { bubbleSpeaker: '阿吒' })]), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 0, settings: { replies: 'off' }, poId: 'p' });
+    syncForumReader(overlay, { floorKey: 'k', rows, plan, board: 'b', head: null, retitle: '新标题', upto: 0, live: -1, settings: normalizeForumReaderSettings({}), sig: 'r' });
+    assert.equal(overlay.querySelector('.igs-fm-retitle').textContent, 'PO主修改了标题：新标题');
 });

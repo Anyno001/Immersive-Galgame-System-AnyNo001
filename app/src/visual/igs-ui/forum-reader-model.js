@@ -2,8 +2,10 @@ import { storyClock } from './phone-sense.js';
 import { feedStableCount } from '../../scene/feed-platforms.js';
 import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_LINES } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { describePo, samePo, threadAt, titleAt } from './forum-reader-threads.js';
 
 export { normalizeForumReaderSettings } from './forum-reader-settings.js';
+export { threadAt, titleAt } from './forum-reader-threads.js';
 
 // 论坛体阅读模式的纯函数：楼号、时间、ID、点缀回帖、楼主与代号。不读 DOM、不碰存储。
 export const FORUM_USER_KEY = '{{user}}';
@@ -42,13 +44,14 @@ export function forumNo(chatId, messageId, k) {
     return NO_BASE + forumSlot(messageId, k) * NO_STEP + (forumHash(chatId) % NO_STEP);
 }
 
-export function forumPoId(chatId) {
-    return `${base36(`po|${chatId}`, 1).toUpperCase()}${base36(`po|${chatId}`, 7)}`;
+export function forumPoId(chatId, threadId = '') {
+    const seed = `po|${chatId}${threadId}`;
+    return `${base36(seed, 1).toUpperCase()}${base36(seed, 7)}`;
 }
 
-// 路人 ID：同帖约 6 个身份轮换，同一个路人会再出现。
-export function forumPasserId(chatId, slot) {
-    return base36(`passer|${chatId}|${slot % PASSERS}`, 8);
+// 路人 ID：同帖约 6 个身份轮换，同一个路人会再出现；两个帖子各有一群追帖的人。
+export function forumPasserId(chatId, slot, threadId = '') {
+    return base36(`passer|${chatId}|${threadId}|${slot % PASSERS}`, 8);
 }
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -79,9 +82,12 @@ export function forumClock({ sceneTime, sendDate, seed = '', k = 0 }) {
 }
 
 // ---------- 登记 ----------
+// chatMetadata.igs_forum = { board, manualBoard, threads:[{ id, po, poId, titles:[{from,title,fb?}], alias, seq, manual }], timeline:[{ from, thread }] }。
+// 每个楼主一个帖子；from 是酒馆楼 messageId。第 N 楼用哪个帖子、哪个标题由 threadAt / titleAt 查表算出，不存排版结果。
+const MAX_THREADS = 12;
 
 export function emptyForum() {
-    return { title: '', board: '', poId: '', po: null, alias: {}, seq: 0, manual: {} };
+    return { board: '', manualBoard: false, threads: [], timeline: [] };
 }
 
 function plain(value) {
@@ -96,7 +102,9 @@ function cleanPo(value) {
     return null;
 }
 
-export function normalizeForum(value) {
+const wholeFrom = (value) => Math.max(0, Math.round(Number(value) || 0));
+
+export function cleanThread(value) {
     const src = plain(value);
     const alias = {};
     for (const [key, name] of Object.entries(plain(src.alias))) {
@@ -105,15 +113,48 @@ export function normalizeForum(value) {
         if (k && n) alias[k] = n;
     }
     const manual = plain(src.manual);
+    const titles = (Array.isArray(src.titles) ? src.titles : [])
+        .map((t) => ({ from: wholeFrom(plain(t).from), title: String(plain(t).title || '').trim().slice(0, 80), ...(plain(t).fb === true ? { fb: true } : {}) }))
+        .filter((t) => t.title)
+        .sort((x, y) => x.from - y.from);
     return {
-        title: String(src.title || '').trim().slice(0, 80),
-        board: String(src.board || '').trim().slice(0, 24),
-        poId: String(src.poId || '').slice(0, 8),
+        id: String(src.id || ''),
         po: cleanPo(src.po),
+        poId: String(src.poId || '').slice(0, 8),
+        titles,
         alias,
         seq: Math.max(0, Math.round(Number(src.seq) || 0)),
-        manual: { title: manual.title === true, board: manual.board === true, po: manual.po === true, alias: { ...plain(manual.alias) }, asked: { ...plain(manual.asked) } },
+        manual: { title: manual.title === true, alias: { ...plain(manual.alias) }, asked: { ...plain(manual.asked) } },
     };
+}
+
+export function normalizeForum(value) {
+    const src = plain(value);
+    const threads = [];
+    for (const raw of Array.isArray(src.threads) ? src.threads : []) {
+        const t = cleanThread(raw);
+        if (/^t\d+$/.test(t.id) && !threads.some((x) => x.id === t.id) && threads.length < MAX_THREADS) threads.push(t);
+    }
+    const byFrom = new Map();
+    for (const entry of Array.isArray(src.timeline) ? src.timeline : []) {
+        const e = plain(entry);
+        if (threads.some((t) => t.id === e.thread)) byFrom.set(wholeFrom(e.from), { from: wholeFrom(e.from), thread: e.thread });
+    }
+    return {
+        board: String(src.board || '').trim().slice(0, 24),
+        manualBoard: src.manualBoard === true,
+        threads,
+        timeline: [...byFrom.values()].sort((a, b) => a.from - b.from),
+    };
+}
+
+export function forumThreadById(data, id) {
+    return (data && Array.isArray(data.threads) ? data.threads : []).find((t) => t.id === id) || null;
+}
+
+// 写回一个改过的帖子，其余原样。
+export function replaceForumThread(data, thread) {
+    return { ...data, threads: data.threads.map((t) => (t.id === thread.id ? thread : t)) };
 }
 
 // [igs-forum:标题|楼主=…|角色名=代号|…] 的字段：楼主=角色名 / 楼主=路人:身份 / 楼主={{user}}。
@@ -162,49 +203,121 @@ export function forumTagsOf(source) {
     return found;
 }
 
-// 把解析出的标签并进登记。known(name) 返回已建档的主名（认不出返回空串）；认不出的角色项丢弃并计入 dropped。
-// poster 锁定（char / witness / user）时忽略 AI 写的楼主；manual 标过的字段不覆盖。
-export function mergeForumTag(data, tag, { known = (n) => n, posterLock = 'auto', override = true, userNames = [] } = {}) {
-    const next = normalizeForum(data);
-    const dropped = [];
-    const manual = next.manual;
-    const keyOfName = (name) => {
+// 设置里「双楼主」的两个人都填了才生效；每项写法同标签（角色名 / {{user}} / 路人:身份）。返回 [po, po] 或 null。
+export function forumPairOf(settings, keyOfName = (n) => n) {
+    const st = normalizeForumReaderSettings(settings);
+    if (st.poster !== 'pair') return null;
+    const list = st.posterPair.map((text) => {
+        const po = text ? parseForumTag(`楼主=${text}`).po : null;
+        return po ? resolveTagPo(po, keyOfName, true) : null;
+    });
+    return list[0] && list[1] ? list : null;
+}
+
+export function forumKeyResolver(known, userNames = []) {
+    return (name) => {
         if (/^\{\{\s*user\s*\}\}$/i.test(name) || userNames.includes(name)) return FORUM_USER_KEY;
         return known(name) || '';
     };
-    if (tag.title && !manual.title && (override || !next.title)) next.title = tag.title.slice(0, 80);
-    if (tag.po && posterLock === 'auto' && !manual.po && (override || !next.po)) {
-        if (tag.po.kind === 'char') {
-            const key = keyOfName(tag.po.name);
-            if (key === FORUM_USER_KEY) next.po = { kind: 'user' };
-            else if (key) next.po = { kind: 'char', key };
-            else dropped.push(tag.po.name);
-        } else next.po = cleanPo(tag.po);
-    }
-    for (const [name, code] of tag.alias) {
-        const key = keyOfName(name);
-        if (!key) { dropped.push(name); continue; }
-        if (manual.alias[key] || (!override && next.alias[key])) continue;
-        next.alias[key] = code.slice(0, 24);
-    }
-    return { data: next, dropped };
 }
 
-// 楼主：设置锁定 > 登记 > 兜底（本卡主角，再到第一个非 User 说话人）。
-export function resolvePoster({ data, settings, defaultChar = '', firstSpeaker = '' }) {
+function resolveTagPo(po, keyOfName, keepRaw = false) {
+    if (!po) return null;
+    if (po.kind !== 'char') return cleanPo(po);
+    const key = keyOfName(po.name);
+    if (key === FORUM_USER_KEY) return { kind: 'user' };
+    if (key) return { kind: 'char', key };
+    return keepRaw && po.name ? { kind: 'char', key: po.name } : null;
+}
+
+// 一楼自己的标签写进登记，写在本楼 messageId 上，与渲染顺序无关：先清掉本楼旧条目（swipe / 重写后重算，幂等），再按本楼标签重新登记。
+// opts：chatId、known、userNames、posterLock、pair（[po,po] 或 null）、fallbackPo、firstFloor、fallbackTitle。返回 { data, dropped, threadId }。
+export function applyFloorTags(data, messageId, tags, opts = {}) {
+    const { known = (n) => n, userNames = [], posterLock = 'auto', pair = null, fallbackPo = null, firstFloor = messageId, fallbackTitle = '', chatId = '' } = opts;
+    const id = wholeFrom(messageId);
+    const next = normalizeForum(data);
+    const dropped = [];
+    const keyOfName = forumKeyResolver(known, userNames);
+    next.timeline = next.timeline.filter((e) => e.from !== id);
+    for (const t of next.threads) t.titles = t.titles.filter((e) => e.from !== id);
+    next.threads = next.threads.filter((t) => next.timeline.some((e) => e.thread === t.id) || t.titles.length || t.manual.title || Object.keys(t.alias).length);
+
+    let po = null;
+    if (posterLock === 'auto' || pair) {
+        for (const tag of tags) {
+            const r = tag.po ? resolveTagPo(tag.po, keyOfName) : null;
+            if (r) po = r;
+            else if (tag.po && tag.po.kind === 'char') dropped.push(tag.po.name);
+        }
+        if (po && pair && !pair.some((p) => samePo(p, po))) { dropped.push(describePo(po)); po = null; }
+    }
+    const create = (who) => {
+        let n = 1;
+        while (next.threads.some((t) => t.id === `t${n}`)) n += 1;
+        const t = cleanThread({ id: `t${n}`, po: who || { kind: 'witness', note: '' } });
+        t.poId = forumPoId(chatId, t.id);
+        next.threads.push(t);
+        return t;
+    };
+    const cur = threadAt(next, id);
+    let thread = cur;
+    if (po && !(cur && samePo(cur.po, po))) {
+        thread = next.threads.find((t) => samePo(t.po, po)) || create(po);
+        next.timeline.push({ from: id, thread: thread.id });
+    } else if (!thread) {
+        thread = create(fallbackPo);
+        next.timeline.push({ from: Math.min(wholeFrom(firstFloor), id), thread: thread.id });
+    }
+    if (!thread.poId) thread.poId = forumPoId(chatId, thread.id);
+
+    let tagTitle = '';
+    for (const tag of tags) if (tag.title) tagTitle = tag.title.slice(0, 80);
+    if (tagTitle && !thread.manual.title && tagTitle !== titleAt(thread, id)) {
+        if (thread.titles.length && thread.titles.every((e) => e.fb)) thread.titles = [{ from: thread.titles[0].from, title: tagTitle }];
+        else thread.titles.push({ from: id, title: tagTitle });
+    } else if (!thread.titles.length && fallbackTitle) {
+        const first = next.timeline.filter((e) => e.thread === thread.id).map((e) => e.from);
+        thread.titles.push({ from: first.length ? Math.min(...first) : id, title: fallbackTitle.slice(0, 80), fb: true });
+    }
+    for (const tag of tags) {
+        for (const [name, code] of tag.alias) {
+            const key = keyOfName(name);
+            if (!key) { dropped.push(name); continue; }
+            if (thread.manual.alias[key]) continue;
+            thread.alias[key] = code.slice(0, 24);
+        }
+    }
+    for (const t of next.threads) t.titles.sort((a, b) => a.from - b.from);
+    next.timeline.sort((a, b) => a.from - b.from);
+    return { data: next, dropped, threadId: thread.id };
+}
+
+// 第 N 楼的帖子标记：start = 要出完整帖子头（第一个楼或换帖子的楼）；retitle = 本楼改了标题（非帖子第一条，且不同时是帖子头）。
+export function floorMarks(data, messageId) {
+    const id = wholeFrom(messageId);
+    const thread = threadAt(data, id);
+    const timeline = (data && data.timeline) || [];
+    const start = !timeline.length || id <= timeline[0].from || timeline.some((e) => e.from === id);
+    const index = thread ? thread.titles.findIndex((e) => e.from === id && !e.fb) : -1;
+    return { thread, start, retitle: !start && index > 0 ? thread.titles[index].title : '' };
+}
+
+// 楼主：设置锁定 > 本帖登记 > 兜底（双楼主取第一个人，再到本卡主角，再到第一个非 User 说话人）。
+export function resolvePoster({ thread, settings, defaultChar = '', firstSpeaker = '', pair = null }) {
     const st = normalizeForumReaderSettings(settings);
-    const stored = normalizeForum(data).po;
+    const stored = thread && thread.po;
     const fallbackChar = defaultChar || firstSpeaker || '';
     if (st.poster === 'user') return { kind: 'user' };
     if (st.poster === 'witness') return { kind: 'witness', note: stored && stored.kind === 'witness' ? stored.note : '' };
     if (st.poster === 'char') return stored && stored.kind === 'char' ? stored : (fallbackChar ? { kind: 'char', key: fallbackChar } : { kind: 'witness', note: '' });
     if (stored) return stored;
+    if (pair) return pair[0];
     return fallbackChar ? { kind: 'char', key: fallbackChar } : { kind: 'witness', note: '' };
 }
 
-// 角色（含 User）第一次出现且没有代号：按出场顺序给 A / B / C…，并记下序号。楼主本人不需要。
-export function ensureAliases(data, keys, posterKey = '') {
-    const next = normalizeForum(data);
+// 角色（含 User）第一次出现且没有代号：按出场顺序给 A / B / C…，并记下序号。楼主本人不需要。操作单个帖子。
+export function ensureAliases(thread, keys, posterKey = '') {
+    const next = cleanThread(thread);
     let changed = false;
     for (const key of keys) {
         if (!key || key === posterKey || next.alias[key]) continue;
@@ -212,16 +325,14 @@ export function ensureAliases(data, keys, posterKey = '') {
         next.seq += 1;
         changed = true;
     }
-    return { data: next, changed };
+    return { thread: next, changed };
 }
 
 export function forumBoardOf(data, worldview = '') {
     return normalizeForum(data).board || FORUM_BOARDS[worldview] || FORUM_BOARD_DEFAULT;
 }
 
-export function forumTitleOf(data, poster, sceneName = '') {
-    const title = normalizeForum(data).title;
-    if (title) return title;
+export function forumFallbackTitle(poster, sceneName = '') {
     const lead = poster && poster.kind === 'witness' ? '【围观】' : '【连载】';
     return `${lead}${sceneName || '今天发生的事'}`;
 }
@@ -288,7 +399,7 @@ function pick(list, seed) {
 // 楼层计划：把行分成若干 PO 主楼（超过 perPost 行或换场景另起一楼），每楼之后排 0–2 条点缀回帖。
 // 返回 posts[]：{ start, end, k, no, id, time, replies:[{ k, no, id, time, text, quote, ref }] }。纯函数，同输入同输出。
 export function forumPlan(rows, ctx) {
-    const { chatId = '', messageId = 0, settings, poId = '', sceneTime = '', sendDate = '', aiReplies = [] } = ctx;
+    const { chatId = '', messageId = 0, settings, poId = '', threadId = '', sceneTime = '', sendDate = '', aiReplies = [] } = ctx;
     const st = normalizeForumReaderSettings(settings);
     const seedBase = `${chatId}:${messageId}`;
     const shown = rows.map((row, i) => ({ row, i })).filter(({ row }) => !row.hidden);
@@ -326,7 +437,7 @@ export function forumPlan(rows, ctx) {
                 const no = forumNo(chatId, messageId, k);
                 const target = item.to > 0 && item.to <= writtenNos.length ? writtenNos[item.to - 1] : 0;
                 writtenNos.push(no);
-                out.replies.push({ k, no, id: po ? poId : forumPasserId(chatId, passerSlots.get(item.who) || 0), po, time: clock(k), text: item.text, quote: '', ref: target });
+                out.replies.push({ k, no, id: po ? poId : forumPasserId(chatId, passerSlots.get(item.who) || 0, threadId), po, time: clock(k), text: item.text, quote: '', ref: target });
                 k += 1;
             }
             return out;
@@ -340,7 +451,7 @@ export function forumPlan(rows, ctx) {
             const roll = feedStableCount(`${seedBase}:q${n}:${r}`, 0, 2);
             const quote = roll === 0 && tail ? lastSentence(tail) : '';
             const ref = roll === 1 ? out.no : 0;
-            out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`)), time: clock(k), text: line, quote, ref });
+            out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: line, quote, ref });
             k += 1;
         }
         return out;

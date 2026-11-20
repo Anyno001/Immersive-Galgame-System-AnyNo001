@@ -1,6 +1,7 @@
 import { LOG_SPEEDS } from './log-reader-settings.js';
 import { FLOW_FADE_MS, FLOW_STEP_MS, PAUSE_CHARS, TYPE_PAUSE_MS, TYPE_STEP_MS, splitChars } from './log-reader-layer.js';
 import { VOICE_ICON } from './voice-icon.js';
+import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
@@ -164,6 +165,11 @@ function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
         head.append(title);
         list.append(head);
         fades.push(head);
+    } else if (postIndex === 0 && view.retitle) {
+        const note = el(doc, 'div', 'igs-fm-retitle' + (live ? '' : ' is-in'));
+        note.textContent = `PO主修改了标题：${view.retitle}`;
+        list.append(note);
+        fades.push(note);
     }
     const post = plan[postIndex];
     node = el(doc, 'div', 'igs-fm-post' + (live ? '' : ' is-in'));
@@ -264,15 +270,21 @@ function reveal(overlay, built, view) {
         line.innerHTML = html;
         if (play) line.append(play);
     };
-    // 打字机 / 流水展开：逐字出现；整句淡入沿用原做法；直接显示不拆字。
+    // 文字先同步写进去，随后的滚到底才量得到这一句的高度；否则滚到空行处，文字补上后落在屏幕外。
+    if (line) setHtml();
+    // 直接显示：整句、新楼、回帖当场出现，不走淡入过渡。
+    if (mode === 'off') {
+        for (const n of built.fades) { n.style.transition = 'none'; n.classList.add('is-in'); }
+        return Promise.resolve();
+    }
+    // 打字机 / 流水展开：逐字出现；整句淡入：整行淡入。
     let total = FADE_MS * k;
     if (line && (mode === 'type' || mode === 'flow')) {
-        setHtml();
         total = mode === 'type'
             ? splitChars(doc, line, (ch) => (PAUSE_CHARS.test(ch) ? TYPE_PAUSE_MS : TYPE_STEP_MS) * k, 'igs-fm-fl')
             : splitChars(doc, line, () => FLOW_STEP_MS * k, 'igs-fm-fl') + FLOW_FADE_MS;
         if (mode === 'type') for (const span of line.querySelectorAll('.igs-fm-fl')) span.style.animationDuration = '1ms';
-    } else if (mode === 'off') total = 0;
+    }
     return new Promise((resolve) => {
         let done = false;
         let timer = null;
@@ -281,7 +293,7 @@ function reveal(overlay, built, view) {
             done = true;
             if (s.reveal === job) s.reveal = null;
             win.clearTimeout(timer);
-            if (line) { setHtml(); line.classList.add('is-in'); }
+            if (line) { line.classList.remove('igs-fm-fade'); setHtml(); }
             fade();
             resolve();
         };
@@ -290,8 +302,8 @@ function reveal(overlay, built, view) {
         if (mode === 'type' || mode === 'flow') {
             fade();
         } else if (mode === 'fade') {
-            if (line) line.classList.remove('is-in');
-            win.requestAnimationFrame(() => { if (!done) { fade(); if (line) { setHtml(); line.classList.add('is-in'); } } });
+            if (line) line.classList.add('igs-fm-fade');
+            win.requestAnimationFrame(() => { if (!done) fade(); });
         }
         timer = win.setTimeout(finish, total);
     });
@@ -334,6 +346,8 @@ function applyAttrs(overlay, root, view) {
     overlay.removeAttribute('data-igs-log-skin');
     if (view.hidden) set('data-hidden', ''); else root.removeAttribute('data-hidden');
     root.style.setProperty('--igs-fm-fs', `${st.fontSize}px`);
+    const colors = forumPaletteColors(st.palette, st.mode, overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
+    for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
     const fonts = view.fonts || {};
     if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
     if (st.barColor) overlay.style.setProperty('--igs-fm-bar', st.barColor); else overlay.style.removeProperty('--igs-fm-bar');

@@ -572,21 +572,31 @@ export function createSettingsHost(deps) {
         }
 
         // 论坛登记（标题、板块、代号）随聊天存在 chatMetadata，不进设置草稿：虚拟 path 直接写登记。
-        const forumField = /^forum\.(title|board|alias)(?:\.(.+))?$/.exec(path);
+        const forumField = /^forum\.(title|board|alias)(?:\.(t\d+))?(?:\.(.+))?$/.exec(path);
         if (forumField && forumRegistry) {
             const registry = forumRegistry;
             const data = registry.read();
             const text = String(value == null ? '' : value).trim();
-            const manual = { ...data.manual, alias: { ...data.manual.alias } };
-            if (forumField[1] === 'alias') {
-                const key = decodeURIComponent(forumField[2] || '');
-                const alias = { ...data.alias };
-                if (text) { alias[key] = text; manual.alias[key] = true; } else { delete alias[key]; delete manual.alias[key]; }
-                registry.commit({ ...data, alias, manual });
-            } else {
-                manual[forumField[1]] = Boolean(text);
-                registry.commit({ ...data, [forumField[1]]: text, manual });
+            if (forumField[1] === 'board') {
+                registry.commit({ ...data, board: text, manualBoard: Boolean(text) });
+                return { ok: true };
             }
+            const thread = data.threads.find((t) => t.id === forumField[2]);
+            if (!thread) return { ok: true };
+            const manual = { ...thread.manual, alias: { ...thread.manual.alias } };
+            const next = { ...thread, manual };
+            if (forumField[1] === 'alias') {
+                const key = decodeURIComponent(forumField[3] || '');
+                next.alias = { ...thread.alias };
+                if (text) { next.alias[key] = text; manual.alias[key] = true; } else { delete next.alias[key]; delete manual.alias[key]; }
+            } else {
+                // 手动改的是当前生效的标题：覆盖最后一条（标记为非兜底）；留空则恢复自动。
+                manual.title = Boolean(text);
+                const titles = thread.titles.filter((t) => !text || t !== thread.titles[thread.titles.length - 1]);
+                if (text) titles.push({ from: (thread.titles[thread.titles.length - 1] || { from: 0 }).from, title: text });
+                next.titles = titles;
+            }
+            registry.commit({ ...data, threads: data.threads.map((t) => (t.id === thread.id ? next : t)) });
             return { ok: true };
         }
         // 纵向阅读、线上聊天、论坛体三种模式并列互斥：打开一个，自动关掉另外两个。

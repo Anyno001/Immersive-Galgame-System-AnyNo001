@@ -169,7 +169,7 @@ import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from 
 import { chatSettingsOf } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
-import { FORUM_USER_KEY, ensureAliases, forumBoardOf, forumPlan, forumPoId, forumRepliesOf, forumRowsOf, forumSettingsOf, forumTagsOf, forumTitleOf, mergeForumTag, normalizeForum, resolvePoster } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumPairOf, forumPlan, forumPoId, forumRepliesOf, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -3572,17 +3572,18 @@ ${row.key}`;
         log.revealing = result.revealing;
     }
 
-    // 帖子头只出在第一个 AI 楼。
-    function forumIsFirstFloor(messageId) {
+    // 第一个 AI 楼：兜底帖子从这里起算。
+    function forumFirstFloor(messageId) {
         try {
             const chat = getSillyTavernContext(options.global || globalThis)?.chat;
-            if (!Array.isArray(chat)) return true;
+            if (!Array.isArray(chat)) return Number(messageId) || 0;
             const first = chat.findIndex((m) => m && !m.is_user && !m.is_system);
-            return first < 0 || Number(messageId) <= first;
-        } catch (_) { return true; }
+            return first < 0 ? Number(messageId) || 0 : Math.min(first, Number(messageId) || 0);
+        } catch (_) { return Number(messageId) || 0; }
     }
 
-    // 论坛体：登记（标题、楼主、代号）与楼层计划都在这里按需算出，渲染只认结果。
+    // 论坛体：登记（帖子、标题、楼主、代号）与楼层计划都在这里按需算出，渲染只认结果。
+    // 每楼只处理自己的标签，写在本楼 messageId 上；显示时按 messageId 查 timeline / titles。
     function syncForumLayer(current, snapshot, { overlay, log, index, settings, html }) {
         const rs = snapshot.readerSettings || {};
         const floor = log.floor;
@@ -3594,53 +3595,68 @@ ${row.key}`;
         const known = (name) => resolveCharacterKey(assets.characters || {}, assets.characterAliases, name) || (rowKeys.has(name) ? name : '');
         const userNames = [floor.userName, '{{user}}', ctx.name1].filter(Boolean);
         const idle = current.streamPhase === 'idle';
-        const latest = Array.isArray(ctx.chat) ? ctx.chat.length - 1 === messageId : true;
         const chatId = currentChatIdText();
-        let data = forumRegistry.read();
-        if (idle) {
-            for (const tag of forumTagsOf(floor.source)) data = mergeForumTag(data, tag, { known, posterLock: settings.poster, override: latest, userNames }).data;
-        }
         const firstSpeaker = (log.rows.find((row) => row.key && row.key !== floor.userKey) || {}).key || '';
         const defaultChar = ctx.name2 ? known(ctx.name2) : '';
-        const poster = resolvePoster({ data, settings: rs.forumReader, defaultChar, firstSpeaker });
-        const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
+        const pair = forumPairOf(rs.forumReader, forumKeyResolver(known, userNames));
+        const firstScene = String((log.rows.find((row) => row.scene) || {}).scene || '').split(' · ').pop();
+        let data = forumRegistry.read();
+        const fallbackPo = resolvePoster({ thread: null, settings: rs.forumReader, defaultChar, firstSpeaker, pair });
         if (idle) {
+            data = applyFloorTags(data, messageId, forumTagsOf(floor.source), {
+                chatId, known, userNames, posterLock: settings.poster, pair, fallbackPo,
+                firstFloor: forumFirstFloor(messageId), fallbackTitle: forumFallbackTitle(fallbackPo, firstScene),
+            }).data;
+        }
+        const marks = floorMarks(data, messageId);
+        let thread = marks.thread;
+        const poster = resolvePoster({ thread, settings: rs.forumReader, defaultChar, firstSpeaker, pair });
+        const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
+        if (idle && thread) {
             const order = [...new Set(log.rows.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
-            data = ensureAliases(data, order, posterKey).data;
-            const firstScene = String((log.rows.find((row) => row.scene) || {}).scene || '').split(' · ').pop();
-            data = normalizeForum({ ...data, po: data.po || poster, poId: data.poId || forumPoId(chatId), board: data.board || forumBoardOf(data, worldview), title: data.title || forumTitleOf(data, poster, firstScene) });
+            const aliased = ensureAliases(thread, order, posterKey);
+            if (aliased.changed) { thread = aliased.thread; data = replaceForumThread(data, thread); }
+        }
+        if (idle) {
+            if (!data.board) data = { ...data, board: forumBoardOf(data, worldview) };
             if (forumRegistry.stage(data)) forumRegistry.flush();
         }
-        // 新角色首次出场：已有（自动）代号但还没问过用户的，弹小卡片让他确认或改名；问过（改名或沿用）就记下不再问。
-        const askedKeys = (data.manual && data.manual.asked) || {};
+        const threadAlias = (thread && thread.alias) || {};
+        const threadManual = (thread && thread.manual) || { alias: {}, asked: {} };
+        // 新角色首次出场：已有（自动）代号但还没问过用户的，弹小卡片让他确认或改名；问过（改名或沿用）就记下不再问。按本帖问。
+        const askedKeys = threadManual.asked || {};
         const pendingAlias = [];
         for (const row of log.rows.slice(0, log.fresh ? 0 : index + 1)) {
             const key = row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key;
-            if (!key || key === posterKey || askedKeys[key] || !data.alias[key] || pendingAlias.some((p) => p.key === key)) continue;
-            pendingAlias.push({ key, label: key === FORUM_USER_KEY ? 'User' : key, code: data.alias[key] });
+            if (!key || key === posterKey || askedKeys[key] || !threadAlias[key] || pendingAlias.some((p) => p.key === key)) continue;
+            pendingAlias.push({ key, label: key === FORUM_USER_KEY ? 'User' : key, code: threadAlias[key] });
         }
+        const threadId = thread ? thread.id : '';
         const onAlias = (key, text) => {
             const cur = forumRegistry.read();
-            const alias = { ...cur.alias };
-            const manual = { ...cur.manual, alias: { ...cur.manual.alias }, asked: { ...cur.manual.asked, [key]: true } };
+            const t = forumThreadById(cur, threadId);
+            if (!t) return;
+            const alias = { ...t.alias };
+            const manual = { ...t.manual, alias: { ...t.manual.alias }, asked: { ...t.manual.asked, [key]: true } };
             const code = String(text || '').trim();
             if (code && code !== alias[key]) { alias[key] = code; manual.alias[key] = true; }
-            forumRegistry.commit({ ...cur, alias, manual });
+            forumRegistry.commit(replaceForumThread(cur, { ...t, alias, manual }));
             if (state.activeReader === current) rerenderActiveReader();
         };
         const namesOf = (key) => (Array.isArray(assets.characterAliases && assets.characterAliases[key]) ? assets.characterAliases[key] : []);
-        const rows = forumRowsOf(log.rows, { poster, alias: data.alias, userKey: floor.userKey, userNames, namesOf, settings: rs.forumReader });
+        const rows = forumRowsOf(log.rows, { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, settings: rs.forumReader });
         const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
         const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
-        const poId = data.poId || forumPoId(chatId);
+        const poId = (thread && thread.poId) || forumPoId(chatId, threadId);
         const aiReplies = forumRepliesOf(floor.source);
-        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, aiReplies, sceneTime: firstPage.time || '', sendDate });
+        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate });
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([data.alias, data.title, data.board, poster, settings.showMood, aiReplies, settings.othersThoughts, settings.perPost, settings.replies, poId]),
+            sig: JSON.stringify([threadAlias, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.showMood, aiReplies, settings.othersThoughts, settings.perPost, settings.replies, poId]),
             rows, plan, pendingAlias, onAlias,
             board: forumBoardOf(data, worldview),
-            head: forumIsFirstFloor(messageId) ? { title: forumTitleOf(data, poster, '') } : null,
+            head: marks.start ? { title: titleAt(thread, messageId), poId, board: forumBoardOf(data, worldview) } : null,
+            retitle: marks.retitle,
             upto: log.fresh ? -1 : index,
             live: log.live == null ? -1 : log.live,
             settings,
