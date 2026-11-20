@@ -180,7 +180,7 @@ function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
 function replyNode(doc, reply, view, live) {
     const node = el(doc, 'div', 'igs-fm-reply' + (live ? '' : ' is-in'));
     const meta = el(doc, 'div', 'igs-fm-meta');
-    meta.innerHTML = headHtml({ id: reply.id, no: reply.no, time: reply.time, po: false });
+    meta.innerHTML = headHtml({ id: reply.id, no: reply.no, time: reply.time, po: reply.po === true });
     const body = el(doc, 'div', 'igs-fm-body');
     let html = '';
     if (reply.quote) html += `<div class="igs-fm-gt">&gt;${esc(reply.quote)}</div>`;

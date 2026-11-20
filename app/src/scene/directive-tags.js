@@ -82,8 +82,8 @@ const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
 // 数值标签 [igs-stat:…] 只给脚本结算用，任何出口都不显示；容错写法与 scene/stats/stat-directives.js 一致（全角括号、全角冒号、字段可换行）。
 const STAT_INLINE_RE = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]/gi;
 // 论坛体登记标签 [igs-forum:…] 只给论坛模式登记用，任何出口都不显示。
-const FORUM_INLINE_RE = /[\[【［]\s*igs\s*-?\s*forum\s*[:：][^\]】］\n]*(?:[\]】］]|$)/gim;
-const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:|forum:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
+const FORUM_INLINE_RE = /[\[【［]\s*igs\s*-?\s*(?:forum|reply)\s*[:：][^\]】］\n]*(?:[\]】］]|$)/gim;
+const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:|forum:|reply:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));

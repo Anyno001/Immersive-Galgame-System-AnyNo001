@@ -169,7 +169,7 @@ import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from 
 import { chatSettingsOf } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
-import { FORUM_USER_KEY, ensureAliases, forumBoardOf, forumPlan, forumPoId, forumRowsOf, forumSettingsOf, forumTagsOf, forumTitleOf, mergeForumTag, normalizeForum, resolvePoster } from './forum-reader-model.js';
+import { FORUM_USER_KEY, ensureAliases, forumBoardOf, forumPlan, forumPoId, forumRepliesOf, forumRowsOf, forumSettingsOf, forumTagsOf, forumTitleOf, mergeForumTag, normalizeForum, resolvePoster } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -3633,10 +3633,11 @@ ${row.key}`;
         const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
         const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
         const poId = data.poId || forumPoId(chatId);
-        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, sceneTime: firstPage.time || '', sendDate });
+        const aiReplies = forumRepliesOf(floor.source);
+        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, aiReplies, sceneTime: firstPage.time || '', sendDate });
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([data.alias, data.title, data.board, poster, settings.showMood, settings.othersThoughts, settings.perPost, settings.replies, poId]),
+            sig: JSON.stringify([data.alias, data.title, data.board, poster, settings.showMood, aiReplies, settings.othersThoughts, settings.perPost, settings.replies, poId]),
             rows, plan, pendingAlias, onAlias,
             board: forumBoardOf(data, worldview),
             head: forumIsFirstFloor(messageId) ? { title: forumTitleOf(data, poster, '') } : null,

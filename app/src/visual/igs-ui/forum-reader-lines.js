@@ -56,9 +56,12 @@ export function forumRegistered(data) {
     return Boolean(data && data.title && data.po);
 }
 
+const REPLY_NOTE = '再在末尾另起几行写回帖，每行一条 [igs-reply:发言人|>回第几条|内容]：发言人写「楼主」或一个路人代称（同一代称视为同一个网友），「>回第几条」按回帖出现顺序编号、可省，内容是匿名网友口吻的一句话（不超过 40 字，吐槽、追问或接话）。让路人追问、楼主简短回应、路人之间互相接话，写 2–5 条，例：[igs-reply:路人甲|真的假的] [igs-reply:楼主|>1|真的，我亲眼看见的] [igs-reply:路人乙|>2|前排吃瓜]';
+const replyLine = (settings) => (settings.replies === 'off' ? '' : REPLY_NOTE);
+
 // 登记齐了：只留事实与改写入口，不再重复整段格式。
 export function forumShortPromptText(settings, data) {
-    return `【论坛体】正文以匿名论坛帖展示。已登记：${forumFactsText(data)}。仅需改动时在正文末尾写一行 ${settings.poster !== 'auto' ? TAG_FORMAT_SHORT_LOCKED : TAG_FORMAT_SHORT}，不写则沿用。`;
+    return `【论坛体】正文以匿名论坛帖展示。已登记：${forumFactsText(data)}。仅需改动时在正文末尾写一行 ${settings.poster !== 'auto' ? TAG_FORMAT_SHORT_LOCKED : TAG_FORMAT_SHORT}，不写则沿用。${replyLine(settings) ? `每段正文${replyLine(settings)}。` : ''}`;
 }
 
 export function forumPromptText(settings, data) {
@@ -68,5 +71,6 @@ export function forumPromptText(settings, data) {
         '【论坛体】本段正文会以匿名论坛帖的形式展示。仅在以下信息尚未确定或剧情需要改变时，在正文末尾写一行（不写则沿用已有）：',
         locked ? TAG_FORMAT_LOCKED : TAG_FORMAT,
         `${posterLine(settings.poster, data)}；标题用楼主口吻；${CODE_NOTE}。${facts ? `已登记：${facts}。` : ''}`,
-    ].join('\n');
+        replyLine(settings) ? `每段正文${replyLine(settings)}。` : '',
+    ].filter(Boolean).join('\n');
 }

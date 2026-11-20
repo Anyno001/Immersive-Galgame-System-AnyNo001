@@ -136,6 +136,26 @@ export function parseForumTag(body) {
     return out;
 }
 
+// AI 写的回帖 [igs-reply:谁|>N|内容]：谁 = 楼主 或 路人代称（同名即同一个 ID）；>N 可省，表示回第 N 条回帖；只写内容则当作一个新路人。
+// 返回 [{ who, to, text }]，who 为空串表示匿名新路人（已按序号编成不重复的名字）。
+export function forumRepliesOf(source) {
+    const out = [];
+    let anon = 0;
+    for (const m of String(source || '').matchAll(/[\[【［]\s*igs\s*-?\s*reply\s*[:：]([^\]】］\n]*)[\]】］]/gi)) {
+        const fields = m[1].split('|').map((f) => f.trim());
+        let who = '';
+        let to = 0;
+        if (fields.length > 1) who = fields.shift();
+        if (fields.length > 1 && /^[>＞]\s*\d+$/.test(fields[0])) to = Number(fields.shift().replace(/\D/g, ''));
+        const text = Array.from(fields.join('|').trim()).slice(0, 60).join('');
+        if (!text) continue;
+        if (/^(楼主|po主?|lz)$/i.test(who)) who = '楼主';
+        else if (!who) who = `#${anon++}`;
+        out.push({ who, to, text });
+    }
+    return out;
+}
+
 export function forumTagsOf(source) {
     const found = [];
     for (const m of String(source || '').matchAll(/\[igs-forum[:：]([^\]\n]*)\]/gi)) found.push(parseForumTag(m[1]));
@@ -268,7 +288,7 @@ function pick(list, seed) {
 // 楼层计划：把行分成若干 PO 主楼（超过 perPost 行或换场景另起一楼），每楼之后排 0–2 条点缀回帖。
 // 返回 posts[]：{ start, end, k, no, id, time, replies:[{ k, no, id, time, text, quote, ref }] }。纯函数，同输入同输出。
 export function forumPlan(rows, ctx) {
-    const { chatId = '', messageId = 0, settings, poId = '', sceneTime = '', sendDate = '' } = ctx;
+    const { chatId = '', messageId = 0, settings, poId = '', sceneTime = '', sendDate = '', aiReplies = [] } = ctx;
     const st = normalizeForumReaderSettings(settings);
     const seedBase = `${chatId}:${messageId}`;
     const shown = rows.map((row, i) => ({ row, i })).filter(({ row }) => !row.hidden);
@@ -287,12 +307,30 @@ export function forumPlan(rows, ctx) {
     let k = 0;
     const perGap = { off: [0, 0], few: [0, 1], normal: [0, 2] }[st.replies];
     const clock = (n) => forumClock({ sceneTime, sendDate, seed: seedBase, k: n });
+    // AI 写了回帖就用 AI 的（均摊到各楼之后，最多 FLOOR_SLOTS 条）；没写才用内置短句。
+    const written = st.replies === 'off' ? [] : aiReplies.slice(0, Math.max(0, FLOOR_SLOTS - posts.length));
+    const writtenAt = posts.map(() => []);
+    const passerSlots = new Map();
+    const writtenNos = [];
+    written.forEach((text, i) => writtenAt[Math.max(0, Math.floor(((i + 1) * posts.length) / written.length) - 1)].push(text));
     return posts.map((post, n) => {
         const own = k;
         k += 1;
         const text = rows.slice(post.start, post.end + 1).filter((r) => !r.hidden).map((r) => r.text).filter(Boolean);
         const tail = text.length ? text[text.length - 1] : '';
         const out = { start: post.start, end: post.end, k: own, no: forumNo(chatId, messageId, own), id: poId, time: clock(own), replies: [] };
+        if (written.length) {
+            for (const item of writtenAt[n]) {
+                const po = item.who === '楼主';
+                if (!po && !passerSlots.has(item.who)) passerSlots.set(item.who, passerSlots.size);
+                const no = forumNo(chatId, messageId, k);
+                const target = item.to > 0 && item.to <= writtenNos.length ? writtenNos[item.to - 1] : 0;
+                writtenNos.push(no);
+                out.replies.push({ k, no, id: po ? poId : forumPasserId(chatId, passerSlots.get(item.who) || 0), po, time: clock(k), text: item.text, quote: '', ref: target });
+                k += 1;
+            }
+            return out;
+        }
         const count = perGap[1] === 0 ? 0 : feedStableCount(`${seedBase}:r${n}`, perGap[0], perGap[1]);
         for (let r = 0; r < count && k < FLOOR_SLOTS; r++) {
             const category = ELLIPSIS_TAIL.test(tail) ? 'ellipsis' : post.moods ? 'mood' : post.scene && n > 0 ? 'scene' : post.count >= st.perPost ? 'long' : 'base';
