@@ -395,3 +395,11 @@ test('情绪标签：关 / 全部 / 随机；同一人同一情绪连说只在�
     assert.equal(normalizeForumReaderSettings({ showMood: true }).mood, 'all');
     assert.equal(normalizeForumReaderSettings({}).mood, 'off');
 });
+
+test('台词引号：默认关，可选中文引号或直角引号，非法值回落关', () => {
+    assert.equal(normalizeForumReaderSettings({}).quote, 'off');
+    assert.equal(normalizeForumReaderSettings({ quote: 'cn' }).quote, 'cn');
+    assert.equal(normalizeForumReaderSettings({ quote: 'jp' }).quote, 'jp');
+    assert.equal(normalizeForumReaderSettings({ quote: 'x' }).quote, 'off');
+    assert.ok(/is-say[^}]*border-left/.test(FORUM_READER_STYLE_TEXT));
+});

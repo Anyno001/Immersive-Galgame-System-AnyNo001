@@ -2,6 +2,7 @@ import { LOG_SPEEDS } from './log-reader-settings.js';
 import { FLOW_FADE_MS, FLOW_STEP_MS, PAUSE_CHARS, TYPE_PAUSE_MS, TYPE_STEP_MS, splitChars } from './log-reader-layer.js';
 import { VOICE_ICON } from './voice-icon.js';
 import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
+import { FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
@@ -277,7 +278,10 @@ function buildRow(overlay, list, i, view, live) {
     const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}${row.kind === 'dialogue' ? ' is-say' : ''}${row.kind === 'dialogue' && row.cont ? ' is-cont' : ''}`);
     line.dataset.index = String(row.index);
     let inner = html;
-    if (row.kind === 'dialogue') inner = `<span class="igs-fm-who">${esc(row.who)}${row.moodTag ? `<span class="igs-fm-mood">（${esc(row.moodTag)}）</span>` : ''}：</span>${html}`;
+    if (row.kind === 'dialogue') {
+        const [open, close] = FORUM_QUOTE_MARKS[view.settings.quote] || ['', ''];
+        inner = `<span class="igs-fm-who">${esc(row.who)}${row.moodTag ? `<span class="igs-fm-mood">（${esc(row.moodTag)}）</span>` : ''}：</span>${open}${html}${close}`;
+    }
     else if (row.kind === 'thought') inner = `<span class="igs-fm-who">${esc(row.who)}</span>（${html}）`;
     else if (row.label) inner = `<span class="igs-fm-who">${esc(row.label)}：</span>${html}`;
     line.dataset.html = inner;

@@ -7,6 +7,8 @@ export const FORUM_POSTERS = Object.freeze(['auto', 'char', 'witness', 'user', '
 export const FORUM_THOUGHTS = Object.freeze(['show', 'hide']);
 export const FORUM_REPLIES = Object.freeze(['off', 'few', 'normal']);
 export const FORUM_MOODS = Object.freeze(['off', 'all', 'random']);
+// 台词引号由插件补：原文包住整句的引号在取行时已剥掉，这里按设置统一加回。
+export const FORUM_QUOTE_MARKS = Object.freeze({ off: ['', ''], cn: ['“', '”'], jp: ['「', '」'] });
 export const FORUM_PER_POST_MIN = 3;
 export const FORUM_PER_POST_MAX = 16;
 export const FORUM_FONT_MIN = 13;
@@ -41,6 +43,7 @@ export function normalizeForumReaderSettings(value) {
         scrubber: src.scrubber === true,
         // 情绪标签：off 关 / all 每组都标 / random 随机标一部分。旧版勾选项 showMood 迁移为 all。
         mood: FORUM_MOODS.includes(src.mood) ? src.mood : src.showMood === true ? 'all' : 'off',
+        quote: Object.hasOwn(FORUM_QUOTE_MARKS, src.quote) ? src.quote : 'off',
         foldNsfw: src.foldNsfw !== false,
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',
