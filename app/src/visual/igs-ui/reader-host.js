@@ -169,7 +169,7 @@ import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from 
 import { chatSettingsOf } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -3638,8 +3638,14 @@ ${row.key}`;
         let thread = marks.thread;
         const poster = resolvePoster({ thread, settings: rs.forumReader, defaultChar, firstSpeaker, pair });
         const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
+        const nameMap = forumNameMap(thread);
+        const forumRowsIn = nameMap.size ? log.rows.map((row) => (nameMap.has(row.key) ? { ...row, key: nameMap.get(row.key) } : row)) : log.rows;
         if (idle && thread) {
-            const order = [...new Set(log.rows.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
+            const order = [...new Set(forumRowsIn.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
+            const bodyText = forumRowsIn.map((row) => String(row.text || '')).join(' ');
+            for (const key of Object.keys(assets.characters || {})) {
+                if (key && !order.includes(key) && [key, ...(assets.characterAliases && Array.isArray(assets.characterAliases[key]) ? assets.characterAliases[key] : [])].some((n) => n && bodyText.includes(n))) order.push(key);
+            }
             const aliased = ensureAliases(thread, order, posterKey);
             if (aliased.changed) { thread = aliased.thread; data = replaceForumThread(data, thread); }
         }
@@ -3652,7 +3658,7 @@ ${row.key}`;
         // 新角色首次出场：已有（自动）代号但还没问过用户的，弹小卡片让他确认或改名；问过（改名或沿用）就记下不再问。按本帖问。
         const askedKeys = threadManual.asked || {};
         const pendingAlias = [];
-        for (const row of log.rows.slice(0, log.fresh ? 0 : index + 1)) {
+        for (const row of forumRowsIn.slice(0, log.fresh ? 0 : index + 1)) {
             const key = row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key;
             if (!key || key === posterKey || askedKeys[key] || !threadAlias[key] || pendingAlias.some((p) => p.key === key)) continue;
             pendingAlias.push({ key, label: key === FORUM_USER_KEY ? 'User' : key, code: threadAlias[key] });
@@ -3670,7 +3676,7 @@ ${row.key}`;
             if (state.activeReader === current) rerenderActiveReader();
         };
         const namesOf = (key) => (Array.isArray(assets.characterAliases && assets.characterAliases[key]) ? assets.characterAliases[key] : []);
-        const rows = forumRowsOf(log.rows, { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, settings: rs.forumReader });
+        const rows = forumRowsOf(forumRowsIn, { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, extraNames: (thread && thread.names) || {}, settings: rs.forumReader });
         const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
         const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
         const poId = (thread && thread.poId) || forumPoId(chatId, threadId);
@@ -3680,7 +3686,7 @@ ${row.key}`;
         const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([threadAlias, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            sig: JSON.stringify([threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
             rows, plan, pendingAlias, onAlias, images,
             board: forumBoardOf(data, worldview),
             head: marks.start ? { title: titleAt(thread, messageId), poId, board: forumBoardOf(data, worldview) } : null,

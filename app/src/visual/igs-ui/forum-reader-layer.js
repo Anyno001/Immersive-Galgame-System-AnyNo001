@@ -480,7 +480,14 @@ export function syncForumReader(overlay, view) {
         if (live && built.post) revealing = reveal(overlay, built, view);
         s.rendered = i + 1;
     }
-    if (s.rendered !== before) scrollEnd(root, Boolean(revealing));
+    if (s.rendered !== before) {
+        const fullText = before === 0 && Number(view.settings && view.settings.perTap) >= 1e6;
+        const scroll = fullText ? root.querySelector('.igs-fm-scroll') : null;
+        if (scroll) {
+            scroll.dataset.autoUntil = String(Date.now() + 50);
+            scroll.scrollTop = 0;
+        } else scrollEnd(root, Boolean(revealing));
+    }
     return { revealing };
 }
 

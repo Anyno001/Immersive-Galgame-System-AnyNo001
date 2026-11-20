@@ -114,6 +114,12 @@ export function cleanThread(value) {
         const n = String(name || '').trim().slice(0, 24);
         if (k && n) alias[k] = n;
     }
+    const names = {};
+    for (const [key, list] of Object.entries(plain(src.names))) {
+        const k = String(key || '').trim().slice(0, 80);
+        const items = [...new Set((Array.isArray(list) ? list : []).map((n) => String(n || '').trim().slice(0, 24)).filter(Boolean))].slice(0, 8);
+        if (k && items.length) names[k] = items;
+    }
     const manual = plain(src.manual);
     const titles = (Array.isArray(src.titles) ? src.titles : [])
         .map((t) => ({ from: wholeFrom(plain(t).from), title: String(plain(t).title || '').trim().slice(0, 80), ...(plain(t).fb === true ? { fb: true } : {}) }))
@@ -125,6 +131,7 @@ export function cleanThread(value) {
         poId: String(src.poId || '').slice(0, 8),
         titles,
         alias,
+        names,
         seq: Math.max(0, Math.round(Number(src.seq) || 0)),
         manual: { title: manual.title === true, alias: { ...plain(manual.alias) }, asked: { ...plain(manual.asked) } },
     };
@@ -312,9 +319,10 @@ export function applyFloorTags(data, messageId, tags, opts = {}) {
     for (const tag of tags) {
         for (const [name, code] of tag.alias) {
             const key = keyOfName(name);
-            if (!key) { dropped.push(name); continue; }
-            if (thread.manual.alias[key]) continue;
-            thread.alias[key] = code.slice(0, 24);
+            if (!key && /^\{\{\s*user\s*\}\}$/i.test(name)) { dropped.push(name); continue; }
+            const aliasKey = key || name;
+            if (thread.manual.alias[aliasKey]) continue;
+            thread.alias[aliasKey] = code.slice(0, 24);
         }
     }
     for (const t of next.threads) t.titles.sort((a, b) => a.from - b.from);
@@ -394,8 +402,15 @@ function moodTagOf(rows, i, mode) {
 
 // 渲染用的行：楼主是角色 / User 时他的台词显示「我」；其余人用代号；心里话按设置处理。
 // ctx：poster、alias（主名→代号）、userKey、userNames（User 的显示名）、namesOf(主名)→别名数组、settings。
+export function forumNameMap(thread) {
+    const map = new Map();
+    for (const [key, list] of Object.entries((thread && thread.names) || {})) for (const n of list) map.set(n, key);
+    return map;
+}
+
 export function forumRowsOf(rows, ctx) {
-    const { poster, alias = {}, userKey = '', userNames = [], namesOf = () => [], settings } = ctx;
+    const { poster, alias = {}, userKey = '', userNames = [], namesOf: baseNamesOf = () => [], extraNames = {}, settings } = ctx;
+    const namesOf = (key) => [...baseNamesOf(key), ...(extraNames[key] || [])];
     const st = normalizeForumReaderSettings(settings);
     const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
     const aliasOf = (key) => (key === posterKey ? '我' : alias[key] || '');
@@ -548,5 +563,6 @@ export function forumPlan(rows, ctx) {
 
 export function forumSettingsOf(readerSettings) {
     const s = normalizeForumReaderSettings(readerSettings && readerSettings.forumReader);
+    if (s.perTap === 0) return { ...s, perTap: Number.MAX_SAFE_INTEGER };
     return s.chain ? s : { ...s, perTap: 1 };
 }

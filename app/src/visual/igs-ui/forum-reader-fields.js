@@ -17,13 +17,19 @@ export function renderForumRegistryFields(data) {
     if (!data) return '<div class="igs-scene-empty">打开一个聊天后，这里可以改帖子标题、板块和角色代号</div>';
     const threads = Array.isArray(data.threads) ? data.threads : [];
     const blocks = threads.map((t, i) => {
-        const rows = Object.entries(t.alias || {}).map(([key, code]) => {
+        const keys = [...new Set([...(t.po && t.po.kind === 'char' ? [t.po.key] : []), ...Object.keys(t.alias || {}), ...Object.keys(t.names || {})])];
+        const rows = keys.map((key) => {
             const label = key === FORUM_USER_KEY ? 'User' : key;
             const path = `forum.alias.${t.id}.${encKey(key)}`;
-            return field(path, `${label} 的代号`, textInput(path, code, '留空恢复自动'));
+            const namesPath = `forum.names.${t.id}.${encKey(key)}`;
+            const code = (t.alias || {})[key];
+            return (code ? field(path, `${label} 的代号`, textInput(path, code, '留空恢复自动')) : '')
+                + field(namesPath, `${label} 的别名`, textInput(namesPath, ((t.names || {})[key] || []).join('、'), '用顿号分隔，正文与台词里的别名也按代号显示'));
         }).join('');
         const head = `<div class="igs-settings-field"><span>帖子 ${i + 1} 楼主</span><em>${poLabel(t.po)}</em></div>`;
-        return head + field(`forum.title.${t.id}`, '当前标题', textInput(`forum.title.${t.id}`, titleAt(t, Infinity), '留空由 AI 或自动生成')) + rows;
+        const addPath = `forum.add.${t.id}`;
+        const add = field(addPath, '添加未出场角色', textInput(addPath, '', '填角色名，回车添加并生成代号'));
+        return head + field(`forum.title.${t.id}`, '当前标题', textInput(`forum.title.${t.id}`, titleAt(t, Infinity), '留空由 AI 或自动生成')) + rows + add;
     }).join('');
     return field('forum.board', '板块', textInput('forum.board', data.board, '留空按世界观'))
         + (blocks || '<div class="igs-scene-empty">本聊天还没有登记帖子</div>');

@@ -37,7 +37,7 @@ export function normalizeForumReaderSettings(value) {
         palette: FORUM_PALETTE_IDS.includes(src.palette) ? src.palette : 'classic',
         mode: FORUM_MODES.includes(src.mode) ? src.mode : 'light',
         prompt: src.prompt !== false,
-        perTap: clampInt(src.perTap, LOG_PER_TAP_MIN, LOG_PER_TAP_MAX, 4),
+        perTap: Number(src.perTap) === 0 ? 0 : clampInt(src.perTap, LOG_PER_TAP_MIN, LOG_PER_TAP_MAX, 4),
         chain: src.chain !== false,
         speed: Object.hasOwn(LOG_SPEEDS, src.speed) ? src.speed : 'normal',
         scrubber: src.scrubber === true,
