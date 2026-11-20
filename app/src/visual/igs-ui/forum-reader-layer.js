@@ -471,8 +471,9 @@ export function syncForumReader(overlay, view) {
     }
     let revealing = null;
     const before = s.rendered;
+    const showAll = Number(view.settings && view.settings.perTap) >= 1e6;
     for (let i = s.rendered; i <= view.upto && i < view.rows.length; i++) {
-        const live = i === view.live;
+        const live = !showAll && i === view.live;
         const built = buildRow(overlay, list, i, view, live);
         const last = built.postIndex != null && i === view.plan[built.postIndex].end;
         const extra = last ? appendReplies(overlay, list, built.postIndex, view, live) : [];
@@ -481,7 +482,7 @@ export function syncForumReader(overlay, view) {
         s.rendered = i + 1;
     }
     if (s.rendered !== before) {
-        const fullText = before === 0 && Number(view.settings && view.settings.perTap) >= 1e6;
+        const fullText = before === 0 && showAll;
         const scroll = fullText ? root.querySelector('.igs-fm-scroll') : null;
         if (scroll) {
             scroll.dataset.autoUntil = String(Date.now() + 50);
