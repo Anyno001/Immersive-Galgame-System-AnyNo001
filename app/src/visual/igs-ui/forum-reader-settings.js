@@ -39,6 +39,7 @@ export function normalizeForumReaderSettings(value) {
         speed: Object.hasOwn(LOG_SPEEDS, src.speed) ? src.speed : 'normal',
         scrubber: src.scrubber === true,
         showMood: src.showMood === true,
+        foldNsfw: src.foldNsfw !== false,
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',
     };

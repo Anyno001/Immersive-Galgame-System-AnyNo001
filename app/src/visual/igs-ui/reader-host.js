@@ -169,7 +169,7 @@ import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from 
 import { chatSettingsOf } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumPairOf, forumPlan, forumPoId, forumRepliesOf, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -970,7 +970,7 @@ export function createIgsReaderHost(options = {}) {
         const merged = applyReaderPayloadToState(current, mode, { payload, index: 0 });
         if (!merged.content.segments.length) return { ok: false, reason: 'no-readable-text' };
         current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
-        current.illustrationIdentity = readIllustrationIdentity(current.contentMessageId);
+        current.illustrationIdentity = readIllustrationIdentity(messageId);
         if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
         current.payload = payload;
         if (current.turnOffset === 0 || payload.messageId === current.mountMessageId) {
@@ -3582,6 +3582,32 @@ ${row.key}`;
         } catch (_) { return Number(messageId) || 0; }
     }
 
+    // 论坛附图的来源：本页场景图（素材模式）与本页 CG（生成插图 / 绑定槽位 / CG 库）。图还没读回时 url 为空，不附。
+    function forumImagePick(current, floor, rs, i, messageId) {
+        const page = floor.pages[i] || {};
+        const st = page.sceneStateForBg || null;
+        const assets = rs._sceneAssets || {};
+        const out = {};
+        if (st && st.scene && assets.enabled && floor.assets) {
+            let url = '';
+            try { url = concreteReaderAssetUrl(floor.assets.background(st).url); } catch (_) { url = ''; }
+            out.scene = { key: `${st.scene}|${st.time || ''}`, url, nsfw: st.nsfw === true };
+        }
+        const hit = floor.illustrations && floor.illustrations[i];
+        if (hit) {
+            const identity = current.illustrationIdentity || readIllustrationIdentity(messageId);
+            let url = typeof options.getIllustrationUrl === 'function'
+                ? String(options.getIllustrationUrl({ chatId: identity && identity.chatId, messageId, swipeId: identity && identity.swipeId, slot: hit.slot }) || '')
+                : '';
+            if (!url) url = resolveBoundSlotImageUrl(normalizeSnapshotImageState(current.payload && current.payload.imageState, 0), hit.slot);
+            out.cg = { key: `slot:${hit.slot}`, url, nsfw: Boolean(st && st.nsfw) };
+        } else if (assets.enabled && assets.eventCgs && floor.eventCgs && floor.eventCgs[i]) {
+            const ev = floor.eventCgs[i];
+            out.cg = { key: `ev:${ev.name}`, url: concreteReaderAssetUrl(ev.url), nsfw: ev.nsfw === true || Boolean(st && st.nsfw) };
+        }
+        return out;
+    }
+
     // 论坛体：登记（帖子、标题、楼主、代号）与楼层计划都在这里按需算出，渲染只认结果。
     // 每楼只处理自己的标签，写在本楼 messageId 上；显示时按 messageId 查 timeline / titles。
     function syncForumLayer(current, snapshot, { overlay, log, index, settings, html }) {
@@ -3649,11 +3675,13 @@ ${row.key}`;
         const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
         const poId = (thread && thread.poId) || forumPoId(chatId, threadId);
         const aiReplies = forumRepliesOf(floor.source);
-        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate });
+        const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
+        const prevReplies = aiReplies.some((r) => r.prev) ? forumPrevRepliesOf(ctx.chat, messageId) : [];
+        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([threadAlias, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.showMood, aiReplies, settings.othersThoughts, settings.perPost, settings.replies, poId]),
-            rows, plan, pendingAlias, onAlias,
+            sig: JSON.stringify([threadAlias, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.showMood, aiReplies, prevReplies, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            rows, plan, pendingAlias, onAlias, images,
             board: forumBoardOf(data, worldview),
             head: marks.start ? { title: titleAt(thread, messageId), poId, board: forumBoardOf(data, worldview) } : null,
             retitle: marks.retitle,

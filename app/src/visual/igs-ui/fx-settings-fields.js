@@ -178,6 +178,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.reveal`, '文字出现', segmentedInput(`${p}.forumReader.reveal`, fr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入'], ['off', '直接显示']], '文字出现'))
         + field(`${p}.forumReader.speed`, '出现节奏', segmentedInput(`${p}.forumReader.speed`, fr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出现节奏'))
         + checkbox(`${p}.forumReader.showMood`, fr.showMood, '台词前显示情绪（如 B（开心）：）')
+        + checkbox(`${p}.forumReader.foldNsfw`, fr.foldNsfw, 'NSFW 附图默认折叠')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')
         + checkbox(`${p}.forumReader.scrubber`, fr.scrubber, '页码进度条')

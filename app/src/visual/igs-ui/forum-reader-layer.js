@@ -67,6 +67,20 @@ function bindRoot(overlay, root) {
             if (line && s.view && s.view.onPlay) s.view.onPlay([Number(line.dataset.index)]);
             return;
         }
+        const viewer = target.closest('.igs-fm-viewer');
+        if (viewer) { event.stopPropagation(); viewer.remove(); return; }
+        const fold = target.closest('.igs-fm-fold');
+        if (fold) {
+            event.stopPropagation();
+            fold.closest('.igs-fm-img').removeAttribute('data-folded');
+            return;
+        }
+        const thumb = target.closest('.igs-fm-thumb');
+        if (thumb) {
+            event.stopPropagation();
+            openViewer(overlay, root, thumb.getAttribute('src'));
+            return;
+        }
         if (target.closest('.igs-fm-live')) {
             event.stopPropagation();
             if (s.view && s.view.onLiveRoom) s.view.onLiveRoom();
@@ -81,6 +95,39 @@ function bindRoot(overlay, root) {
         if (frame) return;
         frame = winOf(overlay).requestAnimationFrame(() => { frame = 0; reportSceneRow(overlay, scroll); });
     }, { passive: true });
+}
+
+function openViewer(overlay, root, src) {
+    if (!src) return;
+    root.querySelector('.igs-fm-viewer')?.remove();
+    const doc = overlay.ownerDocument;
+    const box = el(doc, 'div', 'igs-fm-viewer');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', '附图大图');
+    const img = el(doc, 'img');
+    img.setAttribute('src', src);
+    img.setAttribute('alt', '');
+    img.draggable = false;
+    box.append(img);
+    root.append(box);
+}
+
+// 附图：A 岛式左侧缩略图，上方一行文件名；NSFW 按设置先折叠，点开再显示。
+function imageNode(doc, image, fold) {
+    const node = el(doc, 'div', 'igs-fm-img');
+    if (fold && image.nsfw) node.setAttribute('data-folded', '');
+    const file = el(doc, 'div', 'igs-fm-file');
+    file.textContent = image.file;
+    const btn = el(doc, 'button', 'igs-fm-fold');
+    btn.type = 'button';
+    btn.textContent = '图片已折叠（可能引起不适）· 点击展开';
+    const img = el(doc, 'img', 'igs-fm-thumb');
+    img.setAttribute('src', image.url);
+    img.setAttribute('alt', image.kind === 'cg' ? 'CG' : '场景图');
+    img.setAttribute('loading', 'lazy');
+    img.draggable = false;
+    node.append(file, btn, img);
+    return node;
 }
 
 function reportSceneRow(overlay, scroll) {
@@ -213,6 +260,8 @@ function buildRow(overlay, list, i, view, live) {
         scene.textContent = row.scene;
         body.append(scene);
     }
+    const image = view.images && view.images.get(row.index);
+    if (image) body.append(imageNode(doc, image, view.settings.foldNsfw));
     if (row.solo) {
         const node = el(doc, 'div', 'igs-fm-solo');
         node.dataset.index = String(row.index);
@@ -340,6 +389,28 @@ function syncAliasCard(overlay, root, view) {
     }
 }
 
+// 入口坞（通知铃铛等）在论坛模式下横排进顶栏：顶栏文字从坞的右缘之后开始。坞的入口增减时跟着重量。
+const dockWatch = new WeakMap();
+function syncDockGap(overlay, root) {
+    const dock = overlay.querySelector('.igs-entry-dock');
+    const measure = () => {
+        const box = root.getBoundingClientRect();
+        const r = dock && dock.isConnected ? dock.getBoundingClientRect() : null;
+        const gap = r && r.width > 0 ? `${Math.ceil(r.right - box.left + 8)}px` : '';
+        if (gap) { if (root.style.getPropertyValue('--igs-fm-dock') !== gap) root.style.setProperty('--igs-fm-dock', gap); }
+        else root.style.removeProperty('--igs-fm-dock');
+    };
+    measure();
+    const win = winOf(overlay);
+    const prev = dockWatch.get(root);
+    if (prev && prev.dock === dock) return;
+    if (prev) prev.observer.disconnect();
+    if (!dock || typeof win.ResizeObserver !== 'function') { dockWatch.delete(root); return; }
+    const observer = new win.ResizeObserver(measure);
+    observer.observe(dock);
+    dockWatch.set(root, { dock, observer });
+}
+
 function applyAttrs(overlay, root, view) {
     const set = (name, value, node = root) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
     const st = view.settings;
@@ -348,10 +419,13 @@ function applyAttrs(overlay, root, view) {
     root.style.setProperty('--igs-fm-fs', `${st.fontSize}px`);
     const colors = forumPaletteColors(st.palette, st.mode, overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
+    overlay.style.setProperty('--igs-fm-main-ink', colors.main);
+    overlay.style.setProperty('--igs-fm-card-ink', colors.card);
     const fonts = view.fonts || {};
     if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
     const bar = root.querySelector('.igs-fm-bar');
     if (bar && bar.textContent !== view.board) bar.textContent = view.board || '';
+    syncDockGap(overlay, root);
     const dialog = overlay.querySelector('#igs-dialog');
     const foot = dialog && dialog.offsetHeight > 0 ? `${dialog.offsetHeight}px` : '';
     if (foot) { root.style.setProperty('--igs-log-foot', foot); overlay.style.setProperty('--igs-log-foot', foot); }
@@ -365,6 +439,11 @@ export function syncForumReader(overlay, view) {
     if (!view) {
         overlay.removeAttribute('data-igs-forum-reader');
         overlay.removeAttribute('data-igs-log-reader');
+        overlay.style.removeProperty('--igs-fm-main-ink');
+        overlay.style.removeProperty('--igs-fm-card-ink');
+        const root = overlay.querySelector('#igs-forum-reader');
+        const watch = root && dockWatch.get(root);
+        if (watch) { watch.observer.disconnect(); dockWatch.delete(root); }
         return { revealing: null };
     }
     const root = ensureRoot(overlay);

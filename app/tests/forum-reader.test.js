@@ -5,7 +5,7 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { logRowsOf } from '../src/visual/igs-ui/log-reader-model.js';
 import {
-    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, floorMarks, forumClock, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumRowsOf, forumTagsOf,
+    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, floorMarks, forumClock, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf,
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
@@ -206,6 +206,35 @@ test('楼层计划：超过行数或换场景拆楼；点缀同种子同内容�
     assert.equal(noClock[0].time, '');
 });
 
+test('抢楼词只在帖子开头那一楼出现', () => {
+    const rows = forumRowsOf(rowsOf(Array.from({ length: 4 }, (_, i) => page('narration', `第${i}句。`))), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const grab = new Set(['前排', '沙发', '板凳已备好', '蹲', '新帖？先占个座']);
+    for (let id = 0; id < 40; id++) {
+        const later = forumPlan(rows, { chatId: 'c', messageId: id, settings: { perPost: 2, replies: 'normal' } });
+        assert.ok(later.flatMap((p) => p.replies).every((r) => !grab.has(r.text)), `第 ${id} 楼不是帖子开头却出现了抢楼词`);
+    }
+});
+
+test('AI 回帖跨轮接话：>上N 摘引上一轮那条，同名路人跨轮同一个 ID，提示词列出上一轮回帖', () => {
+    assert.deepEqual(forumRepliesOf('[igs-reply:路人丙|>上2|别带节奏] [igs-reply:楼主|>1|好]').map((r) => [r.who, r.to, r.prev]), [['路人丙', 0, 2], ['楼主', 1, 0]]);
+    const chat = [
+        { is_user: false, mes: '正文[igs-reply:路人甲|真的假的][igs-reply:路人乙|前排吃瓜，这瓜保熟吗我先尝一口再说，不熟我可要退]' },
+        { is_user: true, mes: '继续' },
+        { is_user: false, mes: '正文[igs-reply:路人丙|>上2|你吃瓜就吃瓜别带节奏][igs-reply:路人甲|我又来了]' },
+    ];
+    const prev = forumPrevRepliesOf(chat, 2);
+    assert.deepEqual(prev.map((r) => r.who), ['路人甲', '路人乙']);
+    const rows = forumRowsOf(rowsOf([page('narration', '一句。')]), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 2, settings: { replies: 'normal' }, threadId: 't1', aiReplies: forumRepliesOf(chat[2].mes), prevReplies: prev });
+    const [back, again] = plan[0].replies;
+    assert.equal(back.quote, '前排吃瓜，这瓜保熟吗我先尝一口再说，…');
+    const first = forumPlan(rows, { chatId: 'c', messageId: 0, settings: { replies: 'normal' }, threadId: 't1', aiReplies: forumRepliesOf(chat[0].mes) });
+    assert.equal(again.id, first[0].replies[0].id);
+    const block = collectGrammarBlocks({ forumReader: { on: true }, _forumPrev: prev }).find((b) => b.key === 'forum').full;
+    assert.ok(block.includes('上一轮回帖：1.路人甲：真的假的') && block.includes('>上第几条'));
+    assert.ok(!collectGrammarBlocks({ forumReader: { on: true, replies: 'off' }, _forumPrev: prev }).find((b) => b.key === 'forum').full.includes('上一轮回帖'));
+});
+
 test('登记读写：写之前核对聊天没换；读不到元数据时留在内存不报错', () => {
     const meta = {};
     let chat = 'a';
@@ -306,4 +335,46 @@ test('论坛层：改标题出系统小字，换帖子头时不出小字', () =>
     const plan = forumPlan(rows, { chatId: 'c', messageId: 0, settings: { replies: 'off' }, poId: 'p' });
     syncForumReader(overlay, { floorKey: 'k', rows, plan, board: 'b', head: null, retitle: '新标题', upto: 0, live: -1, settings: normalizeForumReaderSettings({}), sig: 'r' });
     assert.equal(overlay.querySelector('.igs-fm-retitle').textContent, 'PO主修改了标题：新标题');
+});
+
+test('附图：换场景附一次场景图，CG 首次出现那行附上且优先，NSFW 按设置折叠，有图时回帖换图片词并可指回该楼', async () => {
+    const { forumImagesOf } = await import('../src/visual/igs-ui/forum-reader-model.js');
+    const rows = [
+        { index: 0, kind: 'narr', text: '一', scene: '' },
+        { index: 1, kind: 'narr', text: '二', scene: '' },
+        { index: 2, kind: 'narr', text: '三', scene: '晚上 · 坡道' },
+        { index: 3, kind: 'narr', text: '四', scene: '' },
+        { index: 4, kind: 'narr', text: '五', scene: '早上 · 教室' },
+    ];
+    const pick = (row) => ({
+        scene: { key: row.index < 2 ? '教室' : row.index < 4 ? '坡道' : '教室', url: 'bg.png' },
+        cg: row.index === 2 || row.index === 3 ? { key: 'slot:1', url: 'cg.png', nsfw: true } : null,
+    });
+    const images = forumImagesOf(rows, pick, 's');
+    assert.deepEqual([...images.keys()], [0, 2]);
+    assert.equal(images.get(0).kind, 'scene');
+    assert.equal(images.get(2).kind, 'cg');
+    assert.equal(images.get(2).nsfw, true);
+    assert.equal(images.get(0).file, forumImagesOf(rows, pick, 's').get(0).file);
+    assert.match(images.get(0).file, /^IMG_\d{4}\.jpg \(\d+KB\)$/);
+
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 3, settings: { perPost: 2, replies: 'normal' }, images, posterKind: 'witness' });
+    const lines = ['有图有真相', '原图呢', 'PO主手别抖', '这角度……你在哪拍的', '偷拍的吧', 'PO主危'];
+    for (const reply of plan[0].replies) {
+        assert.ok(lines.includes(reply.text));
+        if (reply.text === '原图呢') assert.equal(reply.ref, plan[0].no);
+    }
+
+    const dom = new JSDOM('<div id="igs-overlay"><div id="igs-dialog-layer"></div></div>');
+    const overlay = dom.window.document.getElementById('igs-overlay');
+    const view = (foldNsfw) => ({ floorKey: `k${foldNsfw}`, rows, plan, images, upto: 4, live: -1, settings: { ...normalizeForumReaderSettings({ foldNsfw }), reveal: 'off' }, head: null, board: '' });
+    syncForumReader(overlay, view(true));
+    const cg = overlay.querySelectorAll('.igs-fm-img')[1];
+    assert.ok(cg.hasAttribute('data-folded'));
+    cg.querySelector('.igs-fm-fold').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.ok(!cg.hasAttribute('data-folded'));
+    cg.querySelector('.igs-fm-thumb').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.equal(overlay.querySelector('.igs-fm-viewer img').getAttribute('src'), 'cg.png');
+    syncForumReader(overlay, view(false));
+    assert.ok(!overlay.querySelectorAll('.igs-fm-img')[1].hasAttribute('data-folded'));
 });

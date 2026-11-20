@@ -1,6 +1,6 @@
 import { storyClock } from './phone-sense.js';
 import { feedStableCount } from '../../scene/feed-platforms.js';
-import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_LINES } from './forum-reader-lines.js';
+import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_IMAGE_REF_LINES, FORUM_LINES } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { describePo, samePo, threadAt, titleAt } from './forum-reader-threads.js';
 
@@ -177,8 +177,8 @@ export function parseForumTag(body) {
     return out;
 }
 
-// AI 写的回帖 [igs-reply:谁|>N|内容]：谁 = 楼主 或 路人代称（同名即同一个 ID）；>N 可省，表示回第 N 条回帖；只写内容则当作一个新路人。
-// 返回 [{ who, to, text }]，who 为空串表示匿名新路人（已按序号编成不重复的名字）。
+// AI 写的回帖 [igs-reply:谁|>N|内容]：谁 = 楼主 或 路人代称（同名即同一个 ID）；>N 可省，表示回本轮第 N 条回帖；>上N 表示回上一轮第 N 条回帖；只写内容则当作一个新路人。
+// 返回 [{ who, to, prev, text }]，who 以 # 开头表示匿名新路人（已按序号编成不重复的名字）。
 export function forumRepliesOf(source) {
     const out = [];
     let anon = 0;
@@ -186,15 +186,43 @@ export function forumRepliesOf(source) {
         const fields = m[1].split('|').map((f) => f.trim());
         let who = '';
         let to = 0;
+        let prev = 0;
         if (fields.length > 1) who = fields.shift();
-        if (fields.length > 1 && /^[>＞]\s*\d+$/.test(fields[0])) to = Number(fields.shift().replace(/\D/g, ''));
+        const ref = fields.length > 1 ? fields[0].match(/^[>＞]\s*(上)?\s*(\d+)$/) : null;
+        if (ref) {
+            fields.shift();
+            if (ref[1]) prev = Number(ref[2]);
+            else to = Number(ref[2]);
+        }
         const text = Array.from(fields.join('|').trim()).slice(0, 60).join('');
         if (!text) continue;
         if (/^(楼主|po主?|lz)$/i.test(who)) who = '楼主';
         else if (!who) who = `#${anon++}`;
-        out.push({ who, to, text });
+        out.push({ who, to, prev, text });
     }
     return out;
+}
+
+// 上一轮 AI 回帖：从当前楼往前找最近一个有 [igs-reply] 的 AI 楼。chat 为酒馆聊天数组。
+export function forumPrevRepliesOf(chat, beforeId) {
+    if (!Array.isArray(chat)) return [];
+    for (let i = Math.min(chat.length, Math.round(Number(beforeId) || 0)) - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (!m || m.is_user || m.is_system) continue;
+        const found = forumRepliesOf(m.mes);
+        if (found.length) return found;
+    }
+    return [];
+}
+
+export function forumReplyQuote(text) {
+    const chars = Array.from(String(text || '').trim());
+    return chars.length > QUOTE_MAX ? `${chars.slice(0, QUOTE_MAX).join('')}…` : chars.join('');
+}
+
+// 有名字的路人跨轮沿用同一个 ID；匿名路人按本轮出场顺序取轮换 ID。
+function writtenPasserId(chatId, who, slot, threadId) {
+    return who.startsWith('#') ? forumPasserId(chatId, slot, threadId) : base36(`passer|${chatId}|${threadId}|name:${who}`, 8);
 }
 
 export function forumTagsOf(source) {
@@ -396,10 +424,37 @@ function pick(list, seed) {
     return list[forumHash(seed) % list.length];
 }
 
+// 附图：换场景那一行附场景图（同一场景只附第一次），CG 在它第一次出现的那一行附上；同一行两者都有时只附 CG。
+// pick(row) → { scene:{ url, key, nsfw }, cg:{ url, key, nsfw } }（各自可空）。返回 Map(行号 → { kind, url, key, nsfw, file })。
+export function forumImagesOf(rows, pick, seed = '') {
+    const out = new Map();
+    const seenScene = new Set();
+    let lastCg = '';
+    rows.forEach((row, i) => {
+        const got = (row && !row.solo ? pick(row) : null) || {};
+        const cg = got.cg && got.cg.key ? got.cg : null;
+        const cgKey = cg ? cg.key : '';
+        const freshCg = cg && cgKey !== lastCg;
+        lastCg = cgKey;
+        if (!row || row.hidden || row.solo) return;
+        const scene = got.scene && got.scene.key && (row.scene || i === 0) && !seenScene.has(got.scene.key) ? got.scene : null;
+        if (scene) seenScene.add(scene.key);
+        const hit = freshCg && cg.url ? { ...cg, kind: 'cg' } : scene && scene.url ? { ...scene, kind: 'scene' } : null;
+        if (hit) out.set(row.index ?? i, { ...hit, nsfw: hit.nsfw === true, file: forumFileName(`${seed}|${hit.key}`) });
+    });
+    return out;
+}
+
+// 附图文件名与大小：按种子算，重看不变。
+export function forumFileName(seed) {
+    const h = forumHash(seed);
+    return `IMG_${String(1000 + (h % 9000))}.jpg (${120 + ((h >>> 8) % 380)}KB)`;
+}
+
 // 楼层计划：把行分成若干 PO 主楼（超过 perPost 行或换场景另起一楼），每楼之后排 0–2 条点缀回帖。
 // 返回 posts[]：{ start, end, k, no, id, time, replies:[{ k, no, id, time, text, quote, ref }] }。纯函数，同输入同输出。
 export function forumPlan(rows, ctx) {
-    const { chatId = '', messageId = 0, settings, poId = '', threadId = '', sceneTime = '', sendDate = '', aiReplies = [] } = ctx;
+    const { chatId = '', messageId = 0, settings, poId = '', threadId = '', sceneTime = '', sendDate = '', aiReplies = [], images = null, posterKind = '', threadStart = false, prevReplies = [] } = ctx;
     const st = normalizeForumReaderSettings(settings);
     const seedBase = `${chatId}:${messageId}`;
     const shown = rows.map((row, i) => ({ row, i })).filter(({ row }) => !row.hidden);
@@ -412,6 +467,7 @@ export function forumPlan(rows, ctx) {
         }
         cur.end = i;
         cur.count += 1;
+        if (images && images.has(row.index ?? i)) cur.image = true;
         if (row.mood && MOOD_WORDS.test(row.mood)) cur.moods = true;
     }
     const used = new Set();
@@ -436,15 +492,26 @@ export function forumPlan(rows, ctx) {
                 if (!po && !passerSlots.has(item.who)) passerSlots.set(item.who, passerSlots.size);
                 const no = forumNo(chatId, messageId, k);
                 const target = item.to > 0 && item.to <= writtenNos.length ? writtenNos[item.to - 1] : 0;
+                const earlier = item.prev > 0 ? prevReplies[item.prev - 1] : null;
                 writtenNos.push(no);
-                out.replies.push({ k, no, id: po ? poId : forumPasserId(chatId, passerSlots.get(item.who) || 0, threadId), po, time: clock(k), text: item.text, quote: '', ref: target });
+                out.replies.push({ k, no, id: po ? poId : writtenPasserId(chatId, item.who, passerSlots.get(item.who) || 0, threadId), po, time: clock(k), text: item.text, quote: earlier ? forumReplyQuote(earlier.text) : '', ref: target });
                 k += 1;
             }
             return out;
         }
         const count = perGap[1] === 0 ? 0 : feedStableCount(`${seedBase}:r${n}`, perGap[0], perGap[1]);
         for (let r = 0; r < count && k < FLOOR_SLOTS; r++) {
-            const category = ELLIPSIS_TAIL.test(tail) ? 'ellipsis' : post.moods ? 'mood' : post.scene && n > 0 ? 'scene' : post.count >= st.perPost ? 'long' : 'base';
+            if (post.image) {
+                const own = posterKind === 'witness' ? FORUM_LINES.imageWitness : posterKind === 'char' ? FORUM_LINES.imageSelf : [];
+                const pool = [...FORUM_LINES.image, ...own].filter((line) => !used.has(line));
+                const line = pool.length ? pick(pool, `${seedBase}:i${n}:${r}`) : pick(FORUM_LINES.base, `${seedBase}:i${n}:${r}`);
+                used.add(line);
+                const ref = FORUM_IMAGE_REF_LINES.includes(line) ? out.no : 0;
+                out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: line, quote: '', ref });
+                k += 1;
+                continue;
+            }
+            const category = threadStart && n === 0 ? 'opening' : ELLIPSIS_TAIL.test(tail) ? 'ellipsis' : post.moods ? 'mood' : post.scene && n > 0 ? 'scene' : post.count >= st.perPost ? 'long' : 'base';
             const pool = [...FORUM_LINES[category], ...FORUM_LINES.base].filter((line) => !used.has(line));
             const line = pool.length ? pick(pool, `${seedBase}:l${n}:${r}`) : pick(FORUM_LINES.base, `${seedBase}:l${n}:${r}`);
             used.add(line);

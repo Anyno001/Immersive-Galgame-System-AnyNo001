@@ -59,5 +59,18 @@ ${R} .igs-fm-alias-input{flex:0 0 96px;width:96px;height:26px;box-sizing:border-
 ${R} .igs-fm-alias-ok{flex:none;height:26px;padding:0 10px;border:0;background:var(--igs-fm-main,#800000);color:var(--igs-fm-card,#ffffee);font:inherit;font-size:12.5px;cursor:pointer;}
 ${R} .igs-fm-live{position:absolute;top:8px;right:12px;z-index:6;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:var(--igs-fm-main,#800000);color:var(--igs-fm-card,#ffffee);display:grid;place-items:center;cursor:pointer;pointer-events:auto;}
 ${R} .igs-fm-live svg{width:16px;height:16px;}
+${ON} .igs-entry-dock{top:8px!important;width:auto;flex-direction:row;align-items:center;--igs-entry-ink:var(--igs-fm-main-ink,#800000);--igs-entry-dot-ring:var(--igs-fm-card-ink,#ffffee);}
+${ON} .igs-entry-dock>*{filter:none;opacity:.8;}
+${R} .igs-fm-bar{padding-left:var(--igs-fm-dock,12px);}
+${R} .igs-fm-body::after{content:"";display:block;clear:both;}
+${R} .igs-fm-img{float:left;width:48%;max-width:220px;margin:2px 10px 6px 0;}
+${R} .igs-fm-file{font-size:11px;line-height:1.5;color:var(--igs-fm-sub,#707070);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+${R} .igs-fm-thumb{display:block;width:100%;height:auto;max-height:260px;object-fit:cover;cursor:zoom-in;background:var(--igs-fm-pg,#f0e0d6);}
+${R} .igs-fm-fold{display:none;width:100%;min-height:44px;padding:6px 8px;border:1px solid var(--igs-fm-line,#d9bfb7);background:var(--igs-fm-pg,#f0e0d6);color:var(--igs-fm-sub,#707070);font:inherit;font-size:12px;line-height:1.5;text-align:left;cursor:pointer;}
+${R} .igs-fm-img[data-folded]{float:none;width:auto;max-width:none;margin:2px 0 6px;}
+${R} .igs-fm-img[data-folded] .igs-fm-fold{display:block;}
+${R} .igs-fm-img[data-folded] .igs-fm-thumb{display:none;}
+${R} .igs-fm-viewer{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:#000;cursor:zoom-out;pointer-events:auto;}
+${R} .igs-fm-viewer img{display:block;max-width:100%;max-height:100%;object-fit:contain;}
 @media (prefers-reduced-motion:reduce){${R} *{transition:none!important;}${R} .igs-fm-fl{animation:none!important;opacity:1;}}
 `;
