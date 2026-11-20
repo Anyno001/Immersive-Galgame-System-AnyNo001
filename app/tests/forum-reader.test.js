@@ -378,3 +378,20 @@ test('附图：换场景附一次场景图，CG 首次出现那行附上且优�
     syncForumReader(overlay, view(false));
     assert.ok(!overlay.querySelectorAll('.igs-fm-img')[1].hasAttribute('data-folded'));
 });
+
+test('情绪标签：关 / 全部 / 随机；同一人同一情绪连说只在第一句标，旧 showMood 迁移为全部', () => {
+    const src = rowsOf([
+        page('dialogue', '喂。', { bubbleSpeaker: '霜见', bubbleMood: '冷淡' }),
+        page('dialogue', '走快点。', { bubbleSpeaker: '霜见' }),
+        page('dialogue', '还有你。', { bubbleSpeaker: '霜见', bubbleMood: '生气' }),
+    ]);
+    const ctx = (mood) => ({ poster: { kind: 'witness' }, alias: { 霜见: 'B' }, userKey: '我', settings: { mood } });
+    assert.deepEqual(forumRowsOf(src, ctx('off')).map((r) => r.moodTag), ['', '', '']);
+    assert.deepEqual(forumRowsOf(src, ctx('all')).map((r) => r.moodTag), ['冷淡', '', '生气']);
+    assert.deepEqual(forumRowsOf(src, ctx('all')).map((r) => r.cont), [false, true, false]);
+    const random = forumRowsOf(src, ctx('random')).map((r) => r.moodTag);
+    assert.equal(random[1], '');
+    assert.deepEqual(forumRowsOf(src, ctx('random')).map((r) => r.moodTag), random);
+    assert.equal(normalizeForumReaderSettings({ showMood: true }).mood, 'all');
+    assert.equal(normalizeForumReaderSettings({}).mood, 'off');
+});

@@ -1,7 +1,8 @@
 import { storyClock } from './phone-sense.js';
 import { feedStableCount } from '../../scene/feed-platforms.js';
-import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_IMAGE_REF_LINES, FORUM_LINES } from './forum-reader-lines.js';
+import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_IMAGE_REF_LINES, FORUM_KAOMOJI, FORUM_KAOMOJI_ONLY_RATE, FORUM_KAOMOJI_TAIL_RATE, FORUM_LINES } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { isContinuation } from './log-reader-model.js';
 import { describePo, samePo, threadAt, titleAt } from './forum-reader-threads.js';
 
 export { normalizeForumReaderSettings } from './forum-reader-settings.js';
@@ -380,6 +381,16 @@ export function replaceNames(text, pairs) {
     return String(text == null ? '' : text).replace(re, (m) => map.get(m));
 }
 
+// 台词的情绪标签：一句台词拆成几行（同一人连说、同一情绪组）时只在第一行标；
+// random 按台词内容哈希取约四成，同一楼反复渲染结果不变。
+const MOOD_RANDOM_RATE = 40;
+function moodTagOf(rows, i, mode) {
+    const row = rows[i];
+    if (mode === 'off' || !row.mood || isContinuation(rows, i)) return '';
+    if (mode === 'random' && forumHash(`mood:${row.key}:${row.mood}:${row.text}`) % 100 >= MOOD_RANDOM_RATE) return '';
+    return row.mood;
+}
+
 // 渲染用的行：楼主是角色 / User 时他的台词显示「我」；其余人用代号；心里话按设置处理。
 // ctx：poster、alias（主名→代号）、userKey、userNames（User 的显示名）、namesOf(主名)→别名数组、settings。
 export function forumRowsOf(rows, ctx) {
@@ -392,7 +403,7 @@ export function forumRowsOf(rows, ctx) {
         const names = key === FORUM_USER_KEY ? userNames : [key, ...namesOf(key)];
         for (const name of names) pairs.push([String(name || '').trim(), code]);
     }
-    return rows.map((row) => {
+    return rows.map((row, i) => {
         const key = row.key && userKey && row.key === userKey ? FORUM_USER_KEY : row.key;
         const mine = Boolean(key) && key === posterKey;
         const code = key ? aliasOf(key) || row.speaker : '';
@@ -405,7 +416,7 @@ export function forumRowsOf(rows, ctx) {
             if (st.othersThoughts === 'hide') return { ...out, hidden: true };
             return { ...out, who: code };
         }
-        if (row.kind === 'dialogue') return { ...out, who: mine ? '我' : code };
+        if (row.kind === 'dialogue') return { ...out, who: mine ? '我' : code, moodTag: moodTagOf(rows, i, st.mood), cont: isContinuation(rows, i) };
         return out;
     });
 }
@@ -422,6 +433,15 @@ function lastSentence(text) {
 
 function pick(list, seed) {
     return list[forumHash(seed) % list.length];
+}
+
+// 内置回帖配颜文字：按种子定，同一楼反复渲染不变。
+function withKaomoji(line, seed) {
+    const roll = forumHash(`kao:${seed}`) % 100;
+    const face = pick(FORUM_KAOMOJI, `face:${seed}`);
+    if (roll < FORUM_KAOMOJI_ONLY_RATE) return face;
+    if (roll < FORUM_KAOMOJI_ONLY_RATE + FORUM_KAOMOJI_TAIL_RATE) return `${line}${face}`;
+    return line;
 }
 
 // 附图：换场景那一行附场景图（同一场景只附第一次），CG 在它第一次出现的那一行附上；同一行两者都有时只附 CG。
@@ -507,7 +527,7 @@ export function forumPlan(rows, ctx) {
                 const line = pool.length ? pick(pool, `${seedBase}:i${n}:${r}`) : pick(FORUM_LINES.base, `${seedBase}:i${n}:${r}`);
                 used.add(line);
                 const ref = FORUM_IMAGE_REF_LINES.includes(line) ? out.no : 0;
-                out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: line, quote: '', ref });
+                out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: withKaomoji(line, `${seedBase}:i${n}:${r}`), quote: '', ref });
                 k += 1;
                 continue;
             }
@@ -518,7 +538,7 @@ export function forumPlan(rows, ctx) {
             const roll = feedStableCount(`${seedBase}:q${n}:${r}`, 0, 2);
             const quote = roll === 0 && tail ? lastSentence(tail) : '';
             const ref = roll === 1 ? out.no : 0;
-            out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: line, quote, ref });
+            out.replies.push({ k, no: forumNo(chatId, messageId, k), id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: withKaomoji(line, `${seedBase}:l${n}:${r}`), quote, ref });
             k += 1;
         }
         return out;

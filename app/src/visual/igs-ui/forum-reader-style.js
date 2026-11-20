@@ -38,6 +38,9 @@ ${R} .igs-fm-line.is-thought{color:var(--igs-fm-sub,#707070);}
 ${R} .igs-fm-who{font-weight:700;margin-right:.1em;}
 ${R} .igs-fm-line.is-narr .igs-fm-who{margin:0;}
 ${R} .igs-fm-gt{color:var(--igs-fm-gt,#789922);}
+${R} .igs-fm-line.is-say{padding-left:8px;border-left:3px solid var(--igs-fm-gt,#789922);color:var(--igs-fm-gt,#789922);}
+${R} .igs-fm-line.is-say.is-cont{margin-top:-5px;padding-top:5px;}
+${R} .igs-fm-line.is-say .igs-fm-who{font-weight:400;margin:0;}
 ${R} .igs-fm-ref{color:var(--igs-fm-ref,#dd0000);text-decoration:underline;}
 ${R} .igs-fm-retitle{margin:6px 12px 2px;text-align:center;color:var(--igs-fm-sub,#707070);font-size:11px;opacity:0;transition:opacity .3s;}
 ${R} .igs-fm-retitle.is-in{opacity:1;}
@@ -62,12 +65,11 @@ ${R} .igs-fm-live svg{width:16px;height:16px;}
 ${ON} .igs-entry-dock{top:8px!important;width:auto;flex-direction:row;align-items:center;--igs-entry-ink:var(--igs-fm-main-ink,#800000);--igs-entry-dot-ring:var(--igs-fm-card-ink,#ffffee);}
 ${ON} .igs-entry-dock>*{filter:none;opacity:.8;}
 ${R} .igs-fm-bar{padding-left:var(--igs-fm-dock,12px);}
-${R} .igs-fm-body::after{content:"";display:block;clear:both;}
-${R} .igs-fm-img{float:left;width:48%;max-width:220px;margin:2px 10px 6px 0;}
+${R} .igs-fm-img{width:72%;max-width:280px;margin:4px 0 8px;}
 ${R} .igs-fm-file{font-size:11px;line-height:1.5;color:var(--igs-fm-sub,#707070);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 ${R} .igs-fm-thumb{display:block;width:100%;height:auto;max-height:260px;object-fit:cover;cursor:zoom-in;background:var(--igs-fm-pg,#f0e0d6);}
 ${R} .igs-fm-fold{display:none;width:100%;min-height:44px;padding:6px 8px;border:1px solid var(--igs-fm-line,#d9bfb7);background:var(--igs-fm-pg,#f0e0d6);color:var(--igs-fm-sub,#707070);font:inherit;font-size:12px;line-height:1.5;text-align:left;cursor:pointer;}
-${R} .igs-fm-img[data-folded]{float:none;width:auto;max-width:none;margin:2px 0 6px;}
+${R} .igs-fm-img[data-folded]{width:auto;max-width:none;}
 ${R} .igs-fm-img[data-folded] .igs-fm-fold{display:block;}
 ${R} .igs-fm-img[data-folded] .igs-fm-thumb{display:none;}
 ${R} .igs-fm-viewer{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:#000;cursor:zoom-out;pointer-events:auto;}

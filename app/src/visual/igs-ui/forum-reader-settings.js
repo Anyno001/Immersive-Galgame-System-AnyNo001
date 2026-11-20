@@ -6,6 +6,7 @@ import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log
 export const FORUM_POSTERS = Object.freeze(['auto', 'char', 'witness', 'user', 'pair']);
 export const FORUM_THOUGHTS = Object.freeze(['show', 'hide']);
 export const FORUM_REPLIES = Object.freeze(['off', 'few', 'normal']);
+export const FORUM_MOODS = Object.freeze(['off', 'all', 'random']);
 export const FORUM_PER_POST_MIN = 3;
 export const FORUM_PER_POST_MAX = 16;
 export const FORUM_FONT_MIN = 13;
@@ -38,7 +39,8 @@ export function normalizeForumReaderSettings(value) {
         chain: src.chain !== false,
         speed: Object.hasOwn(LOG_SPEEDS, src.speed) ? src.speed : 'normal',
         scrubber: src.scrubber === true,
-        showMood: src.showMood === true,
+        // 情绪标签：off 关 / all 每组都标 / random 随机标一部分。旧版勾选项 showMood 迁移为 all。
+        mood: FORUM_MOODS.includes(src.mood) ? src.mood : src.showMood === true ? 'all' : 'off',
         foldNsfw: src.foldNsfw !== false,
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',

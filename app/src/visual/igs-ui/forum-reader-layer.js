@@ -274,10 +274,10 @@ function buildRow(overlay, list, i, view, live) {
         return { fades, text: null, post, postIndex };
     }
     const html = view.htmlOf ? view.htmlOf(row) : esc(row.text);
-    const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}`);
+    const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}${row.kind === 'dialogue' ? ' is-say' : ''}${row.kind === 'dialogue' && row.cont ? ' is-cont' : ''}`);
     line.dataset.index = String(row.index);
     let inner = html;
-    if (row.kind === 'dialogue') inner = `<span class="igs-fm-who">${esc(row.who)}${view.settings.showMood && row.mood ? `（${esc(row.mood)}）` : ''}：</span>${html}`;
+    if (row.kind === 'dialogue') inner = `<span class="igs-fm-who">${esc(row.who)}${row.moodTag ? `<span class="igs-fm-mood">（${esc(row.moodTag)}）</span>` : ''}：</span>${html}`;
     else if (row.kind === 'thought') inner = `<span class="igs-fm-who">${esc(row.who)}</span>（${html}）`;
     else if (row.label) inner = `<span class="igs-fm-who">${esc(row.label)}：</span>${html}`;
     line.dataset.html = inner;

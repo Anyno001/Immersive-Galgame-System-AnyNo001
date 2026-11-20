@@ -102,7 +102,7 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.logReader\.(perTap|veil|density)$/.test(path)) return Number(value);
         if (/^readerSettings\.chatReader\.(on|followTheme|thoughtClear|typing|charAvatar|userAvatar|chain|scrubber|chip)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.chatReader\.(radius|fontSize|dim|perTap)$/.test(path)) return Number(value);
-        if (/^readerSettings\.forumReader\.(on|prompt|chain|scrubber|showMood|foldNsfw)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.forumReader\.(on|prompt|chain|scrubber|foldNsfw)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.forumReader\.(perPost|fontSize|perTap)$/.test(path)) return Number(value);
         if (path === 'readerSettings.toolbarColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
         if (/^readerSettings\.chatReader\.(leftColor|rightColor)$/.test(path)) return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#ffffff';
