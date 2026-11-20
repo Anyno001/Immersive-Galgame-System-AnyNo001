@@ -33,7 +33,6 @@ ${R} .igs-fm-line.igs-fm-fade{animation:igs-fm-in .32s ease-out both;}
 @keyframes igs-fm-in{0%{opacity:0;}100%{opacity:1;}}
 ${R} .igs-fm-fl{opacity:0;animation:igs-fm-fl .26s ease-out forwards;}
 @keyframes igs-fm-fl{0%{opacity:0;filter:blur(2px);}100%{opacity:1;filter:none;}}
-${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-fm-bar,var(--igs-log-sub))!important;}
 ${R} .igs-fm-line:last-child{margin-bottom:0;}
 ${R} .igs-fm-line.is-thought{color:var(--igs-fm-sub,#707070);}
 ${R} .igs-fm-who{font-weight:700;margin-right:.1em;}

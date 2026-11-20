@@ -954,6 +954,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
     if (root && typeof root.setAttribute === 'function') {
         const plateMode = ['blur', 'solid', 'off'].includes(readerSettings.toolbarPlate) ? readerSettings.toolbarPlate : 'off';
         root.setAttribute('data-igs-bar-plate', plateMode);
+        if (/^#[0-9a-fA-F]{6}$/.test(readerSettings.toolbarColor)) root.style.setProperty('--igs-bar-color', readerSettings.toolbarColor); else root.style.removeProperty('--igs-bar-color');
     }
     if (toolbar) {
         toolbar.setAttribute('data-igs-toolbar-dock', toolbarDock);

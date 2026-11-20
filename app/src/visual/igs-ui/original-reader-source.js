@@ -112,7 +112,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
 
 // 对话框底部快捷栏：经典 galgame 文本框底部那一排。透明底、跟对话框文字同色，换皮肤自动跟随；手机居中，电脑（精确指针）靠左。
 const DIALOG_BAR_STYLE_TEXT = `
-#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0;margin-top:4px;flex-shrink:0;pointer-events:auto;color:inherit;}
+#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0;margin-top:4px;flex-shrink:0;pointer-events:auto;color:var(--igs-bar-color,inherit);}
 #igs-dialog-bar[hidden]{display:none!important;}
 @media (hover:hover) and (pointer:fine){#igs-dialog-bar:not([data-igs-align]){justify-content:flex-start;}}
 #igs-dialog-bar[data-igs-align="left"]{justify-content:flex-start;}
@@ -395,7 +395,7 @@ ${TOAST_THEME_STYLE_TEXT}
 #igs-overlay[data-igs-input="float"]:not(.igs-toolbar-top)>.igs-controls{bottom:calc(24px + var(--igs-dialog-h,160px) + 50px);}
 #igs-overlay[data-igs-input="float"][data-igs-options-on]:not(.igs-free-input)>.igs-controls{display:none!important;}
 /* 工具栏统一：干净的半透明小底板，淡淡跟随皮肤（--igs-bar-plate 对话框底色、--igs-bar-ink 正文色，由渲染层写入）；单行、等大、等距，不用毛玻璃和阴影。 */
-#igs-overlay #igs-ctrl-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:0;padding:2px 3px;border:0;border-radius:10px;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 5%,transparent);color:var(--igs-bar-ink,#fff);}
+#igs-overlay #igs-ctrl-bar{display:flex;flex-wrap:nowrap;align-items:center;gap:0;padding:2px 3px;border:0;border-radius:10px;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:color-mix(in srgb,var(--igs-bar-plate,rgb(18,18,20)) 5%,transparent);color:var(--igs-bar-color,var(--igs-bar-ink,#fff));}
 #igs-overlay:not(.igs-toolbar-top):not(.igs-mode-embedded) #igs-ctrl-bar{top:auto;bottom:calc(100% + 8px);}
 #igs-overlay #igs-ctrl-bar{align-items:flex-start;}
 #igs-overlay #igs-bar-btns,#igs-overlay #igs-bar-pinned{gap:0!important;align-items:center;align-content:flex-start;height:auto;min-height:28px;}

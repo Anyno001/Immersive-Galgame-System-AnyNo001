@@ -350,7 +350,6 @@ function applyAttrs(overlay, root, view) {
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
     const fonts = view.fonts || {};
     if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
-    if (st.barColor) overlay.style.setProperty('--igs-fm-bar', st.barColor); else overlay.style.removeProperty('--igs-fm-bar');
     const bar = root.querySelector('.igs-fm-bar');
     if (bar && bar.textContent !== view.board) bar.textContent = view.board || '';
     const dialog = overlay.querySelector('#igs-dialog');
@@ -365,7 +364,6 @@ export function syncForumReader(overlay, view) {
     if (!overlay) return { revealing: null };
     if (!view) {
         overlay.removeAttribute('data-igs-forum-reader');
-        overlay.style.removeProperty('--igs-fm-bar');
         overlay.removeAttribute('data-igs-log-reader');
         return { revealing: null };
     }

@@ -40,7 +40,5 @@ export function normalizeForumReaderSettings(value) {
         showMood: src.showMood === true,
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',
-        // 工具栏颜色：空 = 沿用纵向的文字色，否则用自选实色。
-        barColor: /^#[0-9a-fA-F]{6}$/.test(src.barColor) ? src.barColor.toLowerCase() : '',
     };
 }

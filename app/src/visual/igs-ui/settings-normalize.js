@@ -104,7 +104,7 @@ export function normalizeSettingsValue(path, value) {
         if (/^readerSettings\.chatReader\.(radius|fontSize|dim|perTap)$/.test(path)) return Number(value);
         if (/^readerSettings\.forumReader\.(on|prompt|chain|scrubber|showMood)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.forumReader\.(perPost|fontSize|perTap)$/.test(path)) return Number(value);
-        if (path === 'readerSettings.forumReader.barColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
+        if (path === 'readerSettings.toolbarColor') return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
         if (/^readerSettings\.chatReader\.(leftColor|rightColor)$/.test(path)) return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#ffffff';
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
