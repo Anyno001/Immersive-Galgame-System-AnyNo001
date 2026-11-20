@@ -3404,6 +3404,13 @@ ${row.key}`;
         log.batchStartFor = key;
         current.autoPlayer?.refresh();
         try {
+            if (per >= 1e6 && readerKindOf(current) === 'forum' && end - 1 > from) {
+                log.live = -1;
+                current.index = end - 1;
+                current.pageRenderAt = Date.now();
+                rerenderActiveReader();
+                return;
+            }
             for (let i = from; i < end; i++) {
                 if (state.activeReader !== current || log.key !== key) return;
                 if (log.skip) {
