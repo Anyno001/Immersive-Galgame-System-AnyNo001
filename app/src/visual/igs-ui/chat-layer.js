@@ -142,7 +142,16 @@ function renderRow(doc, m, ancient = false, ttsIndex = -1) {
     const row = el(doc, 'div', `igs-chat-row is-${side}${m.initial ? ' has-avatar' : ''}`);
     if (m.initial) row.appendChild(renderAvatar(doc, m));
     const body = el(doc, 'div', 'igs-chat-body');
-    if (m.showName) body.appendChild(el(doc, 'div', 'igs-chat-name', m.displayName));
+    if (m.showName) {
+        const name = el(doc, 'div', 'igs-chat-name');
+        if (m.nameDot) {
+            const dot = el(doc, 'i', 'igs-chat-dot-name');
+            dot.style.background = m.nameDot;
+            name.appendChild(dot);
+        }
+        name.appendChild(doc.createTextNode(m.displayName || ''));
+        body.appendChild(name);
+    }
     if (ttsIndex >= 0) {
         // 播放键与气泡同排，按气泡高度居中。
         const line = el(doc, 'div', 'igs-chat-line');
@@ -638,7 +647,8 @@ export const CHAT_LAYER_STYLE_TEXT = `
 #igs-chat-layer .igs-chat-row.is-right .igs-chat-body{align-items:flex-end;}
 #igs-chat-layer .igs-chat-avatar{flex:none;width:36px;height:36px;border-radius:8px;object-fit:cover;box-shadow:0 1px 3px rgba(0,0,0,.2);}
 #igs-chat-layer .igs-chat-avatar.is-initial{display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;text-shadow:0 1px 1px rgba(0,0,0,.15);}
-#igs-chat-layer .igs-chat-name{margin:0 6px 3px;color:rgba(255,255,255,.82);font-size:12px;text-shadow:0 1px 2px rgba(0,0,0,.5);}
+#igs-chat-layer .igs-chat-name{display:flex;align-items:center;gap:5px;margin:0 6px 3px;color:rgba(255,255,255,.82);font-size:12px;text-shadow:0 1px 2px rgba(0,0,0,.5);}
+#igs-chat-layer .igs-chat-dot-name{flex:none;width:7px;height:7px;border-radius:50%;}
 #igs-chat-layer .igs-chat-bubble{padding:9px 13px;border-radius:var(--igs-chat-radius,16px);border:1.5px solid var(--igs-chat-border,transparent);font-size:15px;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 2px 8px rgba(0,0,0,.18);box-sizing:border-box;}
 #igs-chat-layer .igs-chat-row.is-left .igs-chat-bubble{border-top-left-radius:min(5px,var(--igs-chat-radius,16px));}
 #igs-chat-layer .igs-chat-row.is-right .igs-chat-bubble{border-top-right-radius:min(5px,var(--igs-chat-radius,16px));}

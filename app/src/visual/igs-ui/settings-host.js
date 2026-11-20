@@ -85,7 +85,7 @@ export function createSettingsHost(deps) {
     const {
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
-        state, takeReaderStaleBehindSettings, invalidateFloorAssetPlan, openLive2dManager,
+        state, takeReaderStaleBehindSettings, invalidateFloorAssetPlan, openLive2dManager, forumRegistry,
     } = deps;
     const settingsDialogs = createSettingsDialogs({
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
@@ -97,7 +97,7 @@ export function createSettingsHost(deps) {
     // 手指按着或 ⋯ 菜单开着时不整页重绘：重绘会收掉菜单、换掉按下的按钮，点击落空。
     let settingsPointerDown = false;
     const { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, buildRegexPreview, settingsLowQuality } = createSettingsRenderer({
-        normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state,
+        normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state, forumRegistry,
     });
 
     function settingsInteracting() {
@@ -549,6 +549,30 @@ export function createSettingsHost(deps) {
             const nextMode = normalizeReaderMode(value, draft.bridge);
             setPath(draft, path, nextMode);
             return rerenderSettings();
+        }
+
+        // 论坛登记（标题、板块、代号）随聊天存在 chatMetadata，不进设置草稿：虚拟 path 直接写登记。
+        const forumField = /^forum\.(title|board|alias)(?:\.(.+))?$/.exec(path);
+        if (forumField && forumRegistry) {
+            const registry = forumRegistry;
+            const data = registry.read();
+            const text = String(value == null ? '' : value).trim();
+            const manual = { ...data.manual, alias: { ...data.manual.alias } };
+            if (forumField[1] === 'alias') {
+                const key = decodeURIComponent(forumField[2] || '');
+                const alias = { ...data.alias };
+                if (text) { alias[key] = text; manual.alias[key] = true; } else { delete alias[key]; delete manual.alias[key]; }
+                registry.commit({ ...data, alias, manual });
+            } else {
+                manual[forumField[1]] = Boolean(text);
+                registry.commit({ ...data, [forumField[1]]: text, manual });
+            }
+            return { ok: true };
+        }
+        // 纵向阅读、线上聊天、论坛体三种模式并列互斥：打开一个，自动关掉另外两个。
+        const readerModePath = /^readerSettings\.(logReader|chatReader|forumReader)\.on$/.exec(path);
+        if (readerModePath && value === true) {
+            for (const name of ['logReader', 'chatReader', 'forumReader']) if (name !== readerModePath[1]) setPath(draft, `readerSettings.${name}.on`, false);
         }
 
         // 对话框高度下拉里的「自适应 / 固定」：写 dialogAutoHeight，不动高度比例；选具体比例时顺手关掉自适应。

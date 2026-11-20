@@ -101,7 +101,7 @@ const READER_SCOPE_CATEGORIES = new Set(['dash', 'style', 'text', 'ui', 'perf', 
 
 const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
 
-export function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state }) {
+export function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state, forumRegistry = null }) {
     // 草稿可被原地修改，整理结果按「草稿引用 + 修订号」缓存；只有调用方声明草稿没动（reuseNormalized）时才复用，
     // 任何写草稿的入口都会递增 draftRevision，缓存因此不会让改过的设置显示旧值。
     function normalizeSettingsDraft(settingsState) {
@@ -1071,6 +1071,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const perfExtras = () => {
             const readerValues = getReaderValues();
             return ({ worldviewId: resolveWorldview(worldviewAssets), fontOptions: readerValues.fontOptions,
+                forumRegistry: forumRegistry ? forumRegistry.read() : null,
                 // 直播间是现代专属：非现代世界观没开随身手机时整块被拨掉，行内提示一句。
                 liveBlocked: applyFxWorldview({ liveFx: { enabled: true } }, resolveWorldview(worldviewAssets), { carryPhone: Boolean(worldviewAssets && worldviewAssets.carryPhone === true) }).liveFx.enabled !== true,
                 canUndo: Boolean(asyncState.perfPresetUndo),

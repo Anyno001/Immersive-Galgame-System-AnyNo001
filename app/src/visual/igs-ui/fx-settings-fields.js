@@ -9,6 +9,9 @@ import { COMIC_TONE_KINDS, COMIC_TONE_LABELS } from './comic-settings.js';
 import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
 import { LOG_PERCENTS } from './log-reader-settings.js';
+import { CHAT_READER_DIMS, CHAT_READER_RADII } from './chat-reader-settings.js';
+import { FORUM_PER_POST_MAX, FORUM_PER_POST_MIN } from './forum-reader-settings.js';
+import { renderForumRegistryFields } from './forum-reader-fields.js';
 
 // 纵向阅读模式的头像样式：按钮图标画出底框外形；破框的头从底框里伸出来（底框淡色、头实色）。
 const AVATAR_ICON = (plate) => `<svg viewBox="0 0 24 24" focusable="false">${plate}</svg>`;
@@ -82,7 +85,7 @@ export function fxPromptsCopyText(reader) {
 const grid = (body) => `<div class="igs-source-filter-grid">${body}</div>`;
 
 // 漫画演出各项的设置片段，由「演出」页按分类重新编排；持久化路径不变。
-export function renderFxFeatureFields(reader, more = collapsible, fontOptions = DIALOG_FONT_OPTIONS) {
+export function renderFxFeatureFields(reader, more = collapsible, fontOptions = DIALOG_FONT_OPTIONS, forumRegistry = null) {
     const s = normalizeFxReaderSettings(reader);
     const p = 'readerSettings';
     const style = perfItem(more, 'fx-style', field(`${p}.fxStyle.motion`, '演出风格', segmentedInput(`${p}.fxStyle.motion`, s.fxStyle.motion, [['smooth', '渐变演出'], ['snappy', '灵动演出']], '演出风格')))
@@ -140,6 +143,38 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.logReader.scrubber`, lr.scrubber, '页码进度条（拖动跳页）')
         + checkbox(`${p}.logReader.chip`, lr.chip, '名字后显示情绪')
         + checkbox(`${p}.logReader.userAvatar`, lr.userAvatar, '显示User头像'));
+    const cr = s.chatReader;
+    const chatReader = featureRow(more, 'chat-reader', `${p}.chatReader.on`, cr.on, '线上聊天模式', '手机与内嵌长屏改为聊天气泡，与纵向阅读模式二选一', field(`${p}.chatReader.perTap`, '每次显示', segmentedInput(`${p}.chatReader.perTap`, cr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
+        + field(`${p}.chatReader.speed`, '出字节奏', segmentedInput(`${p}.chatReader.speed`, cr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出字节奏'))
+        + field(`${p}.chatReader.radius`, '气泡圆角', selectInput(`${p}.chatReader.radius`, cr.radius, CHAT_READER_RADII.map((n) => [n, `${n}px`])))
+        + field(`${p}.chatReader.fontSize`, '气泡字号', selectInput(`${p}.chatReader.fontSize`, cr.fontSize, [13, 14, 15, 16, 17, 18, 19].map((n) => [n, `${n}px`])))
+        + field(`${p}.chatReader.groupGap`, '换人间距', segmentedInput(`${p}.chatReader.groupGap`, cr.groupGap, [['compact', '紧凑'], ['normal', '标准'], ['wide', '宽松']], '换人间距'))
+        + field(`${p}.chatReader.dim`, '背景压暗', selectInput(`${p}.chatReader.dim`, cr.dim, CHAT_READER_DIMS.map((n) => [n, n === 0 ? '不压暗' : `${Math.round(n * 100)}%`])))
+        + checkbox(`${p}.chatReader.followTheme`, cr.followTheme, '气泡颜色与字体跟随对话框皮肤')
+        + (cr.followTheme ? '' : field(`${p}.chatReader.leftColor`, '角色气泡色', colorInput(`${p}.chatReader.leftColor`, cr.leftColor)) + field(`${p}.chatReader.rightColor`, 'User气泡色', colorInput(`${p}.chatReader.rightColor`, cr.rightColor)))
+        + field(`${p}.chatReader.narr`, '旁白样式', segmentedInput(`${p}.chatReader.narr`, cr.narr, [['bar', '深底条'], ['shadow', '投影字']], '旁白样式'))
+        + field(`${p}.chatReader.avatar`, '头像形状', segmentedInput(`${p}.chatReader.avatar`, cr.avatar, [['card', '圆角方'], ['circle', '圆形']], '头像形状'))
+        + field(`${p}.chatReader.emotion`, '情绪符号', segmentedInput(`${p}.chatReader.emotion`, cr.emotion, [['once', '播一遍'], ['loop', '循环'], ['off', '关闭']], '情绪符号'))
+        + field(`${p}.chatReader.moodSize`, '情绪大小', segmentedInput(`${p}.chatReader.moodSize`, cr.moodSize, [['l', '大'], ['m', '中'], ['s', '小']], '情绪大小'))
+        + checkbox(`${p}.chatReader.typing`, cr.typing, '角色发言前显示「正在输入」')
+        + checkbox(`${p}.chatReader.thoughtClear`, cr.thoughtClear, '心里话气泡透明（关闭为浅色实底）')
+        + checkbox(`${p}.chatReader.chain`, cr.chain, '连续播放（关闭后点一下只出一条）')
+        + checkbox(`${p}.chatReader.scrubber`, cr.scrubber, '页码进度条（拖动跳页）')
+        + checkbox(`${p}.chatReader.chip`, cr.chip, '名字后显示情绪')
+        + checkbox(`${p}.chatReader.charAvatar`, cr.charAvatar, '显示对方头像')
+        + checkbox(`${p}.chatReader.userAvatar`, cr.userAvatar, '显示User头像'));
+    const fr = s.forumReader;
+    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '手机与内嵌长屏改为匿名论坛帖，三种阅读模式只开一种', field(`${p}.forumReader.poster`, '楼主', segmentedInput(`${p}.forumReader.poster`, fr.poster, [['auto', '让 AI 挑'], ['char', '角色本人'], ['witness', '围观路人'], ['user', 'User']], '楼主'))
+        + field(`${p}.forumReader.othersThoughts`, '其他人的心里话', segmentedInput(`${p}.forumReader.othersThoughts`, fr.othersThoughts, [['hide', '不显示'], ['show', '照常显示']], '其他人的心里话'))
+        + field(`${p}.forumReader.replies`, '路人回帖', segmentedInput(`${p}.forumReader.replies`, fr.replies, [['off', '关'], ['few', '少'], ['normal', '标准']], '路人回帖'))
+        + field(`${p}.forumReader.perPost`, '一楼最多行数', selectInput(`${p}.forumReader.perPost`, fr.perPost, Array.from({ length: FORUM_PER_POST_MAX - FORUM_PER_POST_MIN + 1 }, (_, i) => [FORUM_PER_POST_MIN + i, `${FORUM_PER_POST_MIN + i}行`])))
+        + field(`${p}.forumReader.fontSize`, '正文字号', selectInput(`${p}.forumReader.fontSize`, fr.fontSize, [13, 14, 15, 16, 17, 18, 19].map((n) => [n, `${n}px`])))
+        + field(`${p}.forumReader.perTap`, '每次显示', segmentedInput(`${p}.forumReader.perTap`, fr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
+        + field(`${p}.forumReader.speed`, '出现节奏', segmentedInput(`${p}.forumReader.speed`, fr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出现节奏'))
+        + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记帖子标题、楼主和代号')
+        + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放（关闭后点一下只出一条）')
+        + checkbox(`${p}.forumReader.scrubber`, fr.scrubber, '页码进度条（拖动跳页）')
+        + renderForumRegistryFields(forumRegistry));
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));
     const crowd = featureRow(more, 'crowd-fx', `${p}.crowdFx.enabled`, s.crowdFx.enabled, '人群氛围', '人多的地点', checkbox(`${p}.crowdFx.react`, s.crowdFx.react, '正文写到鼓掌、欢呼时整群反应'));
     const notifyCenter = featureRow(more, 'notify-center', `${p}.notifyCenter.enabled`, s.notifyCenter.enabled, '通知中心', '攒下没点开的消息');
@@ -150,5 +185,5 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
     const dlc = dlcDefs.length
         ? perfItem(more, 'dlc-fx', `<span>扩展演出（DLC）</span>`, { hint: `${dlcDefs.length}个`, detail: grid(dlcDefs.map((def) => checkbox(`${p}.dlcFx.${def.kind}`, dlcOff[def.kind] !== false, def.label)).join('')) })
         : '';
-    return { style, manga, heartbeat, flash, title, favor, itemFx, battleCreature, resultFx, tags, clash, innerDemon, dlc, sound, comic, logReader, mangaBack, crowd, notifyCenter };
+    return { style, manga, heartbeat, flash, title, favor, itemFx, battleCreature, resultFx, tags, clash, innerDemon, dlc, sound, comic, logReader, chatReader, forumReader, mangaBack, crowd, notifyCenter };
 }

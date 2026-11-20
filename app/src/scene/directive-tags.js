@@ -81,7 +81,9 @@ const CHECK_INLINE_RE = /\[igs-check:[^\]}\n]*(?:[\]}]|$)/gm;
 const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
 // 数值标签 [igs-stat:…] 只给脚本结算用，任何出口都不显示；容错写法与 scene/stats/stat-directives.js 一致（全角括号、全角冒号、字段可换行）。
 const STAT_INLINE_RE = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]/gi;
-const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
+// 论坛体登记标签 [igs-forum:…] 只给论坛模式登记用，任何出口都不显示。
+const FORUM_INLINE_RE = /[\[【［]\s*igs\s*-?\s*forum\s*[:：][^\]】］\n]*(?:[\]】］]|$)/gim;
+const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:|forum:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
@@ -119,7 +121,7 @@ export function stripCombatBlockTags(text) {
 }
 
 export function stripMarkerDirectives(text) {
-    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(COMBAT_BLOCK_TAG_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '').replace(STAT_INLINE_RE, '');
+    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(COMBAT_BLOCK_TAG_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '').replace(STAT_INLINE_RE, '').replace(FORUM_INLINE_RE, '');
 }
 
 export function isMarkerDirectiveLine(line) {

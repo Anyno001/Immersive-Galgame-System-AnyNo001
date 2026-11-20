@@ -526,7 +526,7 @@ export function applyToolbarState(root, current) {
     if (!current.logReaderActive) hiddenSet.add('log-chain');
     const chainButton = root.querySelector('#igs-btn-log-chain');
     if (chainButton) {
-        const on = (readerSettings.logReader || {}).chain !== false;
+        const on = ((current.forumBase ? readerSettings.forumReader : current.chatBase ? readerSettings.chatReader : readerSettings.logReader) || {}).chain !== false;
         const key = on ? 'on' : 'off';
         if (chainButton.getAttribute('data-igs-icon') !== key) {
             chainButton.innerHTML = on ? ORIGINAL_READER_ICONS.chainOn : ORIGINAL_READER_ICONS.chainOff;
@@ -549,6 +549,32 @@ export function applyToolbarState(root, current) {
         setAttrIfChanged(modeButton, 'title', title);
         setAttrIfChanged(modeButton, 'aria-label', title);
         setAttrIfChanged(modeButton, 'aria-pressed', String(on));
+    }
+    const chatModeButton = root.querySelector('#igs-btn-chat-mode');
+    if (chatModeButton) {
+        const on = (readerSettings.chatReader || {}).on === true;
+        const key = on ? 'on' : 'off';
+        if (chatModeButton.getAttribute('data-igs-icon') !== key) {
+            chatModeButton.innerHTML = on ? ORIGINAL_READER_ICONS.chatModeOn : ORIGINAL_READER_ICONS.chatModeOff;
+            chatModeButton.setAttribute('data-igs-icon', key);
+        }
+        const title = on ? '线上聊天模式：开（点一下切回普通对话框）' : '线上聊天模式：关（点一下开启）';
+        setAttrIfChanged(chatModeButton, 'title', title);
+        setAttrIfChanged(chatModeButton, 'aria-label', title);
+        setAttrIfChanged(chatModeButton, 'aria-pressed', String(on));
+    }
+    const forumModeButton = root.querySelector('#igs-btn-forum-mode');
+    if (forumModeButton) {
+        const on = (readerSettings.forumReader || {}).on === true;
+        const key = on ? 'on' : 'off';
+        if (forumModeButton.getAttribute('data-igs-icon') !== key) {
+            forumModeButton.innerHTML = on ? ORIGINAL_READER_ICONS.forumModeOn : ORIGINAL_READER_ICONS.forumModeOff;
+            forumModeButton.setAttribute('data-igs-icon', key);
+        }
+        const title = on ? '论坛体模式：开（点一下切回普通对话框）' : '论坛体模式：关（点一下开启）';
+        setAttrIfChanged(forumModeButton, 'title', title);
+        setAttrIfChanged(forumModeButton, 'aria-label', title);
+        setAttrIfChanged(forumModeButton, 'aria-pressed', String(on));
     }
     const embeddedMode = current.snapshot && current.snapshot.mode === 'embedded';
     const defaultChrome = Boolean(root.classList && root.classList.contains('igs-default-reader-chrome'));

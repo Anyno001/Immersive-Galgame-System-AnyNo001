@@ -55,6 +55,8 @@ import { COMIC_STYLE_TEXT } from './comic-style.js';
 import { MANGA_BACK_STYLE_TEXT } from './manga-back.js';
 import { CROWD_STYLE_TEXT } from './crowd-fx.js';
 import { LOG_READER_STYLE_TEXT } from './log-reader-style.js';
+import { CHAT_READER_STYLE_TEXT } from './chat-reader-style.js';
+import { FORUM_READER_STYLE_TEXT } from './forum-reader-style.js';
 
 import { SETTINGS_THEME_OPTIONS, getSettingsThemePalette } from './settings-theme.js';
 import { STATUS_HUD_PHONE_MEDIA } from '../../data/shujuku/status-hud-model.js';
@@ -97,6 +99,8 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
     { id: 'save', group: 'view', title: '保存图片', html: ORIGINAL_READER_ICONS.save },
     { id: 'hide', group: 'view', title: '隐藏对话框', html: ORIGINAL_READER_ICONS.hide },
     { id: 'log-mode', group: 'view', title: '纵向阅读模式：关', html: ORIGINAL_READER_ICONS.logModeOff },
+    { id: 'chat-mode', group: 'view', title: '线上聊天模式：关', html: ORIGINAL_READER_ICONS.chatModeOff },
+    { id: 'forum-mode', group: 'view', title: '论坛体模式：关', html: ORIGINAL_READER_ICONS.forumModeOff },
     { id: 'live2d-settings', group: 'view', title: 'Live2D 角色绑定', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M8 1 15 5v6l-7 4-7-4V5Zm0 0v14M1 5l7 4 7-4"/></svg>' },
     { id: 'sprite-edit', group: 'view', title: '调整立绘', html: ORIGINAL_READER_ICONS.spriteEdit },
     // 人物状态：只在卡牌战斗扩展开启时显示（applyToolbarState 按设置隐藏），打开与资料菜单「人物状态」项同一面板。
@@ -497,6 +501,8 @@ ${INVENTORY_IMAGE_STYLE_TEXT}
 ${ITEM_IMAGE_VIEWER_STYLE_TEXT}
 ${STAGE_PAUSE_STYLE_TEXT}
 ${LOG_READER_STYLE_TEXT}
+${CHAT_READER_STYLE_TEXT}
+${FORUM_READER_STYLE_TEXT}
 `.trim();
 
 const ORIGINAL_READER_HTML = `

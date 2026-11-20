@@ -6,6 +6,8 @@ import { resolveTextFxPromptRule, textFxGrammarBlock } from './text-fx.js';
 import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar, resolveChatShowPromptRule } from './chat-show-runtime.js';
 import { enabledFxTagKinds, FX_PROMPT_KEYS, normalizeFxPromptsSettings } from './fx-settings.js';
+import { forumPromptText, forumRegistered, forumShortPromptText } from './forum-reader-lines.js';
+import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
 import { danmakuGrammarBlocks, liveDetailedBlock, resolveDanmakuPromptRule } from './danmaku-prompt.js';
 import { feedGrammarBlocks } from './feed-prompt.js';
@@ -80,6 +82,12 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
     if (chatShow.enabled) {
         // 用户自己写的聊天提示词每轮都发，不折叠成索引。
         blocks.push({ key: 'chat', adaptive: !chatShow.promptRule, full: resolveChatShowGrammar(rs.chatShow, { ancient }), index: `${ancient ? '书信往来' : '线上聊天'} igs-chat/igs-msg/igs-chat-end` });
+    }
+    // 论坛体：开着且允许登记时每轮都发（登记前给完整写法，登记后只留事实）；_forum 是宿主从聊天元数据读来的登记。
+    const forum = normalizeForumReaderSettings(rs.forumReader);
+    if (forum.on && forum.prompt) {
+        const registered = forumRegistered(rs._forum);
+        blocks.push({ key: 'forum', full: registered ? forumShortPromptText(forum, rs._forum) : forumPromptText(forum, rs._forum), index: '论坛体 igs-forum' });
     }
     const dailyKinds = enabledDailyFxKinds(rs.dailyFx);
     const dailyLines = dailyGrammarLines(rs.dailyFx);

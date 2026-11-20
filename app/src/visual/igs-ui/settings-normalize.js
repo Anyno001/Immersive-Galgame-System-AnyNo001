@@ -100,6 +100,11 @@ export function normalizeSettingsValue(path, value) {
         if (creatureScale) return normalizeCreatureDisplaySettings({ [creatureScale[1]]: value })[creatureScale[1]];
         if (/^readerSettings\.logReader\.(on|userAvatar|chip|chain)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
         if (/^readerSettings\.logReader\.(perTap|veil|density)$/.test(path)) return Number(value);
+        if (/^readerSettings\.chatReader\.(on|followTheme|thoughtClear|typing|charAvatar|userAvatar|chain|scrubber|chip)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.chatReader\.(radius|fontSize|dim|perTap)$/.test(path)) return Number(value);
+        if (/^readerSettings\.forumReader\.(on|prompt|chain|scrubber)$/.test(path)) return value === true || value === 'true' || value === 1 || value === '1';
+        if (/^readerSettings\.forumReader\.(perPost|fontSize|perTap)$/.test(path)) return Number(value);
+        if (/^readerSettings\.chatReader\.(leftColor|rightColor)$/.test(path)) return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#ffffff';
         if (path === 'readerSettings.comicMode.palette') return value === 'color' ? 'color' : 'mono';
         if (path === 'readerSettings.comicMode.line') return ['thin', 'medium', 'bold'].includes(value) ? value : 'medium';
         if (path === 'readerSettings.comicMode.inputStyle') return value === 'plain' ? 'plain' : 'comic';
