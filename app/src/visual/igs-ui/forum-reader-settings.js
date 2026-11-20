@@ -1,4 +1,4 @@
-import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_SPEEDS } from './log-reader-settings.js';
+import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log-reader-settings.js';
 
 // 论坛体阅读模式的设置：与纵向、线上聊天互斥并列。标题 / 板块 / 代号按聊天存（chatMetadata），不在这里。
 export const FORUM_POSTERS = Object.freeze(['auto', 'char', 'witness', 'user']);
@@ -33,5 +33,9 @@ export function normalizeForumReaderSettings(value) {
         chain: src.chain !== false,
         speed: Object.hasOwn(LOG_SPEEDS, src.speed) ? src.speed : 'normal',
         scrubber: src.scrubber === true,
+        showMood: src.showMood === true,
+        reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'fade',
+        // 工具栏颜色：空 = 沿用纵向的文字色，否则用自选实色。
+        barColor: /^#[0-9a-fA-F]{6}$/.test(src.barColor) ? src.barColor.toLowerCase() : '',
     };
 }

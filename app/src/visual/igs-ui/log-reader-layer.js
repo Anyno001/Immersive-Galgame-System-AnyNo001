@@ -10,15 +10,15 @@ const REPLAY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 import { cachedSpriteNameColor, spriteNameColor } from './character-name-color.js';
 import { armTextFx, disarmTextFx } from './text-fx.js';
 import { LOG_SPEEDS } from './log-reader-settings.js';
-const FLOW_STEP_MS = 18;
-const FLOW_FADE_MS = 260;
-const TYPE_STEP_MS = 30;
-const TYPE_PAUSE_MS = 120;
+export const FLOW_STEP_MS = 18;
+export const FLOW_FADE_MS = 260;
+export const TYPE_STEP_MS = 30;
+export const TYPE_PAUSE_MS = 120;
 const FADE_MS = 260;
 const ONCE_MS = 1600;
 // 「吼」的弹出时长（text-fx 里 igs-tfx-roar .56s），出字计时至少等它播完。
 const TFX_POP_MS = 560;
-const PAUSE_CHARS = /[，。！？…,.!?]/;
+export const PAUSE_CHARS = /[，。！？…,.!?]/;
 
 function stateOf(overlay) {
     let s = states.get(overlay);
@@ -451,7 +451,7 @@ function observeRow(overlay, log, node) {
     if (s.observer) s.observer.observe(node);
 }
 // 把文字节点拆成逐字 span（保留注音、心里话等标签），返回字数。
-function splitChars(doc, root, delayOf) {
+export function splitChars(doc, root, delayOf, cls = 'igs-log-fl') {
     const walker = doc.createTreeWalker(root, 4);
     const nodes = [];
     for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.nodeValue) nodes.push(n);
@@ -460,7 +460,7 @@ function splitChars(doc, root, delayOf) {
     for (const node of nodes) {
         const frag = doc.createDocumentFragment();
         for (const ch of Array.from(node.nodeValue)) {
-            const span = el(doc, 'span', 'igs-log-fl');
+            const span = el(doc, 'span', cls);
             span.style.animationDelay = `${at}ms`;
             span.textContent = ch;
             frag.append(span);

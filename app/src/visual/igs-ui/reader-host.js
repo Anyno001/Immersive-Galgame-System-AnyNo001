@@ -3611,6 +3611,23 @@ ${row.key}`;
             data = normalizeForum({ ...data, po: data.po || poster, poId: data.poId || forumPoId(chatId), board: data.board || forumBoardOf(data, worldview), title: data.title || forumTitleOf(data, poster, firstScene) });
             if (forumRegistry.stage(data)) forumRegistry.flush();
         }
+        // 新角色首次出场：已有（自动）代号但还没问过用户的，弹小卡片让他确认或改名；问过（改名或沿用）就记下不再问。
+        const askedKeys = (data.manual && data.manual.asked) || {};
+        const pendingAlias = [];
+        for (const row of log.rows.slice(0, log.fresh ? 0 : index + 1)) {
+            const key = row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key;
+            if (!key || key === posterKey || askedKeys[key] || !data.alias[key] || pendingAlias.some((p) => p.key === key)) continue;
+            pendingAlias.push({ key, label: key === FORUM_USER_KEY ? 'User' : key, code: data.alias[key] });
+        }
+        const onAlias = (key, text) => {
+            const cur = forumRegistry.read();
+            const alias = { ...cur.alias };
+            const manual = { ...cur.manual, alias: { ...cur.manual.alias }, asked: { ...cur.manual.asked, [key]: true } };
+            const code = String(text || '').trim();
+            if (code && code !== alias[key]) { alias[key] = code; manual.alias[key] = true; }
+            forumRegistry.commit({ ...cur, alias, manual });
+            if (state.activeReader === current) rerenderActiveReader();
+        };
         const namesOf = (key) => (Array.isArray(assets.characterAliases && assets.characterAliases[key]) ? assets.characterAliases[key] : []);
         const rows = forumRowsOf(log.rows, { poster, alias: data.alias, userKey: floor.userKey, userNames, namesOf, settings: rs.forumReader });
         const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
@@ -3619,8 +3636,8 @@ ${row.key}`;
         const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, sceneTime: firstPage.time || '', sendDate });
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([data.alias, data.title, data.board, poster, settings.othersThoughts, settings.perPost, settings.replies, poId]),
-            rows, plan,
+            sig: JSON.stringify([data.alias, data.title, data.board, poster, settings.showMood, settings.othersThoughts, settings.perPost, settings.replies, poId]),
+            rows, plan, pendingAlias, onAlias,
             board: forumBoardOf(data, worldview),
             head: forumIsFirstFloor(messageId) ? { title: forumTitleOf(data, poster, '') } : null,
             upto: log.fresh ? -1 : index,

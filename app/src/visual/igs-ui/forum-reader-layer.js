@@ -1,4 +1,5 @@
 import { LOG_SPEEDS } from './log-reader-settings.js';
+import { FLOW_FADE_MS, FLOW_STEP_MS, PAUSE_CHARS, TYPE_PAUSE_MS, TYPE_STEP_MS, splitChars } from './log-reader-layer.js';
 import { VOICE_ICON } from './voice-icon.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
@@ -221,7 +222,7 @@ function buildRow(overlay, list, i, view, live) {
     const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}`);
     line.dataset.index = String(row.index);
     let inner = html;
-    if (row.kind === 'dialogue') inner = `<span class="igs-fm-who">${esc(row.who)}：</span>${html}`;
+    if (row.kind === 'dialogue') inner = `<span class="igs-fm-who">${esc(row.who)}${view.settings.showMood && row.mood ? `（${esc(row.mood)}）` : ''}：</span>${html}`;
     else if (row.kind === 'thought') inner = `<span class="igs-fm-who">${esc(row.who)}</span>（${html}）`;
     else if (row.label) inner = `<span class="igs-fm-who">${esc(row.label)}：</span>${html}`;
     line.dataset.html = inner;
@@ -251,11 +252,27 @@ function appendReplies(overlay, list, postIndex, view, live) {
 function reveal(overlay, built, view) {
     const s = stateOf(overlay);
     const win = winOf(overlay);
+    const doc = overlay.ownerDocument;
     const fade = () => { for (const n of built.fades) n.classList.add('is-in'); };
     const line = built.text;
     const html = line ? line.dataset.html || '' : '';
     const k = LOG_SPEEDS[view.settings.speed] || 1;
     const calm = reducedMotion(overlay);
+    const mode = calm ? 'off' : view.settings.reveal;
+    const setHtml = () => {
+        const play = line.querySelector('.igs-fm-play');
+        line.innerHTML = html;
+        if (play) line.append(play);
+    };
+    // 打字机 / 流水展开：逐字出现；整句淡入沿用原做法；直接显示不拆字。
+    let total = FADE_MS * k;
+    if (line && (mode === 'type' || mode === 'flow')) {
+        setHtml();
+        total = mode === 'type'
+            ? splitChars(doc, line, (ch) => (PAUSE_CHARS.test(ch) ? TYPE_PAUSE_MS : TYPE_STEP_MS) * k, 'igs-fm-fl')
+            : splitChars(doc, line, () => FLOW_STEP_MS * k, 'igs-fm-fl') + FLOW_FADE_MS;
+        if (mode === 'type') for (const span of line.querySelectorAll('.igs-fm-fl')) span.style.animationDuration = '1ms';
+    } else if (mode === 'off') total = 0;
     return new Promise((resolve) => {
         let done = false;
         let timer = null;
@@ -264,21 +281,51 @@ function reveal(overlay, built, view) {
             done = true;
             if (s.reveal === job) s.reveal = null;
             win.clearTimeout(timer);
-            if (line) {
-                const play = line.querySelector('.igs-fm-play');
-                line.innerHTML = html;
-                if (play) line.append(play);
-                line.classList.add('is-in');
-            }
+            if (line) { setHtml(); line.classList.add('is-in'); }
             fade();
             resolve();
         };
         const job = { finish };
         s.reveal = job;
-        if (line) line.classList.remove('is-in');
-        win.requestAnimationFrame(() => { if (!done) { fade(); if (line) { const play = line.querySelector('.igs-fm-play'); line.innerHTML = html; if (play) line.append(play); line.classList.add('is-in'); } } });
-        timer = win.setTimeout(finish, calm ? 0 : FADE_MS * k);
+        if (mode === 'type' || mode === 'flow') {
+            fade();
+        } else if (mode === 'fade') {
+            if (line) line.classList.remove('is-in');
+            win.requestAnimationFrame(() => { if (!done) { fade(); if (line) { setHtml(); line.classList.add('is-in'); } } });
+        }
+        timer = win.setTimeout(finish, total);
     });
+}
+
+// 新角色代号小卡片：贴在列表上方，一个角色一行，输入代号后确定，或沿用自动代号。
+function syncAliasCard(overlay, root, view) {
+    const doc = overlay.ownerDocument;
+    const items = Array.isArray(view.pendingAlias) ? view.pendingAlias : [];
+    let card = root.querySelector('.igs-fm-alias');
+    const sig = JSON.stringify(items);
+    if (!items.length) { if (card) card.remove(); return; }
+    if (card && card.dataset.sig === sig) return;
+    if (!card) { card = el(doc, 'div', 'igs-fm-alias'); root.append(card); }
+    card.dataset.sig = sig;
+    card.textContent = '';
+    for (const item of items.slice(0, 3)) {
+        const row = el(doc, 'div', 'igs-fm-alias-row');
+        const label = el(doc, 'span', 'igs-fm-alias-name');
+        label.textContent = `${item.label} 首次出场，登记代号`;
+        const input = el(doc, 'input', 'igs-fm-alias-input');
+        input.type = 'text';
+        input.maxLength = 24;
+        input.value = item.code;
+        const ok = el(doc, 'button', 'igs-fm-alias-ok');
+        ok.type = 'button';
+        ok.textContent = '确定';
+        const submit = () => { if (view.onAlias) view.onAlias(item.key, input.value); };
+        ok.addEventListener('click', (event) => { event.stopPropagation(); submit(); });
+        input.addEventListener('keydown', (event) => { event.stopPropagation(); if (event.key === 'Enter') submit(); });
+        input.addEventListener('click', (event) => event.stopPropagation());
+        row.append(label, input, ok);
+        card.append(row);
+    }
 }
 
 function applyAttrs(overlay, root, view) {
@@ -289,6 +336,7 @@ function applyAttrs(overlay, root, view) {
     root.style.setProperty('--igs-fm-fs', `${st.fontSize}px`);
     const fonts = view.fonts || {};
     if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
+    if (st.barColor) overlay.style.setProperty('--igs-fm-bar', st.barColor); else overlay.style.removeProperty('--igs-fm-bar');
     const bar = root.querySelector('.igs-fm-bar');
     if (bar && bar.textContent !== view.board) bar.textContent = view.board || '';
     const dialog = overlay.querySelector('#igs-dialog');
@@ -303,6 +351,7 @@ export function syncForumReader(overlay, view) {
     if (!overlay) return { revealing: null };
     if (!view) {
         overlay.removeAttribute('data-igs-forum-reader');
+        overlay.style.removeProperty('--igs-fm-bar');
         overlay.removeAttribute('data-igs-log-reader');
         return { revealing: null };
     }
@@ -315,6 +364,7 @@ export function syncForumReader(overlay, view) {
     s.view = view;
     applyAttrs(overlay, root, view);
     syncLiveButton(overlay, root, view);
+    syncAliasCard(overlay, root, view);
     const list = root.querySelector('.igs-fm-list');
     const sig = JSON.stringify([view.floorKey, view.sig || '']);
     if (sig !== s.sig || view.upto + 1 < s.rendered) {

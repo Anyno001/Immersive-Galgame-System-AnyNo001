@@ -5,6 +5,7 @@ const ON = '#igs-overlay[data-igs-forum-reader="on"]';
 // 立绘隐藏、对话框收起、输入框换皮复用纵向的 data-igs-log-reader 规则（见 log-reader-style.js）。
 export const FORUM_READER_STYLE_TEXT = `
 ${R}{display:none;}
+${ON} #igs-log{display:none!important;}
 ${ON} ${R}{display:block;position:absolute;inset:0;z-index:1;pointer-events:none;background:#f0e0d6;color:#800000;transition:opacity .35s;--igs-fm-fs:14px;}
 ${R}[data-hidden]{opacity:0;}
 ${R}[data-hidden] .igs-fm-scroll{pointer-events:none;}
@@ -28,6 +29,9 @@ ${R} .igs-fm-nm{color:#117743;font-weight:700;}
 ${R} .igs-fm-po{color:#cc1105;font-weight:700;}
 ${R} .igs-fm-body{font-size:var(--igs-fm-fs);line-height:1.75;color:#222;word-break:break-word;overflow-wrap:anywhere;text-align:left;}
 ${R} .igs-fm-line{margin:0 0 5px;}
+${R} .igs-fm-fl{opacity:0;animation:igs-fm-fl .26s ease-out forwards;}
+@keyframes igs-fm-fl{0%{opacity:0;filter:blur(2px);}100%{opacity:1;filter:none;}}
+${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-fm-bar,var(--igs-log-sub))!important;}
 ${R} .igs-fm-line:last-child{margin-bottom:0;}
 ${R} .igs-fm-line.is-thought{color:#707070;}
 ${R} .igs-fm-who{font-weight:700;margin-right:.1em;}
@@ -45,7 +49,12 @@ ${R} .igs-fm-card{display:flex;align-items:center;gap:8px;margin:6px 0;padding:6
 ${R} .igs-fm-card.is-in{opacity:1;}
 ${R} .igs-fm-card b{font-weight:700;}
 ${R} .igs-fm-card span{color:#707070;}
+${R} .igs-fm-alias{position:absolute;left:10px;right:10px;top:52px;z-index:5;padding:6px 8px;background:#ffffee;border:1px solid #d9bfb7;box-shadow:0 2px 0 #d9bfb7;pointer-events:auto;cursor:default;}
+${R} .igs-fm-alias-row{display:flex;align-items:center;gap:6px;min-height:30px;}
+${R} .igs-fm-alias-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;color:#800000;}
+${R} .igs-fm-alias-input{flex:0 0 96px;width:96px;height:26px;box-sizing:border-box;padding:0 6px;border:1px solid #d9bfb7;background:#f0e0d6;color:#800000;font:inherit;font-size:13px;}
+${R} .igs-fm-alias-ok{flex:none;height:26px;padding:0 10px;border:0;background:#800000;color:#ffffee;font:inherit;font-size:12.5px;cursor:pointer;}
 ${R} .igs-fm-live{position:absolute;top:8px;right:12px;z-index:6;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:#800000;color:#ffffee;display:grid;place-items:center;cursor:pointer;pointer-events:auto;}
 ${R} .igs-fm-live svg{width:16px;height:16px;}
-@media (prefers-reduced-motion:reduce){${R} *{transition:none!important;}}
+@media (prefers-reduced-motion:reduce){${R} *{transition:none!important;}${R} .igs-fm-fl{animation:none!important;opacity:1;}}
 `;

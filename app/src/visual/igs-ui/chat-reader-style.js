@@ -14,6 +14,7 @@ const ON = '#igs-overlay[data-igs-chat-reader="on"]';
 export const CHAT_READER_STYLE_TEXT = `
 ${CHIP_HUES}
 ${R}{display:none;}
+${ON} #igs-log{display:none!important;}
 ${ON} ${R}{display:block;position:absolute;inset:0;z-index:1;pointer-events:none;background:rgba(0,0,0,var(--igs-cr-dim,.3));transition:opacity .35s;}
 ${R}[data-hidden]{opacity:0;}
 ${R}[data-hidden] .igs-cr-scroll{pointer-events:none;}

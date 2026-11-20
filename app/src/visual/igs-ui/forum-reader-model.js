@@ -112,7 +112,7 @@ export function normalizeForum(value) {
         po: cleanPo(src.po),
         alias,
         seq: Math.max(0, Math.round(Number(src.seq) || 0)),
-        manual: { title: manual.title === true, board: manual.board === true, po: manual.po === true, alias: { ...plain(manual.alias) } },
+        manual: { title: manual.title === true, board: manual.board === true, po: manual.po === true, alias: { ...plain(manual.alias) }, asked: { ...plain(manual.asked) } },
     };
 }
 
@@ -257,7 +257,8 @@ function lastSentence(text) {
     const flat = String(text || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
     const parts = flat.split(/(?<=[。！？!?…])/).map((s) => s.trim()).filter(Boolean);
     const last = parts.length ? parts[parts.length - 1] : flat;
-    return Array.from(last).slice(0, QUOTE_MAX).join('');
+    const chars = Array.from(last);
+    return chars.length > QUOTE_MAX ? `${chars.slice(0, QUOTE_MAX).join('').replace(/[，、；：,;:\s]+$/, '')}…` : last;
 }
 
 function pick(list, seed) {
