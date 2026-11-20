@@ -6,7 +6,7 @@ import { WARD_CLICK_WAIT_STYLE } from './dialog-theme-horror-ward.js';
 export const CLICK_WAIT_MARK_GLYPHS = Object.freeze([
     'auto', 'diamond', 'fleuron', 'pendant', 'crescent', 'sparkle', 'strawberry', 'seal', 'triangle-brush',
     'compass', 'chevron', 'leaf', 'star', 'caret', 'triangle', 'heart', 'triangle-hollow', 'blood-drop', 'ribbon', 'eye',
-    'reticle', 'hazard', 'bubbles', 'sword', 'dian', 'brush-tick',
+    'reticle', 'hazard', 'bubbles', 'sword', 'dian', 'brush-tick', 'angel-wing',
 ]);
 
 export const CLICK_WAIT_MARK_LABELS = Object.freeze({
@@ -36,6 +36,7 @@ export const CLICK_WAIT_MARK_LABELS = Object.freeze({
     sword: '倒悬飞剑',
     dian: '墨点',
     'brush-tick': '短竖笔',
+    'angel-wing': '天使翅膀',
 });
 
 export const CLICK_WAIT_MARK_STYLES = Object.freeze(
@@ -107,6 +108,8 @@ const SHAPES = Object.freeze({
     reticle: "<path fill='none' stroke='#000' stroke-width='2' d='M3.5 8V3.5H8M16 3.5H20.5V8M20.5 16V20.5H16M8 20.5H3.5V16'/><path d='M12 7.5L16.5 12L12 16.5L7.5 12Z'/>",
     hazard: "<path fill-rule='evenodd' d='M12 2.6L22.6 20.8H1.4ZM11 8.6H13L12.7 14.8H11.3ZM12 16.2A1.3 1.3 0 1 0 12 18.8A1.3 1.3 0 1 0 12 16.2Z'/>",
     heart: "<path d='M12 20.5C5.5 16 2.5 12.4 2.5 8.6C2.5 5.8 4.7 3.8 7.3 3.8C9.3 3.8 10.9 4.9 12 6.6C13.1 4.9 14.7 3.8 16.7 3.8C19.3 3.8 21.5 5.8 21.5 8.6C21.5 12.4 18.5 16 12 20.5Z'/>",
+    // 可盐可甜：一只圆润的天使右翼，翅背整条外凸、下缘三瓣云朵（与皮肤徽记同一造型的缩小单色版）。
+    'angel-wing': "<path transform='translate(2.8 15.2) rotate(-14) scale(.17)' d='M24 -26 C46 -42 70 -58 100 -64 C114 -69 122 -56 114 -44 C126 -30 116 -6 98 -8 C108 8 96 24 79 19 C83 36 62 46 50 37 C47 52 22 58 14 47 C-2 42 -12 24 -11 8 C-10 -6 4 -18 24 -26 Z'/>",
 });
 
 function shapeUrl(shape) {
@@ -126,6 +129,7 @@ const ANIMATIONS = Object.freeze({
 const GLYPH_ANIMATIONS = Object.freeze({
     pendant: 'tap-soft', seal: 'tap-soft', caret: 'tap-soft', 'triangle-hollow': 'tap-soft', eye: 'tap-soft',
     strawberry: 'tap-hop', star: 'tap-hop', heart: 'tap-hop', ribbon: 'tap-hop', reticle: 'tap-soft', bubbles: 'tap-hop', dian: 'tap-breath', 'brush-tick': 'tap-breath',
+    'angel-wing': 'tap-hop',
 });
 const GLYPH_MARKS = Object.freeze(Object.fromEntries(CLICK_WAIT_MARK_GLYPHS.filter((id) => id !== 'auto')
     .map((id) => [id, { shape: id, animation: GLYPH_ANIMATIONS[id] || 'tap' }])));
@@ -154,6 +158,9 @@ export const CLICK_WAIT_MARK_SKINS = Object.freeze({
     'horror-psych': mark('ribbon', '#e0779d'),
     'scifi-holo': mark('reticle', '#5fe3ff'),
     'wasteland-rust': mark('hazard', '#e3ae2f'),
+    // 可盐可甜：跟随皮肤时画白底灰蓝边的双色小翅膀（dialog-theme-yume-kawaii.js 的 YUME_KAWAII_CLICK_WAIT_STYLE）；
+    // 单色「天使翅膀」形状同时登记在选择器里，别的皮肤也能选用。
+    'yume-kawaii': mark('angel-wing', '#8aa2c6'),
 });
 
 function markVars(mark) {

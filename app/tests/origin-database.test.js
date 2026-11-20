@@ -7,6 +7,10 @@ import { createLedgerMockHost, userInventorySheet } from './helpers/combat-mock-
 import { createHarness, blk } from './origin-host.js';
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
 import { attachOriginEngine } from '../src/visual/igs-ui/origin-attach.js';
+import { createCombatServices } from '../src/core/combat-services.js';
+import { createOriginRuntime } from '../src/core/origin-runtime.js';
+import { createOriginPageController } from '../src/visual/igs-ui/origin-panel.js';
+import { JSDOM } from 'jsdom';
 
 async function setup(options) {
     const host = createLedgerMockHost(options);
@@ -309,4 +313,113 @@ test('随身系统设置：数据库恢复后当前页面自动更新，未保�
     assert.equal(reopened.controller.setValue('bridge.origin.keepFloors', 23).ok, true);
     assert.equal(ui.destroy().ok, true);
     assert.equal(watching.size, 0);
+});
+
+const settleOrigin = async engine => {
+    for (let i = 0; i < 12; i += 1) await new Promise(resolve => setImmediate(resolve));
+    await engine.whenSaved();
+};
+
+test('生产 Origin runtime：只等共享数据库，读取失败手动恢复且面板保持同源', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const game = createHarness({ enabled: false });
+    game.engine.stop();
+    const global = { AutoCardUpdaterAPI: h.host.api };
+    const services = createCombatServices({ global, getChatId: () => game.ctx.chatId,
+        getChat: () => game.ctx.chat, getWallet: () => 500 });
+    const runtime = createOriginRuntime({ getContext: () => game.ctx, readSettings: () => ({ enabled: true }),
+        readLlm: () => ({}), combatServices: services, notice: (kind, text) => game.notes.push({ kind, text }) });
+    const dom = new JSDOM('<div id="overlay"></div>');
+    const panel = createOriginPageController(dom.window.document);
+    t.after(() => { panel.dispose(); dom.window.close(); runtime.destroy(); services.dispose(); h.tables.client.dispose(); });
+    const exported = h.host.api.exportTableAsJson;
+    let loaded = false;
+    h.host.api.exportTableAsJson = () => loaded ? exported() : {};
+    const imports = h.host.calls.importTemplateFromData;
+    runtime.sync();
+    await settleOrigin(runtime.engine);
+    assert.equal(runtime.engine.recoveryStatus().status, 'waiting');
+    assert.equal(h.host.calls.importTemplateFromData, imports);
+    assert.equal(game.notes.length, 0);
+    panel.open(dom.window.document.querySelector('#overlay'));
+    assert.match(dom.window.document.body.textContent, /等待本聊天数据库就绪/);
+    assert.ok(dom.window.document.querySelector('[data-oa="retry-read"]'));
+    loaded = true;
+    for (let i = 0; i < 5; i += 1) h.host.fireTableUpdated();
+    await settleOrigin(runtime.engine);
+    assert.equal(runtime.engine.isBlocked(), null);
+    assert.equal(runtime.engine.getState().points, 500);
+    assert.equal(dom.window.document.querySelector('[data-oa="retry-read"]'), null);
+    h.host.api.exportTableAsJson = () => { throw Error('fixture-read-error'); };
+    h.host.fireTableUpdated();
+    await settleOrigin(runtime.engine);
+    const failed = await runtime.engine.retryRead();
+    assert.equal(failed.stage, 'read');
+    assert.equal(runtime.engine.recoveryStatus().status, 'failed');
+    assert.match(dom.window.document.body.textContent, /读取失败/);
+    h.host.api.exportTableAsJson = exported;
+    h.host.fireTableUpdated();
+    await settleOrigin(runtime.engine);
+    assert.equal(runtime.engine.recoveryStatus().status, 'failed', '实际失败不随通知自动重读');
+    const first = runtime.engine.retryRead();
+    assert.equal(runtime.engine.retryRead(), first);
+    assert.equal((await first).ok, true);
+    assert.equal(runtime.engine.getState().points, 500);
+});
+
+test('读取重试无通知也可恢复，读取中换聊天不发布旧状态', async t => {
+    const h = await setup();
+    const exported = h.host.api.exportTableAsJson;
+    let loaded = false;
+    h.host.api.exportTableAsJson = () => loaded ? exported() : {};
+    h.tables.client.invalidate();
+    const game = createHarness({}, { database: () => h.store, wallet: () => 500 });
+    t.after(() => { game.engine.stop(); h.tables.client.dispose(); });
+    await game.engine.whenSaved();
+    assert.equal(game.engine.recoveryStatus().canRetryRead, true);
+    loaded = true;
+    let release;
+    const load = h.store.load;
+    h.store.load = async options => { await new Promise(resolve => { release = resolve; }); return load(options); };
+    const first = game.engine.retryRead();
+    assert.equal(game.engine.retryRead(), first);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(game.engine.recoveryStatus().busy, true);
+    h.store.load = load;
+    game.ctx.chatId = 'chat-b';
+    game.ctx.chat = [];
+    game.ctx.chatMetadata = {};
+    game.emit('chat_changed', 'chat-b');
+    release();
+    assert.equal((await first).reason, 'request-stale');
+    await game.engine.whenSaved();
+    assert.equal(game.engine.isBlocked(), null);
+    assert.equal(game.state().points, 500);
+});
+
+test('保存失败的原意图和等待楼层保留，读取与通知不补交，双击保存单飞', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const game = createHarness({ achieveOn: false }, { database: () => h.store, wallet: () => 500 });
+    t.after(() => { game.engine.stop(); h.tables.client.dispose(); });
+    await game.engine.whenSaved();
+    const insert = h.host.api.insertRow;
+    h.host.api.insertRow = () => false;
+    assert.equal((await game.engine.dispatch({ type: 'draw' })).ok, false);
+    assert.equal(game.engine.recoveryStatus().canRetrySave, true);
+    assert.equal((await game.engine.retryRead()).reason, 'origin-save-pending');
+    assert.equal((await game.engine.reload()).reason, 'origin-save-pending');
+    game.user(); game.ai('等待期间收入' + blk('积分|+7|恢复'));
+    await game.engine.whenSaved();
+    h.host.api.insertRow = insert;
+    const writes = h.host.calls.insertRow;
+    h.host.fireTableUpdated();
+    await settleOrigin(game.engine);
+    assert.equal(h.host.calls.insertRow, writes);
+    const first = game.engine.retrySave();
+    assert.equal(game.engine.retrySave(), first);
+    assert.equal((await first).ok, true);
+    await game.engine.whenSaved();
+    assert.equal(game.state().points, 447);
+    assert.equal(game.notes.filter(note => note.kind === 'gacha').length, 1);
+    assert.equal(game.engine.recoveryStatus().canRetrySave, false);
 });

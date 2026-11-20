@@ -38,6 +38,7 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
         getContext: ctx,
         ...(combatServices ? {
             database: () => combatServices.originStore(),
+            databaseReadiness: () => combatServices.databaseReadiness(),
             wallet: async (options) => options?.intent
                 ? combatServices.readOriginWallet(options)
                 : externalPoints(await combatServices.readSharedPoints()),

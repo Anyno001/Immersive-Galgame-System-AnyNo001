@@ -9,6 +9,7 @@ import { WARD_ITEM_FRAME } from './dialog-theme-horror-ward.js';
 import { HORROR_HEART_MASK, PSYCH_DROP_MASK } from './dialog-theme-horror.js';
 import { SCIFI_CORNERS, SCIFI_GLASS, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
 import { WASTELAND_HAZARD, WASTELAND_HAZARD_MASK, WASTELAND_STEEL, wastelandRivet, wastelandRust } from './dialog-theme-wasteland.js';
+import { YK_CARD_BG, YK_EDGE, YK_ICE_DEEP, YK_INK, YK_INK_SOFT, YK_STAR_MASK } from './dialog-theme-yume-kawaii.js';
 
 // 物品演出角落卡片：每个对话框皮肤一套专属的框，呼应该皮肤对话框自己的边框语言。
 // 只改框与配色，卡片宽度、位置、动画仍由 fx-item 决定；装饰一律实色，文字用皮肤墨色。
@@ -200,6 +201,16 @@ const FRAMES = {
         before: `right:9px;top:8px;width:12px;height:12px;${mask(WASTELAND_HAZARD_MASK)}`,
         icon: 'background:#211e1a;border-radius:2px;box-shadow:inset 0 0 0 1.5px #5a5245;color:#d6c6a0;',
         desc: 'color:#b9ad94;opacity:1;',
+    },
+    // 可盐可甜：和状态栏同一块料——白星纹铺满的冰蓝玻璃、四边等粗白描边；动作标记是右上角一颗五角星
+    // （获得为冰蓝，失去为灰，使用偏蓝），不用强调色，免得物品色把星染成别的颜色。
+    'yume-kawaii': {
+        mention: YK_ICE_DEEP,
+        ink: YK_INK,
+        card: `--igs-item-mark:#8fa8cc;background:${YK_CARD_BG};${YK_EDGE}border-radius:14px;box-shadow:0 0 10px rgba(255,255,255,.45),0 5px 12px rgba(44,56,82,.22);-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);padding-right:28px;`,
+        before: `left:auto;bottom:auto;right:10px;top:9px;width:12px;height:12px;${mask(YK_STAR_MASK)}`,
+        icon: 'background:linear-gradient(135deg,#d9e3f0,#f2f6fb);border-radius:10px;box-shadow:0 0 0 1.5px #fff,0 0 0 2.5px #c3d1e4;color:#6f88ad;',
+        desc: `color:${YK_INK_SOFT};opacity:1;`,
     },
     'gradient-veil': {
         mention: '#ffe08a',

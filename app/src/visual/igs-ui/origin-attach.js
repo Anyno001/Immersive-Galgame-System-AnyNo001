@@ -37,7 +37,8 @@ export function originChatStatus() {
     try { blocked = typeof engine.isBlocked === 'function' ? engine.isBlocked() : null; } catch (error) { blocked = null; }
     let legacy = false;
     try { legacy = typeof engine.legacyDetected === 'function' ? Boolean(engine.legacyDetected()) : false; } catch (error) { legacy = false; }
-    return { hasChat: Boolean(state), paused: Boolean(state && state.paused), blocked: blocked || null, legacy, world: state ? String(state.world || '') : '' };
+    const recovery = typeof engine.recoveryStatus === 'function' ? engine.recoveryStatus() : null;
+    return { hasChat: Boolean(state), paused: Boolean(state && state.paused), blocked: blocked || null, recovery, legacy, world: state ? String(state.world || '') : '' };
 }
 
 // 设置页的存档操作：recalc / retry / reset / pause / resume / import / dismiss-legacy / world（payload 为新世界名）。
@@ -47,6 +48,7 @@ export async function runAttachedOriginOp(kind, payload) {
     switch (kind) {
     case 'recalc': return engine.recalcAll();
     case 'retry': return typeof engine.retrySave === 'function' ? engine.retrySave() : { ok: false, reason: 'origin-op-unknown' };
+    case 'retry-read': return typeof engine.retryRead === 'function' ? engine.retryRead() : { ok: false, reason: 'origin-op-unknown' };
     case 'reset': return engine.dispatch({ type: 'reset' });
     case 'pause': return engine.dispatch({ type: 'pause' });
     case 'resume': return engine.dispatch({ type: 'resume' });

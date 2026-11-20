@@ -27,6 +27,7 @@ export const CHAT_THEME_PALETTES = Object.freeze({
     'plant-coffee': palette('#f3ecdf', '#7f8a55', '#f6ecd9', '#5b4643', '#8d7b6f', '#fffaf2', '#c8d49a'),
     'black-white-manga': palette('#ffffff', '#171412', '#ffffff', '#171412', '#5e5750', '#ffffff', '#e6e6e6', '#171412'),
     'cute-pink': palette('#fff0f5', '#ffb6cf', '#ffffff', '#ff8fb4', '#c47f98', '#ffffff', '#ffc4d9'),
+    'yume-kawaii': palette('#eef3fa', '#dfe8f4', '#5f7ba6', '#c3d1e4', '#8a9bb6', '#ffffff', '#cddcf0', 'rgba(169,189,216,.7)'),
     'retro-japanese': palette('#f1e6d2', '#8e2c2c', '#f8eedc', '#3a2a22', '#8c7560', '#fffaf0', '#e6c9a1'),
     'adventure-journey': palette('#e9dfc7', '#4b5b3a', '#f3ead2', '#3b2f22', '#7e7258', '#fbf5e6', '#d8c38e'),
     'scifi-holo': palette('#0b1424', '#0f1d33', '#bff4ff', '#060e1c', '#7d93aa', '#e6f7fc', '#9fe8f5', 'rgba(95,227,255,.4)'),

@@ -71,6 +71,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
     let offItemArt = null;
     // 主角卡组预生成状态订阅：生成中 / 重试中 / 失败在面板内显示并可手动重试；就绪后重读账本。
     let offProtagonist = null;
+    let refreshPending = false;
+    let refreshRun = null;
     // 配色与日记、目录共用设置器的四套（getTheme / setTheme 由宿主注入）；容器宽度写布局 class（窄屏 / 短屏）。
     let theme = normalizeSettingsTheme('');
     let unwatchLayout = null;
@@ -92,11 +94,11 @@ export function createCombatDeckPanelController(doc, options = {}) {
     const selectedBuildView = () => (selectedBuild ? builds.find((c) => c.name === selectedBuild) || null : null);
     const manualTarget = () => selectedBuildView() || selectedView();
     const manualOf = (t) => (t && manualOn() ? manualBuildView(t.attributes, manualDraft, { readonly: isCombatBusy(sessionState()) }) : null);
-    // 待整理项来自成长缓存（扫描得到、尚未入库的 learn / upgrade / class）；缓存不可用时不显示。
+    // 手动待整理只呈现非装备成长；自动装备的待处理事实仍保留在服务缓存中。
     const pendingOf = () => {
         let g = null;
         try { g = typeof options.getGrowth === 'function' ? options.getGrowth() : null; } catch (error) { g = null; }
-        return g && g.ok === true && Array.isArray(g.pending) ? g.pending : [];
+        return g && g.ok === true && Array.isArray(g.pending) ? g.pending.filter(item => item.kind !== 'equip') : [];
     };
     const protagonistOf = () => {
         let p = null;
@@ -160,8 +162,24 @@ export function createCombatDeckPanelController(doc, options = {}) {
     }
 
     // 整块重绘后按 data-deck-act + data-deck-id 找回焦点；找不到时落到关闭按钮。
+    const hasEdits = () => Boolean(pending || draft || allocDraft || manualDraft || generate || generationForm.view()
+        || rebuild || respec || ascend || trait || draw || freeUpgrade || seal || drawFlipping || reveal);
+    function flushRefresh() {
+        if (!root || !refreshPending || refreshRun || hasEdits()) return;
+        const run = { token };
+        refreshRun = run;
+        Promise.resolve().then(async () => {
+            if (run.token !== token || !root || hasEdits()) return;
+            refreshPending = false;
+            await load({ automatic: true });
+        }).finally(() => {
+            if (refreshRun === run) refreshRun = null;
+            if (run.token === token && refreshPending && !hasEdits()) flushRefresh();
+        });
+    }
     function render() {
         if (!body) return;
+        flushRefresh();
         const active = doc.activeElement;
         const had = Boolean(active && root?.contains?.(active));
         const act = had ? active.getAttribute?.('data-deck-act') : null;
@@ -207,7 +225,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
     }
 
     // 每次打开与写入后都从账本重读；读取失败显示原因，不当作空列表。手动建档时另读待建档名单（P8c），只开数值系统时只有这份名单。
-    async function load() {
+    async function load({ automatic = false } = {}) {
         const l = ledger();
         const wantBuilds = manualOn() && typeof options.getBuildCandidates === 'function';
         if (!l && !wantBuilds) { status = 'unavailable'; state = null; builds = []; selectedBuild = null; render(); return { ok: false, reason: 'combat-disabled' }; }
@@ -218,6 +236,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         let b = null;
         if (wantBuilds) { try { b = await options.getBuildCandidates(); } catch (error) { b = { ok: false, reason: 'combat-ledger-read-failed' }; } }
         if (my !== token) return { ok: false, reason: 'request-stale' };
+        if (automatic && hasEdits()) { refreshPending = true; return { ok: true, deferred: true }; }
+        refreshPending = false;
         draft = null; allocDraft = null; manualDraft = null; generationForm.reset(); rebuild = false; respec = null; ascend = false; trait = false; draw = false; freeUpgrade = null; seal = null;
         const bad = l ? (st?.ok === true ? '' : st?.reason || 'combat-ledger-read-failed') : (b?.ok === true ? '' : b?.reason || 'combat-ledger-read-failed');
         if (bad) {
@@ -879,6 +899,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             }
             case 'retry-growth':
                 if (typeof options.retryGrowth !== 'function') return fail('combat-generate-unavailable');
+                if (!pendingOf().length) return { ok: true, unchanged: true };
                 return run('growth', () => options.retryGrowth()).then((r) => (r.ok === true && !r.stale ? load().then(() => r) : r));
             default: return { ok: false, reason: 'combat-action-unknown' };
         }
@@ -977,7 +998,11 @@ export function createCombatDeckPanelController(doc, options = {}) {
         offItemArt = typeof options.subscribeItemImages === 'function' ? options.subscribeItemImages(() => { if (root) render(); }) : null;
         // 主角卡组就绪时重读账本列出新档案；有未保存的草稿或动作进行中时只重绘，不丢草稿。
         offProtagonist = typeof options.onProtagonistUpdated === 'function'
-            ? options.onProtagonistUpdated((p) => { if (!root) return; if (p?.status === 'ready' && !draft && !allocDraft && !manualDraft && !pending) load(); else render(); }) : null;
+            ? options.onProtagonistUpdated((p) => {
+                if (!root) return;
+                if (p?.status === 'ready' || p?.status === 'manual') refreshPending = true;
+                render();
+            }) : null;
         overlay.appendChild(root);
         unwatchLayout = watchRecordPageLayout(root, doc);
         overlay.classList?.toggle('igs-record-screen-open', true);
@@ -993,6 +1018,8 @@ export function createCombatDeckPanelController(doc, options = {}) {
         closeItemImageViewer(doc);
         hideScaleTip();
         token += 1;
+        refreshPending = false;
+        refreshRun = null;
         try { abort?.abort(); } catch (error) { /* 已结束 */ }
         abort = null;
         root.removeEventListener?.('click', onClick);

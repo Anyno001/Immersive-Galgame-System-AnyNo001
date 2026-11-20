@@ -337,7 +337,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             const llmSource = (bridge.autoIllustration && bridge.autoIllustration.llm && bridge.autoIllustration.llm.source) || 'tavern';
             const chatReady = Boolean(origin.enabled && chat && chat.hasChat && !chat.blocked);
             const chatNote = !chat || !chat.hasChat ? '打开一个聊天后可以在这里暂停或恢复。'
-                : chat.blocked ? `本聊天的系统存档无法读取（${chat.blocked}），已停止写入，原存档保留。`
+                : chat.recovery?.status === 'waiting' ? `等待本聊天数据库就绪（${chat.blocked}）。`
+                    : chat.recovery?.busy ? (chat.recovery.stage === 'save' ? '正在重试保存。' : '正在读取本聊天存档。')
+                    : chat.blocked ? `${chat.recovery?.stage === 'save' ? '保存未完成' : '读取失败'}（${chat.blocked}）。`
                     : chat.paused ? '本聊天已暂停：系统退出剧情，不派任务、不计时，存档保留。' : '本聊天正在运行。暂停后时限冻结，恢复时顺延。';
             const intField = (key, label, min, max, note) => field(`bridge.origin.${key}`, label, numberInput(`bridge.origin.${key}`, origin[key], min, max), note);
             return {
@@ -347,7 +349,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 originChatNote: esc(chatNote),
                 originWorldText: esc(chat && chat.world ? chat.world : '未设定'),
                 originWorldHidden: hiddenAttr(!chatReady),
-                originRetryHidden: hiddenAttr(!origin.enabled || !chat?.blocked || chat.blocked === 'origin-database-loading'),
+                originRetryHidden: hiddenAttr(!origin.enabled || !chat?.recovery?.canRetrySave),
+                originReadRetryHidden: hiddenAttr(!origin.enabled || !chat?.recovery?.canRetryRead),
                 originResumeHidden: hiddenAttr(!chatReady || !chat.paused),
                 originPauseHidden: hiddenAttr(!chatReady || chat.paused),
                 originFreqField: intField('freq', '任务频率（回合）', 1, 10, '每隔几回合最多派发一个任务'),

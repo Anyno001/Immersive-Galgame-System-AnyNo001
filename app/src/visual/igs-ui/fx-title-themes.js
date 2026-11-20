@@ -12,6 +12,7 @@ import { DIALOG_SKIN_HORROR_WARD, WARD_TITLE_THEME } from './dialog-theme-horror
 import { DIALOG_SKIN_HORROR_PSYCH, HORROR_HEART_MASK } from './dialog-theme-horror.js';
 import { DIALOG_SKIN_SCIFI_HOLO, SCIFI_HOLO, SCIFI_RETICLE_MASK, scifiHolo } from './dialog-theme-scifi.js';
 import { DIALOG_SKIN_WASTELAND_RUST, WASTELAND_HAZARD, wastelandStripes } from './dialog-theme-wasteland.js';
+import { DIALOG_SKIN_YUME_KAWAII, YK_GLASS_HI, YK_ICE_DEEP } from './dialog-theme-yume-kawaii.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -98,6 +99,10 @@ const TITLE_EXTRAS = Object.freeze({
     [DIALOG_SKIN_WARM_PICTUREBOOK]: (s) => [`${s} .igs-fx-title-sub{${PILL('#4f9a92', '#f4efe9')}}`],
     [DIALOG_SKIN_PLANT_COFFEE]: (s) => [`${s} .igs-fx-title-sub{${PILL('#a5bf6b', '#fff')}}`],
     [DIALOG_SKIN_CUTE_PINK]: (s) => [`${s} .igs-fx-title-sub{${PILL('linear-gradient(180deg,#f29ab5,#e5779a)', '#fff')}}`],
+    // 可盐可甜：卡底星纹铺满（取战斗主题的 card），副标题是一枚白玻璃小胶囊、雾蓝字；不另加角饰。
+    [DIALOG_SKIN_YUME_KAWAII]: (s) => [
+        `${s} .igs-fx-title-sub{${PILL(YK_GLASS_HI, YK_ICE_DEEP)}box-shadow:0 0 0 1px rgba(255,255,255,.95);}`,
+    ],
     // 黑白漫画：网点卡 + 粗框硬投影，地点白描边粗斜体，时间压在黑底小条里。
     [DIALOG_SKIN_BLACK_WHITE_MANGA]: (s) => [
         `${s} .igs-fx-title-main{font-style:italic;font-weight:800;text-shadow:${stroke('#fff')},3px 3px 0 rgba(23,20,18,.2);}`,

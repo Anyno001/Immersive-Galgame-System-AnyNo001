@@ -46,6 +46,7 @@ export function getSharedOriginEngine(host) {
         const proxy = {
             getContext: call('getContext'), settings: call('settings'), saveMetadata: call('saveMetadata'), saveSettings: call('saveSettings'),
             database: call('database'), wallet: call('wallet'), walletSnapshot: call('walletSnapshot'), spendingGate: call('spendingGate'),
+            databaseReadiness: call('databaseReadiness'),
             pointsEconomy: call('pointsEconomy'), ensurePointsFloor: call('ensurePointsFloor'),
             withPointsLock: (task) => {
                 const h = pick();
@@ -95,6 +96,10 @@ export function createOriginEngine(host) {
     let databaseOff = null;
     let databaseRecovery = null;
     let databaseReadBlocked = false;
+    let readiness = null;
+    let databaseLoadTask = null;
+    let databaseRetryTask = null;
+    let recovery = { stage: 'read', status: 'ready', reason: '', busy: false };
     let pendingSave = null;
     let deferredEvents = [];
     let staging = null;
@@ -133,6 +138,9 @@ export function createOriginEngine(host) {
     const isBackground = () => { try { return typeof host.isBackground === 'function' && Boolean(host.isBackground()); } catch (e) { return false; } };
 
     function load() {
+        if (pendingSave && chatId === idOf(ctx())) {
+            return Promise.resolve({ ok: false, reason: 'origin-save-pending' });
+        }
         databaseEpoch += 1;
         detachDatabase();
         database = databaseOf();
@@ -140,12 +148,19 @@ export function createOriginEngine(host) {
         deferredEvents = [];
         databaseState = null;
         if (database) {
-            const loaded = loadDatabase();
-            if (offs.length && typeof database.subscribe === 'function') {
-                try { databaseOff = database.subscribe(onDatabaseUpdated); } catch { /* 手动重试仍可用 */ }
+            chatId = idOf(ctx());
+            ledger = createLedger(chatId);
+            meta = { world: '', direction: '' };
+            cache = null;
+            walletValue = 0;
+            try { readiness = host.databaseReadiness?.() || null; } catch { readiness = null; }
+            const source = readiness || database;
+            if (offs.length && typeof source.subscribe === 'function') {
+                try { databaseOff = source.subscribe(onDatabaseUpdated); } catch { /* 手动重试仍可用 */ }
             }
-            return loaded;
+            return loadDatabase();
         }
+        recovery = { stage: 'read', status: 'ready', reason: '', busy: false };
         return loadMetadata();
     }
     function loadMetadata() {
@@ -272,10 +287,20 @@ export function createOriginEngine(host) {
         const off = databaseOff;
         databaseOff = null;
         databaseRecovery = null;
+        databaseLoadTask = null;
+        databaseRetryTask = null;
+        readiness = null;
         databaseReadBlocked = false;
         try { off?.(); } catch { /* */ }
     }
-    function onDatabaseUpdated() {
+    function onDatabaseUpdated(value) {
+        if (pendingSave) return;
+        if (databaseReadBlocked && value?.status === 'failed') {
+            databaseReadBlocked = false;
+            databaseFailure(value, 'read');
+            return;
+        }
+        if (value && value.status !== 'ready') return;
         if (databaseRecovery || !offs.length || !settings().enabled) return;
         const task = { alive: databaseLease() };
         databaseRecovery = task;
@@ -287,58 +312,81 @@ export function createOriginEngine(host) {
         };
         databaseTail.then(run, run).catch(() => {});
     }
-    const transientDatabaseRead = (result) => result?.reason === 'combat-table-not-ready' || result?.reason === 'combat-table-read-failed';
-    function databaseFailure(result) {
+    const transientDatabaseRead = (result) => result?.reason === 'combat-table-not-ready';
+    function setRecovery(value) {
+        recovery = value;
+        emit('recovery');
+    }
+    function databaseFailure(result, stage = 'save') {
         blocked = result?.reason || 'origin-database-write-failed';
-        notify('warn', `随身系统保存未完成：${blocked}`);
-        return { ok: false, reason: blocked, text: `随身系统保存未完成：${blocked}` };
+        databaseReadBlocked = false;
+        const text = `随身系统${stage === 'read' ? '读取失败' : '保存未完成'}：${blocked}`;
+        setRecovery({ stage, status: 'failed', reason: blocked, busy: false });
+        notify('warn', text);
+        return { ok: false, stage, reason: blocked, text };
+    }
+    function databaseWaiting(reason = 'combat-table-not-ready') {
+        blocked = reason;
+        databaseReadBlocked = true;
+        setRecovery({ stage: 'read', status: 'waiting', reason, busy: false });
+        return { ok: false, stage: 'read', reason, waiting: true };
     }
     function loadDatabase() {
+        if (pendingSave) return Promise.resolve({ ok: false, reason: 'origin-save-pending' });
+        if (databaseLoadTask) return databaseLoadTask.promise;
         chatId = idOf(ctx());
-        ledger = createLedger(chatId);
-        meta = { world: '', direction: '' };
         cache = null;
         blocked = 'origin-database-loading';
         databaseReadBlocked = false;
         remember();
         const alive = databaseLease();
         const store = database;
+        const task = { promise: null };
+        databaseLoadTask = task;
         const run = async () => {
             if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (readiness) {
+                const probe = readiness.read();
+                if (probe.status === 'waiting') return databaseWaiting(probe.reason);
+                if (probe.status !== 'ready') return databaseFailure(probe, 'read');
+            }
+            setRecovery({ stage: 'read', status: 'loading', reason: blocked, busy: true });
             let read = await store.load({ shouldStart: alive });
             if (!alive()) return { ok: false, reason: 'request-stale' };
             if (!read.ok) {
-                databaseReadBlocked = transientDatabaseRead(read);
-                return databaseFailure(read);
+                if (transientDatabaseRead(read)) return databaseWaiting(read.reason);
+                return databaseFailure(read, 'read');
             }
             if (!read.raw) {
                 const old = metaOf(ctx())?.[ORIGIN_META_KEY];
                 const raw = old == null ? databaseRaw() : old;
                 const restored = adoptDatabase(raw);
-                if (!restored.ok) return databaseFailure(restored);
+                if (!restored.ok) return databaseFailure(restored, 'read');
                 const intent = store.prepare(read, databaseRaw());
                 read = await store.commit(intent, { shouldStart: alive });
                 if (!alive()) return { ok: false, reason: 'request-stale' };
-                if (!read.ok) { ledger = createLedger(chatId); cache = null; return databaseFailure(read); }
+                if (!read.ok) { ledger = createLedger(chatId); cache = null; return databaseFailure(read, 'read'); }
             }
             const restored = adoptDatabase(read.raw);
-            if (!restored.ok) return databaseFailure(restored);
+            if (!restored.ok) return databaseFailure(restored, 'read');
             databaseState = read;
             const wallet = await readWallet();
             if (!alive()) return { ok: false, reason: 'request-stale' };
             if (!wallet.ok) {
-                databaseReadBlocked = transientDatabaseRead(wallet);
-                return databaseFailure(wallet);
+                return databaseFailure(wallet, 'read');
             }
             blocked = null;
+            recovery = { stage: 'read', status: 'ready', reason: '', busy: false };
             remember();
             emit('load');
             drainDatabaseEvents();
             return { ok: true };
         };
-        databaseTail = databaseTail.then(run, run).catch((error) => alive()
-            ? databaseFailure({ reason: 'origin-database-load-failed' }) : { ok: false, reason: 'request-stale' });
-        return databaseTail;
+        task.promise = databaseTail.then(run, run).catch(() => alive()
+            ? databaseFailure({ reason: 'origin-database-load-failed' }, 'read') : { ok: false, reason: 'request-stale' })
+            .finally(() => { if (databaseLoadTask === task) databaseLoadTask = null; });
+        databaseTail = task.promise;
+        return task.promise;
     }
     function publishDatabase(job, verified) {
         if (job.published) return job.result || { ok: true };
@@ -350,6 +398,7 @@ export function createOriginEngine(host) {
         databaseState = verified;
         pendingSave = null;
         blocked = null;
+        recovery = { stage: 'save', status: 'ready', reason: '', busy: false };
         for (const [type, extra] of job.events) emit(type, extra);
         if (!job.events.length) emit('saved');
         for (const args of job.notifications) notify(...args);
@@ -470,11 +519,22 @@ export function createOriginEngine(host) {
             ? databaseFailure({ reason: 'origin-database-write-failed' }) : { ok: false, reason: 'request-stale' });
         return databaseTail;
     }
-    function retrySave() {
+    function retryRead() {
+        ensure();
+        if (pendingSave) return Promise.resolve({ ok: false, reason: 'origin-save-pending' });
         if (!database) return Promise.resolve({ ok: true, skipped: true });
+        return loadDatabase();
+    }
+    function retrySave() {
+        ensure();
+        if (!database) return Promise.resolve({ ok: true, skipped: true });
+        if (databaseRetryTask) return databaseRetryTask.promise;
         const job = pendingSave;
-        if (!job) return load();
+        if (!job) return retryRead();
+        const task = { promise: null };
+        databaseRetryTask = task;
         const run = async () => {
+            setRecovery({ stage: 'save', status: 'loading', reason: blocked || '', busy: true });
             if (job.published) return job.result || { ok: true };
             if (!job.alive()) return recoverDatabaseBranch(job);
             const present = database.read({ intent: job.intent, fresh: true });
@@ -487,8 +547,11 @@ export function createOriginEngine(host) {
             return saveDatabase(job);
         };
         const locked = () => typeof host.withPointsLock === 'function' ? host.withPointsLock(run) : run();
-        databaseTail = databaseTail.then(locked, locked);
-        return databaseTail;
+        task.promise = databaseTail.then(locked, locked).catch(() => job.ownerAlive()
+            ? databaseFailure({ reason: 'origin-database-write-failed' }) : { ok: false, reason: 'request-stale' })
+            .finally(() => { if (databaseRetryTask === task) databaseRetryTask = null; });
+        databaseTail = task.promise;
+        return task.promise;
     }
     const savedAction = (fn) => (...args) => databaseOf() ? queueDatabase(() => fn(...args)) : fn(...args);
     const savedEvent = (fn) => (...args) => databaseOf() ? queueDatabase(() => fn(...args), {}) : fn(...args);
@@ -1046,7 +1109,11 @@ export function createOriginEngine(host) {
     return {
         getState, rawStats, subscribe, dispatch: savedAction(dispatch), genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
         recalcAll: savedAction(recalcAll), importLegacy: savedAction(importLegacy), legacyDetected,
-        dismissLegacy: savedAction(dismissLegacy), lastFloorStatus, whenSaved, retrySave,
+        dismissLegacy: savedAction(dismissLegacy), lastFloorStatus, whenSaved, retrySave, retryRead,
+        recoveryStatus: () => ({ ...recovery,
+            canRetryRead: Boolean(blocked && !pendingSave && !recovery.busy),
+            canRetrySave: Boolean(pendingSave && !recovery.busy),
+        }),
         start: sync, sync, stop: detach, reload: () => {
             const loaded = load(); if (!database) emit('load'); return loaded;
         },

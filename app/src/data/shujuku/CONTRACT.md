@@ -24,11 +24,17 @@
 - 数值日志 `chat:currency` 固化货币名、四档价格、比例、初始金额与 `seeded`；初始读取前经带租约的 `ensure` 补建物品表。初始写入和楼层结算先保存并确认写入意图 `{ before, after }`，再改物品表并追加确认标记。重算只写新旧 delta 差额，`before` 使用实余额；补差不足时保留原已入账的货币结算与流水，记录 `stats-currency-resettle-insufficient`，不生成待恢复意图、不阻塞后续楼，其他数值仍按当前正文结算。待确认写入在下一楼或手动重试前恢复，余额等于目标值时仅补确认，不重复入账。日志与物品表不具备跨表原子事务。每楼增量与 swipe／删楼回退沿用宿主数据库，不另做补偿或全量余额重算。
 - `stats-push.js` 只更新已识别的目标格：积分列写旧合并积分，金钱／金币／货币列及当前动态货币名列写物品表余额；货币未就绪时跳过并诊断。积分列优先匹配，动态名称不会覆盖积分映射；映射描述与实际推送使用同一货币名。运行时在初始发放、楼层写入和失败恢复读回后补推最终余额，不在货币队列内等待推送；推送失败不改结算结果，`whenSaved()` 在写库完成后限时等待当前推送。
 
+- 共享表就绪 `table-readiness.js` 由当前聊天、API 与 bundle generation 租约限定，`read()` 返回 `waiting / ready / failed` 和原因。空或非对象导出仅等待，实际导出异常为读取失败，不补空表；ready 只表示有效共享快照可读，不代表任何业务或模型已完成。`subscribe` 先订阅再立即检查现状，通知只触发串行队列安定后的重查，突发通知合并；无回调能力以 `notifications:false` 保留手动重查。退订幂等，重置、API 更换与销毁释放订阅及等待器。
+
+
 - Origin 积分日志复用 `combat-tables.js` 的「IGS战斗·日志」写口与缓存客户端。`origin-store.js` 将操作账本编码为带父 revision 的 `set/drop` 差分，记录 ID 为载荷哈希；只追加，经读回确认才对业务发布。重复提交同一意图只确认已存记录；断链、同键冲突、无效记录或残缺分段返回错误，不能当作空账本或零余额。
 - `origin-store.subscribe(listener)` 通过现有表更新回调让缓存失效并通知引擎，返回幂等退订函数；没有回调能力时保留手动重试，不轮询。`load({ shouldStart })` 将聊天租约传给 `tables.ensure({ shouldStart })`，排队执行及模板导入前后均检查；已发给宿主的导入不可撤回。
 - `append(kind, records, { retainOnFailure: false, shouldStart })` 仅让当前调用持有的失败请求退出待写队列，默认战斗请求仍保留；Origin 由引擎持有原意图显式重试，其他写入不得补交它。`matchesIncomplete(kind, record)` 逐项核对已有片段与同一意图的编码，只允许补齐自己的缺段，普通读取仍拒绝残缺记录。Origin 恢复读取先校验原意图，再读取排除 Origin 的外部积分份额；共享消费与恢复使用同一进程内积分锁，旧钱包和战斗净流水不做余额覆盖。
 - 共享积分兑换由 `points-exchange.js` 协调，`points-exchange-log.js` 校验；复用 `points-store.js` 的增减日志与 `points-intents.js` 的写后读回意图存储。`exchange` 记录固定 `sourceId = exchangeId`、聊天／来源、负积分增量、核准时共享余额、`chat:currency` 配置及物品表 `{ before, after }`；`exchange-done` 以扣款记录为父且积分增量为 0。折叠时已确认扣款按聊天计一次，不随来源回退；收益 grants 和 Origin 收入额度不变。意图完全未写且来源失效时丢弃，残缺分段只补原记录。
 - 锁顺序固定为货币队列 → 共享积分锁 → 既有表写队列。货币写前校验固定配置，只接受写前／目标余额，写后回读确认；完成标记失败只补标记。未完成兑换阻止新共享消费，重入、手动重试与下一楼先恢复兑换。普通小游戏待写记录不被货币恢复补交；确认无未完成兑换时不阻断独立剧情货币结算。此协议不提供跨表原子性或跨页面分布式锁。
+- 货币恢复即使没有待写记录，也须重新确认权威物品余额；合法缺行的 0 与表读取失败、歧义及非法数量严格分开。兑换业务写入后积分钱包读回失败返回 `ok:false / stage:'read' / walletReady:false`，保留原 `done / exchangeId` 等业务事实；已完成记录不因读回失败再次扣分或入账，重试只补未完成阶段并重新确认余额。
+- `inventory.prepareRename({ from, to, balance }, { shouldStart })` 新鲜读表生成版本化行指纹；`rename(guard, { shouldStart })` 复用既有串行队列，仅原位 `updateRow` 名称并读回，保留数量、描述、类别及其他列。目标被持有或失去物品占用、列结构变化、原行消失或数量／指纹不符均拒绝；同规范键可改显示名，合法零余额无行时不创建零数量行。已派发宿主写入不可撤回，恢复依据原指纹辨认已改名行，不先删后建。
+- `chat:currencyEdit` 记录固定编辑 ID、聊天、旧／新配置、余额、名称规范键及 rename guard。写序为原意图 → 物品改名读回 → 新配置读回 → 完成标记，配置和余额始终分别来自日志与物品表。`append(..., { recoverSegments:true })` 仅为 `stats` 的 `sc|ce-` 原记录开放缺段补写，每个已有片段须与原编码完全一致；不一致或无法确认原意图则停止，不能推广到普通数值或其他表记录。
 
 
 - `client.insertRow(tableName, rowData, options?)`：不传 options 时保持原位置参数调用；成功时宿主返回行号则带 `rowIndex`。`client.getTableTemplate()`、`client.importTemplate()` 统一返回 `{ ok, reason }`，缺方法时为 `missing-api`。

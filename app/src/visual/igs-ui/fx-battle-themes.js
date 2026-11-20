@@ -18,6 +18,7 @@ import {
     wastelandRust,
     wastelandStripes,
 } from './dialog-theme-wasteland.js';
+import { DIALOG_SKIN_YUME_KAWAII, YK_CARD_BG, YK_EDGE, YK_ICE_DEEP, YK_INK, YK_STAR_MASK, YK_STAR_TILE } from './dialog-theme-yume-kawaii.js';
 import {
     DIALOG_SKIN_ADVENTURE_JOURNEY,
     DIALOG_SKIN_BLACK_WHITE_MANGA,
@@ -31,6 +32,7 @@ import {
 import {
     DIALOG_FONT_CINZEL,
     DIALOG_FONT_HUIWEN,
+    DIALOG_FONT_MAOKEN_ZHUYUAN,
     DIALOG_FONT_MASHANZHENG,
     DIALOG_FONT_NEO_XIHEI,
     DIALOG_FONT_NEO_ZHISONG,
@@ -256,6 +258,19 @@ const BATTLE_THEMES = Object.freeze({
         mark: 'padding:0 8px;border-radius:999px;background:linear-gradient(180deg,#f29ab5,#e5779a);color:#fff;text-shadow:0 1px 0 #c24a6f;',
         wipe: 'background:repeating-linear-gradient(135deg,#ffe1ea 0 14px,#ffd0de 14px 28px);box-shadow:inset 0 2px 0 #5e5356,inset 0 -2px 0 #5e5356;',
         foe: `color:#fff;text-shadow:${stroke('#d4557c')},0 3px 0 #b03e64;`,
+        title: 'font-style:normal;',
+    },
+    // 可盐可甜：白星纹铺满的冰蓝玻璃卡（与状态栏、物品卡同料）、四边等粗白描边，名牌标记是一颗冰蓝五角星；遭遇横幅铺白星纹。
+    // 过场标题卡也取这里的 card。
+    [DIALOG_SKIN_YUME_KAWAII]: {
+        accent: YK_ICE_DEEP,
+        light: true,
+        font: DIALOG_FONT_MAOKEN_ZHUYUAN,
+        vars: { ink: YK_INK, halo: 'none', 'title-halo': '0 2px 0 #fff,0 3px 6px rgba(111,136,173,.35)', wipe: '#e3ebf6', lose: '#c27a96', escape: '#8a9bb6' },
+        card: `background:${YK_CARD_BG};${YK_EDGE}border-radius:16px;box-shadow:0 0 12px rgba(255,255,255,.45),0 6px 14px rgba(44,56,82,.22);-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);`,
+        mark: `width:12px;height:12px;align-self:center;font-size:0;background:#8fa8cc;-webkit-mask:${YK_STAR_MASK} center/contain no-repeat;mask:${YK_STAR_MASK} center/contain no-repeat;`,
+        wipe: `background:${YK_STAR_TILE} 0 0/40px 40px,linear-gradient(135deg,#cfdcee,#eef3fa);box-shadow:inset 0 2px 0 #fff,inset 0 -2px 0 #fff;`,
+        foe: `color:${YK_ICE_DEEP};text-shadow:${stroke('#fff')},0 3px 8px rgba(111,136,173,.4);`,
         title: 'font-style:normal;',
     },
     // 复古日式：生成纸卡、茶色双线框、胭脂红强调。

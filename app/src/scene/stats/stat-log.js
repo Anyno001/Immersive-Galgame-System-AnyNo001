@@ -6,6 +6,7 @@ import { BUILD_CHOICES, BUILD_MODES, abilityKeyOf } from '../../combat/abilities
 import { STATS_LOG_MAX, createStatsLedger, currentStatsState, ledgerKey } from './stat-ledger.js';
 import { deserializeLedger, sanitizeCatalog, sanitizeLearned } from './stat-persist.js';
 import { currencyRecordValue, normalizeCurrencyRecord } from './stat-currency.js';
+import { normalizeCurrencyEdit } from './stat-currency-edit.js';
 import { LEGACY_SKILL_MAP, mergeLegacyValue } from './stat-registry.js';
 
 export { BUILD_CHOICES, BUILD_MODES };
@@ -126,7 +127,7 @@ export function normalizeBuildChoices(raw) {
 }
 
 // 聊天级设置 → 键值表（Map：键 → 值）。
-export function chatEntries({ chatEnabled = false, catalog = null, learned = {}, buildMode = null, buildChoices = {}, currency = null } = {}) {
+export function chatEntries({ chatEnabled = false, catalog = null, learned = {}, buildMode = null, buildChoices = {}, currency = null, currencyEdit = null } = {}) {
     const clean = sanitizeCatalog(catalog);
     const map = new Map([['chat:enabled', Boolean(chatEnabled)]]);
     if (normalizeBuildMode(buildMode)) map.set('chat:buildMode', buildMode);
@@ -134,6 +135,8 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     if (Object.keys(choices).length) map.set('chat:buildChoices', choices);
     const money = normalizeCurrencyRecord(currency);
     if (money) map.set('chat:currency', currencyRecordValue(money));
+    const edit = normalizeCurrencyEdit(currencyEdit);
+    if (edit) map.set('chat:currencyEdit', edit);
     // 固定支出（聊天级）：有条目才写。
     if (clean.expenses.length) map.set('chat:expenses', clean.expenses);
     for (const skill of clean.story) map.set(`skill:${skill.name}`, skill);
@@ -189,6 +192,7 @@ export function restoreChat(map) {
     let buildMode = null;
     let buildChoices = {};
     let currency = null;
+    let currencyEdit = null;
     for (const [key, value] of map) {
         const colon = key.indexOf(':');
         const prefix = key.slice(0, colon);
@@ -197,6 +201,7 @@ export function restoreChat(map) {
         else if (prefix === 'chat' && name === 'buildMode') buildMode = normalizeBuildMode(value);
         else if (prefix === 'chat' && name === 'buildChoices') buildChoices = normalizeBuildChoices(value);
         else if (prefix === 'chat' && name === 'currency') currency = normalizeCurrencyRecord(value);
+        else if (prefix === 'chat' && name === 'currencyEdit') currencyEdit = normalizeCurrencyEdit(value);
         else if (prefix === 'chat' && name === 'expenses') raw.expenses = value;
         else if (prefix === 'skill') raw.story.push(value);
         else if (prefix === 'merge') raw.merged[name] = value;
@@ -223,7 +228,8 @@ export function restoreChat(map) {
         else if (prefix === 'fame' && name === 'bars') raw.fameBars = value;
         else if (prefix === 'learned') learned[name] = value;
     }
-    return { chatEnabled, buildMode, buildChoices, currency, catalog: sanitizeCatalog(raw), learned: sanitizeLearned(learned).learned };
+    const currencyEditError = map.has('chat:currencyEdit') && !currencyEdit ? 'stats-currency-edit-invalid' : '';
+    return { chatEnabled, buildMode, buildChoices, currency, currencyEdit, currencyEditError, catalog: sanitizeCatalog(raw), learned: sanitizeLearned(learned).learned };
 }
 
 // 读取：init 记录 + 聊天级记录（表内顺序重放，后写覆盖先写）+ 与当前正文标签相符的楼层记录 → 账本。

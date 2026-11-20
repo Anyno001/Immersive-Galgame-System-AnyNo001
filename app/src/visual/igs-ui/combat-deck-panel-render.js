@@ -41,6 +41,15 @@ const REASON_TEXT = Object.freeze({
     'combat-manual-invalid': '加点无效',
     'combat-init-invalid': '建档内容无效',
     'combat-init-write-failed': '建档写入失败',
+    'combat-init-unverified': '属性写入后未能读回确认',
+    'combat-init-manual': '待手动建档',
+    'stats-build-policy-waiting': '等待建档方式读取',
+    'stats-build-mode-invalid': '建档方式无效',
+    'combat-table-not-ready': '等待数据库加载',
+    'combat-table-read-failed': '数据库读取失败',
+    'combat-ledger-read-failed': '角色账本读取失败',
+    'combat-profile-write-failed': '卡组档案写入失败',
+    'combat-llm-request-failed': '主角准备请求失败',
     'combat-page-invalid': '没有这一页',
     'combat-gear-equipped': '穿戴中的装备要先卸下才能卖出',
     'combat-keepsake-missing': '背包里没有这件物品',
@@ -546,16 +555,18 @@ function buildDetailHtml(v) {
     return `<section class="igs-deck-detail">${detailHead(v.selectedBuild, ['待建档'])}<div class="igs-deck-page" id="igs-deck-page" data-page="build">${manualPage(v)}</div></section>`;
 }
 
-// 主角卡组预生成：生成中 / 自动重试中只显示状态；失败显示原因与手动重试。就绪或未开始时不显示。
+// 属性与卡组共用准备状态，失败和等待均保留显式恢复出口。
 function protagonistHtml(v) {
     const p = v.protagonist;
     if (!p) return '';
-    if (p.status === 'generating') return row('主角卡组', chip('生成中'));
-    if (p.status === 'retrying') return row('主角卡组', chip(`请求失败，自动重试第 ${p.attempt} 次`));
-    if (p.status !== 'failed') return '';
+    if (p.status === 'ready') return row('主角准备', chip('属性与卡组已就绪'));
+    if (p.status === 'manual') return row('主角准备', chip('待手动建档'));
+    if (p.status === 'generating') return row('主角准备', chip('生成中'));
+    if (p.status === 'retrying') return row('主角准备', chip(`请求失败，自动重试第 ${p.attempt} 次`));
+    if (!['failed', 'waiting'].includes(p.status)) return '';
     const editing = v.generationForm?.kind === 'protagonist';
     const retry = v.readonly || !v.canRetryProtagonist ? '' : btn('retry-protagonist', editing ? '确认重试' : '重试', { primary: true, disabled: Boolean(v.pending) || v.generationForm?.loading === true });
-    return row('主角卡组', `<span class="igs-deck-err" role="status">${esc(deckReasonText(p.reason))}</span>${retry}${editing ? btn('generation-cancel', '取消') : ''}`) + (editing ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : '');
+    return row('主角准备', `<span class="igs-deck-err" role="status">${esc(deckReasonText(p.reason))}</span>${retry}${editing ? btn('generation-cancel', '取消') : ''}`) + (editing ? renderCombatGenerationForm(v.generationForm, Boolean(v.pending)) : '');
 }
 
 function pendingHtml(v) {

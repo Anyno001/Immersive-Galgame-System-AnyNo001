@@ -1,5 +1,9 @@
 // 设置面板内的提示、确认与输入框，替代浏览器 alert / confirm / prompt。
 // 浏览器弹窗会退出全屏。面板重绘会整体替换 innerHTML，挂起的对话记在控制器里，由 remount 在重绘后补回（含输入框里已打的字）。
+import { normalizeCurrencyEditInput } from '../../scene/stats/stat-currency-edit.js';
+import { CURRENCY_NAME_MAX, CURRENCY_RATE_MIN, CURRENCY_RATE_MAX } from '../../scene/stats/stat-currency.js';
+import { MONEY_TIERS } from '../../scene/stats/stat-vocab.js';
+
 export const SETTINGS_DIALOG_STYLE_TEXT = `
 #igs-unified-settings .igs-settings-dialog{position:absolute;left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);z-index:6;box-sizing:border-box;width:min(480px,calc(100% - 32px));max-height:min(80%,calc(var(--igs-settings-vh,100dvh) - 48px));overflow:auto;padding:14px 16px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-panel);color:var(--igs-settings-ink);border:1px solid var(--igs-settings-line-strong);display:flex;flex-direction:column;gap:10px;pointer-events:auto}
 #igs-unified-settings .igs-settings-dialog.is-view,#igs-unified-settings .igs-settings-dialog.is-edit{width:min(640px,calc(100% - 32px))}
@@ -39,6 +43,18 @@ export const SETTINGS_DIALOG_STYLE_TEXT = `
 function nativeFallback(globalObj) {
     return (kind, message, value, fields = []) => {
         if (kind === 'busy') return true;
+        if (kind === 'currency') {
+            if (typeof globalObj?.prompt !== 'function') return null;
+            const values = {};
+            for (const field of fields) {
+                const answer = globalObj.prompt(`${message}\n${field.label}`, field.value);
+                if (answer === null || !String(answer).trim()) return null;
+                values[field.key] = field.key === 'name' ? String(answer).trim() : Number(answer);
+            }
+            const clean = normalizeCurrencyEditInput({ name: values.name, rate: values.rate,
+                table: Object.fromEntries(MONEY_TIERS.map(tier => [tier, values[tier]])), base: 'form' });
+            return clean ? { name: clean.name, table: clean.table, rate: clean.rate } : null;
+        }
         // 数字表单退回逐项输入框；有一项取消或不合格就整体作废。
         if (kind === 'numbers') {
             if (!globalObj || typeof globalObj.prompt !== 'function') return null;
@@ -119,7 +135,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         const doc = host.ownerDocument;
         if (!doc || typeof doc.createElement !== 'function') return null;
         const el = doc.createElement('div');
-        el.className = entry.kind === 'view' || entry.kind === 'edit' || entry.kind === 'choose' || entry.kind === 'pick' || entry.kind === 'numbers' || entry.kind === 'form'
+        el.className = ['view', 'edit', 'choose', 'pick', 'numbers', 'form', 'currency'].includes(entry.kind)
             ? `igs-settings-dialog is-${entry.kind}`
             : 'igs-settings-dialog';
         el.setAttribute('role', entry.kind === 'busy' ? 'status' : entry.kind === 'confirm' || entry.kind === 'alert' ? 'alertdialog' : 'dialog');
@@ -148,7 +164,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
         let totalNote = null;
         // 合计行（可选 labels.total）：随输入实时刷新，超出上限时保存键禁用；没有合计行时是空操作。
         let syncTotal = () => {};
-        if (entry.kind === 'numbers') {
+        if (entry.kind === 'numbers' || entry.kind === 'currency') {
             // 沿用设置器的字段样式：两列网格，每项「名称 + 数字框」，与「我的角色」技能值同一写法。
             const grid = doc.createElement('div');
             grid.className = 'igs-source-filter-grid';
@@ -156,13 +172,13 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 const wrap = doc.createElement('label');
                 wrap.className = 'igs-settings-field';
                 const name = doc.createElement('span');
-                name.textContent = `${field.label}（${field.min}到${field.max}）`;
+                name.textContent = entry.kind === 'currency' ? field.label : `${field.label}（${field.min}到${field.max}）`;
                 const box = doc.createElement('input');
-                box.type = 'number';
-                box.inputMode = 'numeric';
-                box.min = String(field.min);
-                box.max = String(field.max);
-                box.step = '1';
+                box.type = field.key === 'name' && entry.kind === 'currency' ? 'text' : 'number';
+                box.inputMode = box.type === 'text' ? 'text' : field.step === 0.01 ? 'decimal' : 'numeric';
+                if (box.type === 'text') box.maxLength = CURRENCY_NAME_MAX * 2;
+                else { box.min = String(field.min); box.max = String(field.max); box.step = String(field.step || 1); }
+                box.setAttribute('data-dialog-field', field.key);
                 box.value = field.value;
                 box.setAttribute('aria-label', name.textContent);
                 box.addEventListener('input', () => { field.value = box.value; box.removeAttribute('aria-invalid'); syncTotal(); });
@@ -384,7 +400,21 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             }
             settle(entry, values);
         };
-        const accept = () => entry.kind === 'numbers' ? acceptNumbers() : entry.kind === 'form' ? acceptForm() : settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
+        const acceptCurrency = () => {
+            const values = Object.fromEntries(entry.fields.map(field => [field.key,
+                field.key === 'name' ? String(field.value).trim() : String(field.value).trim() ? Number(field.value) : NaN]));
+            const clean = normalizeCurrencyEditInput({ name: values.name, rate: values.rate,
+                table: Object.fromEntries(MONEY_TIERS.map(tier => [tier, values[tier]])), base: 'form' });
+            if (!clean) {
+                numberError.textContent = '名称须为1到6字且不含空白或标签符号；四档金额须为严格递增的正整数；兑换比例须为0.01到100，最多两位小数。';
+                numberError.hidden = false;
+                return;
+            }
+            settle(entry, { name: clean.name, table: clean.table, rate: clean.rate });
+        };
+        const accept = () => entry.kind === 'currency' ? acceptCurrency() : entry.kind === 'numbers' ? acceptNumbers()
+            : entry.kind === 'form' ? acceptForm()
+            : settle(entry, entry.kind === 'pick' ? picked() : entry.kind === 'confirm' || entry.kind === 'alert' ? true : (input ? input.value : entry.value));
         el.addEventListener('click', (event) => {
             event.stopPropagation();
             const btn = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-settings-dialog]') : null;
@@ -409,7 +439,7 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 event.preventDefault();
                 event.stopPropagation();
                 settle(entry, cancelValue(entry));
-            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : entry.kind === 'numbers' ? numberInputs.includes(event.target) : entry.kind === 'form' ? formInputs.includes(event.target) : true)) {
+            } else if (event.key === 'Enter' && entry.kind !== 'choose' && entry.kind !== 'busy' && !entry.multiline && !event.isComposing && (input ? event.target === input : ['numbers', 'currency'].includes(entry.kind) ? numberInputs.includes(event.target) : entry.kind === 'form' ? formInputs.includes(event.target) : true)) {
                 event.preventDefault();
                 event.stopPropagation();
                 accept();
@@ -512,6 +542,11 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
                 note: String(f.note || ''),
                 placeholder: String(f.placeholder || ''),
             }))),
+        currency: config => open('currency', '修改货币', '', { okLabel: '保存' }, [], [], [
+            { key: 'name', label: '货币名称', value: config.name },
+            ...MONEY_TIERS.map(key => ({ key, label: key, value: config.table[key], min: 1, max: Number.MAX_SAFE_INTEGER })),
+            { key: 'rate', label: '兑换比例（1积分）', value: config.rate, min: CURRENCY_RATE_MIN, max: CURRENCY_RATE_MAX, step: 0.01 },
+        ]),
         remount(container) {
             const el = mount(container || getContainer());
             if (!el && pending) settle(pending, cancelValue(pending));
@@ -521,6 +556,6 @@ export function createSettingsDialogs({ getContainer = () => null, global: globa
             if (pending) settle(pending, cancelValue(pending));
         },
         isOpen: () => Boolean(pending),
-        hasTextInput: () => Boolean(pending && (pending.kind === 'prompt' || pending.kind === 'edit' || pending.kind === 'numbers' || pending.kind === 'form')),
+        hasTextInput: () => Boolean(pending && ['prompt', 'edit', 'numbers', 'form', 'currency'].includes(pending.kind)),
     };
 }

@@ -42,6 +42,10 @@ export const WX_SEAL_MASK = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w
 export const WX_SEAL_MASK_WIDE = WX_SEAL_MASK.replace("viewBox='0 0 60 60'", "viewBox='0 0 60 60' preserveAspectRatio='none'");
 // 28px 左右的小方印：同一毛边与斑驳，按缩小倍数放粗起伏、位移与颗粒，颗粒密度与横向拉开的情绪印一致，不糊成实心方块。
 export const WX_SEAL_MASK_SMALL = WX_SEAL_MASK.replace("baseFrequency='.09'", "baseFrequency='.04'").replace("scale='2.4'", "scale='5.6'").replace("baseFrequency='.7'", "baseFrequency='.3'");
+// 海棠窗（纵向阅读的圆角方头像）：四瓣外凸、对角内收，56×56 随头像拉伸。遮罩白色实填，线稿烘月白 .75。
+const HAITANG_D = 'M12 12 A18 18 0 0 1 44 12 A18 18 0 0 1 44 44 A18 18 0 0 1 12 44 A18 18 0 0 1 12 12Z';
+export const WX_HAITANG_MASK = url(`<svg ${NS} viewBox='0 0 56 56' preserveAspectRatio='none'><path d='${HAITANG_D}' fill='#fff'/></svg>`);
+export const WX_HAITANG_LINE = url(`<svg ${NS} viewBox='0 0 56 56' preserveAspectRatio='none'><path d='${HAITANG_D}' fill='none' stroke='#ece7dd' stroke-opacity='.75' stroke-width='2'/></svg>`);
 
 
 // 中招：四边洇墨的噪声遮罩（v6 .hurt 原样）。

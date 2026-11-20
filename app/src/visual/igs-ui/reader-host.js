@@ -2657,8 +2657,6 @@ export function createIgsReaderHost(options = {}) {
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             const overlay = current.dom?.overlay;
             if (!overlay || !current.dom?.combatDeckController) return { ok: false, reason: 'combat-entry-missing' };
-            // 仅日常挑战时没有人物卡组，同一个按钮打开挑战记录。
-            if (normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).kind === 'daily') return current.dom.combatController.open(overlay, { history: true });
             return current.dom.combatDeckController.open(overlay);
         }
         if (normalizedAction === 'combat-resume') return resumeCombatFromReader();

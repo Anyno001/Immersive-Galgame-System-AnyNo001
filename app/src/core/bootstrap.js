@@ -108,7 +108,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.69';
+const IGS_VERSION = '0.40.70';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -462,8 +462,8 @@ export function bootstrapIGS(options = {}) {
         }),
         readFloor: (id) => illustrationMessageHost.readFloor(id),
         writeFloor: (id, text, floor, writeOptions) => illustrationMessageHost.writeFloor(id, text, floor, writeOptions),
-        buildMode: () => (app.statsRuntime && typeof app.statsRuntime.getBuildMode === 'function'
-            ? { mode: app.statsRuntime.getBuildMode(), choices: app.statsRuntime.getBuildChoices() } : null),
+        buildMode: () => (typeof app.statsRuntime?.buildPolicy === 'function'
+            ? app.statsRuntime.buildPolicy() : { ready: false, reason: 'stats-build-policy-waiting' }),
         traitNamesOf: (name) => (app.statsRuntime && typeof app.statsRuntime.traitNamesOf === 'function' ? app.statsRuntime.traitNamesOf(name) : null),
         npcAbilities: (name) => (app.statsRuntime && typeof app.statsRuntime.npcAbilities === 'function' ? app.statsRuntime.npcAbilities(name) : null),
         getChallengeSnapshot: () => (app.statsRuntime && typeof app.statsRuntime.challengeSnapshot === 'function' ? app.statsRuntime.challengeSnapshot() : null),
@@ -1010,7 +1010,11 @@ export function bootstrapIGS(options = {}) {
             const auto = ((getUnifiedSettingsSnapshot() || {}).bridge || {}).autoIllustration || {};
             const llm = auto.llm || { source: 'tavern' };
             if (!describeLlmReady(llm).ok) return null;
-            return (prompt) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, llm);
+            return (prompt, task = {}) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, {
+                ...llm,
+                ...(task.signal && { signal: task.signal }),
+                ...(typeof task.onSlow === 'function' && { onSlow: task.onSlow }),
+            });
         },
         describePeople: describeStatsPeople,
         readSheetContext: createStatsSheetContext(globalObject, { resolveWorldInfo: statsWorldInfo, aliasesOf: aliasGroupOf }),
@@ -1028,6 +1032,7 @@ export function bootstrapIGS(options = {}) {
         statsTables: () => (typeof combatServices.statsTables === 'function' ? combatServices.statsTables() : null),
         // 剧情货币是物品表里的一行：与战斗共用背包写口。
         currencyInventory: () => (typeof combatServices.inventoryTables === 'function' ? combatServices.inventoryTables() : null),
+        currencyEditStorage: storageLike,
         pointsExchange: () => combatServices.points?.() || null,
         combatPrompt: (type) => {
             const readerSettings = (getUnifiedSettingsSnapshot() || {}).readerSettings;
@@ -1053,6 +1058,7 @@ export function bootstrapIGS(options = {}) {
         // 掷骰卡（v2 §9.1）：阅读器开着时播放，没开不补播。
         onCheck: ({ detail }) => { try { app.igsUi && typeof app.igsUi.playStatsCheck === 'function' && app.igsUi.playStatsCheck(detail); } catch (error) { /* */ } },
         onNotices: () => { try { app.igsUi && typeof app.igsUi.syncStatsNotices === 'function' && app.igsUi.syncStatsNotices(); } catch (error) { /* */ } },
+        onBuildPolicyChange: prepareCombatProtagonist,
         onChange: (statsState, entry, info) => {
             scheduleStatsChanged();
             events.emit('igs:stats-updated', { state: statsState, entry });
@@ -1077,10 +1083,14 @@ export function bootstrapIGS(options = {}) {
     // 修罗场情敌由数值系统实时给出；未启用时返回 null，演出层退回「当过恋爱对象」旧规则。
     setStatsRivalProvider(() => app.statsRuntime && typeof app.statsRuntime.rivalSet === 'function' ? app.statsRuntime.rivalSet() : null);
     setRomanceSeenSink((names) => (app.statsRuntime && typeof app.statsRuntime.noteRomanceSeen === 'function' ? app.statsRuntime.noteRomanceSeen(names) : null));
-    state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => statsRuntime.sync());
+    state.statsSettingsOff = events.on('igs:legacy-settings-updated', () => { statsRuntime.sync(); prepareCombatProtagonist(); });
+    state.combatProtagonistOff = combatServices.onProtagonistUpdated((value) => {
+        if (value?.status === 'ready') scheduleStatsChanged();
+    });
     // 状态栏关闭时阅读器直接丢弃；开启时把好感、成长、阶段变化接到现有飘字。
     state.statsFxOff = events.on('igs:stats-fx', (fx) => { try { app.igsUi && typeof app.igsUi.playStatsFeedback === 'function' && app.igsUi.playStatsFeedback(fx); } catch (error) { /* 反馈出错不影响结算 */ } });
     statsRuntime.sync();
+    prepareCombatProtagonist();
     // 随身系统（Origin 系统 原作 vicliaaa，经授权移植）：总开关默认关，关着时不挂任何监听。
     const originRuntime = createOriginRuntime({
         getContext: resolveTavernContext,
@@ -1665,6 +1675,7 @@ export function bootstrapIGS(options = {}) {
         state.metaDigestCleanup = null;
         close(() => state.combatSettingsOff?.());
         close(() => state.combatFloorOff?.());
+        close(() => state.combatProtagonistOff?.());
         close(() => combatServices.dispose?.());
         close(() => state.statsSettingsOff?.());
         close(() => state.statsFxOff?.());

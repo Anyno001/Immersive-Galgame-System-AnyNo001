@@ -214,3 +214,83 @@ test('结算种子由聊天、楼序号、swipe 决定：两个独立运行得�
     assert.equal(run(), run());
 });
 
+test('建档策略未选择时等待；手动选择持久化，冷重建不退回自动', async t => {
+    const { rt, make } = setup(true, { newChat: 'ask' });
+    t.after(() => rt.destroy());
+    assert.equal(rt.buildPolicy().ready, false);
+    assert.equal(rt.enableForChat().ok, true);
+    assert.equal(rt.buildPolicy().ready, false);
+    assert.equal(rt.buildPolicy().mode, null);
+    assert.equal(rt.setBuildMode('manual').ok, true);
+    assert.equal(rt.buildPolicy().mode, 'manual');
+    assert.equal(rt.setBuildChoice('小雪', 'skip').ok, true);
+    await rt.whenSaved();
+    const cold = make();
+    t.after(() => cold.destroy());
+    cold.sync();
+    assert.deepEqual(cold.buildPolicy(), { ready: true, chatId: 'chat-1', reason: '', mode: 'manual', choices: { 小雪: 'skip' } });
+});
+
+test('自动快速开始采用自动策略；战斗强制启用不替代 ask 决策，待选手动不提前授权', async t => {
+    const auto = setup(true, { newChat: 'auto' });
+    t.after(() => auto.rt.destroy());
+    assert.equal(auto.rt.buildPolicy().mode, 'auto');
+    const ask = setup(true, { newChat: 'ask' });
+    t.after(() => ask.rt.destroy());
+    assert.equal(ask.rt.setBuildMode('manual').pending, true);
+    assert.equal(ask.rt.buildPolicy().ready, false);
+    assert.equal(ask.rt.enableForChat().ok, true);
+    assert.equal(ask.rt.buildPolicy().mode, 'manual');
+    const forced = setup(true, { newChat: 'ask' });
+    forced.rt.destroy();
+    let changes = 0;
+    const combat = forced.make({ combatEnabled: () => true, onBuildPolicyChange: () => { changes += 1; } });
+    t.after(() => combat.destroy());
+    combat.sync();
+    assert.equal(combat.isChatEnabled(), true);
+    assert.equal(combat.buildPolicy().ready, false);
+    const before = changes;
+    assert.equal(combat.noticeAction('build-mode', 'pick:manual').ok, true);
+    assert.equal(combat.buildPolicy().mode, 'manual');
+    assert.equal(changes, before + 1);
+});
+
+test('打开建卡页不授权默认方式，明确选择和快速开始才携带策略', async t => {
+    const opened = setup(true, { newChat: 'ask' });
+    t.after(() => opened.rt.destroy());
+    assert.equal(opened.rt.noticeAction('onboarding', 'build').openSettings, 'stats');
+    assert.equal(Object.hasOwn(opened.rt.chatStatus(), 'pendingMode'), false);
+    assert.equal((await opened.rt.enableForChat()).ok, true);
+    assert.equal(opened.rt.buildPolicy().ready, false);
+    assert.equal(opened.rt.buildPolicy().mode, null);
+    for (const mode of ['auto', 'manual', 'relative']) {
+        const picked = setup(true, { newChat: 'ask' });
+        t.after(() => picked.rt.destroy());
+        assert.equal(picked.rt.noticeAction('onboarding', `mode:${mode}`).ok, true);
+        assert.equal(picked.rt.noticeAction('onboarding', 'build').ok, true);
+        assert.equal(picked.rt.chatStatus().pendingMode, mode);
+        assert.equal((await picked.rt.enableForChat()).ok, true);
+        assert.equal(picked.rt.buildPolicy().mode, mode);
+    }
+    const quick = setup(true, { newChat: 'ask' });
+    t.after(() => quick.rt.destroy());
+    assert.equal((await quick.rt.noticeAction('onboarding', 'quick')).ok, true);
+    assert.equal(quick.rt.buildPolicy().mode, 'auto');
+});
+
+test('打开建卡页后战斗强制启用仍等待明确方式，不把默认 auto 当授权', async t => {
+    const f = setup(true, { newChat: 'ask' });
+    f.rt.destroy();
+    let enabled = false;
+    const combat = f.make({ combatEnabled: () => enabled });
+    t.after(() => combat.destroy());
+    combat.sync();
+    assert.equal(combat.noticeAction('onboarding', 'build').ok, true);
+    assert.equal(Object.hasOwn(combat.chatStatus(), 'pendingMode'), false);
+    enabled = true;
+    combat.sync();
+    assert.equal(combat.isChatEnabled(), true);
+    assert.equal(combat.buildPolicy().ready, false);
+    assert.equal(combat.buildPolicy().mode, null);
+    assert.equal(Object.hasOwn(combat.chatStatus(), 'pendingMode'), false);
+});

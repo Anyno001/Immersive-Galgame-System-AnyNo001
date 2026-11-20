@@ -221,7 +221,7 @@ function sharedStateOf(api) {
 }
 
 // 导出结果是否可缓存：空对象表示数据库尚未载入，不缓存，载入后下一次读取立即生效。
-const cacheable = (data) => Boolean(data) && typeof data === 'object' && Object.keys(data).length > 0;
+const cacheable = (data) => Boolean(data) && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length > 0;
 
 function isSuccessful(result) {
     if (result == null || result === false || result === -1) return false;
@@ -267,7 +267,7 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
         const read = readTables();
         if (!read.ok) return read;
         const data = read.data;
-        if (!data || typeof data !== 'object' || !Object.keys(data).length) return { ok: false, reason: 'not-ready' };
+        if (!cacheable(data)) return { ok: false, reason: 'not-ready' };
         if (!entry.sheets) entry.sheets = parseTables(data);
         return { ok: true, sheets: entry.sheets };
     }
@@ -372,7 +372,9 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
             } finally { clearTimeout(timer); }
         },
         registerCallback(callback) {
-            if (api && typeof api.registerTableUpdateCallback === 'function') api.registerTableUpdateCallback(callback);
+            if (!api || typeof api.registerTableUpdateCallback !== 'function') return false;
+            api.registerTableUpdateCallback(callback);
+            return true;
         },
         unregisterCallback(callback) {
             if (api && typeof api.unregisterTableUpdateCallback === 'function') api.unregisterTableUpdateCallback(callback);
@@ -473,13 +475,13 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
         return visible;
     }
 
-    function matchesIncomplete(kind, record) {
+    function matchingParts(kind, record) {
         const spec = COMBAT_TABLE_SPECS[kind];
-        if (!spec) return false;
+        if (!spec) return null;
         const loaded = loadSheets(client);
-        if (!loaded.ok) return false;
+        if (!loaded.ok) return null;
         const sheet = findSheet(loaded.sheets, kind);
-        if (!sheet) return false;
+        if (!sheet) return null;
         const expected = encodeCombatRecord(kind, record, cellMax);
         const parts = new Set();
         for (const row of sheet.rows) {
@@ -487,10 +489,15 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
             if (spec.keyOf(cells) !== expected.key) continue;
             const match = cells[SEGMENT_COLUMN].match(SEGMENT_PATTERN);
             const wanted = match && expected.rows[Number(match[1]) - 1];
-            if (!wanted || Object.keys(wanted).some((key) => cells[key] !== wanted[key])) return false;
+            if (!wanted || Object.keys(wanted).some((key) => cells[key] !== wanted[key])) return null;
             parts.add(Number(match[1]));
         }
-        return parts.size > 0 && parts.size < expected.rows.length;
+        return parts;
+    }
+
+    function matchesIncomplete(kind, record) {
+        const parts = matchingParts(kind, record);
+        return !!parts && parts.size > 0 && parts.size < encodeCombatRecord(kind, record, cellMax).rows.length;
     }
 
     // 缺表时在用户当前模板上补建，建完核对。
@@ -606,11 +613,20 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                             continue;
                         }
                         // 逐段插入；中途请求过期则停下，已插入的段数计入 inserted。
+                        const recoverSegments = item.options?.recoverSegments === true && item.kind === 'stats'
+                            && String(item.record.id).startsWith('sc|ce-');
+                        const parts = recoverSegments ? matchingParts(item.kind, item.record) : new Set();
+                        if (!parts) {
+                            finished.add(item);
+                            rejected.push({ key: encoded.key, reason: 'combat-record-conflict' });
+                            continue;
+                        }
                         let insertedHere = 0;
                         let stale = false;
                         let insertFailed = false;
-                        for (const row of encoded.rows) {
+                        for (const [part, row] of encoded.rows.entries()) {
                             if (!requestStillValid(item)) { stale = true; break; }
+                            if (parts.has(part + 1)) continue;
                             const result = await client.insertRow(COMBAT_TABLE_SPECS[item.kind].name, row, BATCH_WRITE_OPTIONS);
                             if (!result.ok) { insertFailed = true; break; }
                             insertedHere += 1;
