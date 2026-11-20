@@ -1,6 +1,6 @@
 import { listDlcFx, normalizeDlcFxSettings } from '../../scene/fx-registry.js';
 import { esc } from './reader-value-utils.js';
-import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput } from './settings-fields.js';
+import { checkbox, colorInput, rangeInput, field, segmentedInput, selectInput, textareaInput } from './settings-fields.js';
 import { DIALOG_FONT_OPTIONS } from './reader-host-constants.js';
 import { FX_TAG_KINDS } from '../../scene/fx-directives.js';
 import { FX_PROMPT_KEYS, FX_TAG_LABELS, MANGA_SYMBOL_KINDS, MANGA_SYMBOL_LABELS, normalizeFxPromptsSettings, normalizeFxReaderSettings } from './fx-settings.js';
@@ -10,6 +10,7 @@ import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
 import { LOG_PERCENTS } from './log-reader-settings.js';
 import { CHAT_READER_DIMS, CHAT_READER_RADII } from './chat-reader-settings.js';
+import { forumDefaultPromptText } from './forum-reader-lines.js';
 import { FORUM_PER_POST_MAX, FORUM_PER_POST_MIN } from './forum-reader-settings.js';
 import { renderForumRegistryFields } from './forum-reader-fields.js';
 
@@ -175,6 +176,8 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.barColor`, '工具栏颜色', colorInput(`${p}.forumReader.barColor`, fr.barColor || '#a9a3b2'))
         + checkbox(`${p}.forumReader.showMood`, fr.showMood, '台词前显示情绪（如 B（开心）：）')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
+        + field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule, forumDefaultPromptText(fr)), '留空使用内置写法；填写后整段替换（含标题、代号、回帖写法）')
+        + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')
         + checkbox(`${p}.forumReader.scrubber`, fr.scrubber, '页码进度条')
         + renderForumRegistryFields(forumRegistry));

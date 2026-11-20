@@ -6,7 +6,7 @@ import { resolveTextFxPromptRule, textFxGrammarBlock } from './text-fx.js';
 import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar, resolveChatShowPromptRule } from './chat-show-runtime.js';
 import { enabledFxTagKinds, FX_PROMPT_KEYS, normalizeFxPromptsSettings } from './fx-settings.js';
-import { forumPromptText, forumRegistered, forumShortPromptText } from './forum-reader-lines.js';
+import { forumPromptFor, forumRegistered } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
 import { danmakuGrammarBlocks, liveDetailedBlock, resolveDanmakuPromptRule } from './danmaku-prompt.js';
@@ -87,7 +87,7 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
     const forum = normalizeForumReaderSettings(rs.forumReader);
     if (forum.on && forum.prompt) {
         const registered = forumRegistered(rs._forum);
-        blocks.push({ key: 'forum', full: registered ? forumShortPromptText(forum, rs._forum) : forumPromptText(forum, rs._forum), index: '论坛体 igs-forum' });
+        blocks.push({ key: 'forum', full: forumPromptFor(forum, rs._forum, registered), index: '论坛体 igs-forum' });
     }
     const dailyKinds = enabledDailyFxKinds(rs.dailyFx);
     const dailyLines = dailyGrammarLines(rs.dailyFx);

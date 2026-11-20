@@ -34,6 +34,7 @@ export function normalizeForumReaderSettings(value) {
         speed: Object.hasOwn(LOG_SPEEDS, src.speed) ? src.speed : 'normal',
         scrubber: src.scrubber === true,
         showMood: src.showMood === true,
+        promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'fade',
         // 工具栏颜色：空 = 沿用纵向的文字色，否则用自选实色。
         barColor: /^#[0-9a-fA-F]{6}$/.test(src.barColor) ? src.barColor.toLowerCase() : '',

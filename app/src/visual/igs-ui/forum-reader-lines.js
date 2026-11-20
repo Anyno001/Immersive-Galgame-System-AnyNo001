@@ -64,6 +64,16 @@ export function forumShortPromptText(settings, data) {
     return `【论坛体】正文以匿名论坛帖展示。已登记：${forumFactsText(data)}。仅需改动时在正文末尾写一行 ${settings.poster !== 'auto' ? TAG_FORMAT_SHORT_LOCKED : TAG_FORMAT_SHORT}，不写则沿用。${replyLine(settings) ? `每段正文${replyLine(settings)}。` : ''}`;
 }
 
+// 设置里自填的提示词（非空）整段替换内置写法，登记前后都用它；留空用内置。
+export function forumPromptFor(settings, data, registered) {
+    if (settings.promptRule) return settings.promptRule;
+    return registered ? forumShortPromptText(settings, data) : forumPromptText(settings, data);
+}
+
+export function forumDefaultPromptText(settings) {
+    return forumPromptText({ ...settings, promptRule: '' }, null);
+}
+
 export function forumPromptText(settings, data) {
     const locked = settings.poster !== 'auto';
     const facts = forumFactsText(data);
