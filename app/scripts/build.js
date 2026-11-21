@@ -66,7 +66,17 @@ const withEnemyAtlas = withVoice.replace(ENEMY_ATLAS_ASSET_RE, (_match, file) =>
     return `./enemy-atlas/${file}`;
 });
 if (!enemyAtlasAssets.size) throw new Error('Combat enemy atlas images are missing from bundle.');
-const skinAssets = await externalizeSkinAssets(withEnemyAtlas, { srcRoot, distRoot, cache: stamps });
+// 内置表情包：源码以 new URL('../../assets/stickers/<套组>/', import.meta.url) 引用目录，改写为 ./stickers/<套组>/，整个套组目录复制到 dist/stickers/<套组>/。
+const STICKER_SETS_DIRS = ['daimao', 'nga'];
+const STICKER_ASSET_RE = /(?:\.\.?\/)+assets\/stickers\/(daimao|nga)\//g;
+const stickerSourceDir = path.join(appRoot, 'assets', 'stickers');
+const stickerSetsUsed = new Set();
+const withStickers = withEnemyAtlas.replace(STICKER_ASSET_RE, (_match, dir) => {
+    stickerSetsUsed.add(dir);
+    return `./stickers/${dir}/`;
+});
+if (stickerSetsUsed.size !== STICKER_SETS_DIRS.length) throw new Error('Sticker set directories are missing from bundle.');
+const skinAssets = await externalizeSkinAssets(withStickers, { srcRoot, distRoot, cache: stamps });
 const bundle = inlineTypewriterAudio(skinAssets.bundle);
 
 const roundedFontWeights = [300, 400, 500, 700];
@@ -214,6 +224,29 @@ for (const file of enemyAtlasAssets) {
     if (head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WEBP') throw new Error(`Combat enemy atlas image is not webp: ${source}`);
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Combat enemy atlas image exceeds the jsDelivr file limit: ${source}`);
     copyIfChanged(source, path.join(enemyAtlasTargetDir, file));
+}
+// 内置表情包：整套目录复制（webp / png 图 + 来源.md），校验文件签名与 jsDelivr 单文件上限；图片不进 bundle。
+const stickerTargetRoot = path.join(distRoot, 'stickers');
+fs.mkdirSync(stickerTargetRoot, { recursive: true });
+pruneDir(stickerTargetRoot, new Set(STICKER_SETS_DIRS));
+for (const dir of STICKER_SETS_DIRS) {
+    const sourceDir = path.join(stickerSourceDir, dir);
+    const targetDir = path.join(stickerTargetRoot, dir);
+    const files = fs.readdirSync(sourceDir).filter((file) => /\.(?:webp|png)$/i.test(file) || file === '来源.md');
+    if (!files.some((file) => !file.endsWith('.md'))) throw new Error(`Sticker set has no images: ${sourceDir}`);
+    fs.mkdirSync(targetDir, { recursive: true });
+    pruneDir(targetDir, new Set(files));
+    for (const file of files) {
+        const source = path.join(sourceDir, file);
+        if (!file.endsWith('.md')) {
+            const head = readHead(source, 12);
+            const webp = head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WEBP';
+            const png = head[0] === 0x89 && head.toString('latin1', 1, 4) === 'PNG';
+            if (!(file.endsWith('.webp') ? webp : png)) throw new Error(`Sticker image has a wrong signature: ${source}`);
+            if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Sticker image exceeds the jsDelivr file limit: ${source}`);
+        }
+        copyIfChanged(source, path.join(targetDir, file));
+    }
 }
 // 默认曲目：只复制 bundle 实际引用的音频，并校验文件签名（mp3 带 ID3 头或帧同步、ogg 为 OggS）与 jsDelivr 单文件上限。
 const bgmTargetDir = path.join(distRoot, 'bgm');

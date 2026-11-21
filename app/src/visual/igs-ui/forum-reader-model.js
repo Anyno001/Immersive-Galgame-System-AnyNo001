@@ -2,6 +2,7 @@ import { storyClock } from './phone-sense.js';
 import { feedStableCount } from '../../scene/feed-platforms.js';
 import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_IMAGE_REF_LINES, FORUM_KAOMOJI, FORUM_KAOMOJI_ONLY_RATE, FORUM_KAOMOJI_TAIL_RATE, FORUM_LINES } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { REPLY_BODY_SOURCE } from '../../scene/directive-tags.js';
 import { isContinuation } from './log-reader-model.js';
 import { describePo, samePo, threadAt, titleAt } from './forum-reader-threads.js';
 
@@ -219,7 +220,7 @@ export function parseForumTag(body) {
 export function forumRepliesOf(source) {
     const out = [];
     let anon = 0;
-    for (const m of String(source || '').matchAll(/[\[【［]\s*igs\s*-?\s*reply\s*[:：]([^\]】］\n]*)[\]】］]/gi)) {
+    for (const m of String(source || '').matchAll(new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*reply\\s*[:：](${REPLY_BODY_SOURCE})[\\]】］]`, 'gi'))) {
         const fields = m[1].split('|').map((f) => f.trim());
         let who = '';
         let to = 0;

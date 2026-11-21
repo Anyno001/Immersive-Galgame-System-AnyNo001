@@ -111,6 +111,8 @@ const SCOPED_COLLECTION_KINDS = Object.freeze({ scenes: '场景', characters: '�
 import { isLayeredPreset, isLegacyPresetData, isValidPresetName, layeredPresetFromRoot, legacyPackConflicts, legacyPackSummary, legacyPresetToPack, loadLegacyPresets, mergeLegacyLibrary, presetCardLayers, presetFromAssets, readPresetLibrary, removeNamedPreset, renameNamedPreset, replaceLibraryWithPack, replacePresetLibrary, storeLegacyPresets, writeNamedPreset } from '../../scene/legacy-preset.js';
 import { avatarHoldersOfPreset, avatarHoldersOfRoot, moveInlineAvatars, storeAvatarImage } from './avatar-images.js';
 import { describeLocalStorageUsage, describeMediaUsage } from '../../storage/storage-usage.js';
+import { normalizeStickerSettings } from '../../stickers/sticker-settings.js';
+import { addStickerEmotion, resetSticker, setStickerDesc, toggleStickerEmotion, toggleStickerKey } from '../../stickers/sticker-browser.js';
 
 // 草稿深拷贝后顶层 imageApi 与 bridge.imageApi 不再是同一对象，面板只改后者；生图读取优先顶层，这里对齐为面板当前值。
 function cloneImageDraft(draft) {
@@ -2992,6 +2994,39 @@ export async function handleSettingsAction(action, ctx) {
         const current = normalizeFeedFxSettings(readerDraft.feedFx);
         current.platforms[feedReset[1]].prompt = '';
         readerDraft.feedFx = current;
+        const persisted = persistSettingsDraft();
+        if (persisted.ok === false) return persisted;
+        return rerenderSettings();
+    }
+
+    // 表情包子页：点一张图展开编辑菜单（情绪多选与新增、描述、停用 / 启用、恢复默认）。
+    // 停用的键（文件名）记在 stickers.disabled；改过的含义只存差异，记在 stickers.overrides[文件名]。
+    const stickerAct = /^sticker-(edit|edit-close|toggle|reset|emo|emo-add|desc-save):?(.*)$/.exec(normalizedAction);
+    if (stickerAct) {
+        const [, kind, rest] = stickerAct;
+        const asyncState = settingsState.asyncState = settingsState.asyncState || {};
+        if (kind === 'edit' || kind === 'edit-close') {
+            asyncState.stickerEdit = kind === 'edit' && asyncState.stickerEdit !== rest ? rest : '';
+            return rerenderSettings();
+        }
+        const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
+        const current = normalizeStickerSettings(readerDraft.stickers);
+        const root = settingsState.dom && settingsState.dom.root;
+        const input = (selector) => {
+            const node = root && typeof root.querySelector === 'function' ? root.querySelector(selector) : null;
+            return node ? String(node.value || '') : '';
+        };
+        let next = current;
+        if (kind === 'toggle') next = { ...current, disabled: toggleStickerKey(current.disabled, rest) };
+        else if (kind === 'reset') {
+            const reset = resetSticker(current.overrides, current.disabled, rest);
+            next = { ...current, overrides: reset.overrides, disabled: reset.disabled };
+        } else if (kind === 'emo') {
+            const cut = rest.indexOf(':');
+            next = { ...current, overrides: toggleStickerEmotion(current.overrides, rest.slice(0, cut), rest.slice(cut + 1)) };
+        } else if (kind === 'emo-add') next = { ...current, overrides: addStickerEmotion(current.overrides, rest, input('[data-sticker-new]')) };
+        else if (kind === 'desc-save') next = { ...current, overrides: setStickerDesc(current.overrides, rest, input('[data-sticker-desc]')) };
+        readerDraft.stickers = next;
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();

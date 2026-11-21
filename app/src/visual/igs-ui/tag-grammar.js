@@ -8,6 +8,7 @@ import { normalizeChatShowSettings, resolveChatShowGrammar, resolveChatShowPromp
 import { enabledFxTagKinds, FX_PROMPT_KEYS, normalizeFxPromptsSettings } from './fx-settings.js';
 import { forumPrevPromptText, forumPromptFor, forumRegistered } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { stickerPromptBlock } from '../../stickers/sticker-prompt.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
 import { danmakuGrammarBlocks, liveDetailedBlock, resolveDanmakuPromptRule } from './danmaku-prompt.js';
 import { feedGrammarBlocks } from './feed-prompt.js';
@@ -90,6 +91,9 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
         const prev = forum.promptRule ? '' : forumPrevPromptText(forum, rs._forumPrev);
         blocks.push({ key: 'forum', full: [forumPromptFor(forum, rs._forum, registered), prev].filter(Boolean).join('\n'), index: '论坛体 igs-forum' });
     }
+    // 内置表情包：线上聊天或论坛开着、且表情包开关开着才发（清单只写一次）。
+    const stickerText = stickerPromptBlock(rs, { ancient });
+    if (stickerText) blocks.push({ key: 'sticker', full: stickerText, index: '表情包 igs-sticker' });
     const dailyKinds = enabledDailyFxKinds(rs.dailyFx);
     const dailyLines = dailyGrammarLines(rs.dailyFx);
     if (dailyLines.length) {

@@ -65,6 +65,7 @@ const EXTRA_ENTRIES = Object.freeze([
     { id: 'render-quality', label: '画质 / 省电模式', aliases: ['卡', '卡顿', '发热', '耗电', '低画质', '省电', '掉帧'], page: 'dash' },
     { id: 'image-count', label: '检测图像数量', aliases: ['图片数量', '图不对', '少图', '多图'], page: 'parse', open: ['source-filter'], path: 'readerSettings.imageCountOverride' },
     { id: 'body-format', label: '正文格式化', aliases: ['正则', '格式', '分页不对', '乱码'], page: 'parse', open: ['body-format'], path: 'bridge.virtualRegex.enabled' },
+    { id: 'stickers', label: '表情包', aliases: ['表情', '贴纸', 'sticker', '停用表情', '呆猫八条', '发表情'], page: 'stickers' },
     { id: 'shortcuts', label: '快捷键', aliases: ['键盘', '热键', '按键', '改键'], page: 'ui-reader' },
     { id: 'toolbar-dock', label: '工具栏位置', aliases: ['工具栏', '按钮', '顶部', '紧贴对话框'], page: 'ui-bar', path: 'readerSettings.toolbarDock' },
     { id: 'status-hud-position', label: '状态栏位置', aliases: ['状态栏', 'hud', '头像', '左上角', '挡住', '挪位置'], page: 'ui-bg' },

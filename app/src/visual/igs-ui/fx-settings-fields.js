@@ -145,6 +145,11 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.logReader.scrubber`, lr.scrubber, '页码进度条')
         + checkbox(`${p}.logReader.chip`, lr.chip, '名字后显示情绪')
         + checkbox(`${p}.logReader.userAvatar`, lr.userAvatar, '显示User头像'));
+    // 内置表情包：线上聊天与论坛两页读写同一个键 stickers。
+    const stickerRowsOf = (forum) => checkbox(`${p}.stickers.on`, s.stickers.on, '内置表情包（让AI按人物性格发送）')
+        + field(`${p}.stickers.freq`, '表情包频率', segmentedInput(`${p}.stickers.freq`, s.stickers.freq, [['low', '少'], ['mid', '适中'], ['high', '多']], '表情包频率'), '仅在线上聊天与论坛模式下生效；心里话及其他阅读模式不使用')
+        + (forum ? field(`${p}.stickers.set`, '表情套组', segmentedInput(`${p}.stickers.set`, s.stickers.set, [['daimao', '呆猫八条'], ['nga', 'NGA AC娘']], '表情套组'), '只作用于论坛；线上聊天固定使用呆猫八条。AC娘为行内小图，没有对应图的情绪不显示') : '')
+        + '<div class="igs-settings-row"><button type="button" class="igs-settings-action" data-page="stickers">管理表情包</button></div>';
     const cr = s.chatReader;
     const chatReader = featureRow(more, 'chat-reader', `${p}.chatReader.on`, cr.on, '线上聊天模式', '改为聊天气泡', field(`${p}.chatReader.perTap`, '每次显示', segmentedInput(`${p}.chatReader.perTap`, cr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条']], '每次显示'))
         + field(`${p}.chatReader.speed`, '出字节奏', segmentedInput(`${p}.chatReader.speed`, cr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出字节奏'))
@@ -164,7 +169,8 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.chatReader.scrubber`, cr.scrubber, '页码进度条')
         + checkbox(`${p}.chatReader.chip`, cr.chip, '名字后显示情绪')
         + checkbox(`${p}.chatReader.charAvatar`, cr.charAvatar, '显示对方头像')
-        + checkbox(`${p}.chatReader.userAvatar`, cr.userAvatar, '显示User头像'));
+        + checkbox(`${p}.chatReader.userAvatar`, cr.userAvatar, '显示User头像')
+        + stickerRowsOf(false));
     const fr = s.forumReader;
     const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.poster`, '楼主', segmentedInput(`${p}.forumReader.poster`, fr.poster, [['auto', '让 AI 挑'], ['char', '角色本人'], ['witness', '围观路人'], ['user', 'User'], ['pair', '双楼主']], '楼主'))
         + (fr.poster === 'pair' ? field(`${p}.forumReader.posterPair.0`, '第一位楼主', textInput(`${p}.forumReader.posterPair.0`, fr.posterPair[0], '角色名、{{user}} 或 路人:身份')) + field(`${p}.forumReader.posterPair.1`, '第二位楼主', textInput(`${p}.forumReader.posterPair.1`, fr.posterPair[1], '两人之间交替发帖')) : '')
@@ -189,6 +195,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')
         + checkbox(`${p}.forumReader.scrubber`, fr.scrubber, '页码进度条')
+        + stickerRowsOf(true)
         + collapsible('forum-registry', '本聊天的帖子（标题、代号）', renderForumRegistryFields(forumRegistry))
         + collapsible('forum-prompt', '高级：论坛提示词', field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule || forumDefaultPromptText(fr)), '框里是当前生效的写法，可直接修改；改后整段替换内置写法（含标题、代号、回帖写法），改回与内置一致或清空即用内置')
             + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`));

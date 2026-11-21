@@ -24,6 +24,7 @@ import { COMIC_WORD_LIST_PATHS, normalizeComicModeSettings } from './comic-setti
 import { normalizeLogReaderSettings } from './log-reader-settings.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { normalizeStickerSettings } from '../../stickers/sticker-settings.js';
 import { MANGA_BACK_WORD_LIST_PATHS, normalizeMangaBackSettings } from './manga-back.js';
 import { normalizeCrowdFxSettings } from './crowd-fx.js';
 import { normalizeFeedFxSettings } from './feed-settings.js';
@@ -238,6 +239,8 @@ export const FX_SETTINGS_NORMALIZERS = Object.freeze({
     chatReader: normalizeChatReaderSettings,
     // 论坛体阅读模式同样与纵向、线上聊天互斥并列，独立渲染（forum-reader-layer）。
     forumReader: normalizeForumReaderSettings,
+    // 内置表情包（线上聊天与论坛共用的开关与频率），不进入 FX_FEATURE_KEYS。
+    stickers: normalizeStickerSettings,
     // 漫画背景与特效、人群剪影独立渲染（manga-back / crowd-fx），不进入 FX_FEATURE_KEYS。
     mangaBack: normalizeMangaBackSettings,
     crowdFx: normalizeCrowdFxSettings,

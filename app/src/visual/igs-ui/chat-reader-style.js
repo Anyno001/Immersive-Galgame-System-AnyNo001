@@ -121,5 +121,16 @@ ${R} #igs-log-edit-bar button[data-log-zoom]{min-width:36px;padding:0;font-size:
 ${R} #igs-log-edit-bar button[aria-pressed="true"]{box-shadow:inset 0 0 0 1.5px var(--igs-log-acc);color:var(--igs-log-acc);}
 ${R} #igs-log-edit-bar button:disabled{color:var(--igs-log-sub);cursor:default;}
 ${R} #igs-log-edit-bar button[data-log-edit="save"]{background:var(--igs-log-acc);color:rgb(var(--igs-log-veil));font-weight:600;}
+/* 表情包：无底色无气泡尾，占位卡颜色随左右气泡的柔和色；窄屏缩小。 */
+${R}{--igs-cr-sticker-size:112px;--igs-cr-sticker-radius:12px;}
+${R} .igs-cr-group.is-left{--igs-sticker-ph-bg:var(--igs-cr-left-soft);--igs-sticker-ph-ink:var(--igs-cr-left-ink);}
+${R} .igs-cr-group.is-right{--igs-sticker-ph-bg:var(--igs-cr-right-soft);--igs-sticker-ph-ink:var(--igs-cr-right-ink);}
+${R} .igs-cr-group:is(.is-left,.is-right) .igs-cr-bubble.is-sticker{padding:0;background:none;box-shadow:none;border-radius:0;}
+${R} .igs-cr-group:is(.is-left,.is-right) .igs-cr-bubble.is-sticker::before,${R} .igs-cr-group:is(.is-left,.is-right) .igs-cr-bubble.is-sticker::after{content:none;}
+${R} .igs-cr-bubble.is-sticker .igs-cr-text{display:block;line-height:0;}
+${R} .igs-cr-sticker{display:inline-block;width:var(--igs-cr-sticker-size);height:var(--igs-cr-sticker-size);line-height:0;}
+${R} .igs-cr-sticker :is(img,svg){display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;}
+${R} .igs-cr-sticker img{border-radius:var(--igs-cr-sticker-radius);}
+@media (max-width:640px){${R}{--igs-cr-sticker-size:96px;--igs-cr-sticker-radius:10px;}}
 @media (prefers-reduced-motion:reduce){${R} .igs-cr-dots i,${R} .igs-fx-symbol,${R} .igs-fx-symbol *{animation:none!important;}}
 `;

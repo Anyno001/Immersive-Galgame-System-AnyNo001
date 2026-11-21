@@ -58,6 +58,20 @@ export function sceneLabelOf(state, prev) {
     return [time !== prevTime ? time : '', scene].filter(Boolean).join(' · ');
 }
 
+// 只有表情没有文字的台词：按说话人归并成 [{ speaker, key, user, stickers }]，只有线上聊天读取。
+function stickerSaysOf(page, keyOf, userKey) {
+    const by = new Map();
+    for (const st of Array.isArray(page.stickers) ? page.stickers : []) {
+        if (!st.by) continue;
+        if (!by.has(st.by)) by.set(st.by, []);
+        by.get(st.by).push(st);
+    }
+    return [...by].map(([speaker, stickers]) => {
+        const key = String(keyOf(speaker) || speaker);
+        return { speaker, key, user: Boolean(userKey && key === userKey), stickers };
+    });
+}
+
 // 分页计划 → log 行。ctx：keyOf（名字 → 主名）、userKey、showSystemName、solo(i)（聊天页 / HTML 卡片页由原渲染接管，返回按钮文字）、
 // textOf(i)（聊天块没开聊天演出时转成的文字，与对话框一致）、inherited（上一楼场景）、groupOf（情绪词 → 情绪组名，归不进组时用原词）。
 // kind：dialogue / thought / narr；scene 为本行前要插的换场景分隔线文字。
@@ -92,6 +106,8 @@ export function logRowsOf(pages, ctx = {}) {
             user: Boolean(key && ctx.userKey && key === ctx.userKey),
             text: textOf(i) ?? logTextOf(page),
             scene: i === 0 && !ctx.inherited ? '' : scene,
+            stickers: (Array.isArray(page.stickers) ? page.stickers : []).filter((st) => !st.by),
+            stickerSays: stickerSaysOf(page, keyOf, ctx.userKey),
             solo: Boolean(solo(i)),
             replay: typeof solo(i) === 'string' ? solo(i) : '',
             nsfw: Boolean(state && state.nsfw),

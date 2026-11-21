@@ -16,6 +16,7 @@ import { normalizeItemImageSettings } from '../../generated-images/illustration/
 import { createCgLibraryView } from './cg-library-view.js';
 import { countEnabledPerformance, performanceGroupCounts, renderPerformancePage, renderPerformancePresetBar } from './performance-settings-layout.js';
 import { renderWorldviewRow } from './worldview-fields.js';
+import { renderStickerBrowser } from '../../stickers/sticker-browser.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { createOutfitResolver, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
@@ -1126,6 +1127,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return renderPerformancePresetBar(reader, { compact: true, canUndo: Boolean(asyncState.perfPresetUndo) }) + pageTabs({}, performanceGroupCounts(reader, perfExtras())) + renderTemplate(getPageTemplate(page), { performanceSections: performanceSections(PAGE_PERFORMANCE_GROUPS[page]) });
         }
         switch (page) {
+        case 'stickers':
+            return pageTabs({}, performanceGroupCounts(reader, perfExtras())) + renderStickerBrowser(reader.stickers, { editing: (asyncState && asyncState.stickerEdit) || '' });
         case 'style':
         case 'text':
         case 'ui-reader':

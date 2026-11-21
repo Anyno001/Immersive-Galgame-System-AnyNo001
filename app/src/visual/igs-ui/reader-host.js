@@ -169,6 +169,8 @@ import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from 
 import { chatSettingsOf, isChatCont } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
+import { normalizeStickerSettings } from '../../stickers/sticker-settings.js';
+import { personaOfTraits } from '../../stickers/sticker-persona.js';
 import { shotGroupsOf } from './forum-reader-chat-shot.js';
 import { storyClock } from './phone-sense.js';
 import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
@@ -3539,7 +3541,9 @@ ${row.key}`;
         const index = Math.max(0, Math.min(log.rows.length - 1, Number(current.index) || 0));
         if (log.rows[index] && log.rows[index].solo) { sync(overlay, null); return; }
         const rs = snapshot.readerSettings || {};
-        const settings = kind === 'forum' ? forumSettingsOf(rs) : chat ? { ...chatSettingsOf(rs), adjust: normalizeLogReaderSettings(rs.logReader).adjust } : logSettingsOf(rs);
+        // personaOf：说话人 → 表情包性格标签，来自数值系统的特质（没启用时为空，挑图退回种子哈希）。
+        const stickers = { ...normalizeStickerSettings(rs.stickers), personaOf: (name) => { try { return personaOfTraits(typeof options.traitNamesOf === 'function' ? options.traitNamesOf(name) : null); } catch (error) { return []; } } };
+        const settings = kind === 'forum' ? { ...forumSettingsOf(rs), stickers } : chat ? { ...chatSettingsOf(rs), adjust: normalizeLogReaderSettings(rs.logReader).adjust, stickers } : logSettingsOf(rs);
         const manga = normalizeMangaFxSettings(rs.mangaFx);
         const anyManga = { ...manga, enabled: true };
         const html = createLogHtml(snapshot);
@@ -3779,7 +3783,7 @@ ${row.key}`;
         };
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([rs.dialogSkin, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            sig: JSON.stringify([rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
             rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,
             board: forumBoardOf(data, worldview),
             threadNo: (() => { const froms = thread ? (data.timeline || []).filter((e) => e.thread === thread.id).map((e) => Number(e.from)).filter(Number.isFinite) : []; return froms.length ? forumNo(chatId, Math.min(...froms), 0) : (plan[0] ? plan[0].no : ''); })(),

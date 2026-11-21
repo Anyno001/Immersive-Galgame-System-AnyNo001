@@ -4,6 +4,8 @@ import { VOICE_ICON } from './voice-icon.js';
 import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
 import { FORUM_EDGE_PX, FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
 import { buildChatShots } from './forum-reader-chat-shot.js';
+import { STICKER_TAG_G, installStickerFallback, stickerHtml, stickerOptsOf } from '../../stickers/sticker-render.js';
+import { stickerView } from '../../stickers/sticker-catalog.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
@@ -295,6 +297,27 @@ function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
     return node;
 }
 
+// 设置里停用的表情包（宿主把规范化后的 stickers 放在 view.settings.stickers 上）。
+// 论坛按所选套组出表情：AC娘（nga）是行内小图，跟在文字里；呆猫八条另起一行。
+function stickerOf(view, speaker = '') {
+    const opts = stickerOptsOf(view.settings && view.settings.stickers, { forum: true, speaker });
+    return { opts, inline: stickerView(opts.set, opts.overrides).inline };
+}
+
+// 回帖正文：标签原位换成行内图，文字其余部分转义。
+function inlineReplyHtml(text, optsFor) {
+    let out = '';
+    let last = 0;
+    let n = 0;
+    for (const m of text.matchAll(STICKER_TAG_G)) {
+        out += esc(text.slice(last, m.index));
+        out += stickerHtml(m[1], optsFor(n));
+        n += 1;
+        last = m.index + m[0].length;
+    }
+    return out + esc(text.slice(last));
+}
+
 function replyNode(doc, reply, view, live) {
     const node = el(doc, 'div', 'igs-fm-reply' + (live ? '' : ' is-in'));
     const meta = el(doc, 'div', 'igs-fm-meta');
@@ -303,7 +326,20 @@ function replyNode(doc, reply, view, live) {
     let html = '';
     if (reply.quote) html += `<div class="igs-fm-gt">&gt;${esc(reply.quote)}</div>`;
     if (reply.ref) html += `<div class="igs-fm-ref">&gt;&gt;No.${esc(reply.ref)}</div>`;
-    html += `<div>${esc(reply.text)}</div>`;
+    const sticker = stickerOf(view);
+    const optsFor = (n) => ({ ...sticker.opts, seed: `${reply.id}#${reply.no}:${n}`, cls: 'igs-fm-sticker' });
+    if (sticker.inline) {
+        // AC娘：行内小图，跟在文字里，没有对应图的情绪直接不显示。
+        const inner = inlineReplyHtml(String(reply.text), optsFor).trim();
+        if (inner) html += `<div>${inner}</div>`;
+    } else {
+        // 文字在上，表情另起一行、左对齐，连续多个并排（与楼主正文一致）。
+        const names = [...String(reply.text).matchAll(STICKER_TAG_G)].map((m) => m[1]);
+        const plainText = String(reply.text).replace(STICKER_TAG_G, '').trim();
+        if (plainText || !names.length) html += `<div>${esc(plainText)}</div>`;
+        const stickers = names.map((name, n) => stickerHtml(name, optsFor(n))).join('');
+        if (stickers) html += `<div class="igs-fm-stickers is-in">${stickers}</div>`;
+    }
     body.innerHTML = html;
     node.append(meta, body);
     return node;
@@ -357,10 +393,21 @@ function buildRow(overlay, list, i, view, live) {
     }
     else if (row.kind === 'thought') inner = `<span class="igs-fm-who">${esc(row.who)}</span>（${html}）`;
     else if (row.label) inner = `<span class="igs-fm-who">${esc(row.label)}：</span>${html}`;
+    // 楼主正文里的表情包：AC娘跟在这一句末尾（行内小图），呆猫八条独占一行、左对齐，跟在这一句后面淡入。
+    const sticker = stickerOf(view, row.who || row.speaker);
+    const stickers = (Array.isArray(row.stickers) ? row.stickers : [])
+        .map((st, n) => stickerHtml(st.id || st.name, { ...sticker.opts, seed: `${row.who || row.speaker}#${view.floorKey}:${row.index}:${n}`, cls: `igs-fm-sticker${sticker.inline ? '' : ' is-po'}` })).join('');
+    if (stickers && sticker.inline) inner += stickers;
     line.dataset.html = inner;
     if (!live) line.innerHTML = inner;
     if (view.canSpeak && view.canSpeak(row) && row.kind !== 'narr') line.append(playButton(doc));
     body.append(line);
+    if (stickers && !sticker.inline) {
+        const strip = el(doc, 'div', 'igs-fm-stickers' + (live ? '' : ' is-in'));
+        strip.innerHTML = stickers;
+        body.append(strip);
+        fades.push(strip);
+    }
     for (const card of (view.cardsOf ? view.cardsOf(row) : []) || []) body.append(cardNode(doc, card, !live));
     return { fades, text: line, post, postIndex, row };
 }
@@ -499,7 +546,12 @@ function applyAttrs(overlay, root, view) {
     root.style.setProperty('--igs-fm-edge', `${FORUM_EDGE_PX[st.edge] || 12}px`);
     if (st.sayInk === 'name') set('data-say-ink', 'name'); else root.removeAttribute('data-say-ink');
     if (st.narrIndent) set('data-indent', ''); else root.removeAttribute('data-indent');
-    const colors = forumPaletteColors(st.palette, st.mode, overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
+    const systemDark = overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true;
+    const colors = forumPaletteColors(st.palette, st.mode, systemDark);
+    // AC娘是黑线条透明图：深色下垫一小块实色浅底（圆角、紧贴图片），浅色下直接叠在配色底上不加底。
+    const acDark = st.mode === 'dark' || (st.mode === 'auto' && systemDark);
+    root.style.setProperty('--igs-fm-ac-bg', acDark ? '#e8e4da' : 'none');
+    root.style.setProperty('--igs-fm-ac-pad', acDark ? '2px' : '0px');
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
     overlay.style.setProperty('--igs-fm-main-ink', colors.main);
     overlay.style.setProperty('--igs-fm-card-ink', colors.card);
@@ -543,6 +595,7 @@ export function syncForumReader(overlay, view) {
     }
     const root = ensureRoot(overlay);
     if (!root) return { revealing: null };
+    installStickerFallback(overlay.ownerDocument);
     // 立绘隐藏、对话框收起、输入框换皮、页码进度条这些共用规则认纵向的开关属性：论坛同时挂上。调用方先收起未启用的那一个、再同步启用的。
     if (overlay.getAttribute('data-igs-forum-reader') !== 'on') overlay.setAttribute('data-igs-forum-reader', 'on');
     if (overlay.getAttribute('data-igs-log-reader') !== 'on') overlay.setAttribute('data-igs-log-reader', 'on');

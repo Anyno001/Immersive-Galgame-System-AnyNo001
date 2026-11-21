@@ -111,5 +111,16 @@ ${R} .igs-fm-img[data-folded] .igs-fm-fold{display:block;}
 ${R} .igs-fm-img[data-folded] .igs-fm-thumb{display:none;}
 ${R} .igs-fm-viewer{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:#000;cursor:zoom-out;pointer-events:auto;}
 ${R} .igs-fm-viewer img{display:block;max-width:100%;max-height:100%;object-fit:contain;}
+/* 表情包：回帖行内块默认 88px，楼主正文独占一行 120px；占位卡颜色跟随当前配色（深色版随之变深）。 */
+${R}{--igs-fm-sticker-size:88px;--igs-fm-sticker-po-size:120px;--igs-fm-ac-scale:1;--igs-fm-ac-bg:none;--igs-fm-ac-pad:0px;--igs-fm-ac-radius:2px;--igs-fm-sticker-radius:10px;--igs-sticker-ph-bg:var(--igs-fm-line,#d9bfb7);--igs-sticker-ph-ink:var(--igs-fm-body,#222);}
+${R} .igs-fm-sticker{display:inline-block;vertical-align:bottom;width:var(--igs-fm-sticker-size);height:var(--igs-fm-sticker-size);margin:2px 4px 2px 0;line-height:0;}
+${R} .igs-fm-sticker.is-po{width:var(--igs-fm-sticker-po-size);height:var(--igs-fm-sticker-po-size);}
+${R} .igs-fm-sticker :is(img,svg){display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;}
+${R} .igs-fm-sticker:not(.is-inline) img{border-radius:var(--igs-fm-sticker-radius);}
+${R} .igs-fm-sticker.is-inline{display:inline;width:auto;height:auto;margin:0 2px;padding:0;border:0;background:none;box-shadow:none;line-height:0;vertical-align:text-bottom;}
+${R} .igs-fm-sticker.is-inline+.igs-fm-sticker.is-inline{margin-left:0;}
+${R} .igs-fm-sticker.is-inline img{display:inline-block;vertical-align:text-bottom;padding:var(--igs-fm-ac-pad);border-radius:var(--igs-fm-ac-radius);background:var(--igs-fm-ac-bg);box-sizing:content-box;width:calc(var(--sw,60) * 1px * var(--igs-fm-ac-scale));height:calc(var(--sh,60) * 1px * var(--igs-fm-ac-scale));max-width:none;object-fit:contain;border:0;box-shadow:none;}
+${R} .igs-fm-stickers{margin:2px 0 4px;text-align:left;line-height:0;opacity:0;transition:opacity .3s;}
+${R} .igs-fm-stickers.is-in{opacity:1;}
 @media (prefers-reduced-motion:reduce){${R} *{transition:none!important;}${R} .igs-fm-fl{animation:none!important;opacity:1;}}
 `;

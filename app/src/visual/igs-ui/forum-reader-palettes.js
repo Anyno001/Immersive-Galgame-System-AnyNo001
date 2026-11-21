@@ -3,9 +3,12 @@
 export const FORUM_PALETTE_KEYS = Object.freeze(['pg', 'card', 'card2', 'line', 'main', 'title', 'nm', 'sub', 'body', 'gt', 'ref']);
 
 export const FORUM_PALETTES = Object.freeze([
-    { id: 'classic', name: '匿名版米黄',
+    { id: 'classic', name: '杏仁奶茶',
         l: { pg: '#f0e0d6', card: '#ffffee', card2: '#ead6ca', line: '#d9bfb7', main: '#800000', title: '#cc1105', nm: '#117743', sub: '#707070', body: '#222222', gt: '#789922', ref: '#dd0000' },
         d: { pg: '#131314', card: '#1d1d1f', card2: '#18181a', line: '#2c2c2f', main: '#f0e6c8', title: '#ff6b5e', nm: '#5fc08a', sub: '#8e8e93', body: '#e2e0dc', gt: '#9ccc5a', ref: '#ff7a6e' } },
+    { id: 'malt', name: '麦芽信笺',
+        l: { pg: '#fff0cd', card: '#fff9e3', card2: '#fef3d6', line: '#e0c19e', main: '#591804', title: '#10273f', nm: '#10273f', sub: '#8a7a63', body: '#2b2b2b', gt: '#6b8f2a', ref: '#a0522d' },
+        d: { pg: '#121212', card: '#1c1c1c', card2: '#171717', line: '#2b2b2b', main: '#f2e6c8', title: '#8fb4e6', nm: '#8fb4e6', sub: '#8e8e8e', body: '#e0e0e0', gt: '#9ccc5a', ref: '#e0a070' } },
     { id: 'mist', name: '雾蓝灰',
         l: { pg: '#e9edf3', card: '#ffffff', card2: '#f3f5f9', line: '#d3d9e3', main: '#1f2a44', title: '#c8372d', nm: '#2a7d5b', sub: '#6b7483', body: '#1d2330', gt: '#5b8a2e', ref: '#c8372d' },
         d: { pg: '#121316', card: '#1c1d22', card2: '#17181c', line: '#2a2c33', main: '#e8eaee', title: '#ff6b6b', nm: '#5fc08a', sub: '#8b909c', body: '#dcdfe5', gt: '#8fbf5a', ref: '#ff7a7a' } },

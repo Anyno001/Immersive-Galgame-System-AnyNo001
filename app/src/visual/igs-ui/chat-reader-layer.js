@@ -9,6 +9,7 @@ import { armTextFx, disarmTextFx } from './text-fx.js';
 import { LOG_SPEEDS } from './log-reader-settings.js';
 import { VOICE_ICON } from './voice-icon.js';
 import { chatSfxKindForSide, playChatSfx } from './chat-sfx.js';
+import { installStickerFallback, stickerHtml, stickerOptsOf } from '../../stickers/sticker-render.js';
 
 // 线上聊天阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-chat-reader，同一人连着说的话归一组，整条气泡弹出。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view（形状同纵向的 view，另带 theme）。
@@ -278,6 +279,14 @@ function repaintKey(overlay, key) {
     for (const av of avatarsOf(overlay, key)) paintAvatar(overlay, av);
 }
 
+// 设置里停用的表情包（宿主把规范化后的 stickers 放在 view.settings.stickers 上）。
+function stickerOffOf(view) {
+    const st = view.settings && view.settings.stickers;
+    return st && Array.isArray(st.disabled) ? st.disabled : [];
+}
+// 停用列表与用户改过的含义变了要整列重画；线上聊天固定呆猫八条。
+const stickerSigOf = (view) => [stickerOffOf(view), view.settings && view.settings.stickers && view.settings.stickers.overrides || null];
+
 function composeHtml(row, view) {
     const html = view.htmlOf ? view.htmlOf(row) : esc(row.text);
     return row.label ? `<span class="igs-cr-label">${esc(row.label)}：</span>${html}` : html;
@@ -328,6 +337,37 @@ function appendCards(doc, list, view, row, live, fades) {
     }
 }
 
+// 新开一组：头像 + 名字行。quiet 为真时不放朗读按钮（表情包代发的组没有对应台词）。
+function openGroup(overlay, doc, list, row, view, right, quiet = false) {
+    const showAv = right ? view.settings.userAvatar : view.settings.charAvatar;
+    const group = el(doc, 'div', `igs-cr-group is-${right ? 'right' : 'left'}${showAv ? '' : ' is-noav'}`);
+    const hue = hueOf(overlay, row, view);
+    const symbol = view.symbolOf ? view.symbolOf(row) : '';
+    if (symbol) group.dataset.mood = symbol;
+    if (showAv) group.append(avatarNode(doc, row, view, hue));
+    const head = el(doc, 'div', 'igs-cr-col');
+    if (!right) {
+        const name = el(doc, 'div', 'igs-cr-name');
+        const dot = el(doc, 'i', 'igs-cr-dot');
+        dot.dataset.hueKey = row.key;
+        dot.style.setProperty('--igs-cr-hue', hue);
+        const b = el(doc, 'b');
+        b.textContent = row.speaker;
+        name.append(dot, b);
+        if (row.mood && view.settings.chip) name.append(chipNode(doc, row, view));
+        if (!quiet && view.canSpeak && view.canSpeak(row)) name.append(playButton(doc));
+        head.append(name);
+    } else {
+        // User 不写名字，只留同高的名字行（有情绪时放标签），让组间距左右一致。
+        const name = el(doc, 'div', 'igs-cr-name');
+        if (row.mood && view.settings.chip) name.append(chipNode(doc, row, view));
+        head.append(name);
+    }
+    group.append(head);
+    list.append(group);
+    return group;
+}
+
 // 建一行：组头新开一组（头像 + 名字），续行挂到上一组里；旁白、场景分隔、卡片按序追加。
 // fades 是这一行要淡入的节点（分隔线、旁白、卡片），say 行的气泡自己弹出。
 function buildRow(overlay, list, rows, i, view, live) {
@@ -369,36 +409,10 @@ function buildRow(overlay, list, rows, i, view, live) {
     const cont = isChatCont(rows, i);
     const groups = list.querySelectorAll('.igs-cr-group');
     let group = cont ? groups[groups.length - 1] || null : null;
+    if (group && group.dataset.says) group = null;
     const right = Boolean(row.user);
     const isNew = !group;
-    if (isNew) {
-        const showAv = right ? view.settings.userAvatar : view.settings.charAvatar;
-        group = el(doc, 'div', `igs-cr-group is-${right ? 'right' : 'left'}${showAv ? '' : ' is-noav'}`);
-        const hue = hueOf(overlay, row, view);
-        const symbol = view.symbolOf ? view.symbolOf(row) : '';
-        if (symbol) group.dataset.mood = symbol;
-        if (showAv) group.append(avatarNode(doc, row, view, hue));
-        const head = el(doc, 'div', 'igs-cr-col');
-        if (!right) {
-            const name = el(doc, 'div', 'igs-cr-name');
-            const dot = el(doc, 'i', 'igs-cr-dot');
-            dot.dataset.hueKey = row.key;
-            dot.style.setProperty('--igs-cr-hue', hue);
-            const b = el(doc, 'b');
-            b.textContent = row.speaker;
-            name.append(dot, b);
-            if (row.mood && view.settings.chip) name.append(chipNode(doc, row, view));
-            if (view.canSpeak && view.canSpeak(row)) name.append(playButton(doc));
-            head.append(name);
-        } else {
-            // User 不写名字，只留同高的名字行（有情绪时放标签），让组间距左右一致。
-            const name = el(doc, 'div', 'igs-cr-name');
-            if (row.mood && view.settings.chip) name.append(chipNode(doc, row, view));
-            head.append(name);
-        }
-        group.append(head);
-        list.append(group);
-    }
+    if (isNew) group = openGroup(overlay, doc, list, row, view, right);
     const col = group.querySelector('.igs-cr-col');
     const bubble = el(doc, 'div', 'igs-cr-bubble igs-cr-item' + (isNew ? ' is-first' : '') + (row.thought ? ' is-thought' : ''));
     bubble.dataset.index = String(row.index);
@@ -408,8 +422,44 @@ function buildRow(overlay, list, rows, i, view, live) {
     bubble.append(text);
     if (isNew && right && view.canSpeak && view.canSpeak(row)) bubble.append(playButton(doc));
     col.append(bubble);
+    // 表情包：文字气泡之后同组连发，每个一个无底色的图片气泡；标签里的情绪不认识时静默跳过。
+    const extras = [];
+    for (const [n, st] of (Array.isArray(row.stickers) ? row.stickers : []).entries()) {
+        const stickerHtmlText = stickerHtml(st.id || st.name, { ...stickerOptsOf(view.settings && view.settings.stickers, { speaker: row.speaker }), seed: `${row.speaker}#${view.floorKey}:${row.index}:${n}`, cls: 'igs-cr-sticker' });
+        if (!stickerHtmlText) continue;
+        const sb = el(doc, 'div', 'igs-cr-bubble igs-cr-item is-sticker');
+        sb.dataset.index = String(row.index);
+        const st2 = el(doc, 'div', 'igs-cr-text');
+        st2.dataset.html = stickerHtmlText;
+        if (!live) st2.innerHTML = stickerHtmlText;
+        sb.append(st2);
+        col.append(sb);
+        extras.push({ bubble: sb, text: st2 });
+    }
+    const sayGroups = [];
+    // 只有表情没有文字的台词（[igs-sticker:情绪|说话人]）：找不到紧邻的同一说话人时，另开一组，只放图片气泡。
+    for (const say of Array.isArray(row.stickerSays) ? row.stickerSays : []) {
+        const sayRow = { ...row, speaker: say.speaker, key: say.key, user: say.user, mood: '', thought: false };
+        const sayGroup = openGroup(overlay, doc, list, sayRow, view, say.user, true);
+        sayGroup.dataset.says = '1';
+        sayGroups.push(sayGroup);
+        const sayCol = sayGroup.querySelector('.igs-cr-col');
+        for (const [n, st] of say.stickers.entries()) {
+            const sh = stickerHtml(st.id || st.name, { ...stickerOptsOf(view.settings && view.settings.stickers, { speaker: say.speaker }), seed: `${say.speaker}#${view.floorKey}:${row.index}:s${n}`, cls: 'igs-cr-sticker' });
+            if (!sh) continue;
+            const sb = el(doc, 'div', 'igs-cr-bubble igs-cr-item is-sticker');
+            sb.dataset.index = String(row.index);
+            const st2 = el(doc, 'div', 'igs-cr-text');
+            st2.dataset.html = sh;
+            if (!live) st2.innerHTML = sh;
+            sb.append(st2);
+            sayCol.append(sb);
+            extras.push({ bubble: sb, text: st2 });
+        }
+        if (!sayCol.querySelector('.igs-cr-bubble')) sayGroup.remove();
+    }
     appendCards(doc, list, view, row, live, fades);
-    return { kind: 'say', fades, text, bubble, group, cont: !isNew, right };
+    return { kind: 'say', fades, text, bubble, extras, sayGroups, group, cont: !isNew, right };
 }
 
 function placeSymbol(overlay, group, kind, { done = false } = {}) {
@@ -478,7 +528,7 @@ function reveal(overlay, builts, view, rows) {
         return Promise.resolve();
     }
     win.requestAnimationFrame(fadeIn);
-    const items = builts.map((b) => ({ bubble: b.bubble, text: b.text, html: b.text.dataset.html || '' }));
+    const items = builts.flatMap((b) => [b, ...(b.extras || [])].map((x) => ({ bubble: x.bubble, text: x.text, html: x.text.dataset.html || '' })));
     let wait = 0;
     let dots = false;
     if (!calm && !first.right) {
@@ -632,6 +682,7 @@ export function syncChatReader(overlay, view) {
     }
     const root = ensureRoot(overlay);
     if (!root) return { revealing: null };
+    installStickerFallback(overlay.ownerDocument);
     // 立绘隐藏、对话框换皮、页码进度条这些共用规则认纵向的开关属性：聊天模式同时挂上。调用方先收起未启用的那一个、再同步启用的。
     if (overlay.getAttribute('data-igs-chat-reader') !== 'on') overlay.setAttribute('data-igs-chat-reader', 'on');
     if (overlay.getAttribute('data-igs-log-reader') !== 'on') overlay.setAttribute('data-igs-log-reader', 'on');
@@ -641,7 +692,7 @@ export function syncChatReader(overlay, view) {
     syncLiveButton(overlay, root, view);
     const list = root.querySelector('.igs-cr-list');
     const st = view.settings;
-    const sig = JSON.stringify([view.floorKey, st.avatar, st.charAvatar, st.userAvatar, st.chip, st.emotion, view.skin, view.nameColorSig || '']);
+    const sig = JSON.stringify([view.floorKey, st.avatar, st.charAvatar, st.userAvatar, st.chip, st.emotion, view.skin, view.nameColorSig || '', stickerSigOf(view)]);
     if (sig !== s.sig || view.upto + 1 < s.rendered) {
         if (s.reveal) s.reveal.finish();
         list.textContent = '';
@@ -659,7 +710,7 @@ export function syncChatReader(overlay, view) {
         const live = view.live >= 0 && i >= view.live && i <= liveEnd;
         const built = buildRow(overlay, list, view.rows, i, view, live);
         if (built.kind === 'say') {
-            for (const av of built.group.querySelectorAll('.igs-cr-av[data-url]')) paintAvatar(overlay, av);
+            for (const g of [built.group, ...(built.sayGroups || [])]) for (const av of g.querySelectorAll('.igs-cr-av[data-url]')) paintAvatar(overlay, av);
             if (!built.cont) placeSymbol(overlay, built.group, built.group.dataset.mood, { done: !live });
         }
         if (live && built.kind !== 'solo') { built.row = i; liveBuilts.push(built); }
