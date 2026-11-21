@@ -2601,7 +2601,8 @@ export function createIgsReaderHost(options = {}) {
             const optionBox = state.activeReader.logBase && state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');
             if (optionBox && !optionBox.hasAttribute('hidden')) {
                 hideOptionBubbles(optionBox);
-                if (state.activeReader.dom.overlay.getAttribute('data-igs-log-reader') !== 'on') {
+                // 论坛体：收起选项就停在帖子底部，不再往回退一批。
+                if (state.activeReader.forumBase || state.activeReader.dom.overlay.getAttribute('data-igs-log-reader') !== 'on') {
                     return { ok: true, moved: false, reason: 'option-bubbles-hidden', index: state.activeReader.index };
                 }
             }
@@ -3470,6 +3471,11 @@ ${row.key}`;
     function readerKindOf(current) {
         return current.forumBase ? 'forum' : current.chatBase ? 'chat' : 'log';
     }
+    // 停在这一行时交回原渲染（播聊天演出 / 开卡片）。论坛体的聊天页画成帖内截图，留在列表里不交回。
+    function logHandoff(current, snapshot, row) {
+        if (!row || !row.solo) return false;
+        return !(readerKindOf(current) === 'forum' && snapshot[preparedFloorKey] && logChatOf(snapshot[preparedFloorKey], row.index));
+    }
 
     // 气泡模式一批按「同侧一组」计数、整组一起出现；其余模式逐行。
     function logUnitOf(current) {
@@ -3539,7 +3545,7 @@ ${row.key}`;
         const sync = { forum: syncForumReader, chat: syncChatReader, log: syncLogReader }[kind];
         if (!overlay || !log || !log.rows || !current.logBase) { sync(overlay, null); return; }
         const index = Math.max(0, Math.min(log.rows.length - 1, Number(current.index) || 0));
-        if (log.rows[index] && log.rows[index].solo) { sync(overlay, null); return; }
+        if (logHandoff(current, snapshot, log.rows[index])) { sync(overlay, null); return; }
         const rs = snapshot.readerSettings || {};
         // personaOf：说话人 → 表情包性格标签，来自数值系统的特质（没启用时为空，挑图退回种子哈希）。
         const stickers = { ...normalizeStickerSettings(rs.stickers), personaOf: (name) => { try { return personaOfTraits(typeof options.traitNamesOf === 'function' ? options.traitNamesOf(name) : null); } catch (error) { return []; } } };
@@ -6140,7 +6146,7 @@ ${row.key}`;
         current.logBase = logReaderBase(current, snapshot);
         const logRows = current.logBase ? logRowsFor(current, snapshot) : null;
         const logPage = logRows && logRows.rows[Math.max(0, Number(current.index) || 0)];
-        current.logReaderActive = Boolean(logRows && logPage && !logPage.solo);
+        current.logReaderActive = Boolean(logRows && logPage && !logHandoff(current, snapshot, logPage));
         if (logRows && logRows.enteredKey !== logRows.key) {
             // 刚进这一楼、停在楼首且不在生成中：自动播第一批（第一行也走出字）。
             logRows.enteredKey = logRows.key;

@@ -120,6 +120,7 @@ ${R} .igs-fm-sticker:not(.is-inline) img{border-radius:var(--igs-fm-sticker-radi
 ${R} .igs-fm-sticker.is-inline{display:inline;width:auto;height:auto;margin:0 2px;padding:0;border:0;background:none;box-shadow:none;line-height:0;vertical-align:text-bottom;}
 ${R} .igs-fm-sticker.is-inline+.igs-fm-sticker.is-inline{margin-left:0;}
 ${R} .igs-fm-sticker.is-inline img{display:inline-block;vertical-align:text-bottom;padding:var(--igs-fm-ac-pad);border-radius:var(--igs-fm-ac-radius);background:var(--igs-fm-ac-bg);box-sizing:content-box;width:calc(var(--sw,60) * 1px * var(--igs-fm-ac-scale));height:calc(var(--sh,60) * 1px * var(--igs-fm-ac-scale));max-width:none;object-fit:contain;border:0;box-shadow:none;}
+${R} .igs-fm-sticker.is-inline svg{display:inline-block;vertical-align:text-bottom;width:calc(60px * var(--igs-fm-ac-scale));height:calc(60px * var(--igs-fm-ac-scale));}
 ${R} .igs-fm-stickers{margin:2px 0 4px;text-align:left;line-height:0;opacity:0;transition:opacity .3s;}
 ${R} .igs-fm-stickers.is-in{opacity:1;}
 @media (prefers-reduced-motion:reduce){${R} *{transition:none!important;}${R} .igs-fm-fl{animation:none!important;opacity:1;}}

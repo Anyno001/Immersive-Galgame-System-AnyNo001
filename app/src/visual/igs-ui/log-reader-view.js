@@ -23,6 +23,8 @@ export function logRenderSnapshot(snapshot) {
             ...snapshot.content,
             spriteImage: null, spriteLive2d: null, pendingSpriteRef: '', castSprites: [], pendingCastRefs: [],
             giantSprite: null, creatureFoePin: '', nsfwCgPortrait: '', speakerCastOrder: null,
+            // 论坛体停在聊天页时聊天已画成帖内截图，不再播聊天演出。
+            chatPage: false, chat: null,
         },
         readerSettings: {
             ...rs,
