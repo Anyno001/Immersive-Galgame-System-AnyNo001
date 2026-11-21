@@ -1,6 +1,6 @@
 {
   "name": "igs-app",
-  "version": "0.40.101",
+  "version": "0.40.102",
   "private": true,
   "type": "module",
   "scripts": {
