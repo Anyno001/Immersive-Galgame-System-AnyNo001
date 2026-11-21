@@ -955,6 +955,7 @@ export function applyReaderSettingsToDom(root, snapshot, current, refs = {}) {
         const plateMode = ['blur', 'solid', 'off'].includes(readerSettings.toolbarPlate) ? readerSettings.toolbarPlate : 'off';
         root.setAttribute('data-igs-bar-plate', plateMode);
         if (/^#[0-9a-fA-F]{6}$/.test(readerSettings.toolbarColor)) root.style.setProperty('--igs-bar-color', readerSettings.toolbarColor); else root.style.removeProperty('--igs-bar-color');
+        if (/^#[0-9a-fA-F]{6}$/.test(readerSettings.dialogBarColor)) root.style.setProperty('--igs-dialog-bar-color', readerSettings.dialogBarColor); else root.style.removeProperty('--igs-dialog-bar-color');
     }
     if (toolbar) {
         toolbar.setAttribute('data-igs-toolbar-dock', toolbarDock);
@@ -2172,7 +2173,9 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
         const inkNow = textComputed ? textComputed.color || '' : '';
         const plateRaw = dialogComputed ? dialogComputed.backgroundColor : '';
         const blurRaw = dialogComputed ? dialogComputed.backdropFilter : '';
-        if (quickBar && canComputed) quickBar.style.color = inkNow;
+        const barRs = snapshot.readerSettings;
+        const customBarColor = /^#[0-9a-fA-F]{6}$/.test(barRs.dialogBarColor) || /^#[0-9a-fA-F]{6}$/.test(barRs.toolbarColor);
+        if (quickBar && canComputed) quickBar.style.color = customBarColor ? '' : inkNow;
         // 顶部工具栏淡淡跟随皮肤：底板取对话框底色、图标取正文色；切图皮肤的对话框没有底色，按正文深浅配一块反差底。
         if (view && typeof view.getComputedStyle === 'function' && root.style && typeof root.style.setProperty === 'function') {
             const ink = inkNow;

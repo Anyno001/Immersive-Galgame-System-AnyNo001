@@ -333,7 +333,7 @@ const READER_UI_OPTION_TEMPLATE = `
 
 const READER_UI_BAR_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="interface" data-ui-sub="bar">
-  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}{{inputPlacementField}}{{toolbarSplitField}}{{toolbarPlateField}}{{dialogBarAlignField}}</div>{{pinnedButtonsField}}<div class="igs-source-filter-grid">{{toolbarColorField}}</div></div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}{{inputPlacementField}}{{toolbarSplitField}}{{toolbarPlateField}}{{dialogBarAlignField}}</div>{{pinnedButtonsField}}<div class="igs-source-filter-grid">{{toolbarColorField}}{{dialogBarColorField}}</div></div>
 </div>
 `.trim();
 

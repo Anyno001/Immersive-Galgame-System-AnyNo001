@@ -112,7 +112,7 @@ export const ORIGINAL_READER_TOOLBAR_BUTTONS = Object.freeze([
 
 // 对话框底部快捷栏：经典 galgame 文本框底部那一排。透明底、跟对话框文字同色，换皮肤自动跟随；手机居中，电脑（精确指针）靠左。
 const DIALOG_BAR_STYLE_TEXT = `
-#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0;margin-top:4px;flex-shrink:0;pointer-events:auto;color:var(--igs-bar-color,inherit);}
+#igs-dialog-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0;margin-top:4px;flex-shrink:0;pointer-events:auto;color:var(--igs-dialog-bar-color,var(--igs-bar-color,inherit));}
 #igs-dialog-bar[hidden]{display:none!important;}
 @media (hover:hover) and (pointer:fine){#igs-dialog-bar:not([data-igs-align]){justify-content:flex-start;}}
 #igs-dialog-bar[data-igs-align="left"]{justify-content:flex-start;}

@@ -44,7 +44,7 @@ ${ON} #igs-dialog-layer .igs-dialog::before,${ON} #igs-dialog-layer .igs-dialog:
 ${ON} #igs-dialog-layer .igs-dialog>:not(.igs-controls):not(#igs-dialog-bar):not(#igs-gen-strip){display:none!important;}
 ${ON} #igs-gen-strip{top:-4px;color:var(--igs-log-sub);}
 ${ON} #igs-gen-strip .igs-gen-tip{background:var(--igs-log-plate);color:var(--igs-log-ink);}
-${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-bar-color,var(--igs-log-sub));}
+${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-dialog-bar-color,var(--igs-bar-color,var(--igs-log-sub)));}
 ${ON} #igs-dialog-layer .igs-dialog .igs-input{background:var(--igs-log-plate)!important;color:var(--igs-log-ink)!important;border:0!important;box-shadow:none!important;}
 ${ON} #igs-dialog-layer .igs-dialog .igs-input::placeholder{color:var(--igs-log-sub)!important;}
 ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!important;color:rgb(var(--igs-log-veil))!important;border:0!important;box-shadow:none!important;}
