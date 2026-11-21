@@ -51,7 +51,7 @@ ${R} .igs-fm-line.is-say{padding-left:8px;border-left:3px solid var(--igs-fm-lin
 ${R}[data-say-ink="name"] .igs-fm-line.is-say{color:var(--igs-fm-sub,#707070);}
 ${R}[data-indent] .igs-fm-line.is-narr{text-indent:2em;}
 ${R} .igs-fm-line.is-say+.igs-fm-line:not(.is-say),${R} .igs-fm-line:not(.is-say)+.igs-fm-line.is-say{margin-top:calc(var(--igs-fm-gap,5px) * 2 + 4px);}
-${R} .igs-fm-body>.igs-fm-line.is-say:first-child:not(.is-cont){margin-top:6px;}
+${R} .igs-fm-body>.igs-fm-line.is-say:first-child:not(.is-cont){margin-top:14px;}
 ${R} .igs-fm-line.is-say.is-cont{margin-top:calc(-1 * var(--igs-fm-gap,5px));padding-top:5px;}
 ${R} .igs-fm-line.is-say .igs-fm-who{color:var(--igs-fm-sub,#707070);font-weight:700;margin:0;}
 ${R} .igs-fm-ref{color:var(--igs-fm-ref,#dd0000);text-decoration:underline;}
