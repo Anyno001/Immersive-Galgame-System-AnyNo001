@@ -490,6 +490,7 @@ function applyAttrs(overlay, root, view) {
     root.style.setProperty('--igs-fm-lh', String(st.lineHeight / 100));
     root.style.setProperty('--igs-fm-gap', `${st.paraGap}px`);
     root.style.setProperty('--igs-fm-edge', `${FORUM_EDGE_PX[st.edge] || 12}px`);
+    if (st.sayInk === 'name') set('data-say-ink', 'name'); else root.removeAttribute('data-say-ink');
     if (st.narrIndent) set('data-indent', ''); else root.removeAttribute('data-indent');
     const colors = forumPaletteColors(st.palette, st.mode, overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
