@@ -20,7 +20,6 @@ const ONCE_MS = 1600;
 const TFX_POP_MS = 560;
 const TYPING_FLOOR_MS = 600;
 const CONT_PAUSE_MS = 280;
-const POP_STAGGER_MS = 40;
 
 function stateOf(overlay) {
     let s = states.get(overlay);
@@ -464,7 +463,7 @@ function playPopSound(view, built, row) {
     try { playChatSfx(chatSfxKindForSide(built.right ? 'right' : 'left'), { volume: sound.volume, preset: sound.preset }); } catch { /* 无音频环境 */ }
 }
 
-// 出现：一组同侧台词一起弹出。左侧组头先插一次「正在输入」三点（续行只停一小会儿），User 组无三点；组内气泡错开 POP_STAGGER_MS 同时弹出。
+// 出现：一组同侧台词一起弹出。左侧组头先插一次「正在输入」三点（续行只停一小会儿），User 组无三点；点一次整组播完，组内逐条弹出、各带动画和音效。
 // 旁白、分隔线、卡片淡入。返回的 promise 在弹出完成后 resolve；s.reveal.finish 可把整组立即补完。
 function reveal(overlay, builts, view, rows) {
     const s = stateOf(overlay);
@@ -486,7 +485,8 @@ function reveal(overlay, builts, view, rows) {
         if (first.cont) wait = CONT_PAUSE_MS * k;
         else if (view.settings.typing) { dots = true; wait = Math.max(TYPING_FLOOR_MS, chatRevealDelayMs(rows[first.row].text, 'medium') * 0.4) * k; }
     }
-    const stagger = calm ? 0 : POP_STAGGER_MS;
+    // 组内续行沿用原来逐条的节奏：前一条弹完再停一小会儿，各自带弹出动画和音效。
+    const stagger = calm ? 0 : POP_MS + CONT_PAUSE_MS * k;
     return new Promise((resolve) => {
         let done = false;
         let hold = null;
@@ -507,6 +507,7 @@ function reveal(overlay, builts, view, rows) {
         };
         const pop = (it) => {
             if (done) return;
+            if (stagger) playPopSound(view, first, null);
             it.bubble.classList.remove('is-typing');
             it.text.innerHTML = it.html;
             it.bubble.hidden = false;
@@ -515,7 +516,7 @@ function reveal(overlay, builts, view, rows) {
         };
         const show = () => {
             if (done) return;
-            playPopSound(view, first, null);
+            if (!stagger) playPopSound(view, first, null);
             let total = POP_MS + stagger * (items.length - 1);
             items.forEach((it, n) => {
                 if (n === 0 || !stagger) pop(it);

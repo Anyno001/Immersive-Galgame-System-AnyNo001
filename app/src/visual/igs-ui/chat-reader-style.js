@@ -70,6 +70,7 @@ ${R}[data-thought="solid"] .igs-cr-group.is-right .igs-cr-bubble.is-thought.is-f
 ${R} .igs-cr-bubble .igs-thought{color:inherit!important;}
 /* 旁白：不进气泡，通栏半透明深底条；可切成无底投影字。 */
 ${R} .igs-cr-narr{align-self:stretch;position:relative;margin:var(--igs-cr-ng) 0 0;padding:8px 12px;border-radius:10px;background:rgba(0,0,0,.42);color:rgba(255,255,255,.92);font-family:var(--igs-cr-narr-font,var(--igs-cr-font,${IGS_UI_FONT_SANS}))!important;font-size:calc(var(--igs-cr-fs) - 1px);line-height:1.7;text-align:justify;opacity:0;transition:opacity .35s;}
+${R} :is(.igs-cr-bubble,.igs-cr-name,.igs-cr-narr) *:not(svg):not(svg *){font-family:inherit!important;}
 ${R} .igs-cr-narr.is-in{opacity:1;}
 ${R} .igs-cr-narr.is-thought{font-style:normal;color:rgba(255,255,255,.78);}
 ${R}[data-narr="shadow"] .igs-cr-narr{background:none;padding:2px 6px;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 8px rgba(0,0,0,.5);}
