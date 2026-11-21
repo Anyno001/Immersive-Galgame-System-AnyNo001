@@ -123,19 +123,27 @@ function groupMoodOf(rows, i) {
 }
 
 // 一批的结束（不含）：最多 per 条；下一行要换场景、或遇到聊天 / 卡片页时提前收批。单独成批的聊天 / 卡片页自己算一批。
-export function nextBatchEnd(rows, from, per) {
+// cont(rows, i)：气泡模式传入，按「组」计数（续行不占名额），不把一组切开。
+export function nextBatchEnd(rows, from, per, cont = null) {
     const total = (rows || []).length;
     if (from >= total) return total;
     if (rows[from].solo) return from + 1;
     let end = from + 1;
-    while (end < total && end - from < per && !rows[end].scene && !rows[end].solo) end++;
+    let units = 1;
+    while (end < total && !rows[end].scene && !rows[end].solo) {
+        if (!cont || !cont(rows, end)) {
+            if (units >= per) break;
+            units++;
+        }
+        end++;
+    }
     return end;
 }
 
 // 从楼首起每一批的起点，直到 upto（含）所在的那一批。
-export function batchStartsUpTo(rows, upto, per) {
+export function batchStartsUpTo(rows, upto, per, cont = null) {
     const starts = [];
-    for (let at = 0; at <= upto && at < (rows || []).length; at = nextBatchEnd(rows, at, per)) starts.push(at);
+    for (let at = 0; at <= upto && at < (rows || []).length; at = nextBatchEnd(rows, at, per, cont)) starts.push(at);
     return starts.length ? starts : [0];
 }
 

@@ -1,5 +1,6 @@
 import { FX_STYLE_TEXT } from './fx-style.js';
 import { CHAT_AVATAR_BOX } from './chat-reader-model.js';
+import { IGS_UI_FONT_SANS } from '../../styles/ui-material.js';
 
 // 情绪胶囊的字色取漫画符号同一套色相，不另抄一份。
 const CHIP_HUES = [...FX_STYLE_TEXT.matchAll(/\.igs-fx-symbol\[data-kind="([a-z-]+)"\]\{--igs-fx-hue:(#[0-9a-fA-F]{3,8})/g)]
@@ -22,26 +23,23 @@ ${ON}.igs-options-visible ${R}{opacity:0;}
 ${ON}.igs-options-visible ${R} .igs-cr-scroll{pointer-events:none;}
 ${R} .igs-cr-scroll{position:absolute;left:0;right:0;bottom:var(--igs-log-foot,64px);top:52px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;display:flex;flex-direction:column;padding:0 var(--igs-log-edge,18px);pointer-events:auto;cursor:pointer;-webkit-mask:linear-gradient(to bottom,transparent 0,#000 40px);mask:linear-gradient(to bottom,transparent 0,#000 40px);user-select:none;-webkit-user-select:none;}
 ${R} .igs-cr-scroll::-webkit-scrollbar{display:none;}
-${R} .igs-cr-list{margin-top:auto;display:flex;flex-direction:column;gap:4px;padding:40px 0 6px;}
-${R}{--igs-cr-left:#fff;--igs-cr-left-ink:#1f1f1f;--igs-cr-left-soft:#f1eef6;--igs-cr-right:#95ec69;--igs-cr-right-ink:#1f1f1f;--igs-cr-right-soft:#e3f5d7;--igs-cr-radius:16px;--igs-cr-fs:15px;--igs-cr-gap:20px;--igs-cr-mk:.75;}
+${R} .igs-cr-list{margin-top:auto;display:flex;flex-direction:column;padding:40px 0 6px;}
+${R}{--igs-cr-left:#fff;--igs-cr-left-ink:#1f1f1f;--igs-cr-left-soft:#f1eef6;--igs-cr-right:#95ec69;--igs-cr-right-ink:#1f1f1f;--igs-cr-right-soft:#e3f5d7;--igs-cr-radius:16px;--igs-cr-fs:15px;--igs-cr-gap:20px;--igs-cr-mk:.75;--igs-cr-nm:22px;--igs-cr-ng:calc((var(--igs-cr-gap) + var(--igs-cr-nm)) * .7);}
 ${R}[data-mood-size="l"]{--igs-cr-mk:1;}
 ${R}[data-mood-size="s"]{--igs-cr-mk:.5;}
-/* 一组：同一人连着说只有组头带头像、名字和尖角；换人时组与组之间拉开。 */
+/* 间距表（气泡边到气泡边）：同组气泡 4px；换人组间 = 间隙 + 名字行（--igs-cr-nm，左右都留名字行位）；旁白 / 时间条 / 重播前后同取 --igs-cr-ng。 */
 ${R} .igs-cr-group{display:flex;align-items:flex-start;gap:8px;max-width:84%;margin-top:var(--igs-cr-gap);}
-${R} .igs-cr-list>:first-child{margin-top:0;}
 ${R} .igs-cr-group.is-left{align-self:flex-start;}
 ${R} .igs-cr-group.is-right{align-self:flex-end;flex-direction:row-reverse;}
 ${R} .igs-cr-col{min-width:0;display:flex;flex-direction:column;gap:4px;}
 ${R} .igs-cr-group.is-left .igs-cr-col{align-items:flex-start;}
 ${R} .igs-cr-group.is-right .igs-cr-col{align-items:flex-end;}
-${R} .igs-cr-time+.igs-cr-group,${R} .igs-cr-narr+.igs-cr-group,${R} .igs-cr-solo+.igs-cr-group{margin-top:calc(var(--igs-cr-gap) - 4px);}
-/* User 组没有名字行（18px + 列间隙 4px）：补上同样的高度，换人时气泡到气泡的视觉间距左右一致。 */
-${R} .igs-cr-list>.igs-cr-group.is-right:not(:first-child){margin-top:calc(var(--igs-cr-gap) + 22px);}
-${R} .igs-cr-list>:is(.igs-cr-time,.igs-cr-narr,.igs-cr-solo)+.igs-cr-group.is-right{margin-top:calc(var(--igs-cr-gap) + 18px);}
+${R} :is(.igs-cr-time,.igs-cr-narr,.igs-cr-solo)+.igs-cr-group{margin-top:calc(var(--igs-cr-ng) - var(--igs-cr-nm));}
+${R} .igs-cr-list>:first-child{margin-top:0;}
 ${R} .igs-cr-av{position:relative;flex:none;width:${AV}px;height:${AV}px;border-radius:12px;background-color:#26242b;background-repeat:no-repeat;transition:box-shadow .2s;}
 ${R}[data-av="circle"] .igs-cr-av{border-radius:50%;}
 ${R} .igs-cr-av.is-letter{display:grid;place-items:center;font-size:16px;font-weight:600;color:#121212;background-color:var(--igs-cr-hue);}
-${R} .igs-cr-name{display:flex;align-items:center;gap:5px;min-height:18px;margin:0 6px;font-family:var(--igs-cr-name-font,inherit);font-size:12px;line-height:1.2;color:rgba(255,255,255,.88);text-shadow:0 1px 2px rgba(0,0,0,.55);}
+${R} .igs-cr-name{display:flex;align-items:center;gap:5px;min-height:18px;margin:0 6px;font-family:var(--igs-cr-name-font,${IGS_UI_FONT_SANS})!important;font-size:12px;line-height:1.2;color:rgba(255,255,255,.88);text-shadow:0 1px 2px rgba(0,0,0,.55);}
 ${R} .igs-cr-name b{font-weight:600;}
 /* 姓名取色小圆点：不加描边。 */
 ${R} .igs-cr-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--igs-cr-hue,#8fb4ff);}
@@ -49,7 +47,7 @@ ${R} .igs-cr-chip{display:inline-flex;align-items:center;height:calc(20px * var(
 ${R} .igs-cr-play{flex:none;width:22px;height:20px;padding:0;border:0;border-radius:6px;background:transparent;color:rgba(255,255,255,.7);display:grid;place-items:center;cursor:pointer;}
 ${R} .igs-cr-play svg{width:15px;height:15px;}
 /* 气泡：左侧统一一种颜色，User 在右侧用自选颜色；尖角只给组头。 */
-${R} .igs-cr-bubble{position:relative;box-sizing:border-box;max-width:100%;padding:9px 13px;border-radius:var(--igs-cr-radius);background:var(--igs-cr-left);color:var(--igs-cr-left-ink);font-family:var(--igs-cr-font,inherit);font-size:var(--igs-cr-fs);line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 2px 8px rgba(0,0,0,.18);text-shadow:var(--igs-cr-shadow,none);text-align:left;}
+${R} .igs-cr-bubble{position:relative;box-sizing:border-box;max-width:100%;padding:9px 13px;border-radius:var(--igs-cr-radius);background:var(--igs-cr-left);color:var(--igs-cr-left-ink);font-family:var(--igs-cr-font,${IGS_UI_FONT_SANS})!important;font-size:var(--igs-cr-fs);line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 2px 8px rgba(0,0,0,.18);text-shadow:var(--igs-cr-shadow,none);text-align:left;}
 ${R} .igs-cr-group.is-right .igs-cr-bubble{background:var(--igs-cr-right);color:var(--igs-cr-right-ink);}
 ${R} .igs-cr-group.is-left .igs-cr-bubble.is-first{border-top-left-radius:min(5px,var(--igs-cr-radius));}
 ${R} .igs-cr-group.is-right .igs-cr-bubble.is-first{border-top-right-radius:min(5px,var(--igs-cr-radius));}
@@ -57,7 +55,7 @@ ${R} .igs-cr-bubble .igs-cr-play{position:absolute;right:-26px;top:50%;margin-to
 ${R} .igs-cr-group.is-right .igs-cr-bubble .igs-cr-play{right:auto;left:-26px;}
 ${R} .igs-cr-label{font-weight:700;margin-right:.4em;}
 /* 心里话：两个思考小圆落在尖角位置，气泡本身做成描边空心；关掉「心里话透明」就是浅色实底。 */
-${R} .igs-cr-bubble.is-thought{margin-top:7px;border-radius:var(--igs-cr-radius);color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1.5px var(--igs-cr-left);}
+${R} .igs-cr-bubble.is-thought{border-radius:var(--igs-cr-radius);color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1.5px var(--igs-cr-left);}
 ${R} .igs-cr-group.is-right .igs-cr-bubble.is-thought{box-shadow:inset 0 0 0 1.5px var(--igs-cr-right);}
 ${R} .igs-cr-bubble.is-thought.is-first::before,${R} .igs-cr-bubble.is-thought.is-first::after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1.5px var(--igs-cr-left);}
 ${R} .igs-cr-group.is-right .igs-cr-bubble.is-thought.is-first::before,${R} .igs-cr-group.is-right .igs-cr-bubble.is-thought.is-first::after{box-shadow:inset 0 0 0 1.5px var(--igs-cr-right);}
@@ -71,21 +69,21 @@ ${R}[data-thought="solid"] .igs-cr-bubble.is-thought.is-first::before,${R}[data-
 ${R}[data-thought="solid"] .igs-cr-group.is-right .igs-cr-bubble.is-thought.is-first::before,${R}[data-thought="solid"] .igs-cr-group.is-right .igs-cr-bubble.is-thought.is-first::after{background:var(--igs-cr-right-soft);}
 ${R} .igs-cr-bubble .igs-thought{color:inherit!important;}
 /* 旁白：不进气泡，通栏半透明深底条；可切成无底投影字。 */
-${R} .igs-cr-narr{align-self:stretch;position:relative;margin:calc(var(--igs-cr-gap) - 10px) 0 2px;padding:8px 12px;border-radius:10px;background:rgba(0,0,0,.42);color:rgba(255,255,255,.92);font-family:var(--igs-cr-narr-font,var(--igs-cr-font,inherit));font-size:calc(var(--igs-cr-fs) - 1px);line-height:1.7;text-align:justify;opacity:0;transition:opacity .35s;}
+${R} .igs-cr-narr{align-self:stretch;position:relative;margin:var(--igs-cr-ng) 0 0;padding:8px 12px;border-radius:10px;background:rgba(0,0,0,.42);color:rgba(255,255,255,.92);font-family:var(--igs-cr-narr-font,var(--igs-cr-font,${IGS_UI_FONT_SANS}))!important;font-size:calc(var(--igs-cr-fs) - 1px);line-height:1.7;text-align:justify;opacity:0;transition:opacity .35s;}
 ${R} .igs-cr-narr.is-in{opacity:1;}
 ${R} .igs-cr-narr.is-thought{font-style:normal;color:rgba(255,255,255,.78);}
 ${R}[data-narr="shadow"] .igs-cr-narr{background:none;padding:2px 6px;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 8px rgba(0,0,0,.5);}
 ${R} .igs-cr-narr .igs-cr-play{display:inline-grid;vertical-align:-5px;margin-left:4px;}
 ${R} .igs-cr-narr:has(>.igs-cr-play)>.igs-cr-text{display:inline;}
 /* 场景 / 时间分隔。 */
-${R} .igs-cr-time{align-self:center;margin:calc(var(--igs-cr-gap) - 4px) 0 4px;padding:2px 10px;border-radius:6px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.82);font-size:11px;letter-spacing:.2em;opacity:0;transition:opacity .5s;}
+${R} .igs-cr-time{align-self:center;margin:var(--igs-cr-ng) 0 0;padding:2px 10px;border-radius:6px;background:rgba(0,0,0,.3);color:rgba(255,255,255,.82);font-size:11px;letter-spacing:.2em;opacity:0;transition:opacity .5s;}
 ${R} .igs-cr-time.is-in{opacity:1;}
 /* 聊天页 / 卡片页：一个重播按钮。 */
-${R} .igs-cr-solo{align-self:center;margin:8px 0;opacity:0;transition:opacity .35s;}
+${R} .igs-cr-solo{align-self:center;margin:var(--igs-cr-ng) 0 0;opacity:0;transition:opacity .35s;}
 ${R} .igs-cr-solo.is-in{opacity:1;}
 ${R} .igs-cr-replay{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 14px;border:0;border-radius:999px;background:#1c1c1e;color:#c9c9d0;font:inherit;font-size:12.5px;cursor:pointer;}
 ${R} .igs-cr-replay svg{width:12px;height:12px;fill:currentColor;}
-${R} .igs-cr-card{align-self:center;display:flex;align-items:center;gap:8px;margin:6px 0;padding:7px 12px;border-radius:12px;background:#1c1c1e;color:#f2f2f4;font-size:12.5px;line-height:1.4;opacity:0;transition:opacity .35s;}
+${R} .igs-cr-card{align-self:center;display:flex;align-items:center;gap:8px;margin:6px 0 0;padding:7px 12px;border-radius:12px;background:#1c1c1e;color:#f2f2f4;font-size:12.5px;line-height:1.4;opacity:0;transition:opacity .35s;}
 ${R} .igs-cr-card.is-in{opacity:1;}
 ${R} .igs-cr-card b{color:#ece6da;font-weight:600;}
 ${R} .igs-cr-card span{color:#a9a3b2;}

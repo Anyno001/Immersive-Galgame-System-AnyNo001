@@ -227,10 +227,10 @@ test('AI 回帖跨轮接话：>上N 摘引上一轮那条，同名路人跨轮�
     assert.deepEqual(prev.map((r) => r.who), ['路人甲', '路人乙']);
     const rows = forumRowsOf(rowsOf([page('narration', '一句。')]), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
     const plan = forumPlan(rows, { chatId: 'c', messageId: 2, settings: { replies: 'normal' }, threadId: 't1', aiReplies: forumRepliesOf(chat[2].mes), prevReplies: prev });
-    const [back, again] = plan[0].replies;
+    const [back, again] = plan[0].replies.filter((r) => /^(你吃瓜|我又来)/.test(r.text));
     assert.equal(back.quote, '前排吃瓜，这瓜保熟吗我先尝一口再说，…');
     const first = forumPlan(rows, { chatId: 'c', messageId: 0, settings: { replies: 'normal' }, threadId: 't1', aiReplies: forumRepliesOf(chat[0].mes) });
-    assert.equal(again.id, first[0].replies[0].id);
+    assert.equal(again.id, first[0].replies.find((r) => r.text === '真的假的').id);
     const block = collectGrammarBlocks({ forumReader: { on: true }, _forumPrev: prev }).find((b) => b.key === 'forum').full;
     assert.ok(block.includes('上一轮回帖：1.路人甲：真的假的') && block.includes('>上第几条'));
     assert.ok(!collectGrammarBlocks({ forumReader: { on: true, replies: 'off' }, _forumPrev: prev }).find((b) => b.key === 'forum').full.includes('上一轮回帖'));
@@ -241,9 +241,33 @@ test('正文分成很多段时 AI 写的回帖一条不丢，楼号不重复', (
     const mes = Array.from({ length: 6 }, (_, i) => `[igs-reply:路人${i}|第${i}条]`).join('');
     const plan = forumPlan(rows, { chatId: 'c', messageId: 5, settings: { perPost: 2, replies: 'normal' }, aiReplies: forumRepliesOf(mes) });
     assert.equal(plan.length, 8);
-    assert.deepEqual(plan.flatMap((p) => p.replies).map((r) => r.text), Array.from({ length: 6 }, (_, i) => `第${i}条`));
+    const all = plan.flatMap((p) => p.replies);
+    assert.deepEqual(all.filter((r) => /^第\d条$/.test(r.text)).map((r) => r.text), Array.from({ length: 6 }, (_, i) => `第${i}条`));
+    assert.ok([1, 2].includes(all.length - 6));
+    assert.equal(plan.at(-1).replies.at(-1).text, '第5条');
     const nos = plan.flatMap((p) => [p.no, ...p.replies.map((r) => r.no)]);
     assert.equal(new Set(nos).size, nos.length);
+});
+
+test('AI 回帖排位：#片段 排在含该句的楼之后 1–2 楼并带引用，>N 跟在目标回帖之后，>上N 排在开头，其余在最后，不截断 60 字', () => {
+    const rows = forumRowsOf(rowsOf(Array.from({ length: 24 }, (_, i) => page('narration', `第${i}句。`))), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const long = '长'.repeat(80);
+    assert.deepEqual(forumRepliesOf('[igs-reply:路人|>1|#第7句|内容][igs-reply:#第3 句|嗯]').map((r) => [r.who, r.to, r.cite, r.text]), [['路人', 1, '第7句', '内容'], ['#0', 0, '第3 句', '嗯']]);
+    const mes = `[igs-reply:路人甲|#第7句|引用七句${long}][igs-reply:路人乙|>1|接甲][igs-reply:路人丙|>上1|旧话回应][igs-reply:路人丁|#不存在的话|收尾][igs-reply:路人戊|#第 3 句|宽松匹配]`;
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 5, settings: { perPost: 2, replies: 'normal' }, aiReplies: forumRepliesOf(mes), prevReplies: [{ who: '路人丙', text: '旧话' }] });
+    const at = (prefix) => plan.findIndex((p) => p.replies.some((r) => r.text.startsWith(prefix)));
+    const reply = (prefix) => plan.flatMap((p) => p.replies).find((r) => r.text.startsWith(prefix));
+    const postOf = (text) => plan.findIndex((p) => rows.slice(p.start, p.end + 1).some((r) => r.text === text));
+    assert.ok([postOf('第7句。') + 1, postOf('第7句。') + 2].includes(at('引用七句')));
+    assert.equal(reply('引用七句').quote, '第7句');
+    assert.ok([postOf('第3句。') + 1, postOf('第3句。') + 2].includes(at('宽松匹配')));
+    assert.equal(at('接甲'), at('引用七句'));
+    assert.ok(plan.flatMap((p) => p.replies).findIndex((r) => r.text.startsWith('接甲')) > plan.flatMap((p) => p.replies).findIndex((r) => r.text.startsWith('引用七句')));
+    assert.equal(reply('接甲').ref, reply('引用七句').no);
+    assert.ok([0, 1].includes(at('旧话回应')));
+    assert.equal(at('收尾'), plan.length - 1);
+    assert.equal(reply('收尾').quote, '');
+    assert.ok(reply('引用七句').text.length > 80);
 });
 
 test('登记读写：写之前核对聊天没换；读不到元数据时留在内存不报错', () => {

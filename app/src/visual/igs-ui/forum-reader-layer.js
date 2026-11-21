@@ -3,11 +3,11 @@ import { FLOW_FADE_MS, FLOW_STEP_MS, PAUSE_CHARS, TYPE_PAUSE_MS, TYPE_STEP_MS, s
 import { VOICE_ICON } from './voice-icon.js';
 import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
 import { FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
+import { buildChatShots } from './forum-reader-chat-shot.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
 const states = new WeakMap();
-const REPLAY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>';
 const LIVE_PHONE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18.2" r="1" fill="currentColor"/><path d="M10 7.2 15 10l-5 2.8z" fill="currentColor"/></svg>';
 const FADE_MS = 320;
 
@@ -54,11 +54,17 @@ function bindRoot(overlay, root) {
     root.addEventListener('click', (event) => {
         const target = event.target && event.target.closest ? event.target : null;
         if (!target) return;
-        const replay = target.closest('.igs-fm-replay');
-        if (replay) {
+        const open = target.closest('.igs-fm-open');
+        if (open) {
             event.stopPropagation();
-            const solo = replay.closest('.igs-fm-solo');
+            const solo = open.closest('.igs-fm-solo');
             if (solo && s.view && s.view.onReplay) s.view.onReplay(Number(solo.dataset.index));
+            return;
+        }
+        const nav = target.closest('.igs-fm-viewer-nav');
+        if (nav) {
+            event.stopPropagation();
+            stepShotViewer(nav.closest('.igs-fm-viewer'), Number(nav.dataset.step));
             return;
         }
         const play = target.closest('.igs-fm-play');
@@ -80,6 +86,13 @@ function bindRoot(overlay, root) {
         if (thumb) {
             event.stopPropagation();
             openViewer(overlay, root, thumb.getAttribute('src'));
+            return;
+        }
+        const shot = target.closest('.igs-fm-shot-thumb');
+        if (shot) {
+            event.stopPropagation();
+            const thumbs = Array.from(shot.parentNode.children);
+            openShotViewer(overlay, root, thumbs.map((t) => t.firstElementChild), thumbs.indexOf(shot));
             return;
         }
         if (target.closest('.igs-fm-live')) {
@@ -111,6 +124,50 @@ function openViewer(overlay, root, src) {
     img.draggable = false;
     box.append(img);
     root.append(box);
+}
+
+// 聊天截图大图：原尺寸显示 DOM 节点，多张用两侧按钮切换。
+function openShotViewer(overlay, root, nodes, start) {
+    if (!nodes.length) return;
+    root.querySelector('.igs-fm-viewer')?.remove();
+    const doc = overlay.ownerDocument;
+    const box = el(doc, 'div', 'igs-fm-viewer');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', '聊天截图大图');
+    const full = el(doc, 'div', 'igs-fm-shot-full');
+    box.append(full);
+    if (nodes.length > 1) {
+        for (const step of [-1, 1]) {
+            const btn = el(doc, 'button', `igs-fm-viewer-nav is-${step < 0 ? 'prev' : 'next'}`, step < 0 ? '‹' : '›');
+            btn.type = 'button';
+            btn.dataset.step = String(step);
+            btn.setAttribute('aria-label', step < 0 ? '上一张' : '下一张');
+            box.append(btn);
+        }
+    }
+    shotViewers.set(box, { nodes, at: -1 });
+    showShot(box, start);
+    root.append(box);
+}
+
+const shotViewers = new WeakMap();
+
+function showShot(box, index) {
+    const info = shotViewers.get(box);
+    const at = Math.max(0, Math.min(info.nodes.length - 1, index));
+    info.at = at;
+    const full = box.querySelector('.igs-fm-shot-full');
+    full.textContent = '';
+    full.append(info.nodes[at].cloneNode(true));
+    const prev = box.querySelector('.is-prev');
+    const next = box.querySelector('.is-next');
+    if (prev) prev.hidden = at === 0;
+    if (next) next.hidden = at === info.nodes.length - 1;
+}
+
+function stepShotViewer(box, step) {
+    const info = box && shotViewers.get(box);
+    if (info) showShot(box, info.at + step);
 }
 
 // 附图：A 岛式左侧缩略图，上方一行文件名；NSFW 按设置先折叠，点开再显示。
@@ -264,13 +321,22 @@ function buildRow(overlay, list, i, view, live) {
     const image = view.images && view.images.get(row.index);
     if (image) body.append(imageNode(doc, image, view.settings.foldNsfw));
     if (row.solo) {
-        const node = el(doc, 'div', 'igs-fm-solo');
+        const shot = view.shotOf ? view.shotOf(row) : null;
+        const node = el(doc, 'div', shot ? 'igs-fm-solo igs-fm-shots' : 'igs-fm-solo');
         node.dataset.index = String(row.index);
-        const btn = el(doc, 'button', 'igs-fm-replay');
-        btn.type = 'button';
-        btn.innerHTML = `${REPLAY_SVG}<span></span>`;
-        btn.querySelector('span').textContent = row.replay || '重播';
-        node.append(btn);
+        if (shot) {
+            if (shot.groups.length > 1) node.dataset.multi = '';
+            for (const shotNode of buildChatShots(doc, shot)) {
+                const thumb = el(doc, 'div', 'igs-fm-shot-thumb');
+                thumb.append(shotNode);
+                node.append(thumb);
+            }
+        } else {
+            const btn = el(doc, 'button', 'igs-fm-open');
+            btn.type = 'button';
+            btn.textContent = '▶ 查看卡片';
+            node.append(btn);
+        }
         body.append(node);
         return { fades, text: null, post, postIndex };
     }
@@ -384,7 +450,7 @@ function syncAliasCard(overlay, root, view) {
         const ok = el(doc, 'button', 'igs-fm-alias-ok');
         ok.type = 'button';
         ok.textContent = '确定';
-        const submit = () => { if (view.onAlias) view.onAlias(item.key, input.value); };
+        const submit = () => { const latest = stateOf(overlay).view; if (latest && latest.onAlias) latest.onAlias(item.key, input.value); };
         ok.addEventListener('click', (event) => { event.stopPropagation(); submit(); });
         input.addEventListener('keydown', (event) => { event.stopPropagation(); if (event.key === 'Enter') submit(); });
         input.addEventListener('click', (event) => event.stopPropagation());
@@ -421,6 +487,8 @@ function applyAttrs(overlay, root, view) {
     overlay.removeAttribute('data-igs-log-skin');
     if (view.hidden) set('data-hidden', ''); else root.removeAttribute('data-hidden');
     root.style.setProperty('--igs-fm-fs', `${st.fontSize}px`);
+    root.style.setProperty('--igs-fm-lh', String(st.lineHeight / 100));
+    root.style.setProperty('--igs-fm-gap', `${st.paraGap}px`);
     const colors = forumPaletteColors(st.palette, st.mode, overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
     overlay.style.setProperty('--igs-fm-main-ink', colors.main);

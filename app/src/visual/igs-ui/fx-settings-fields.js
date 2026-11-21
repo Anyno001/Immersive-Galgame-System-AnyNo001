@@ -174,6 +174,8 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.mode`, '明暗', segmentedInput(`${p}.forumReader.mode`, fr.mode, [['light', '浅色'], ['dark', '黑夜'], ['auto', '跟随系统']], '明暗'))
         + field(`${p}.forumReader.perPost`, '一楼最多行数', selectInput(`${p}.forumReader.perPost`, fr.perPost, Array.from({ length: FORUM_PER_POST_MAX - FORUM_PER_POST_MIN + 1 }, (_, i) => [FORUM_PER_POST_MIN + i, `${FORUM_PER_POST_MIN + i}行`])))
         + field(`${p}.forumReader.fontSize`, '正文字号', selectInput(`${p}.forumReader.fontSize`, fr.fontSize, [13, 14, 15, 16, 17, 18, 19].map((n) => [n, `${n}px`])))
+        + field(`${p}.forumReader.lineHeight`, '行距', selectInput(`${p}.forumReader.lineHeight`, fr.lineHeight, [[140, '紧凑'], [155, '稍紧'], [175, '标准'], [195, '稍松'], [215, '宽松']]))
+        + field(`${p}.forumReader.paraGap`, '段距', selectInput(`${p}.forumReader.paraGap`, fr.paraGap, [[0, '无'], [3, '紧凑'], [5, '标准'], [9, '稍松'], [14, '宽松']]))
         + field(`${p}.forumReader.perTap`, '每次显示', segmentedInput(`${p}.forumReader.perTap`, fr.perTap, [[1, '1条'], [2, '2条'], [3, '3条'], [4, '4条'], [5, '5条'], [0, '显示全文']], '每次显示'))
         + field(`${p}.forumReader.reveal`, '文字出现', segmentedInput(`${p}.forumReader.reveal`, fr.reveal, [['flow', '流水展开'], ['type', '打字机'], ['fade', '整句淡入'], ['off', '直接显示']], '文字出现'))
         + field(`${p}.forumReader.speed`, '出现节奏', segmentedInput(`${p}.forumReader.speed`, fr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出现节奏'))

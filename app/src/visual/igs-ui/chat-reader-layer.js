@@ -20,6 +20,7 @@ const ONCE_MS = 1600;
 const TFX_POP_MS = 560;
 const TYPING_FLOOR_MS = 600;
 const CONT_PAUSE_MS = 280;
+const POP_STAGGER_MS = 40;
 
 function stateOf(overlay) {
     let s = states.get(overlay);
@@ -390,6 +391,11 @@ function buildRow(overlay, list, rows, i, view, live) {
             if (row.mood && view.settings.chip) name.append(chipNode(doc, row, view));
             if (view.canSpeak && view.canSpeak(row)) name.append(playButton(doc));
             head.append(name);
+        } else {
+            // User 不写名字，只留同高的名字行（有情绪时放标签），让组间距左右一致。
+            const name = el(doc, 'div', 'igs-cr-name');
+            if (row.mood && view.settings.chip) name.append(chipNode(doc, row, view));
+            head.append(name);
         }
         group.append(head);
         list.append(group);
@@ -458,65 +464,77 @@ function playPopSound(view, built, row) {
     try { playChatSfx(chatSfxKindForSide(built.right ? 'right' : 'left'), { volume: sound.volume, preset: sound.preset }); } catch { /* 无音频环境 */ }
 }
 
-// 出现：角色台词先插「正在输入」三点（组头第一条；续行只停一小会儿），再原地换成正文并弹出；旁白、分隔线、卡片淡入。
-// 返回的 promise 在弹出完成后 resolve；s.reveal.finish 可把整条立即补完。
-function reveal(overlay, built, view, row) {
+// 出现：一组同侧台词一起弹出。左侧组头先插一次「正在输入」三点（续行只停一小会儿），User 组无三点；组内气泡错开 POP_STAGGER_MS 同时弹出。
+// 旁白、分隔线、卡片淡入。返回的 promise 在弹出完成后 resolve；s.reveal.finish 可把整组立即补完。
+function reveal(overlay, builts, view, rows) {
     const s = stateOf(overlay);
     const win = winOf(overlay);
     const k = LOG_SPEEDS[view.settings.speed] || 1;
     const calm = reducedMotion(overlay);
-    const html = built.text ? built.text.dataset.html || '' : '';
-    const fadeIn = () => { for (const n of built.fades) n.classList.add('is-in'); };
-    if (built.kind !== 'say') {
-        if (built.text) built.text.innerHTML = html;
+    const fadeIn = () => { for (const b of builts) for (const n of b.fades) n.classList.add('is-in'); };
+    const first = builts[0];
+    if (first.kind !== 'say') {
+        if (first.text) first.text.innerHTML = first.text.dataset.html || '';
         win.requestAnimationFrame(fadeIn);
         return Promise.resolve();
     }
     win.requestAnimationFrame(fadeIn);
-    const { bubble, text } = built;
+    const items = builts.map((b) => ({ bubble: b.bubble, text: b.text, html: b.text.dataset.html || '' }));
     let wait = 0;
     let dots = false;
-    if (!calm && !built.right) {
-        if (built.cont) wait = CONT_PAUSE_MS * k;
-        else if (view.settings.typing) { dots = true; wait = Math.max(TYPING_FLOOR_MS, chatRevealDelayMs(row.text, 'medium') * 0.4) * k; }
+    if (!calm && !first.right) {
+        if (first.cont) wait = CONT_PAUSE_MS * k;
+        else if (view.settings.typing) { dots = true; wait = Math.max(TYPING_FLOOR_MS, chatRevealDelayMs(rows[first.row].text, 'medium') * 0.4) * k; }
     }
+    const stagger = calm ? 0 : POP_STAGGER_MS;
     return new Promise((resolve) => {
         let done = false;
         let hold = null;
-        let tail = null;
+        const tails = [];
         const finish = () => {
             if (done) return;
             done = true;
             if (s.reveal === job) s.reveal = null;
             win.clearTimeout(hold);
-            win.clearTimeout(tail);
-            bubble.classList.remove('is-typing', 'is-pop');
-            bubble.hidden = false;
-            disarmTextFx(text);
-            text.innerHTML = html;
+            for (const t of tails) win.clearTimeout(t);
+            for (const it of items) {
+                it.bubble.classList.remove('is-typing', 'is-pop');
+                it.bubble.hidden = false;
+                disarmTextFx(it.text);
+                it.text.innerHTML = it.html;
+            }
             resolve();
+        };
+        const pop = (it) => {
+            if (done) return;
+            it.bubble.classList.remove('is-typing');
+            it.text.innerHTML = it.html;
+            it.bubble.hidden = false;
+            it.bubble.classList.add('is-pop');
+            armTextFx(it.text, () => 0);
         };
         const show = () => {
             if (done) return;
-            bubble.classList.remove('is-typing');
-            text.innerHTML = html;
-            bubble.hidden = false;
-            bubble.classList.add('is-pop');
-            playPopSound(view, built, row);
-            armTextFx(text, () => 0);
-            let total = POP_MS;
-            if (text.querySelector('.igs-tfx-big,.igs-tfx-roar')) total = Math.max(total, TFX_POP_MS);
-            tail = win.setTimeout(finish, total);
+            playPopSound(view, first, null);
+            let total = POP_MS + stagger * (items.length - 1);
+            items.forEach((it, n) => {
+                if (n === 0 || !stagger) pop(it);
+                else tails.push(win.setTimeout(() => pop(it), stagger * n));
+                if (it.text.querySelector('.igs-tfx-big,.igs-tfx-roar')) total = Math.max(total, stagger * n + TFX_POP_MS);
+            });
+            tails.push(win.setTimeout(finish, total));
         };
         const job = { finish };
         s.reveal = job;
+        items.slice(1).forEach((it) => { it.bubble.hidden = true; });
         if (dots) {
+            const { bubble, text } = items[0];
             bubble.classList.add('is-typing');
             text.textContent = '';
             text.append(typingBubble(overlay.ownerDocument));
             hold = win.setTimeout(show, wait);
         } else if (wait > 0) {
-            bubble.hidden = true;
+            items[0].bubble.hidden = true;
             hold = win.setTimeout(show, wait);
         } else show();
     });
@@ -634,16 +652,19 @@ export function syncChatReader(overlay, view) {
     if (adjustSig !== s.adjustSig) { s.adjustSig = adjustSig; repaintKey(overlay, ''); }
     let revealing = null;
     const before = s.rendered;
+    const liveEnd = view.liveEnd >= view.live ? view.liveEnd : view.live;
+    const liveBuilts = [];
     for (let i = s.rendered; i <= view.upto && i < view.rows.length; i++) {
-        const live = i === view.live;
+        const live = view.live >= 0 && i >= view.live && i <= liveEnd;
         const built = buildRow(overlay, list, view.rows, i, view, live);
         if (built.kind === 'say') {
             for (const av of built.group.querySelectorAll('.igs-cr-av[data-url]')) paintAvatar(overlay, av);
             if (!built.cont) placeSymbol(overlay, built.group, built.group.dataset.mood, { done: !live });
         }
-        if (live && built.kind !== 'solo') revealing = reveal(overlay, built, view, view.rows[i]);
+        if (live && built.kind !== 'solo') { built.row = i; liveBuilts.push(built); }
         s.rendered = i + 1;
     }
+    if (liveBuilts.length) revealing = reveal(overlay, liveBuilts, view, view.rows);
     refreshLoops(overlay);
     if (s.rendered !== before) scrollEnd(root, Boolean(revealing));
     return { revealing };

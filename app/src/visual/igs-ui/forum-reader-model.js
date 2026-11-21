@@ -43,7 +43,8 @@ export function forumSlot(messageId, k) {
 }
 
 export function forumNo(chatId, messageId, k) {
-    return NO_BASE + forumSlot(messageId, k) * NO_STEP + (forumHash(chatId) % NO_STEP);
+    const overflow = Math.max(0, Math.round(Number(k) || 0) - (FLOOR_SLOTS - 1));
+    return NO_BASE + forumSlot(messageId, k) * NO_STEP + (forumHash(chatId) % NO_STEP) + overflow;
 }
 
 export function forumPoId(chatId, threadId = '') {
@@ -186,8 +187,8 @@ export function parseForumTag(body) {
     return out;
 }
 
-// AI 写的回帖 [igs-reply:谁|>N|内容]：谁 = 楼主 或 路人代称（同名即同一个 ID）；>N 可省，表示回本轮第 N 条回帖；>上N 表示回上一轮第 N 条回帖；只写内容则当作一个新路人。
-// 返回 [{ who, to, prev, text }]，who 以 # 开头表示匿名新路人（已按序号编成不重复的名字）。
+// AI 写的回帖 [igs-reply:谁|>N|#正文片段|内容]：谁 = 楼主 或 路人代称（同名即同一个 ID）；>N 可省，表示回本轮第 N 条回帖；>上N 表示回上一轮第 N 条回帖；#片段 可省，引用正文里的一句原话；只写内容则当作一个新路人。
+// 返回 [{ who, to, prev, cite, text }]，who 以 # 开头表示匿名新路人（已按序号编成不重复的名字）。
 export function forumRepliesOf(source) {
     const out = [];
     let anon = 0;
@@ -196,18 +197,22 @@ export function forumRepliesOf(source) {
         let who = '';
         let to = 0;
         let prev = 0;
-        if (fields.length > 1) who = fields.shift();
-        const ref = fields.length > 1 ? fields[0].match(/^[>＞]\s*(上)?\s*(\d+)$/) : null;
-        if (ref) {
+        let cite = '';
+        if (fields.length > 1 && !/^[>＞#＃]/.test(fields[0])) who = fields.shift();
+        while (fields.length > 1) {
+            const ref = fields[0].match(/^[>＞]\s*(上)?\s*(\d+)$/);
+            if (ref) {
+                if (ref[1]) prev = Number(ref[2]);
+                else to = Number(ref[2]);
+            } else if (/^[#＃]/.test(fields[0])) cite = fields[0].slice(1).trim();
+            else break;
             fields.shift();
-            if (ref[1]) prev = Number(ref[2]);
-            else to = Number(ref[2]);
         }
-        const text = Array.from(fields.join('|').trim()).slice(0, 60).join('');
+        const text = fields.join('|').trim();
         if (!text) continue;
         if (/^(楼主|po主?|lz)$/i.test(who)) who = '楼主';
         else if (!who) who = `#${anon++}`;
-        out.push({ who, to, prev, text });
+        out.push({ who, to, prev, cite, text });
     }
     return out;
 }
@@ -510,27 +515,66 @@ export function forumPlan(rows, ctx) {
     let k = 0;
     const perGap = { off: [0, 0], few: [0, 1], normal: [0, 2] }[st.replies];
     const clock = (n) => forumClock({ sceneTime, sendDate, seed: seedBase, k: n });
-    // AI 写了回帖就用 AI 的（均摊到各楼之后，最多 FLOOR_SLOTS 条）；没写才用内置短句。
-    const written = st.replies === 'off' ? [] : aiReplies.slice(0, Math.max(0, FLOOR_SLOTS - posts.length));
-    const writtenAt = posts.map(() => []);
+    // AI 写了回帖就用 AI 的：#片段 排在含该片段的楼之后 1–2 楼，>N 排在它回复的那条之后，>上N 排在开头 1–2 楼之后，其余排在最后；另掺 1–2 条内置纯颜文字。
+    const written = st.replies === 'off' || !posts.length ? [] : aiReplies;
+    const last = posts.length - 1;
+    const slotsAt = posts.map(() => []);
     const passerSlots = new Map();
-    const writtenNos = [];
-    written.forEach((text, i) => writtenAt[Math.max(0, Math.floor(((i + 1) * posts.length) / written.length) - 1)].push(text));
-    return posts.map((post, n) => {
+    const made = [];
+    const squash = (text) => String(text || '').replace(/[\s\p{P}\p{S}]/gu, '');
+    const postTexts = posts.map((post) => rows.slice(post.start, post.end + 1).filter((r) => !r.hidden).map((r) => r.text).join('\n'));
+    const citeAt = (cite) => {
+        if (!cite) return -1;
+        const exact = postTexts.findIndex((t) => t.includes(cite));
+        if (exact >= 0) return exact;
+        const flat = squash(cite);
+        return flat ? postTexts.findIndex((t) => squash(t).includes(flat)) : -1;
+    };
+    const cited = written.map((item) => citeAt(item.cite));
+    const placed = [];
+    const place = (j, seen = new Set()) => {
+        if (placed[j]) return placed[j];
+        const item = written[j];
+        const h = 1 + (forumHash(`${seedBase}:w${j}:${item.text}`) % 2);
+        const target = item.to > 0 && item.to !== j + 1 && item.to <= written.length && !seen.has(item.to - 1) ? item.to - 1 : -1;
+        let out;
+        if (target >= 0) {
+            const base = place(target, new Set([...seen, j]));
+            out = { at: base.at, depth: base.depth + 1 };
+        } else if (cited[j] >= 0) out = { at: Math.min(last, cited[j] + h), depth: 0 };
+        else if (item.prev > 0) out = { at: Math.min(last, h - 1), depth: 0 };
+        else out = { at: last, depth: 0 };
+        placed[j] = out;
+        return out;
+    };
+    written.forEach((item, j) => {
+        slotsAt[place(j).at].push({ item, j });
+        if (item.who !== '楼主' && !passerSlots.has(item.who)) passerSlots.set(item.who, passerSlots.size);
+    });
+    for (const list of slotsAt) list.sort((a, b) => placed[a.j].depth - placed[b.j].depth || a.j - b.j);
+    if (written.length) {
+        const kao = 1 + (forumHash(`${seedBase}:kao`) % 2);
+        for (let r = 0; r < kao; r++) slotsAt[forumHash(`${seedBase}:kaoAt${r}`) % posts.length].unshift({ kaomoji: pick(FORUM_KAOMOJI, `${seedBase}:kaoFace${r}`), r });
+    }
+    const result = posts.map((post, n) => {
         const own = k;
         k += 1;
         const text = rows.slice(post.start, post.end + 1).filter((r) => !r.hidden).map((r) => r.text).filter(Boolean);
         const tail = text.length ? text[text.length - 1] : '';
         const out = { start: post.start, end: post.end, k: own, no: forumNo(chatId, messageId, own), id: poId, time: clock(own), replies: [] };
         if (written.length) {
-            for (const item of writtenAt[n]) {
-                const po = item.who === '楼主';
-                if (!po && !passerSlots.has(item.who)) passerSlots.set(item.who, passerSlots.size);
+            for (const slot of slotsAt[n]) {
                 const no = forumNo(chatId, messageId, k);
-                const target = item.to > 0 && item.to <= writtenNos.length ? writtenNos[item.to - 1] : 0;
-                const earlier = item.prev > 0 ? prevReplies[item.prev - 1] : null;
-                writtenNos.push(no);
-                out.replies.push({ k, no, id: po ? poId : writtenPasserId(chatId, item.who, passerSlots.get(item.who) || 0, threadId), po, time: clock(k), text: item.text, quote: earlier ? forumReplyQuote(earlier.text) : '', ref: target });
+                if (slot.kaomoji) {
+                    out.replies.push({ k, no, id: forumPasserId(chatId, forumHash(`${seedBase}:p${k}`), threadId), time: clock(k), text: slot.kaomoji, quote: '', ref: 0 });
+                } else {
+                    const { item, j } = slot;
+                    const po = item.who === '楼主';
+                    const earlier = item.prev > 0 ? prevReplies[item.prev - 1] : null;
+                    const reply = { k, no, id: po ? poId : writtenPasserId(chatId, item.who, passerSlots.get(item.who) || 0, threadId), po, time: clock(k), text: item.text, quote: earlier ? forumReplyQuote(earlier.text) : cited[j] >= 0 ? item.cite : '', ref: 0 };
+                    made[j] = reply;
+                    out.replies.push(reply);
+                }
                 k += 1;
             }
             return out;
@@ -559,6 +603,11 @@ export function forumPlan(rows, ctx) {
         }
         return out;
     });
+    written.forEach((item, j) => {
+        const target = item.to > 0 && item.to !== j + 1 ? made[item.to - 1] : null;
+        if (target && made[j]) made[j].ref = target.no;
+    });
+    return result;
 }
 
 export function forumSettingsOf(readerSettings) {

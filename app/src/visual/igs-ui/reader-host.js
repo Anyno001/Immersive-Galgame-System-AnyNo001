@@ -166,9 +166,12 @@ import { dialogTextEffectCss } from './dialog-text-effect.js';
 import { manualNameColor } from './character-name-color.js';
 import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './log-reader-layer.js';
 import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from './chat-reader-layer.js';
-import { chatSettingsOf } from './chat-reader-model.js';
+import { chatSettingsOf, isChatCont } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
 import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
+import { shotGroupsOf } from './forum-reader-chat-shot.js';
+import { storyClock } from './phone-sense.js';
+import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
 import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
@@ -2594,7 +2597,9 @@ export function createIgsReaderHost(options = {}) {
             const optionBox = state.activeReader.logBase && state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');
             if (optionBox && !optionBox.hasAttribute('hidden')) {
                 hideOptionBubbles(optionBox);
-                return { ok: true, moved: false, reason: 'option-bubbles-hidden', index: state.activeReader.index };
+                if (state.activeReader.dom.overlay.getAttribute('data-igs-log-reader') !== 'on') {
+                    return { ok: true, moved: false, reason: 'option-bubbles-hidden', index: state.activeReader.index };
+                }
             }
             const batch = state.activeReader.logBase ? logPrev(state.activeReader) : null;
             return batch || moveReaderSegment(-1);
@@ -3395,7 +3400,8 @@ ${row.key}`;
         const log = current.logReader;
         if (!log || log.running) return;
         const per = logBatchSize(current);
-        const end = nextBatchEnd(log.rows, from, per);
+        const unit = logUnitOf(current);
+        const end = nextBatchEnd(log.rows, from, per, unit);
         const key = log.key;
         log.running = true;
         log.skip = false;
@@ -3419,7 +3425,10 @@ ${row.key}`;
                     rerenderActiveReader();
                     break;
                 }
+                let last = i;
+                if (unit && !log.rows[i].solo) while (last + 1 < end && unit(log.rows, last + 1)) last++;
                 log.live = log.rows[i].solo ? -1 : i;
+                log.liveEnd = last;
                 if (current.index !== i) {
                     current.index = i;
                     current.pageRenderAt = Date.now();
@@ -3427,14 +3436,26 @@ ${row.key}`;
                 } else syncLogLayer(current, current.snapshot);
                 if (log.revealing) await log.revealing;
                 log.live = -1;
-                if (log.rows[i].solo) break;
+                if (log.rows[i].solo) { log.liveEnd = -1; break; }
                 await waitLogTts(current, log.rows[i]);
+                // 组内后几行：逐行翻到该行（走页面自己的朗读与去重，每行只念一次），liveEnd 留着让 upto 不回缩。
+                for (let n = i + 1; n <= last && !log.skip; n++) {
+                    if (state.activeReader !== current || log.key !== key) return;
+                    current.index = n;
+                    current.pageRenderAt = Date.now();
+                    rerenderActiveReader();
+                    await waitLogTts(current, log.rows[n]);
+                }
+                log.liveEnd = -1;
+                current.index = last;
+                i = last;
                 if (i < end - 1 && !log.skip) await logWait(LOG_ROW_GAP_MS);
             }
         } finally {
             log.running = false;
             log.skip = false;
             log.live = -1;
+            log.liveEnd = -1;
             if (state.activeReader === current) {
                 syncLogLayer(current, current.snapshot);
                 current.autoPlayer?.refresh();
@@ -3446,6 +3467,10 @@ ${row.key}`;
         return current.forumBase ? 'forum' : current.chatBase ? 'chat' : 'log';
     }
 
+    // 气泡模式一批按「同侧一组」计数、整组一起出现；其余模式逐行。
+    function logUnitOf(current) {
+        return readerKindOf(current) === 'chat' ? isChatCont : null;
+    }
     function logBatchSize(current) {
         const rs = current.snapshot.readerSettings;
         const settingsOf = { forum: forumSettingsOf, chat: chatSettingsOf, log: logSettingsOf }[readerKindOf(current)];
@@ -3474,7 +3499,7 @@ ${row.key}`;
         if (!log || !log.rows) return null;
         if (log.running) return logNext(current);
         const per = logBatchSize(current);
-        const starts = batchStartsUpTo(log.rows, Number(current.index) || 0, per);
+        const starts = batchStartsUpTo(log.rows, Number(current.index) || 0, per, logUnitOf(current));
         if (starts.length < 2) return null;
         const target = starts[starts.length - 1] - 1;
         log.batchStart = starts[starts.length - 2];
@@ -3517,9 +3542,9 @@ ${row.key}`;
         const anyManga = { ...manga, enabled: true };
         const html = createLogHtml(snapshot);
         // 跳页（目录、续读、最后一页）后没有批次记录：按当前页推出所在那一批的起点。
-        const inBatch = log.batchStart <= index && index < nextBatchEnd(log.rows, log.batchStart, settings.perTap);
+        const inBatch = log.batchStart <= index && index < nextBatchEnd(log.rows, log.batchStart, settings.perTap, chat ? isChatCont : null);
         if (!inBatch || log.batchStartFor !== log.key) {
-            const starts = batchStartsUpTo(log.rows, index, settings.perTap);
+            const starts = batchStartsUpTo(log.rows, index, settings.perTap, chat ? isChatCont : null);
             log.batchStart = starts[starts.length - 1];
             log.batchStartFor = log.key;
         }
@@ -3532,9 +3557,10 @@ ${row.key}`;
             theme: chat && settings.followTheme ? resolveChatTheme(rs.dialogSkin) : null,
             floorKey: log.key,
             rows: log.rows,
-            upto: log.fresh ? -1 : index,
+            upto: log.fresh ? -1 : Math.max(index, log.liveEnd >= 0 ? log.liveEnd : -1),
             batchStart: log.batchStart,
             live: log.live == null ? -1 : log.live,
+            liveEnd: log.liveEnd == null ? -1 : log.liveEnd,
             running: Boolean(log.running),
             more: index < log.rows.length - 1,
             sound: chat ? normalizeChatShowSettings(rs.chatShow).sound : null,
@@ -3674,13 +3700,13 @@ ${row.key}`;
         const onAlias = (key, text) => {
             const cur = forumRegistry.read();
             const t = forumThreadById(cur, threadId);
-            if (!t) return;
+            if (!t) { if (state.activeReader) rerenderActiveReader(); return; }
             const alias = { ...t.alias };
             const manual = { ...t.manual, alias: { ...t.manual.alias }, asked: { ...t.manual.asked, [key]: true } };
             const code = String(text || '').trim();
             if (code && code !== alias[key]) { alias[key] = code; manual.alias[key] = true; }
             forumRegistry.commit(replaceForumThread(cur, { ...t, alias, manual }));
-            if (state.activeReader === current) rerenderActiveReader();
+            if (state.activeReader) rerenderActiveReader();
         };
         const namesOf = (key) => (Array.isArray(assets.characterAliases && assets.characterAliases[key]) ? assets.characterAliases[key] : []);
         const rows = forumRowsOf(forumRowsIn, { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, extraNames: (thread && thread.names) || {}, settings: rs.forumReader });
@@ -3691,10 +3717,48 @@ ${row.key}`;
         const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
         const prevReplies = aiReplies.some((r) => r.prev) ? forumPrevRepliesOf(ctx.chat, messageId) : [];
         const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
+        // 聊天页在帖子里画成手机截图：名字换论坛代号，配色与手机壳跟聊天演出一致，顶栏时间取剧情时间。
+        const shotOf = (row) => {
+            const block = logChatOf(floor, row.index);
+            if (!block) return null;
+            const chatShow = normalizeChatShowSettings(rs.chatShow);
+            const model = buildChatPageModel(block, { ...chatShow, showAvatars: false }, {
+                userName: ctx.name1 ? String(ctx.name1) : '',
+                characterAliases: assets.characterAliases,
+                theme: resolveChatTheme(rs.dialogSkin),
+                systemRole: rs.systemRole,
+            });
+            const codeOf = (m) => {
+                const key = m.self ? FORUM_USER_KEY : nameMap.get(m.key) || known(m.key) || m.key;
+                return key === posterKey ? '我' : threadAlias[key] || m.displayName;
+            };
+            const lefts = [];
+            const messages = model.messages.map((m) => {
+                if (m.kind === 'msg') {
+                    const name = codeOf(m);
+                    if (!m.self && !lefts.includes(name)) lefts.push(name);
+                    return { kind: 'msg', type: m.type, text: m.text, side: m.side, name, showName: m.showName, color: m.color, textColor: m.textColor };
+                }
+                if (m.kind === 'recall') return { kind: 'recall', text: `${m.self ? '你' : codeOf(m)}撤回了一条消息` };
+                return m;
+            });
+            const page = floor.pages[row.index];
+            const clock = storyClock(((page && page.sceneStateForBg) || floor.inheritedSceneState || {}).time);
+            const groups = shotGroupsOf(messages);
+            const caseColor = myPhoneOf(rs).caseColor;
+            return {
+                title: lefts.join('、'),
+                time: clock ? clock.time : '',
+                night: Boolean(clock && clock.night),
+                theme: model.theme || resolveChatTheme(''),
+                caseColor: caseColor === PHONE_CASE_DEFAULT ? '' : caseColor,
+                groups: groups.length ? groups : [[]],
+            };
+        };
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
-            rows, plan, pendingAlias, onAlias, images,
+            sig: JSON.stringify([rs.dialogSkin, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            rows, plan, pendingAlias, onAlias, images, shotOf,
             board: forumBoardOf(data, worldview),
             head: marks.start ? { title: titleAt(thread, messageId), poId, board: forumBoardOf(data, worldview) } : null,
             retitle: marks.retitle,

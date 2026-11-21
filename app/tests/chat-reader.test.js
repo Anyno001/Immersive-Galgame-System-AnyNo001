@@ -144,3 +144,15 @@ test('DOM：对方头像、User 头像各自可开关', () => {
     assert.equal(count({ userAvatar: true }), 2);
     assert.equal(count({ charAvatar: false, userAvatar: true }), 1);
 });
+
+test('气泡模式按组计批：一组不被切开；字体带兜底且不被酒馆覆盖', async () => {
+    const { nextBatchEnd } = await import('../src/visual/igs-ui/log-reader-model.js');
+    const rows = [
+        { key: 'a', speaker: 'A', kind: 'dialogue' }, { key: 'a', speaker: 'A', kind: 'dialogue' }, { key: 'a', speaker: 'A', kind: 'dialogue' },
+        { key: 'b', speaker: 'B', kind: 'dialogue' }, { key: 'b', speaker: 'B', kind: 'dialogue' },
+    ].map((r, index) => ({ ...r, index }));
+    assert.equal(nextBatchEnd(rows, 0, 1, isChatCont), 3);
+    assert.equal(nextBatchEnd(rows, 0, 2, isChatCont), 5);
+    assert.equal(nextBatchEnd(rows, 0, 1), 1);
+    assert.match(CHAT_READER_STYLE_TEXT, /font-family:var\(--igs-cr-font,[^;]*sans-serif\)!important/);
+});

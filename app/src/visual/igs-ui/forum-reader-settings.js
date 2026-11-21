@@ -13,6 +13,9 @@ export const FORUM_PER_POST_MIN = 3;
 export const FORUM_PER_POST_MAX = 16;
 export const FORUM_FONT_MIN = 13;
 export const FORUM_FONT_MAX = 19;
+export const FORUM_LINE_MIN = 130;
+export const FORUM_LINE_MAX = 230;
+export const FORUM_GAP_MAX = 16;
 
 function plain(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -34,6 +37,8 @@ export function normalizeForumReaderSettings(value) {
         replies: FORUM_REPLIES.includes(src.replies) ? src.replies : 'normal',
         perPost: clampInt(src.perPost, FORUM_PER_POST_MIN, FORUM_PER_POST_MAX, 8),
         fontSize: clampInt(src.fontSize, FORUM_FONT_MIN, FORUM_FONT_MAX, 14),
+        lineHeight: clampInt(src.lineHeight, FORUM_LINE_MIN, FORUM_LINE_MAX, 175),
+        paraGap: clampInt(src.paraGap, 0, FORUM_GAP_MAX, 5),
         palette: FORUM_PALETTE_IDS.includes(src.palette) ? src.palette : 'classic',
         mode: FORUM_MODES.includes(src.mode) ? src.mode : 'light',
         prompt: src.prompt !== false,
