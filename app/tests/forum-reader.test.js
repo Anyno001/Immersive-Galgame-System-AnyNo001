@@ -321,10 +321,13 @@ test('论坛层：帖子头、楼拆分、点缀回帖与引用格式落到 DOM�
     syncForumReader(overlay, view);
     assert.equal(overlay.getAttribute('data-igs-forum-reader'), 'on');
     assert.equal(overlay.getAttribute('data-igs-log-reader'), 'on');
-    assert.equal(overlay.querySelector('.igs-fm-bar').textContent, '综合版1');
+    assert.equal(overlay.querySelector('.igs-fm-bar-board').textContent, '综合版1');
     assert.equal(overlay.querySelector('.igs-fm-thread h1').textContent, '【求助】在线等');
     assert.equal(overlay.querySelectorAll('.igs-fm-post').length, 2);
-    assert.ok(overlay.querySelector('.igs-fm-po').textContent.includes('Neko4Ka'));
+    assert.ok(overlay.querySelector('.igs-fm-id').textContent.includes('Neko4Ka'));
+    assert.equal(overlay.querySelector('.igs-fm-pobadge').textContent, 'Po');
+    assert.equal(overlay.querySelectorAll('.igs-fm-boardtag').length, 1);
+    assert.equal(overlay.querySelector('.igs-fm-boardtag').textContent, '综合');
     assert.ok(overlay.querySelector('.igs-fm-line .igs-fm-who').textContent.includes('我'));
     assert.equal(overlay.querySelectorAll('.igs-fm-line').length, 6);
     syncForumReader(overlay, null);

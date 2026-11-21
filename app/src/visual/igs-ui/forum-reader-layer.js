@@ -229,9 +229,10 @@ function syncLiveButton(overlay, root, view) {
     if (btn.getAttribute('aria-label') !== label) { btn.setAttribute('aria-label', label); btn.title = label; }
 }
 
-function headHtml({ id, no, time, po, newbie }) {
-    const idText = po ? `<span class="igs-fm-po">ID:${esc(id)}</span>(PO主)` : `ID:${esc(id)}`;
-    return `<span class="igs-fm-nm">无名氏</span>${time ? ` ${esc(time)}` : ''} ${idText} No.${esc(no)}`;
+function headHtml({ id, no, time, po, board }) {
+    const tag = board ? `<span class="igs-fm-boardtag">${esc(Array.from(board).slice(0, 2).join(''))}</span>` : '';
+    const badge = po ? '<span class="igs-fm-pobadge">Po</span>' : '';
+    return `${tag}${badge}<span class="igs-fm-id">${esc(id)}</span>${time ? `<span class="igs-fm-time">${esc(time)}</span>` : ''}<span class="igs-fm-mno">No.${esc(no)}</span>`;
 }
 
 function playButton(doc) {
@@ -287,7 +288,7 @@ function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
     node = el(doc, 'div', 'igs-fm-post' + (live ? '' : ' is-in'));
     node.dataset.post = String(postIndex);
     const meta = el(doc, 'div', 'igs-fm-meta');
-    meta.innerHTML = headHtml({ id: post.id, no: post.no, time: post.time, po: true });
+    meta.innerHTML = headHtml({ id: post.id, no: post.no, time: post.time, po: true, board: postIndex === 0 && view.head ? view.board : '' });
     const body = el(doc, 'div', 'igs-fm-body');
     node.append(meta, body);
     list.append(node);
@@ -506,7 +507,11 @@ function applyAttrs(overlay, root, view) {
     const fonts = view.fonts || {};
     if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
     const bar = root.querySelector('.igs-fm-bar');
-    if (bar && bar.textContent !== view.board) bar.textContent = view.board || '';
+    const barKey = `${view.threadNo || ''}|${view.board || ''}`;
+    if (bar && bar.dataset.key !== barKey) {
+        bar.dataset.key = barKey;
+        bar.innerHTML = (view.threadNo ? `<div class="igs-fm-bar-no">No.${esc(view.threadNo)}</div>` : '') + `<div class="igs-fm-bar-board">${esc(view.board || '')}</div>`;
+    }
     syncDockGap(overlay, root);
     const dialog = overlay.querySelector('#igs-dialog');
     const foot = dialog && dialog.offsetHeight > 0 ? `${dialog.offsetHeight}px` : '';
