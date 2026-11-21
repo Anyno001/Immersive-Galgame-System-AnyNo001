@@ -3552,7 +3552,8 @@ ${row.key}`;
         const settings = kind === 'forum' ? { ...forumSettingsOf(rs), stickers } : chat ? { ...chatSettingsOf(rs), adjust: normalizeLogReaderSettings(rs.logReader).adjust, stickers } : logSettingsOf(rs);
         const manga = normalizeMangaFxSettings(rs.mangaFx);
         const anyManga = { ...manga, enabled: true };
-        const html = createLogHtml(snapshot);
+        // 论坛体是纯文字帖：文字特效 {抖:…} 只留内容，不做动效。
+        const html = createLogHtml(kind === 'forum' ? { ...snapshot, readerSettings: { ...rs, textFx: { ...rs.textFx, enabled: false } } } : snapshot);
         // 跳页（目录、续读、最后一页）后没有批次记录：按当前页推出所在那一批的起点。
         const inBatch = log.batchStart <= index && index < nextBatchEnd(log.rows, log.batchStart, settings.perTap, chat ? isChatCont : null);
         if (!inBatch || log.batchStartFor !== log.key) {

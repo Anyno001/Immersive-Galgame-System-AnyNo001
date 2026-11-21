@@ -4,6 +4,7 @@ import { VOICE_ICON } from './voice-icon.js';
 import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
 import { FORUM_EDGE_PX, FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
 import { buildChatShots } from './forum-reader-chat-shot.js';
+import { stripTextFxMarkup } from './text-fx.js';
 import { STICKER_TAG_G, installStickerFallback, stickerHtml, stickerOptsOf } from '../../stickers/sticker-render.js';
 import { stickerView } from '../../stickers/sticker-catalog.js';
 
@@ -326,16 +327,18 @@ function replyNode(doc, reply, view, live) {
     let html = '';
     if (reply.quote) html += `<div class="igs-fm-gt">&gt;${esc(reply.quote)}</div>`;
     if (reply.ref) html += `<div class="igs-fm-ref">&gt;&gt;No.${esc(reply.ref)}</div>`;
+    // 回帖是纯文字：文字特效 {抖:…} 只留内容。
+    const text = stripTextFxMarkup(String(reply.text));
     const sticker = stickerOf(view);
     const optsFor = (n) => ({ ...sticker.opts, seed: `${reply.id}#${reply.no}:${n}`, cls: 'igs-fm-sticker' });
     if (sticker.inline) {
         // AC娘：行内小图，跟在文字里，没有对应图的情绪直接不显示。
-        const inner = inlineReplyHtml(String(reply.text), optsFor).trim();
+        const inner = inlineReplyHtml(text, optsFor).trim();
         if (inner) html += `<div>${inner}</div>`;
     } else {
         // 文字在上，表情另起一行、左对齐，连续多个并排（与楼主正文一致）。
-        const names = [...String(reply.text).matchAll(STICKER_TAG_G)].map((m) => m[1]);
-        const plainText = String(reply.text).replace(STICKER_TAG_G, '').trim();
+        const names = [...text.matchAll(STICKER_TAG_G)].map((m) => m[1]);
+        const plainText = text.replace(STICKER_TAG_G, '').trim();
         if (plainText || !names.length) html += `<div>${esc(plainText)}</div>`;
         const stickers = names.map((name, n) => stickerHtml(name, optsFor(n))).join('');
         if (stickers) html += `<div class="igs-fm-stickers is-in">${stickers}</div>`;
