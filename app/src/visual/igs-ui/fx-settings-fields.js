@@ -184,6 +184,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.edge`, '离边距离', segmentedInput(`${p}.forumReader.edge`, fr.edge, [['flush', '贴边'], ['normal', '标准'], ['wide', '宽松']], '离边距离'))
         + field(`${p}.forumReader.sayInk`, '台词颜色', segmentedInput(`${p}.forumReader.sayInk`, fr.sayInk, [['body', '正文色'], ['name', '跟随名字']], '台词颜色'))
         + checkbox(`${p}.forumReader.narrIndent`, fr.narrIndent, '旁白段首缩进两格')
+        + checkbox(`${p}.forumReader.chainTail`, fr.chainTail, '新楼开头接上楼末尾回帖')
         + checkbox(`${p}.forumReader.foldNsfw`, fr.foldNsfw, 'NSFW 附图默认折叠')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')

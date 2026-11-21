@@ -263,6 +263,13 @@ function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
     const doc = overlay.ownerDocument;
     let node = list.querySelector(`.igs-fm-post[data-post="${postIndex}"]`);
     if (node) return node;
+    if (postIndex === 0 && !view.head && Array.isArray(view.chainTail)) {
+        for (const reply of view.chainTail) {
+            const tail = replyNode(doc, reply, view, live);
+            list.append(tail);
+            fades.push(tail);
+        }
+    }
     if (postIndex === 0 && view.head) {
         const head = el(doc, 'div', 'igs-fm-thread' + (live ? '' : ' is-in'));
         const title = el(doc, 'h1');

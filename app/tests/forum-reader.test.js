@@ -5,7 +5,7 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { logRowsOf } from '../src/visual/igs-ui/log-reader-model.js';
 import {
-    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, floorMarks, forumClock, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf,
+    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumClock, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
@@ -439,4 +439,39 @@ test('台词引号：默认关，可选中文引号或直角引号，非法值�
     assert.equal(normalizeForumReaderSettings({ quote: 'jp' }).quote, 'jp');
     assert.equal(normalizeForumReaderSettings({ quote: 'x' }).quote, 'off');
     assert.ok(/is-say[^}]*border-left/.test(FORUM_READER_STYLE_TEXT));
+});
+
+test('新楼开头接上楼末尾回帖：取计划末尾 1~3 条、按楼定死、同帖才接', () => {
+    const rows = ['甲', '乙', '丙'].map((text, i) => ({ kind: 'narr', text, index: i, hidden: false }));
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 4, settings: { perPost: 1 }, aiReplies: ['a', 'b', 'c', 'd'].map((t) => ({ who: '#1', to: 0, prev: 0, cite: '', text: t })), threadStart: false });
+    const all = plan.flatMap((p) => p.replies);
+    assert.ok(all.length >= 4);
+    assert.deepEqual(forumTailOf(plan, 2), all.slice(-2));
+    assert.deepEqual(forumTailOf(plan, 3).map((r) => r.no), all.slice(-3).map((r) => r.no));
+    assert.deepEqual(forumTailOf([], 2), []);
+    const counts = new Set();
+    for (let id = 0; id < 40; id++) { const n = forumTailCount('c', id); counts.add(n); assert.equal(n, forumTailCount('c', id)); }
+    assert.deepEqual([...counts].sort(), [1, 2, 3]);
+    const chat = [{ mes: 'x' }, { is_user: true }, { mes: 'y' }, { is_system: true }, { is_user: true }, { mes: 'z' }];
+    const tails = new Map([[2, all.slice(-3)]]);
+    const base = { chat, messageId: 5, lookup: (id) => tails.get(id) || null, sameThread: () => true, count: 2 };
+    assert.deepEqual(forumChainTail(base), all.slice(-2));
+    assert.deepEqual(forumChainTail({ ...base, start: true }), []);
+    assert.deepEqual(forumChainTail({ ...base, sameThread: () => false }), []);
+    assert.deepEqual(forumChainTail({ ...base, messageId: 0 }), []);
+    assert.deepEqual(forumChainTail({ ...base, messageId: 2 }), []);
+    assert.deepEqual(forumChainTail({ ...base, lookup: () => null }), []);
+});
+
+test('末尾回帖落进登记：内存缓存空也能读出，只留最近 30 楼，坏形状丢掉', () => {
+    const item = (n) => ({ k: n, no: `No.${n}`, id: 'abcd1234', po: false, time: '12:00', text: `回${n}`, quote: '', ref: 0 });
+    let data = emptyForum();
+    for (let id = 1; id <= 35; id++) data = forumWithTail(data, id, { sig: `s${id}`, items: [item(id)] });
+    assert.deepEqual(Object.keys(data.tails).map(Number).sort((a, b) => a - b), Array.from({ length: 30 }, (_, i) => i + 6));
+    const back = normalizeForum(JSON.parse(JSON.stringify(data)));
+    const lookup = (id) => (back.tails[id] || {}).items || null;
+    const chat = Array.from({ length: 40 }, () => ({ mes: 'x' }));
+    assert.deepEqual(forumChainTail({ chat, messageId: 36, count: 2, sameThread: () => true, lookup }), [item(35)]);
+    assert.deepEqual(forumChainTail({ chat, messageId: 4, count: 2, sameThread: () => true, lookup }), []);
+    assert.deepEqual(normalizeForum({ tails: { 3: { sig: 'x', items: [{ foo: 1 }] }, x: { sig: 'y', items: [item(1)] }, 4: 'z' } }).tails, {});
 });

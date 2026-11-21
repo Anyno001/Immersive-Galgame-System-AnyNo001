@@ -53,6 +53,7 @@ export function normalizeForumReaderSettings(value) {
         quote: Object.hasOwn(FORUM_QUOTE_MARKS, src.quote) ? src.quote : 'off',
         foldNsfw: src.foldNsfw !== false,
         narrIndent: src.narrIndent !== false,
+        chainTail: src.chainTail !== false,
         sayInk: src.sayInk === 'name' ? 'name' : 'body',
         edge: FORUM_EDGES.includes(src.edge) ? src.edge : 'normal',
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',

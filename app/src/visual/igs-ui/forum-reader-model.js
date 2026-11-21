@@ -88,9 +88,10 @@ export function forumClock({ sceneTime, sendDate, seed = '', k = 0 }) {
 // chatMetadata.igs_forum = { board, manualBoard, threads:[{ id, po, poId, titles:[{from,title,fb?}], alias, seq, manual }], timeline:[{ from, thread }] }。
 // 每个楼主一个帖子；from 是酒馆楼 messageId。第 N 楼用哪个帖子、哪个标题由 threadAt / titleAt 查表算出，不存排版结果。
 const MAX_THREADS = 12;
+const MAX_TAILS = 30;
 
 export function emptyForum() {
-    return { board: '', manualBoard: false, threads: [], timeline: [] };
+    return { board: '', manualBoard: false, threads: [], timeline: [], tails: {} };
 }
 
 function plain(value) {
@@ -138,6 +139,31 @@ export function cleanThread(value) {
     };
 }
 
+function cleanTailItem(value) {
+    const r = plain(value);
+    if (!r.no || !r.id) return null;
+    return {
+        k: wholeFrom(r.k), no: String(r.no).slice(0, 16), id: String(r.id).slice(0, 12), po: r.po === true, time: String(r.time || '').slice(0, 8),
+        text: String(r.text || '').slice(0, 600), quote: String(r.quote || '').slice(0, 80), ref: wholeFrom(r.ref),
+    };
+}
+
+// tails：{ [messageId]: { sig, items } }，每楼末尾回帖的显示结果，只留最近 MAX_TAILS 个楼。
+function cleanTails(value) {
+    const out = {};
+    const ids = Object.keys(plain(value)).filter((k) => /^\d+$/.test(k)).sort((a, b) => Number(b) - Number(a)).slice(0, MAX_TAILS);
+    for (const id of ids) {
+        const entry = plain(value[id]);
+        const items = (Array.isArray(entry.items) ? entry.items : []).slice(-3).map(cleanTailItem).filter(Boolean);
+        if (typeof entry.sig === 'string' && entry.sig && items.length) out[id] = { sig: entry.sig.slice(0, 80), items };
+    }
+    return out;
+}
+
+export function forumWithTail(data, messageId, entry) {
+    return normalizeForum({ ...data, tails: { ...(data && data.tails), [wholeFrom(messageId)]: entry } });
+}
+
 export function normalizeForum(value) {
     const src = plain(value);
     const threads = [];
@@ -155,6 +181,7 @@ export function normalizeForum(value) {
         manualBoard: src.manualBoard === true,
         threads,
         timeline: [...byFrom.values()].sort((a, b) => a.from - b.from),
+        tails: cleanTails(src.tails),
     };
 }
 
@@ -225,6 +252,31 @@ export function forumPrevRepliesOf(chat, beforeId) {
         if (!m || m.is_user || m.is_system) continue;
         const found = forumRepliesOf(m.mes);
         if (found.length) return found;
+    }
+    return [];
+}
+
+// 一个计划里按显示顺序排的全部回帖，取末尾 count 条。
+export function forumTailOf(plan, count) {
+    const all = (Array.isArray(plan) ? plan : []).flatMap((post) => post.replies || []);
+    return count > 0 ? all.slice(-count) : [];
+}
+
+// 新楼开头搬来的条数：1~3，按本楼定死。
+export function forumTailCount(chatId, messageId) {
+    return 1 + (forumHash(`${chatId}:${messageId}:tail`) % 3);
+}
+
+// 本楼开头接上的上一 AI 楼末尾回帖：本楼是帖子首楼、聊天里没有更早的 AI 楼、上一楼不同帖或没有缓存时为空。
+// lookup(id) 取上一楼已算好的末尾回帖；sameThread(id) 判断上一楼与本楼同帖。
+export function forumChainTail({ chat, messageId, start = false, lookup, sameThread, count }) {
+    if (start || !Array.isArray(chat)) return [];
+    for (let i = Math.min(chat.length, Math.round(Number(messageId) || 0)) - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (!m || m.is_user || m.is_system) continue;
+        if (!sameThread(i)) return [];
+        const found = lookup(i);
+        return Array.isArray(found) ? found.slice(-count) : [];
     }
     return [];
 }

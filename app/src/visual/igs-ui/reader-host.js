@@ -172,7 +172,7 @@ import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
 import { shotGroupsOf } from './forum-reader-chat-shot.js';
 import { storyClock } from './phone-sense.js';
 import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -319,6 +319,8 @@ export function createIgsReaderHost(options = {}) {
     let turnIndexPanel = null;
     // 最近一次列出的楼（含隐藏楼）：回想里查某楼是否隐藏、往前追溯继承的 NSFW 场景用。
     let lastTurnList = [];
+    // 各楼末尾回帖（楼层计划算出来的）；下一楼开头要接，按聊天 + 楼号 + 正文长度 + 回帖设置存。
+    const forumTails = new Map();
     let generationStripRemount = false;
     // 对话框顶边的生成细线：手动 / 自动出图共用，代替原来常驻的「生图中」提示。
     const generationStrip = createGenerationStrip({
@@ -3717,6 +3719,26 @@ ${row.key}`;
         const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
         const prevReplies = aiReplies.some((r) => r.prev) ? forumPrevRepliesOf(ctx.chat, messageId) : [];
         const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
+        const tailSig = (id) => `${(ctx.chat && ctx.chat[id] && String(ctx.chat[id].mes || '').length) || 0}:${settings.replies}:${settings.perPost}:${settings.poster}`;
+        if (idle) {
+            const mine = { sig: tailSig(messageId), replies: forumTailOf(plan, 3) };
+            forumTails.set(`${chatId}:${messageId}`, mine);
+            const kept = data.tails && data.tails[messageId];
+            const items = mine.replies.map((r) => ({ k: r.k, no: r.no, id: r.id, po: r.po === true, time: r.time || '', text: r.text, quote: r.quote || '', ref: r.ref || 0 }));
+            if (items.length && !(kept && kept.sig === mine.sig && JSON.stringify(kept.items) === JSON.stringify(items))) {
+                data = forumWithTail(data, messageId, { sig: mine.sig, items });
+                if (forumRegistry.stage(data)) forumRegistry.flush();
+            }
+        }
+        const chainTail = settings.chainTail ? forumChainTail({
+            chat: ctx.chat, messageId, start: marks.start, count: forumTailCount(chatId, messageId),
+            sameThread: (id) => Boolean(thread) && (threadAt(data, id) || {}).id === thread.id,
+            lookup: (id) => {
+                const kept = data.tails && data.tails[id];
+                const hit = forumTails.get(`${chatId}:${id}`) || (kept && { sig: kept.sig, replies: kept.items });
+                return hit && hit.sig === tailSig(id) ? hit.replies : null;
+            },
+        }) : [];
         // 聊天页在帖子里画成手机截图：名字换论坛代号，配色与手机壳跟聊天演出一致，顶栏时间取剧情时间。
         const shotOf = (row) => {
             const block = logChatOf(floor, row.index);
@@ -3757,8 +3779,8 @@ ${row.key}`;
         };
         return syncForumReader(overlay, {
             floorKey: log.key,
-            sig: JSON.stringify([rs.dialogSkin, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
-            rows, plan, pendingAlias, onAlias, images, shotOf,
+            sig: JSON.stringify([rs.dialogSkin, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,
             board: forumBoardOf(data, worldview),
             head: marks.start ? { title: titleAt(thread, messageId), poId, board: forumBoardOf(data, worldview) } : null,
             retitle: marks.retitle,
