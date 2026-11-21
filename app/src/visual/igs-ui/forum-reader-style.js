@@ -54,8 +54,8 @@ ${R} .igs-fm-play svg{width:15px;height:15px;}
 ${R} .igs-fm-solo{margin:6px 0;}
 ${R} .igs-fm-open{display:inline-block;min-height:30px;padding:4px 12px;border:1px solid var(--igs-fm-line,#d9bfb7);background:var(--igs-fm-pg,#f0e0d6);color:var(--igs-fm-main,#800000);font:inherit;font-size:12.5px;line-height:1.5;text-align:left;cursor:pointer;}
 ${R} .igs-fm-shots{display:flex;flex-wrap:wrap;gap:6px;}
-${R} .igs-fm-shot-thumb{flex:0 0 72%;max-width:280px;aspect-ratio:3/4;overflow:hidden;container-type:inline-size;cursor:zoom-in;}
-${R} .igs-fm-shots[data-multi] .igs-fm-shot-thumb{flex-basis:calc(50% - 3px);max-width:200px;}
+${R} .igs-fm-shot-thumb{flex:0 0 48%;max-width:190px;aspect-ratio:9/19;overflow:hidden;container-type:inline-size;cursor:zoom-in;}
+${R} .igs-fm-shots[data-multi] .igs-fm-shot-thumb{flex-basis:calc(50% - 3px);max-width:190px;}
 ${R} .igs-fm-shot{font-size:calc(100cqw / 24);width:100%;min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;border:.5em solid var(--igs-shot-case);border-radius:2.2em;background:var(--igs-shot-shell);overflow:hidden;line-height:1.5;text-align:left;user-select:none;-webkit-user-select:none;}
 ${R} .igs-fm-shot-top{flex:none;background:var(--igs-shot-head);color:var(--igs-shot-ink);}
 ${R} .igs-fm-shot .igs-phone-status{position:relative;height:2.4em;padding:.2em 1.4em 0;font-size:.8em;color:var(--igs-shot-ink);}
@@ -72,7 +72,8 @@ ${R} .igs-fm-shot-name{margin:0 0 .15em .2em;font-size:.8em;color:var(--igs-shot
 ${R} .igs-fm-shot-bubble{padding:.55em .8em;border-radius:1em;border:1px solid var(--igs-shot-border,transparent);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;}
 ${R} .igs-fm-shot-row.is-left .igs-fm-shot-bubble{border-top-left-radius:.3em;}
 ${R} .igs-fm-shot-row.is-right .igs-fm-shot-bubble{border-top-right-radius:.3em;}
-${R} .igs-fm-shot-full{container-type:inline-size;width:min(320px,88%);max-height:100%;overflow-y:auto;scrollbar-width:none;cursor:zoom-out;}
+${R} .igs-fm-shot-full .igs-fm-shot{min-height:calc(100cqw * 19 / 9);}
+${R} .igs-fm-shot-full{container-type:inline-size;width:min(300px,80%);max-height:100%;overflow-y:auto;scrollbar-width:none;cursor:zoom-out;}
 ${R} .igs-fm-viewer-nav{position:absolute;top:50%;z-index:1;width:36px;height:56px;margin-top:-28px;padding:0;border:0;background:var(--igs-fm-main,#800000);color:var(--igs-fm-card,#ffffee);font:inherit;font-size:24px;line-height:1;cursor:pointer;}
 ${R} .igs-fm-viewer-nav[hidden]{display:none;}
 ${R} .igs-fm-viewer-nav.is-prev{left:0;}
