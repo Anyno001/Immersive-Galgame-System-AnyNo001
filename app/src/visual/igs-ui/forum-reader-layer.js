@@ -503,6 +503,14 @@ function applyAttrs(overlay, root, view) {
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
     overlay.style.setProperty('--igs-fm-main-ink', colors.main);
     overlay.style.setProperty('--igs-fm-card-ink', colors.card);
+    // 全屏输入框与发送键复用纵向模式的 --igs-log-* 变量，这里换成论坛配色。
+    const cardRgb = /^#([0-9a-f]{6})$/i.exec(colors.card);
+    if (cardRgb) overlay.style.setProperty('--igs-log-veil', [0, 2, 4].map((i) => parseInt(cardRgb[1].slice(i, i + 2), 16)).join(' '));
+    overlay.style.setProperty('--igs-log-plate', colors.card2);
+    overlay.style.setProperty('--igs-log-ink', colors.body);
+    overlay.style.setProperty('--igs-log-sub', colors.sub);
+    overlay.style.setProperty('--igs-log-line', colors.line);
+    overlay.style.setProperty('--igs-log-acc', colors.main);
     const fonts = view.fonts || {};
     if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
     const bar = root.querySelector('.igs-fm-bar');
@@ -527,6 +535,7 @@ export function syncForumReader(overlay, view) {
         overlay.removeAttribute('data-igs-log-reader');
         overlay.style.removeProperty('--igs-fm-main-ink');
         overlay.style.removeProperty('--igs-fm-card-ink');
+        for (const k of ['veil', 'plate', 'ink', 'sub', 'line', 'acc']) overlay.style.removeProperty('--igs-log-' + k);
         const root = overlay.querySelector('#igs-forum-reader');
         const watch = root && dockWatch.get(root);
         if (watch) { watch.observer.disconnect(); dockWatch.delete(root); }
