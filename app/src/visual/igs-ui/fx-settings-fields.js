@@ -181,6 +181,8 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.speed`, '出现节奏', segmentedInput(`${p}.forumReader.speed`, fr.speed, [['slow', '慢'], ['normal', '标准'], ['fast', '快'], ['faster', '很快']], '出现节奏'))
         + field(`${p}.forumReader.mood`, '情绪标签', segmentedInput(`${p}.forumReader.mood`, fr.mood, [['off', '关'], ['all', '全部显示'], ['random', '随机显示']], '情绪标签'), '显示为「B（开心）：」；同一人连说的几句只在第一句标注')
         + field(`${p}.forumReader.quote`, '台词引号', segmentedInput(`${p}.forumReader.quote`, fr.quote, [['off', '关'], ['cn', '“”'], ['jp', '「」']], '台词引号'), '原文自带的整句引号会先去掉，再按这里统一补上')
+        + field(`${p}.forumReader.edge`, '离边距离', segmentedInput(`${p}.forumReader.edge`, fr.edge, [['flush', '贴边'], ['normal', '标准'], ['wide', '宽松']], '离边距离'))
+        + checkbox(`${p}.forumReader.narrIndent`, fr.narrIndent, '旁白段首缩进两格')
         + checkbox(`${p}.forumReader.foldNsfw`, fr.foldNsfw, 'NSFW 附图默认折叠')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
         + checkbox(`${p}.forumReader.chain`, fr.chain, '连续播放')

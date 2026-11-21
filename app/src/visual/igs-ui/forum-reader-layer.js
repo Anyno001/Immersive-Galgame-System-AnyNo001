@@ -2,7 +2,7 @@ import { LOG_SPEEDS } from './log-reader-settings.js';
 import { FLOW_FADE_MS, FLOW_STEP_MS, PAUSE_CHARS, TYPE_PAUSE_MS, TYPE_STEP_MS, splitChars } from './log-reader-layer.js';
 import { VOICE_ICON } from './voice-icon.js';
 import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
-import { FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
+import { FORUM_EDGE_PX, FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
 import { buildChatShots } from './forum-reader-chat-shot.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
@@ -489,6 +489,8 @@ function applyAttrs(overlay, root, view) {
     root.style.setProperty('--igs-fm-fs', `${st.fontSize}px`);
     root.style.setProperty('--igs-fm-lh', String(st.lineHeight / 100));
     root.style.setProperty('--igs-fm-gap', `${st.paraGap}px`);
+    root.style.setProperty('--igs-fm-edge', `${FORUM_EDGE_PX[st.edge] || 12}px`);
+    if (st.narrIndent) set('data-indent', ''); else root.removeAttribute('data-indent');
     const colors = forumPaletteColors(st.palette, st.mode, overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
     for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
     overlay.style.setProperty('--igs-fm-main-ink', colors.main);

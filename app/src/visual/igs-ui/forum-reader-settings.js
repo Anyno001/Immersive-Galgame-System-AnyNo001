@@ -9,6 +9,8 @@ export const FORUM_REPLIES = Object.freeze(['off', 'few', 'normal']);
 export const FORUM_MOODS = Object.freeze(['off', 'all', 'random']);
 // 台词引号由插件补：原文包住整句的引号在取行时已剥掉，这里按设置统一加回。
 export const FORUM_QUOTE_MARKS = Object.freeze({ off: ['', ''], cn: ['“', '”'], jp: ['「', '」'] });
+export const FORUM_EDGE_PX = Object.freeze({ flush: 6, normal: 12, wide: 20 });
+export const FORUM_EDGES = Object.freeze(Object.keys(FORUM_EDGE_PX));
 export const FORUM_PER_POST_MIN = 3;
 export const FORUM_PER_POST_MAX = 16;
 export const FORUM_FONT_MIN = 13;
@@ -50,6 +52,8 @@ export function normalizeForumReaderSettings(value) {
         mood: FORUM_MOODS.includes(src.mood) ? src.mood : src.showMood === true ? 'all' : 'off',
         quote: Object.hasOwn(FORUM_QUOTE_MARKS, src.quote) ? src.quote : 'off',
         foldNsfw: src.foldNsfw !== false,
+        narrIndent: src.narrIndent !== false,
+        edge: FORUM_EDGES.includes(src.edge) ? src.edge : 'normal',
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',
     };
