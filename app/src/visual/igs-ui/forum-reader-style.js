@@ -39,7 +39,7 @@ ${R} .igs-fm-who{font-weight:700;margin-right:.1em;}
 ${R} .igs-fm-line.is-narr .igs-fm-who{margin:0;}
 ${R} .igs-fm-gt{color:var(--igs-fm-gt,#789922);}
 ${R} .igs-fm-line.is-say{padding-left:8px;border-left:3px solid var(--igs-fm-line,#d9bfb7);}
-${R} .igs-fm-line.is-say.is-cont{margin-top:calc(-1 * var(--igs-fm-gap,5px));padding-top:var(--igs-fm-gap,5px);}
+${R} .igs-fm-line.is-say.is-cont{margin-top:calc(-1 * var(--igs-fm-gap,5px));padding-top:5px;}
 ${R} .igs-fm-line.is-say .igs-fm-who{color:var(--igs-fm-sub,#707070);font-weight:700;margin:0;}
 ${R} .igs-fm-ref{color:var(--igs-fm-ref,#dd0000);text-decoration:underline;}
 ${R} .igs-fm-retitle{margin:6px 12px 2px;text-align:center;color:var(--igs-fm-sub,#707070);font-size:11px;opacity:0;transition:opacity .3s;}
