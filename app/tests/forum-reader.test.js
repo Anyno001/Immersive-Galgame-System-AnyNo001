@@ -326,8 +326,8 @@ test('论坛层：帖子头、楼拆分、点缀回帖与引用格式落到 DOM�
     assert.equal(overlay.querySelectorAll('.igs-fm-post').length, 2);
     assert.ok(overlay.querySelector('.igs-fm-id').textContent.includes('Neko4Ka'));
     assert.equal(overlay.querySelector('.igs-fm-pobadge').textContent, 'Po');
-    assert.equal(overlay.querySelectorAll('.igs-fm-boardtag').length, 1);
-    assert.equal(overlay.querySelector('.igs-fm-boardtag').textContent, '综合');
+    assert.equal(overlay.querySelectorAll('.igs-fm-boardtag').length, 0);
+    assert.equal(overlay.querySelector('.igs-fm-meta .igs-fm-nm').textContent, '无名氏');
     assert.ok(overlay.querySelector('.igs-fm-line .igs-fm-who').textContent.includes('我'));
     assert.equal(overlay.querySelectorAll('.igs-fm-line').length, 6);
     syncForumReader(overlay, null);

@@ -229,10 +229,9 @@ function syncLiveButton(overlay, root, view) {
     if (btn.getAttribute('aria-label') !== label) { btn.setAttribute('aria-label', label); btn.title = label; }
 }
 
-function headHtml({ id, no, time, po, board }) {
-    const tag = board ? `<span class="igs-fm-boardtag">${esc(Array.from(board).slice(0, 2).join(''))}</span>` : '';
+function headHtml({ id, no, time, po }) {
     const badge = po ? '<span class="igs-fm-pobadge">Po</span>' : '';
-    return `${tag}${badge}<span class="igs-fm-id">${esc(id)}</span>${time ? `<span class="igs-fm-time">${esc(time)}</span>` : ''}<span class="igs-fm-mno">No.${esc(no)}</span>`;
+    return `${badge}<span class="igs-fm-nm">无名氏</span><span class="igs-fm-id">${esc(id)}</span>${time ? `<span class="igs-fm-time">${esc(time)}</span>` : ''}<span class="igs-fm-mno">No.${esc(no)}</span>`;
 }
 
 function playButton(doc) {
@@ -288,7 +287,7 @@ function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
     node = el(doc, 'div', 'igs-fm-post' + (live ? '' : ' is-in'));
     node.dataset.post = String(postIndex);
     const meta = el(doc, 'div', 'igs-fm-meta');
-    meta.innerHTML = headHtml({ id: post.id, no: post.no, time: post.time, po: true, board: postIndex === 0 && view.head ? view.board : '' });
+    meta.innerHTML = headHtml({ id: post.id, no: post.no, time: post.time, po: true });
     const body = el(doc, 'div', 'igs-fm-body');
     node.append(meta, body);
     list.append(node);

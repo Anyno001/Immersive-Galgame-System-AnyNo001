@@ -33,7 +33,6 @@ ${R} .igs-fm-meta .igs-fm-time{flex:none;}
 ${R} .igs-fm-meta .igs-fm-mno{margin-left:auto;flex:none;}
 ${R} .igs-fm-id{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:700;color:var(--igs-fm-body,#222);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 ${R} .igs-fm-pobadge{flex:none;box-sizing:border-box;height:15px;padding:0 3px;border-radius:2px;background:var(--igs-fm-main,#800000);color:var(--igs-fm-card,#ffffee);font-size:10px;line-height:15px;}
-${R} .igs-fm-boardtag{flex:none;padding:1px 8px;border-radius:999px;background:var(--igs-fm-main,#800000);color:var(--igs-fm-card,#ffffee);font-size:11px;line-height:1.4;}
 ${R} .igs-fm-nm{color:var(--igs-fm-nm,#117743);font-weight:700;}
 ${R} .igs-fm-po{color:var(--igs-fm-title,#cc1105);font-weight:700;}
 ${R} .igs-fm-body{font-size:var(--igs-fm-fs);line-height:var(--igs-fm-lh,1.75);color:var(--igs-fm-body,#222);word-break:break-word;overflow-wrap:anywhere;text-align:left;}
