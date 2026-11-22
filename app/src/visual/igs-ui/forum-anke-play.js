@@ -67,12 +67,15 @@ export function ankeCheckPlay({ die, bonus, line }) {
     return { die, total, tier, diff: total - line };
 }
 
-// CoC 7 版：01 大成功；100（技能值不到 50 时 96 起）大失败；≤1/5 极难、≤1/2 困难、≤技能值 成功；达到要求的难度才算过。
+// 已掷过的楼用 lock.value（commit 时冻结），否则用当前值。
+export const ankeCocValueOf = (anke, lock) => (lock && Number.isFinite(lock.value) && lock.value > 0 ? lock.value : anke.value);
+
+// CoC 7 版：≤5 大成功；100（技能值不到 50 时 96 起）大失败；≤1/5 极难、≤1/2 困难、≤技能值 成功；达到要求的难度才算过。
 export function ankeCocPlay({ die, value, level = '普通' }) {
     const fumble = die >= 100 || (value < 50 && die >= 96);
-    const tier = die === 1 ? '大成功' : fumble ? '大失败' : die <= Math.floor(value / 5) ? '极难成功' : die <= Math.floor(value / 2) ? '困难成功' : die <= value ? '成功' : '失败';
+    const tier = die <= 5 ? '大成功' : fumble ? '大失败' : die <= Math.floor(value / 5) ? '极难成功' : die <= Math.floor(value / 2) ? '困难成功' : die <= value ? '成功' : '失败';
     const need = level === '极难' ? Math.floor(value / 5) : level === '困难' ? Math.floor(value / 2) : value;
-    return { tier, ok: die === 1 || (!fumble && die <= need), need };
+    return { tier, ok: die <= 5 || (!fumble && die <= need), need };
 }
 
 const signed = (n) => `${n >= 0 ? '+' : '-'}${Math.abs(n)}`;
@@ -87,8 +90,8 @@ export function ankeFillLine(anke, lock) {
     if (kind === 'anchor') return free ? '【安价】' : `【安价】>>No.${anke.floors[lock.pick].no} ${options[lock.pick]}${dice}`;
     if (kind === 'collect') return free ? '【征集】' : `【征集】采用>>No.${anke.floors[lock.pick].no}：${options[lock.pick]}${dice}`;
     if (kind === 'coc') {
-        const play = ankeCocPlay({ die: lock.die, value: anke.value, level: anke.level });
-        const line = anke.level === '普通' ? `技能${anke.value}` : `${anke.level}线${play.need}`;
+        const play = ankeCocPlay({ die: lock.die, value: ankeCocValueOf(anke, lock), level: anke.level });
+        const line = anke.level === '普通' ? `技能${ankeCocValueOf(anke, lock)}` : `${anke.level}线${play.need}`;
         return `【检定】${anke.actorLabel || anke.actor} ${anke.skill}：1D100=${lock.die}，${line}，${play.tier}${play.ok || /大失败|^失败/.test(play.tier) ? '' : '（没达到难度）'}${anke.code ? ` #${anke.code}` : ''}`;
     }
     const bonus = anke.bonus;
@@ -105,7 +108,7 @@ export function ankeOutcomeOf(anke, lock) {
     }
     if (anke.kind === 'check') return { tier: lock.tier, diff: lock.total - anke.line };
     if (anke.kind === 'coc') {
-        const play = ankeCocPlay({ die: lock.die, value: anke.value, level: anke.level });
+        const play = ankeCocPlay({ die: lock.die, value: ankeCocValueOf(anke, lock), level: anke.level });
         return { tier: play.tier === '大成功' || play.tier === '大失败' ? play.tier : play.ok ? '成功' : '失败', diff: play.need - lock.die };
     }
     const n = anke.options.length;

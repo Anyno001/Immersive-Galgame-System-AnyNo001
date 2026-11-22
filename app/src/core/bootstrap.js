@@ -113,7 +113,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.12';
+const IGS_VERSION = '0.41.13';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -431,6 +431,7 @@ export function bootstrapIGS(options = {}) {
         // 公开接口 IGS.stats 的只读读取器；runtime 在 app 之后创建，调用时再取。
         statsReaders: {
             fame: () => (app.statsRuntime && typeof app.statsRuntime.fameSnapshot === 'function' ? app.statsRuntime.fameSnapshot() : []),
+            investigator: () => (app.statsRuntime && typeof app.statsRuntime.investigatorSnapshot === 'function' ? app.statsRuntime.investigatorSnapshot() : null),
             favor: () => (app.statsRuntime && typeof app.statsRuntime.favorSnapshot === 'function' ? app.statsRuntime.favorSnapshot() : []),
         },
         // 公开接口 IGS.api.notify 的播放回调；igsUi 在 app 之后挂载，调用时再取。
@@ -546,6 +547,7 @@ export function bootstrapIGS(options = {}) {
         global: globalObject,
         // statsRuntime 在阅读器之后创建，这里按需读取。
         statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
+        statsCocSkill: (skill) => (app.statsRuntime && typeof app.statsRuntime.cocSkillOf === 'function' ? app.statsRuntime.cocSkillOf(skill) : null),
         statsAbilities: (name) => (app.statsRuntime && typeof app.statsRuntime.abilitiesOf === 'function' ? app.statsRuntime.abilitiesOf(name) : null),
         traitNamesOf: (name) => (app.statsRuntime && typeof app.statsRuntime.traitNamesOf === 'function' ? app.statsRuntime.traitNamesOf(name) : null),
         statsFavorOverview: () => (app.statsRuntime && typeof app.statsRuntime.favorOverview === 'function' ? app.statsRuntime.favorOverview() : null),
@@ -601,6 +603,13 @@ export function bootstrapIGS(options = {}) {
             if (kind === 'backfill') return rt.runBackfill();
             if (kind === 'backup') return rt.dropBackup();
             return { ok: false, reason: 'stats-op-unknown' };
+        },
+        // CoC 调查员档：读档 / 应用 / 清除，直接转运行时。
+        statsCoc: (kind, payload) => {
+            const rt = app.statsRuntime;
+            if (kind === 'sheet') return rt && typeof rt.cocSheet === 'function' ? rt.cocSheet() : null;
+            if (!rt || typeof rt.applyCocSheet !== 'function') return { ok: false, reason: 'stats-runtime-missing' };
+            return kind === 'clear' ? rt.clearCocSheet() : rt.applyCocSheet(payload);
         },
         statsChatAction: (kind, payload) => {
             if (!app.statsRuntime) return { ok: false, reason: 'stats-runtime-missing' };

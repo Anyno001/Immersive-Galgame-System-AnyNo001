@@ -12,7 +12,7 @@ import { DATE_REGEX_INVALID, TIME_REGEX_INVALID, captureFirst, compileCaptureReg
 import { DIM_MAX, SKILL_MAX, barsOf, clamp, createCharacter, dimMin, heroDimsOf, isRomance, withBars, withCharacter, withClock, withSkills } from './stat-state.js';
 import { rollDie } from './stat-rng.js';
 import { settleCombat } from './stat-battle.js';
-import { PROTAGONIST, createEngine, keyEventSkill, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, createEngine, keyEventSkill, skillCapOf, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
 import { registerStorySkill } from './stat-registry.js';
 import { driftFame, fameMandates, sanitizeFameBars, settleFameTags } from './stat-fame.js';
 import { applyBreak, markFixations, shiftStress, trackStressPeak } from './stat-strain.js';
@@ -811,7 +811,7 @@ function trackStrain(state, before) {
 // 以日期为准的过天：只看日期变化。睡觉标签只回体力；本楼没有日期时沿用上一个日期，不重复过天。
 // 日结算与时间跳跃的公共参数：rev ≥ 2 才带悟性、随身标记、在场名单与恋爱名单，其余沿用旧结算。
 function dayOpts(ctx) {
-    const base = { random: ctx.random, changes: ctx.changes, skillValueOf: ctx.skillValueOf, statusBox: ctx.statusBox, expenses: ctx.expenses, flags: ctx.flags, currency: ctx.currency, diagnostics: ctx.diagnostics };
+    const base = { skillCap: skillCapOf(ctx.engine), random: ctx.random, changes: ctx.changes, skillValueOf: ctx.skillValueOf, statusBox: ctx.statusBox, expenses: ctx.expenses, flags: ctx.flags, currency: ctx.currency, diagnostics: ctx.diagnostics };
     return ctx.rev >= 2 ? { ...base, rev: ctx.rev, aptitudeOf: ctx.aptitudeOf, traits: ctx.traits, nsfw: ctx.nsfw, present: ctx.present, romanceSeen: ctx.romanceSeen, env: { weather: ctx.weather, place: ctx.place, fx: ctx.fx, words: ctx.words } } : base;
 }
 

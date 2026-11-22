@@ -1,6 +1,14 @@
 export const STATS_HERO_CARD_STYLE_TEXT = `
 #igs-unified-settings .igs-stats-content{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;min-width:0}
 #igs-unified-settings .igs-stats-hero-section{gap:10px}
+#igs-unified-settings .igs-coc-sheet{display:grid;gap:8px;min-width:0}
+#igs-unified-settings .igs-coc-attrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px}
+#igs-unified-settings .igs-coc-attrs>span{display:flex;justify-content:space-between;gap:6px;padding:4px 8px;border-radius:var(--igs-settings-radius);font-size:12px;color:var(--igs-settings-ink-3);font-variant-numeric:tabular-nums}
+#igs-unified-settings .igs-coc-attrs>span>b{color:var(--igs-settings-ink)}
+#igs-unified-settings .igs-coc-table{max-height:min(46vh,380px);overflow:auto}
+#igs-unified-settings .igs-coc-table table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+#igs-unified-settings .igs-coc-table th,#igs-unified-settings .igs-coc-table td{padding:3px 6px;text-align:left}
+#igs-unified-settings .igs-coc-num{width:56px;box-sizing:border-box}
 #igs-unified-settings .igs-stats-dash{display:grid;gap:10px;min-width:0}
 #igs-unified-settings .igs-stats-day{font-size:11px;color:var(--igs-settings-ink-3);font-variant-numeric:tabular-nums}
 #igs-unified-settings .igs-stats-overview{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(220px,1fr);gap:12px;align-items:stretch}

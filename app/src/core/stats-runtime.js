@@ -41,8 +41,9 @@ import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, regi
 import { worldSkillNames } from '../scene/stats/stat-world-skills.js';
 import { applyTidy, buildTidyPrompt, parseTidyReply } from '../scene/stats/stat-story-tidy.js';
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
+import { COC_ATTRS, sanitizeCocSheet } from '../scene/stats/coc-investigator.js';
 import {
-    PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
+    PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, cocSheetOf, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
     gateAttributes, isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
 } from '../scene/stats/stat-engine.js';
 import {
@@ -1628,7 +1629,7 @@ export function createStatsRuntime({
         const hero = {};
         const source = attributes();
         if (source && source.ready === true) {
-            for (const name of BASE_ATTRIBUTES) hero[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
+            for (const name of (cocSheetOf(engine) ? [...COC_ATTRS, '幸运'] : BASE_ATTRIBUTES)) hero[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
         }
         const owned = state.protagonist.skills || {};
         const bonusNames = heroBonusSkillNames(engine);
@@ -2854,6 +2855,48 @@ export function createStatsRuntime({
         onChange(currentStatsState(ledger), null);
         refreshOnboarding();
         return { ok: true };
+    }
+
+    // 调查员档：先写战斗侧 hero-base 六维（3–18 = 值/5 取整，感知←意志、魅力←外貌），成功后才落 catalog。
+    const COC_TO_SIX = { 力量: '力量', 体质: '体质', 敏捷: '敏捷', 智力: '智力', 感知: '意志', 魅力: '外貌' };
+    const cocSheet = () => catalog.protagonistCoc || null;
+    async function applyCocSheet(raw) {
+        if (!IS_COC(engineOf())) return { ok: false, reason: 'ruleset' };
+        const clean = sanitizeCocSheet(raw);
+        if (!clean) return { ok: false, reason: 'invalid' };
+        if (!attributeAccess) return { ok: false, reason: 'stats-attribute-unavailable' };
+        const scores = {};
+        for (const [six, coc] of Object.entries(COC_TO_SIX)) scores[abilityKeyOf(six)] = Math.max(3, Math.min(18, Math.round((Number(clean.attrs?.[coc]) || 50) / 5)));
+        const id = chatIdOf(ctx());
+        const access = attributeAccess(), source = access.source();
+        if (!source.ready) return { ok: false, reason: source.reason };
+        const heroName = userName() || PROTAGONIST;
+        const view = source.readAbilities(heroName, { heroPrefs: heroPrefs() });
+        const alive = () => loadedChat === id && chatIdOf(ctx()) === id;
+        const written = await (view?.initialized
+            ? access.editHero(heroName, scores, { expectedRevision: view.revision, shouldStart: alive })
+            : access.initHero(heroName, scores, { shouldStart: alive }));
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        if (!written?.ok) return written || { ok: false, reason: 'stats-hero-edit-failed' };
+        catalog = sanitizeCatalog({ ...catalog, protagonistCoc: clean });
+        gateMemo = null;
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true };
+    }
+    function clearCocSheet() {
+        catalog = sanitizeCatalog({ ...catalog, protagonistCoc: null });
+        gateMemo = null;
+        persist();
+        onChange(currentStatsState(ledger), null);
+        return Promise.resolve({ ok: true });
+    }
+    // 论坛安科用：coc7 有档才返回主角该技能的生效值。
+    function cocSkillOf(skill) {
+        const engine = engineOf();
+        if (!cocSheetOf(engine)) return null;
+        const v = Number(profileOf(engine, currentStatsState(ledger), PROTAGONIST, String(skill || '')).value);
+        return Number.isFinite(v) && v > 0 ? Math.round(v) : null;
     }
 
     // CoC 且主角已跳过/无需 3+5 选格但尚未分配过技能时，每个聊天提示一次（避免与 hero-pick 重复打扰）。
@@ -4531,7 +4574,37 @@ export function createStatsRuntime({
     const ev = inEvent;
     return {
         sync: ev(sync),
-        destroy: () => { disposed = true; detach(); },
+        cocSheet,
+        applyCocSheet,
+        clearCocSheet,
+        cocSkillOf,
+        // 只读：调查员快照；没开数值、规则不是 coc7 返回 null，每次全新对象。
+        investigatorSnapshot() {
+            try {
+                if (!ledger) return null;
+                const engine = engineOf();
+                if (!IS_COC(engine)) return null;
+                const state = currentStatsState(ledger);
+                const hero = skillValuesOf(state)['主角'] || {};
+                const attrs = {};
+                for (const name of COC_ATTRS) attrs[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
+                const skills = {};
+                for (const [name, value] of Object.entries(hero)) {
+                    if (COC_ATTRS.includes(name) || name === '幸运' || name === SAN_ATTRIBUTE) continue;
+                    if (Number.isFinite(value) && value > 0) skills[name] = value;
+                }
+                return {
+                    ruleset: 'coc7',
+                    name: userName() || PROTAGONIST,
+                    sheet: Boolean(cocSheetOf(engine)),
+                    attrs,
+                    luck: Math.round(Number(profileOf(engine, state, PROTAGONIST, '幸运').value) || 0),
+                    san: Math.round(Number(profileOf(engine, state, PROTAGONIST, SAN_ATTRIBUTE).value) || 0),
+                    skills,
+                };
+            } catch (error) { return null; }
+        },
+        destroy:() => { disposed = true; detach(); },
         isActive: ev(active),
         refreshBuildAsk,
         getState: () => (ledger ? currentStatsState(ledger) : null),

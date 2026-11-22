@@ -6,6 +6,7 @@ import { BUILTIN_SKILLS, COMBAT_SKILLS, baseValueOf, createSkillRegistry, guessA
 import { BASE_ATTRIBUTES, SKILL_MAX, clamp, withSkills } from './stat-state.js';
 
 const BASE_ATTRIBUTE_SET = new Set(BASE_ATTRIBUTES);
+import { COC_ATTRS, cocSkillBase, cocSkillTotals } from './coc-investigator.js';
 import { stageOf } from './stat-favor.js';
 import { checkModifiers } from './stat-bars.js';
 import { ABILITY_KEYS, ABILITY_LABELS, deriveAbilities } from '../../combat/abilities.js';
@@ -23,6 +24,12 @@ const SOCIAL_SKILLS = new Set(['话术', '魅惑', '恐吓', '魅力']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角|我|user)$/i;
 
 const EMPTY = Object.freeze({});
+// coc7 且有调查员档时返回档，否则 null。
+export function cocSheetOf(engine) {
+    return engine && engine.ruleset && engine.ruleset.ID === 'coc7' && engine.protagonistCoc ? engine.protagonistCoc : null;
+}
+// 有档时技能上限 99，否则 SKILL_MAX。
+export const skillCapOf = (engine) => (cocSheetOf(engine) ? 99 : SKILL_MAX);
 const readerOf = (fn) => (typeof fn === 'function' ? fn : null);
 
 function buildEngine(catalog, settings, ruleset, readers) {
@@ -33,6 +40,7 @@ function buildEngine(catalog, settings, ruleset, readers) {
         sheets: catalog.sheets && typeof catalog.sheets === 'object' ? catalog.sheets : {},
         protagonistBase: catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
         protagonistEdit: catalog.protagonistEdit && typeof catalog.protagonistEdit === 'object' ? catalog.protagonistEdit : {},
+        protagonistCoc: catalog.protagonistCoc && typeof catalog.protagonistCoc === 'object' ? catalog.protagonistCoc : null,
         // 自然 20 / 1 常开（v0.39 起不再有开关）。
         natural: true,
         readAbilities: readerOf(readAbilities),
@@ -107,7 +115,8 @@ export function heroSkillLevel(engine, owned, skill) {
     const edit = engine && engine.protagonistEdit && engine.protagonistEdit[skill];
     const own = Number(owned && owned.value) || 0;
     if (edit && Number(edit.value) > 0) return clamp(Math.round(Number(edit.value) + Math.max(0, own - (Number(edit.from) || 0))), 1, 99);
-    const base = Number(engine && engine.protagonistBase && engine.protagonistBase[skill]) || 0;
+    const coc = cocSheetOf(engine);
+    const base = coc ? Number(cocSkillTotals(coc)[skill]) || 0 : Number(engine && engine.protagonistBase && engine.protagonistBase[skill]) || 0;
     if (own > 0 || base > 0) return Math.max(own, base);
     return null;
 }
@@ -218,6 +227,11 @@ function percentOf(scores) {
 
 // 主角六维：读战斗侧 → 按建卡偏好推导。
 function protagonistAttributes(engine, state) {
+    const coc = cocSheetOf(engine);
+    if (coc) {
+        const a = coc.attrs;
+        return { ...a, 力量: a.力量, 体质: a.体质, 敏捷: a.敏捷, 智力: a.智力, 感知: a.意志, 魅力: a.外貌, 幸运: coc.luck };
+    }
     const name = engine.userName || PROTAGONIST;
     const read = safeRead(engine.readAbilities, name);
     if (read && read.scores) return percentOf(read.scores);
@@ -258,13 +272,22 @@ export function npcGrowthBonus(state, actor, skill) {
     return Number(entry && entry.bonus) || 0;
 }
 
-export const grownValue = (base, bonus) => (bonus > 0 ? Math.min(Math.max(SKILL_MAX, base), base + bonus) : base);
+export const grownValue = (base, bonus, cap = SKILL_MAX) => (bonus > 0 ? Math.min(Math.max(cap, base), base + bonus) : base);
+
+// 主角技能基础值：coc7 有档先用档里的精确属性算，认不出再走注册表。
+function heroBaseOf(engine, entry, skill, attrs) {
+    const coc = cocSheetOf(engine);
+    const v = coc ? cocSkillBase(skill, coc.attrs) : null;
+    return v === null || v === undefined ? baseValueOf(entry, attrs) : v;
+}
+const COC_ATTR_SET = new Set([...COC_ATTRS, '幸运']);
 
 // 返回 { skill, kind, value, learned, attributeValue, rank, entry, provisional }。
 export function profileOf(engine, state, actor, rawSkill) {
     // 旧属性名（健康 / 观察，D&D 下的理智）先归一成六维，否则会被当成未登记的自定义技能。
     const skill = BASE_ATTRIBUTE_SET.has(rawSkill) || isSan(engine, rawSkill) ? rawSkill : (normalizeAttribute(rawSkill) || rawSkill);
-    const entry = entryOf(engine, skill);
+    const cocAttr = cocSheetOf(engine) && isProtagonist(actor) && COC_ATTR_SET.has(skill);
+    const entry = cocAttr ? { kind: 'attribute', attribute: skill, category: 'general', aliases: [], origin: 'builtin' } : entryOf(engine, skill);
     const san = isSan(engine, skill);
     if (isProtagonist(actor)) {
         // plain：IGS 自己的六维；attrs：叠加随身系统加成后的生效六维。seed、理智初值只用 plain，加成不进账本。
@@ -274,14 +297,16 @@ export function profileOf(engine, state, actor, rawSkill) {
         const owned = state && state.protagonist && state.protagonist.skills[skill];
         const rank = rankOfGrowth(state && state.protagonist && state.protagonist.growth);
         const bonus = heroBonusOf(engine, skill);
-        if (san) { const value = bonus ? Math.max(1, sanOf(plainAttrs, owned, null) + bonus) : sanOf(plainAttrs, owned, null); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
+        const cocSan = cocSheetOf(engine);
+        const heroSheet = cocSan ? { san: cocSan.san } : null;
+        if (san) { const value = bonus ? Math.max(1, sanOf(plainAttrs, owned, heroSheet) + bonus) : sanOf(plainAttrs, owned, heroSheet); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
         if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };
         const level = heroSkillLevel(engine, owned, skill);
-        const own = level === null && owned ? 0 : level !== null ? level : baseValueOf(entry, attrs);
+        const own = level === null && owned ? 0 : level !== null ? level : heroBaseOf(engine, entry, skill, attrs);
         const value = bonus ? clamp(Math.round(own + bonus), 1, 99) : own;
         // seed：不含手改的值，未学技能首次成功时按它登记进账本（见 markGrowth）。
         const plain = heroSkillLevel({ ...engine, protagonistEdit: null }, owned, skill);
-        const seed = plain === null && owned ? 0 : plain !== null ? plain : baseValueOf(entry, plainAttrs);
+        const seed = plain === null && owned ? 0 : plain !== null ? plain : heroBaseOf(engine, entry, skill, plainAttrs);
         return { skill, kind: 'skill', value, seed, learned: Boolean(owned) || level !== null || bonus > 0, attributeValue: attrs[entry.attribute], rank, entry };
     }
     const sheet = engine.sheets[actor] || null;

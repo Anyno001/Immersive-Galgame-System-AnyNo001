@@ -3,6 +3,7 @@
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
 import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_CUSTOM_OPTION, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, groupPickCandidates, normalizeBuild, pickCandidates, pickSummary } from '../../scene/stats/stat-build.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
+import { COC_ATTRS, COC_SKILLS, cocDerived, cocSkillBase, cocSkillTotals, hobbyPointsOf, occPointsOf } from '../../scene/stats/coc-investigator.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
@@ -212,9 +213,64 @@ export function renderStatsBuildModeField(mode) {
     return field('', '建档方式', segmentedInput('', mode || 'auto', STATS_BUILD_MODE_ITEMS, '建档方式', { action: 'stats-build-mode' }));
 }
 
+export const COC_OCC_FORMULA_ITEMS = Object.freeze([['edu4', '教育×4'], ['edu2dex2', '教育×2+敏捷×2'], ['edu2str2', '教育×2+力量×2'], ['edu2app2', '教育×2+外貌×2'], ['edu2pow2', '教育×2+意志×2'], ['custom', '自填']]);
+
+function cocAttrChips(attrs, luck) {
+    return `<div class="igs-coc-attrs">${COC_ATTRS.map((k) => `<span>${esc(k)}<b>${esc(attrs[k])}</b></span>`).join('')}<span>幸运<b>${esc(luck)}</b></span></div>`;
+}
+
+// CoC 调查员档子块（仅 coc7）。coc = { sheet, draft, saving, error }：sheet 为已建的档，draft 为界面里的建档草稿（choose / roll / alloc 三步）。
+export function renderCocInvestigatorBlock(coc, ruleset = 'coc7') {
+    if (ruleset !== 'coc7') return '';
+    const { sheet = null, draft = null, saving = false, error = '' } = coc || {};
+    const act = (name, label, extra = '') => `<button class="igs-settings-action" data-action="stats-coc:${name}" type="button"${extra}>${label}</button>`;
+    const note = error ? `<div class="igs-source-filter-note" data-coc-error>保存失败：${esc(error)}</div>` : '';
+    let body;
+    if (draft && draft.stage === 'roll') {
+        body = `<div class="igs-source-filter-note">掷出的属性如下，可以重掷，满意后进入点数分配。</div>${cocAttrChips(draft.attrs, draft.luck)}`
+            + `<div class="igs-settings-row">${act('roll', '再掷一次')}${act('alloc', '确认并分配点数')}${act('cancel', '取消')}</div>`;
+    } else if (draft && draft.stage === 'alloc') {
+        const sh = { attrs: draft.attrs, occFormula: draft.occFormula, occPoints: draft.occPoints };
+        const occMax = occPointsOf(sh);
+        const hobMax = hobbyPointsOf(sh);
+        const sum = (key) => Object.values(draft.alloc || {}).reduce((t, a) => t + (Number(a && a[key]) || 0), 0);
+        const occLeft = occMax - sum('occ');
+        const hobLeft = hobMax - sum('hobby');
+        const over = occLeft < 0 || hobLeft < 0;
+        const formulaOpts = COC_OCC_FORMULA_ITEMS.map(([v, l]) => `<option value="${v}"${v === draft.occFormula ? ' selected' : ''}>${l}</option>`).join('');
+        const rows = Object.keys(COC_SKILLS).map((name) => {
+            const base = cocSkillBase(name, draft.attrs) || 0;
+            const a = (draft.alloc && draft.alloc[name]) || {};
+            const total = Math.min(99, base + (Number(a.occ) || 0) + (Number(a.hobby) || 0));
+            const input = (kind) => `<input class="igs-coc-num" type="number" min="0" max="99" step="1" data-coc-${kind}="${esc(name)}" value="${Number(a[kind]) || 0}">`;
+            return `<tr><td>${esc(name)}</td><td>${base}</td><td>${input('occ')}</td><td>${input('hobby')}</td><td>${total}</td></tr>`;
+        }).join('');
+        body = cocAttrChips(draft.attrs, draft.luck)
+            + `<div class="igs-settings-field"><span>职业名</span><input type="text" maxlength="12" data-coc-field="occupation" value="${esc(draft.occupation)}"></div>`
+            + `<div class="igs-settings-field"><span>职业点公式</span><select data-coc-field="occFormula">${formulaOpts}</select></div>`
+            + (draft.occFormula === 'custom' ? `<div class="igs-settings-field"><span>职业点数</span><input class="igs-coc-num" type="number" min="0" max="999" step="1" data-coc-field="occPoints" value="${Number(draft.occPoints) || 0}"></div>` : '')
+            + `<div class="igs-source-filter-note" data-coc-left>职业点剩余 ${occLeft}／${occMax}，兴趣点剩余 ${hobLeft}／${hobMax}${over ? '。已超出可用点数' : ''}</div>`
+            + `<div class="igs-coc-table"><table><thead><tr><th>技能</th><th>基础值</th><th>职业点</th><th>兴趣点</th><th>合计</th></tr></thead><tbody>${rows}</tbody></table></div>`
+            + `<div class="igs-settings-row">${act('apply', saving ? '正在保存' : '应用', saving ? ' disabled' : '')}${act('cancel', '取消', saving ? ' disabled' : '')}</div>`;
+    } else if (sheet && !(draft && draft.stage === 'choose')) {
+        const d = cocDerived(sheet.attrs, cocSkillTotals(sheet));
+        const totals = Object.entries(cocSkillTotals(sheet));
+        const derived = `生命 ${d.hp}，魔法 ${d.mp}，理智 ${sheet.san}／${d.sanMax}，伤害加值 ${esc(d.db)}，体格 ${esc(d.build)}，移动力 ${d.mov}`;
+        body = `<div class="igs-source-filter-note">${sheet.occupation ? `${esc(sheet.occupation)}，` : ''}${sheet.source === 'paste' ? '粘贴车卡' : '掷骰建档'}</div>`
+            + cocAttrChips(sheet.attrs, sheet.luck)
+            + `<div class="igs-source-filter-note">${derived}</div>`
+            + `<div class="igs-source-filter-note">${totals.length ? totals.map(([k, v]) => `${esc(k)} ${v}`).join('，') : '尚未分配技能'}</div>`
+            + `<div class="igs-settings-row">${act('redo', '重新建档')}${act('clear', saving ? '正在保存' : '清除调查员档', saving ? ' disabled' : '')}</div>`;
+    } else {
+        body = `<div class="igs-source-filter-note">${sheet ? '重新建档会在应用后替换现有调查员档。' : '尚未建档。可以粘贴车卡，也可以直接掷属性。'}</div>`
+            + `<div class="igs-settings-row">${act('paste', saving ? '正在保存' : '粘贴车卡', saving ? ' disabled' : '')}${act('roll', '掷属性')}${sheet ? act('cancel', '取消') : ''}</div>`;
+    }
+    return `<div class="igs-settings-section igs-coc-sheet" data-coc-sheet><div class="igs-source-filter-title">调查员档</div>${body}${note}</div>`;
+}
+
 // 建卡（§6、§10A）：默认折叠。自动/相对数值选六维倾向；手动建档填职业与六维加点（总分 72 以内）。
 // 超分或多选时「按分配启用」禁用并说明原因。
-export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null, ruleset = 'coc7' } = {}) {
+export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null, ruleset = 'coc7', coc = null } = {}) {
     const b = normalizeBuild(build);
     const manual = mode === 'manual';
     const st = statsBuildStatus(b, worldview, manual ? 'manual' : null);
@@ -237,6 +293,7 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
         + `<div class="igs-source-filter-grid">${base}</div>`
         + renderSkillPicks(b, ruleset)
         + customRow
+        + renderCocInvestigatorBlock(coc, ruleset)
         + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${st.ok ? '' : ' disabled'}>按分配启用</button></div>`
         + '</details>';
 }
@@ -266,7 +323,7 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
 }
 
 // 「我的角色」已开始时的角色卡：新聊天先选擅长技能；数值区为六维雷达、生命/体力/压力条与积分、剧情货币分栏；技能与六维同一种数值格。
-export function renderStatsHeroCard(model, advancedOpen = () => '', build = null) {
+export function renderStatsHeroCard(model, advancedOpen = () => '', build = null, coc = null) {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     // 新聊天还没选擅长技能：选择区放在最前，同时提供「按人设自动生成」，确定或生成后不再显示。
     const pick = model.needsPick
@@ -284,7 +341,7 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
     // 技能与六维同一种数值格；编辑全部收在下方「高级」里。✓ 表示今天有成长机会，提示放在标题的 title 里。
     const skillHead = sectionHead('技能', `<em class="is-inline">${model.skills.length}</em>`,`✓ 表示今天有成长机会${d20 ? `。${d20}` : ''}`);
     const bio = model.heroBio ? `<div class="igs-source-filter-note" data-stats-hero-bio>${esc(model.heroBio)}</div>` : '';
-    return pick + `<div class="igs-settings-section igs-stats-sec" data-stats-numbers>${sectionHead('数值')}${bio}${renderStatsHeroDashboard(model)}</div>`
+    return pick + `<div class="igs-settings-section igs-stats-sec" data-stats-numbers>${sectionHead('数值')}${bio}${renderStatsHeroDashboard(model, coc && coc.sheet)}</div>`
         + `<div class="igs-settings-section igs-stats-sec" data-stats-skills>${skillHead}${skills}</div>`;
 }
 
@@ -344,11 +401,11 @@ function renderFameEdit(list, owner = '', total = list.length) {
 }
 
 // 「我的角色」技能下方的「高级」折叠：擅长技能八格（选完后）、编辑技能、检定记录。
-export function renderStatsHeroMore(model, advancedOpen = () => '', build = null) {
+export function renderStatsHeroMore(model, advancedOpen = () => '', build = null, coc = null) {
     if (!model) return '';
     const live = model.needsPick ? '' : renderHeroSlots(build, model.heroSlots, model.ruleset);
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-more"${advancedOpen('stats-hero-more')}><summary>高级</summary>`
-        + live + renderSkillEditor(model, advancedOpen) + renderStatsHeroRecords(model, advancedOpen) + '</details>';
+        + live + renderCocInvestigatorBlock(coc, model.ruleset) + renderSkillEditor(model, advancedOpen) + renderStatsHeroRecords(model, advancedOpen) + '</details>';
 }
 
 const SKILL_TIER_ITEMS = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
@@ -589,7 +646,7 @@ function renderWorldsField(model) {
 
 // 数值页的模板变量（settings-tabs.js 的 STATS_TEMPLATE）。版面自上而下：我的角色、玩法、其他角色、高级。
 // chat：statsChat() 的结果（可为 null）；archive：statsArchiveModel 的结果；mappings：推送映射的描述（可为 null）。
-export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, archiveError = '', mappings = null, advancedOpen = () => '', worldview = 'modern', noteDrafts = null } = {}) {
+export function buildStatsPageValues({ stats, chat = null, combatOn = false, archive = null, archiveError = '', mappings = null, advancedOpen = () => '', worldview = 'modern', noteDrafts = null, coc = null } = {}) {
     const statsOn = Boolean(stats.enabled || combatOn);
     const chatReady = Boolean(statsOn && chat && chat.hasChat && !chat.blocked);
     const started = Boolean(chatReady && chat.enabled);
@@ -599,7 +656,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         : chat.blocked ? `存档读取失败：${chat.blocked}`
             : chat.enabled && archiveError ? `存档读取出错：${archiveError}` : '';
     const buildOpen = (key) => (key === 'stats-build' && manual ? ' open' : advancedOpen(key));
-    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode, ruleset: stats.ruleset });
+    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode, ruleset: stats.ruleset, coc });
     return {
         statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
         statsHidden: hiddenAttr(!statsOn),
@@ -611,9 +668,9 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsMainBuildHidden: hiddenAttr(!manual),
         statsMainBuildFields: manual ? build(buildOpen) : '',
         statsHeroHidden: hiddenAttr(!started),
-        get statsHeroCard() { return renderStatsHeroCard(archive, advancedOpen, stats.build); },
+        get statsHeroCard() { return renderStatsHeroCard(archive, advancedOpen, stats.build, coc); },
         get statsHeroActions() { return renderStatsHeroActions(archive); },
-        get statsHeroMore() { return renderStatsHeroMore(archive, advancedOpen, stats.build); },
+        get statsHeroMore() { return renderStatsHeroMore(archive, advancedOpen, stats.build, coc); },
         get statsHeroTail() { return renderStatsHeroTail(archive, advancedOpen); },
         get statsPeopleFields() { return renderStatsPeople(archive, advancedOpen, { noteDrafts }); },
         get statsCodexFields() { return renderStatsCodex(archive, advancedOpen); },

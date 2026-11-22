@@ -1,6 +1,6 @@
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { forumHash } from './forum-reader-model.js';
-import { ankeCheckPlay, ankeCocPlay, ankeFillLine, ankeOutcomeOf, ankeRoll, ankeVotePlay } from './forum-anke-play.js';
+import { ankeCheckPlay, ankeCocPlay, ankeCocValueOf, ankeFillLine, ankeOutcomeOf, ankeRoll, ankeVotePlay } from './forum-anke-play.js';
 import { ankeReactions } from './forum-anke-react.js';
 
 // 论坛安科楼的 DOM：多数决 / 安价 / 征集 / 判定四种新形式加旧的四选一（pick）。
@@ -112,8 +112,9 @@ function build(overlay, list, view, revealing, d, sig) {
 
     if (kind === 'coc') {
         const mods = d.el(doc, 'div', 'igs-fm-anke-mods');
-        const need = ankeCocPlay({ die: 50, value: anke.value, level: anke.level }).need;
-        mods.innerHTML = [`<span>检定对象 ${d.esc(anke.actorLabel || anke.actor)}</span>`, `<span>${d.esc(anke.skill)} ${anke.value}</span>`, anke.level === '普通' ? '' : `<span>${anke.level}线 ${need}</span>`].join('');
+        const cocValue = ankeCocValueOf(anke, st.lock);
+        const need = ankeCocPlay({ die: 50, value: cocValue, level: anke.level }).need;
+        mods.innerHTML = [`<span>检定对象 ${d.esc(anke.actorLabel || anke.actor)}</span>`, `<span>${d.esc(anke.skill)} ${cocValue}</span>`, anke.level === '普通' ? '' : `<span>${anke.level}线 ${need}</span>`].join('');
         body.append(mods);
     }
 
@@ -125,7 +126,7 @@ function build(overlay, list, view, revealing, d, sig) {
     else if (kind === 'vote') { hint.textContent = '点选项投一票↑'; ops.append(hint, mkLink('is-free', '自由安价')); }
     else if (kind === 'anchor') { hint.textContent = '直接点一楼↓'; ops.append(hint, mkLink('is-roll', `ROLL楼层 1D${n}`), mkLink('is-free', '自由安价'), dice); }
     else if (kind === 'collect') { hint.textContent = '直接点一楼↓'; ops.append(hint, mkLink('is-roll', '不，我要随机ROLL点！'), mkLink('is-free', '自己写一楼'), dice); }
-    else if (kind === 'coc') { hint.textContent = '01 大成功 · 100 大失败'; ops.append(mkLink('is-roll', `掷骰！1D${CHECK_SIDES}`), hint, dice); }
+    else if (kind === 'coc') { hint.textContent = '≤5 大成功 · 100 大失败'; ops.append(mkLink('is-roll', `掷骰！1D${CHECK_SIDES}`), hint, dice); }
     else { hint.textContent = '≤5 大成功 · ≥96 大失败'; ops.append(mkLink('is-roll', `掷骰！1D${CHECK_SIDES}`), hint, dice); }
     body.append(ops);
     node.append(meta, body);
@@ -177,7 +178,7 @@ function build(overlay, list, view, revealing, d, sig) {
         picks[lock.pick].querySelector('.igs-fm-anke-text').append(you);
     };
     const showCoc = (lock) => {
-        const play = ankeCocPlay({ die: lock.die, value: anke.value, level: anke.level });
+        const play = ankeCocPlay({ die: lock.die, value: ankeCocValueOf(anke, lock), level: anke.level });
         const big = play.tier === '大成功' || play.tier === '大失败';
         ops.innerHTML = `<span class="igs-fm-anke-dice">${ankeDiceSvg(lock.die)}<span>1D${CHECK_SIDES} = ${lock.die}</span></span>`
             + (big ? '' : `<span class="igs-fm-anke-calc"><b>${lock.die}</b> ${lock.die <= play.need ? '≤' : '>'} ${play.need}</span>`)
@@ -272,7 +273,7 @@ function build(overlay, list, view, revealing, d, sig) {
         if (!t.closest('.is-roll')) return;
         if (kind === 'coc') {
             const die = ankeRoll(CHECK_SIDES);
-            commit({ die, total: die, tier: ankeCocPlay({ die, value: anke.value, level: anke.level }).tier });
+            commit({ die, total: die, value: anke.value, tier: ankeCocPlay({ die, value: anke.value, level: anke.level }).tier });
             runRoll(die, CHECK_SIDES, (at) => setDice(at + 1, `1D${CHECK_SIDES} = ${at + 1}`), () => { st.busy = false; paint(true); });
             return;
         }

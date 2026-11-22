@@ -3863,6 +3863,16 @@ ${row.key}`;
             const bonus = d20Bonus(abilities, key);
             return bonus === null ? null : Math.round(bonus) * 5;
         };
+        // 检定对象是主角/楼主(玩家)/{{user}} 且 coc7 有调查员档时，技能值取档里的生效值，否则沿用标签里的值。
+        const ankeCocValue = (actor, skill, fallback) => {
+            if (typeof options.statsCocSkill !== 'function') return fallback;
+            const text = String(actor || '').trim();
+            const isHero = text === '楼主' ? poster.kind === 'user' : (/^\{\{\s*user\s*\}\}$/i.test(text) || text === '我' || text === '主角' || ankeHeroNames.includes(text));
+            if (!isHero) return fallback;
+            let v = null;
+            try { v = options.statsCocSkill(skill); } catch (_) { v = null; }
+            return Number.isFinite(v) && v > 0 ? v : fallback;
+        };
         const anke = (() => {
             if (!ankeFound || !plan.length) return null;
             const key = forumAnkeLockKey(chatId, messageId, ankeFound);
@@ -3883,6 +3893,7 @@ ${row.key}`;
                 floors: slots.slice(1).map((r, i) => ({ no: r.no, id: r.id, time: r.time, text: ankeFound.options[i] })),
                 actorLabel: ankeFound.actor === '楼主' && poster.kind === 'char' ? poster.key : ankeFound.actor,
                 bonus: ankeFound.kind === 'check' ? ankeBonus(ankeFound.actor, ankeFound.ability) : null,
+                ...(ankeFound.kind === 'coc' ? { value: ankeCocValue(ankeFound.actor, ankeFound.skill, ankeFound.value) } : {}),
                 visible: ankeFound.kind === 'vote' ? ankeVisibleVotes(count, aiReplies2.map((p) => p.text)) : [],
                 voters: ankeFound.kind === 'vote' ? aiReplies2.map((p) => ({ id: p.id, n: ankeVoteOf(p.text, count) })).filter((v) => v.n) : [],
                 passers: passers.length ? passers : [0, 1, 2, 3, 4, 5].map((i) => forumPasserId(chatId, i, threadId)),
