@@ -353,6 +353,13 @@ function replyNode(doc, reply, view, live) {
 const ANKE_ROLL_STEPS = 10;
 const ANKE_ROLL_FIRST_MS = 55;
 const ANKE_ROLL_GROWTH = 1.15;
+// 骰子面：1–6 画点，超过 6 在面上写数字。
+const ANKE_PIPS = { 1: [[8, 8]], 2: [[5, 5], [11, 11]], 3: [[4.6, 4.6], [8, 8], [11.4, 11.4]], 4: [[5, 5], [11, 5], [5, 11], [11, 11]], 5: [[4.6, 4.6], [11.4, 4.6], [8, 8], [4.6, 11.4], [11.4, 11.4]], 6: [[5, 4.4], [11, 4.4], [5, 8], [11, 8], [5, 11.6], [11, 11.6]] };
+function ankeDiceSvg(v) {
+    const pips = ANKE_PIPS[v];
+    const face = pips ? pips.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.25"/>`).join('') : `<text x="8" y="11.2" text-anchor="middle">${v}</text>`;
+    return `<svg class="igs-fm-anke-die" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.2" y="1.2" width="13.6" height="13.6" rx="3"/>${face}</svg>`;
+}
 const ANKE_TICK_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><path pathLength="1" d="M2.6 8.6C4 9.8 5.2 11 6.3 12.5C8.3 8.9 10.5 5.9 13.6 3.2"/></svg>';
 
 function ankeNode(doc, anke, picked, live) {
@@ -416,7 +423,7 @@ function bindAnke(overlay, node, view) {
         s.ankePick = { key: anke.key, index: i };
     };
     const unmark = () => opts.forEach((o) => o.classList.remove('is-pick', 'is-tick', 'is-still'));
-    const setDice = (text) => { dice.hidden = !text; if (dice.textContent !== text) dice.textContent = text; };
+    const setDice = (v, text) => { dice.hidden = !text; const html = text ? ankeDiceSvg(v) + `<span>${esc(text)}</span>` : ''; if (dice.innerHTML !== html) dice.innerHTML = html; };
     const stop = () => { if (s.ankeTimer) { win.clearTimeout(s.ankeTimer); s.ankeTimer = 0; } };
     const fill = (text) => {
         const prev = s.ankeLine && s.ankeLine[anke.key] || '';
@@ -434,19 +441,19 @@ function bindAnke(overlay, node, view) {
         const t = event.target.closest ? event.target : null;
         if (!t) return;
         const row = t.closest('.igs-fm-anke-opt');
-        if (row) { stop(); setDice(''); const i = Number(row.dataset.pick); mark(i); fill(line(i)); return; }
-        if (t.closest('.is-free')) { stop(); setDice(''); unmark(); s.ankePick = null; fill('【安价】'); return; }
+        if (row) { stop(); setDice(0, ''); const i = Number(row.dataset.pick); mark(i); fill(line(i)); return; }
+        if (t.closest('.is-free')) { stop(); setDice(0, ''); unmark(); s.ankePick = null; fill('【安价】'); return; }
         if (t.closest('.is-roll')) {
             if (s.ankeTimer) return;
             const result = ankeRoll(n);
-            const done = () => { s.ankeTimer = 0; mark(result - 1); setDice(`🎲1D${n} = ${result}`); fill(line(result - 1, `（🎲1D${n}=${result}）`)); };
+            const done = () => { s.ankeTimer = 0; mark(result - 1); setDice(result, `1D${n} = ${result}`); fill(line(result - 1, `（🎲1D${n}=${result}）`)); };
             if (reducedMotion(overlay)) { done(); return; }
             let step = 0;
             const tick = () => {
                 if (step >= ANKE_ROLL_STEPS - 1) { done(); return; }
                 const at = (((result - 1 - (ANKE_ROLL_STEPS - 1 - step)) % n) + n) % n;
                 opts.forEach((o, j) => { o.classList.toggle('is-pick', j === at); o.classList.remove('is-tick', 'is-still'); });
-                setDice(`🎲1D${n} → ${at + 1}`);
+                setDice(at + 1, `1D${n} → ${at + 1}`);
                 s.ankeTimer = win.setTimeout(tick, ANKE_ROLL_FIRST_MS * ANKE_ROLL_GROWTH ** step);
                 step += 1;
             };

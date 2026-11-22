@@ -143,6 +143,11 @@ ${R} .igs-fm-anke-opt.is-still .igs-fm-anke-tick path{animation:none;stroke-dash
 ${R} .igs-fm-anke-ops{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-top:6px;font-size:12.5px;line-height:1.6;color:var(--igs-fm-sub,#707070);}
 ${R} .igs-fm-anke-link{padding:0;min-height:28px;border:0;background:none;color:var(--igs-fm-main,#800000);font:inherit;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;}
 ${R} .igs-fm-anke-link:hover{text-decoration-style:solid;}
-${R} .igs-fm-anke-dice{color:var(--igs-fm-title,#cc1105);font-family:Consolas,"SF Mono",monospace;}
+${R} .igs-fm-anke-dice{display:inline-flex;align-items:center;gap:.3em;color:var(--igs-fm-title,#cc1105);font-family:Consolas,"SF Mono",monospace;}
+${R} .igs-fm-anke-dice[hidden]{display:none;}
+${R} .igs-fm-anke-die{width:1.35em;height:1.35em;flex:none;}
+${R} .igs-fm-anke-die rect{fill:none;stroke:currentColor;stroke-width:1.3;}
+${R} .igs-fm-anke-die circle,${R} .igs-fm-anke-die text{fill:currentColor;stroke:none;}
+${R} .igs-fm-anke-die text{font:700 8px Consolas,monospace;}
 @media (prefers-reduced-motion:reduce){${R} *{transition:none!important;}${R} .igs-fm-anke-tick path{animation:none!important;stroke-dashoffset:0!important;}${R} .igs-fm-fl{animation:none!important;opacity:1;}}
 `;
