@@ -172,10 +172,10 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.chatReader.userAvatar`, cr.userAvatar, '显示User头像')
         + stickerRowsOf(false));
     const fr = s.forumReader;
-    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.posterText`, '楼主', textInput(`${p}.forumReader.posterText`, fr.posterText, '留空由 AI 挑'), '可填角色名、User 或「路人:身份」；用顿号隔开两个人则由两人交替发帖')
+    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.posterText`, '楼主', textInput(`${p}.forumReader.posterText`, fr.posterText, '留空由 AI 挑'), '可填角色名、User或「路人:身份」；用顿号隔开两个人则由两人交替发帖')
         + field(`${p}.forumReader.othersThoughts`, '其他人的心里话', segmentedInput(`${p}.forumReader.othersThoughts`, fr.othersThoughts, [['hide', '不显示'], ['show', '照常显示']], '其他人的心里话'))
         + field(`${p}.forumReader.replies`, '路人回帖', segmentedInput(`${p}.forumReader.replies`, fr.replies, [['off', '关'], ['few', '少'], ['normal', '标准']], '路人回帖'))
-        + field(`${p}.forumReader.anke`, '安科模式', segmentedInput(`${p}.forumReader.anke`, fr.anke, [['off', '关'], ['key', '关键节点'], ['every', '每层']], '安科模式'), '楼主在帖子末尾发安价楼，由 User 点选、掷骰或手输点数，结果追加到输入框')
+        + field(`${p}.forumReader.anke`, '安科模式', segmentedInput(`${p}.forumReader.anke`, fr.anke, [['off', '关'], ['key', '关键节点'], ['every', '每层']], '安科模式'), '楼主在帖子末尾发安价楼，由User直接选择、随机roll点或自由安价，结果填入输入框')
         + field(`${p}.forumReader.palette`, '配色', selectInput(`${p}.forumReader.palette`, fr.palette, FORUM_PALETTES.map((x) => [x.id, x.name])))
         + field(`${p}.forumReader.mode`, '明暗', segmentedInput(`${p}.forumReader.mode`, fr.mode, [['light', '浅色'], ['dark', '黑夜'], ['auto', '跟随系统']], '明暗'))
         + field(`${p}.forumReader.perPost`, '一楼最多行数', selectInput(`${p}.forumReader.perPost`, fr.perPost, Array.from({ length: FORUM_PER_POST_MAX - FORUM_PER_POST_MIN + 1 }, (_, i) => [FORUM_PER_POST_MIN + i, `${FORUM_PER_POST_MIN + i}行`])))

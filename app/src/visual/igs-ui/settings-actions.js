@@ -4568,7 +4568,7 @@ export async function handleSettingsAction(action, ctx) {
         const st = getSillyTavernContext(globalObj) || {};
         const name = String(st.name1 || '').trim();
         const alertFn = (msg) => { if (globalObj.alert) globalObj.alert(msg); };
-        if (!name || ['__proto__', 'constructor', 'prototype'].includes(name)) { alertFn('没读到酒馆的用户名，请先在酒馆里选好用户设定'); return rerenderSettings(); }
+        if (!name || ['__proto__', 'constructor', 'prototype'].includes(name)) { alertFn('没读到酒馆的User名，请先在酒馆里选好User设定'); return rerenderSettings(); }
         const persona = String((st.powerUserSettings && st.powerUserSettings.persona_description) || '')
             .replace(/\{\{user\}\}/gi, name).replace(/\s+/g, ' ').trim();
         const sceneAssets = draftAssetLibrary(settingsState, editTarget);

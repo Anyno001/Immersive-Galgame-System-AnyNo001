@@ -3801,16 +3801,16 @@ ${row.key}`;
         })();
         const onAnke = async (text, replace) => {
             if (state.activeReader !== current) return { ok: false, reason: 'reader-not-open' };
+            // 不聚焦输入框：手机上会弹键盘、视口变矮，论坛重排后跳回顶楼。
             if (isEmbeddedReaderMode(current.mode)) {
                 return typeof options.fillEmptyInputText === 'function'
-                    ? options.fillEmptyInputText(text, { append: true, replace })
+                    ? options.fillEmptyInputText(text, { append: true, replace, focus: false })
                     : { ok: false, reason: 'missing-readable-input' };
             }
             const input = current.dom?.input;
             if (!input) return { ok: false, reason: 'missing-reader-input' };
             input.value = appendInputDraft(input.value, text, replace);
             current.inputValue = input.value;
-            input.focus?.();
             return { ok: true };
         };
         return syncForumReader(overlay, {

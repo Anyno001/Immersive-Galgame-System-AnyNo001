@@ -349,10 +349,11 @@ function replyNode(doc, reply, view, live) {
     return node;
 }
 
-// 安价楼：楼主发的最后一层。选项纯文本整行可点；操作行是方括号文字链接。选定后把结果追加（或替换上一次填入的那一行）到输入框。
+// 安价楼：楼主发的最后一层。选项纯文本整行可点，选中项加左竖线；底部一行是三个入口：直接选择（提示）、随机 roll、自由安价。选定后把结果追加（或替换上一次填入的那一行）到输入框。
 const ANKE_ROLL_STEPS = 10;
 const ANKE_ROLL_FIRST_MS = 55;
 const ANKE_ROLL_GROWTH = 1.15;
+const ANKE_TICK_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><path pathLength="1" d="M2.6 8.6C4 9.8 5.2 11 6.3 12.5C8.3 8.9 10.5 5.9 13.6 3.2"/></svg>';
 
 function ankeNode(doc, anke, picked, live) {
     const n = anke.options.length;
@@ -362,43 +363,33 @@ function ankeNode(doc, anke, picked, live) {
     meta.innerHTML = headHtml({ id: anke.id, no: anke.no, time: anke.time, po: true });
     const body = el(doc, 'div', 'igs-fm-body');
     const q = el(doc, 'div', 'igs-fm-anke-q');
-    q.textContent = `安价：${anke.question}`;
+    const tag = el(doc, 'b', 'igs-fm-anke-tag');
+    tag.textContent = '安价';
+    q.append(tag, doc.createTextNode(anke.question));
     body.append(q);
     anke.options.forEach((text, i) => {
-        const row = el(doc, 'div', 'igs-fm-anke-opt' + (picked === i ? ' is-pick' : ''));
+        const row = el(doc, 'div', 'igs-fm-anke-opt' + (picked === i ? ' is-pick is-tick is-still' : ''));
         row.dataset.pick = String(i);
         row.tabIndex = 0;
         row.setAttribute('role', 'button');
-        const mark = el(doc, 'span', 'igs-fm-anke-mark');
-        mark.textContent = '▶';
         const no = el(doc, 'span', 'igs-fm-anke-no');
-        no.textContent = `${i + 1}.`;
+        no.textContent = `${i + 1}`;
         const label = el(doc, 'span', 'igs-fm-anke-text');
         label.textContent = text;
-        row.append(mark, no, label);
+        const tick = el(doc, 'span', 'igs-fm-anke-tick');
+        tick.innerHTML = ANKE_TICK_SVG;
+        no.append(tick);
+        row.append(no, label);
         body.append(row);
     });
-    const hint = el(doc, 'div', 'igs-fm-anke-hint');
-    hint.textContent = `>>点选或roll 1d${n}决定`;
     const ops = el(doc, 'div', 'igs-fm-anke-ops');
+    const hint = el(doc, 'span', 'igs-fm-anke-hint');
+    hint.textContent = '直接选择↑';
     const link = (cls, text) => { const b = el(doc, 'button', `igs-fm-anke-link ${cls}`); b.type = 'button'; b.textContent = text; return b; };
-    const free = link('is-free', '[自由安价]');
-    const roll = link('is-roll', `[roll 1d${n}]`);
-    const hand = el(doc, 'span', 'igs-fm-anke-hand');
-    const label = el(doc, 'span');
-    label.textContent = '点数 [';
-    const input = el(doc, 'input', 'igs-fm-anke-input');
-    input.type = 'text';
-    input.inputMode = 'numeric';
-    input.maxLength = String(n).length;
-    input.setAttribute('aria-label', `点数，1 到 ${n}`);
-    const close = el(doc, 'span');
-    close.textContent = ']';
-    const ok = link('is-ok', '[确定]');
-    ok.setAttribute('aria-disabled', 'true');
-    hand.append(label, input, close, ok);
-    ops.append(free, roll, hand);
-    body.append(hint, ops);
+    const dice = el(doc, 'span', 'igs-fm-anke-dice');
+    dice.hidden = true;
+    ops.append(hint, link('is-roll', '不，我要随机ROLL点！'), link('is-free', '自由安价'), dice);
+    body.append(ops);
     node.append(meta, body);
     return node;
 }
@@ -416,11 +407,16 @@ function bindAnke(overlay, node, view) {
     const anke = view.anke;
     const n = anke.options.length;
     const opts = [...node.querySelectorAll('.igs-fm-anke-opt')];
-    const rollBtn = node.querySelector('.is-roll');
-    const input = node.querySelector('.igs-fm-anke-input');
-    const ok = node.querySelector('.is-ok');
-    const rollText = `[roll 1d${n}]`;
-    const mark = (i) => { opts.forEach((o, j) => o.classList.toggle('is-pick', j === i)); s.ankePick = { key: anke.key, index: i }; };
+    const dice = node.querySelector('.igs-fm-anke-dice');
+    // 定下来才打勾：去掉旧勾、强制回流后重挂 is-tick，同一项再选也会重画一遍。
+    const mark = (i) => {
+        opts.forEach((o, j) => { o.classList.toggle('is-pick', j === i); o.classList.remove('is-tick', 'is-still'); });
+        void opts[i].offsetWidth;
+        opts[i].classList.add('is-tick');
+        s.ankePick = { key: anke.key, index: i };
+    };
+    const unmark = () => opts.forEach((o) => o.classList.remove('is-pick', 'is-tick', 'is-still'));
+    const setDice = (text) => { dice.hidden = !text; if (dice.textContent !== text) dice.textContent = text; };
     const stop = () => { if (s.ankeTimer) { win.clearTimeout(s.ankeTimer); s.ankeTimer = 0; } };
     const fill = (text) => {
         const prev = s.ankeLine && s.ankeLine[anke.key] || '';
@@ -429,10 +425,6 @@ function bindAnke(overlay, node, view) {
         Promise.resolve(cb(text, prev)).then((r) => { if (!r || r.ok !== false) { s.ankeLine = { ...s.ankeLine, [anke.key]: text }; } }).catch(() => {});
     };
     const line = (i, suffix = '') => `【安价】${i + 1}：${anke.options[i]}${suffix}`;
-    const valid = () => { const v = input.value.trim(); return /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= n ? Number(v) : 0; };
-    const sync = () => { ok.setAttribute('aria-disabled', valid() ? 'false' : 'true'); };
-    input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, ''); sync(); });
-    input.addEventListener('keydown', (event) => { event.stopPropagation(); if (event.key === 'Enter') ok.click(); });
     node.addEventListener('keydown', (event) => {
         const row = event.target.closest && event.target.closest('.igs-fm-anke-opt');
         if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.stopPropagation(); row.click(); }
@@ -442,25 +434,19 @@ function bindAnke(overlay, node, view) {
         const t = event.target.closest ? event.target : null;
         if (!t) return;
         const row = t.closest('.igs-fm-anke-opt');
-        if (row) { stop(); rollBtn.textContent = rollText; const i = Number(row.dataset.pick); mark(i); fill(line(i)); return; }
-        if (t.closest('.is-free')) { stop(); rollBtn.textContent = rollText; opts.forEach((o) => o.classList.remove('is-pick')); s.ankePick = null; fill('【安价】'); return; }
-        if (t.closest('.is-ok')) {
-            const v = valid();
-            if (!v) return;
-            stop(); rollBtn.textContent = rollText; mark(v - 1); fill(line(v - 1, `（🎲1d${n}=${v}，手动）`));
-            return;
-        }
+        if (row) { stop(); setDice(''); const i = Number(row.dataset.pick); mark(i); fill(line(i)); return; }
+        if (t.closest('.is-free')) { stop(); setDice(''); unmark(); s.ankePick = null; fill('【安价】'); return; }
         if (t.closest('.is-roll')) {
             if (s.ankeTimer) return;
             const result = ankeRoll(n);
-            const done = () => { s.ankeTimer = 0; mark(result - 1); rollBtn.textContent = `1d${n} → ${result}`; fill(line(result - 1, `（🎲1d${n}=${result}）`)); };
+            const done = () => { s.ankeTimer = 0; mark(result - 1); setDice(`🎲1D${n} = ${result}`); fill(line(result - 1, `（🎲1D${n}=${result}）`)); };
             if (reducedMotion(overlay)) { done(); return; }
             let step = 0;
             const tick = () => {
                 if (step >= ANKE_ROLL_STEPS - 1) { done(); return; }
                 const at = (((result - 1 - (ANKE_ROLL_STEPS - 1 - step)) % n) + n) % n;
-                opts.forEach((o, j) => o.classList.toggle('is-pick', j === at));
-                rollBtn.textContent = `1d${n} → ${at + 1}`;
+                opts.forEach((o, j) => { o.classList.toggle('is-pick', j === at); o.classList.remove('is-tick', 'is-still'); });
+                setDice(`🎲1D${n} → ${at + 1}`);
                 s.ankeTimer = win.setTimeout(tick, ANKE_ROLL_FIRST_MS * ANKE_ROLL_GROWTH ** step);
                 step += 1;
             };
@@ -763,8 +749,12 @@ export function syncForumReader(overlay, view) {
     syncAliasCard(overlay, root, view);
     const list = root.querySelector('.igs-fm-list');
     const sig = JSON.stringify([view.floorKey, view.sig || '']);
+    const scrollBox = root.querySelector('.igs-fm-scroll');
+    let keepTop = -1;
     if (sig !== s.sig || view.upto + 1 < s.rendered) {
         if (s.reveal) s.reveal.finish();
+        if (s.rendered > 0 && s.floorKey === view.floorKey && scrollBox) keepTop = scrollBox.scrollTop;
+        s.floorKey = view.floorKey;
         list.textContent = '';
         s.rendered = 0;
         s.sceneRow = -1;
@@ -785,8 +775,11 @@ export function syncForumReader(overlay, view) {
     syncAnke(overlay, list, view, revealing);
     if (s.rendered !== before) {
         const fullText = before === 0 && showAll;
-        const scroll = fullText ? root.querySelector('.igs-fm-scroll') : null;
-        if (scroll) {
+        const scroll = fullText ? scrollBox : null;
+        if (keepTop >= 0) {
+            scrollBox.dataset.autoUntil = String(Date.now() + 50);
+            scrollBox.scrollTop = keepTop;
+        } else if (scroll) {
             scroll.dataset.autoUntil = String(Date.now() + 50);
             scroll.scrollTop = 0;
         } else scrollEnd(root, Boolean(revealing));

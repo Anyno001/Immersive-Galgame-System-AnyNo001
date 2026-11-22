@@ -156,7 +156,7 @@ export function buildPageDiagnostic(snapshot, { version = '', worldview = '', pr
         `说话人 ${c.speaker || '-'} · 情绪 ${c.statusEmotion || '-'}`,
         `立绘 ${spriteLine(c)}`,
         `同台 ${cast.length ? cast.join('、') : '无'}`,
-        `User立绘：${c.userChar && c.userChar.key ? `${c.userChar.key}（${c.userChar.source === 'manual' ? '手动指定' : '按用户名'}）` : '无'}`,
+        `User立绘：${c.userChar && c.userChar.key ? `${c.userChar.key}（${c.userChar.source === 'manual' ? '手动指定' : '按User名'}）` : '无'}`,
         `背景 ${backgroundLine(c)}`,
         `CG ${c.cgActive ? `显示中（槽位 ${c.illustrationSlot ?? '?'}）` : c.cgWaiting ? `有标记（槽位 ${c.illustrationSlot}）但图片未就绪，保留场景与立绘` : c.illustrationSlot != null ? `有标记（槽位 ${c.illustrationSlot}）但没有图` : '无'} · 图片 期望${c.imageExpectedCount ?? 0}/绑定${c.imageBoundCount ?? 0}/未绑${c.imageUnboundCount ?? 0}/可用${c.imageAvailableCount ?? 0}${c.imageLoading ? ' · 出图中' : ''}`,
         `演出 ${summarizeFx(c.fx).join('、') || '无'}`,

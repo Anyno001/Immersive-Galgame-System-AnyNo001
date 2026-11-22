@@ -42,7 +42,7 @@ export function renderForumRegistryFields(data) {
         const title = titleAt(t, Infinity);
         const summary = [`帖子 ${i + 1}`, poLabel(t.po), title ? `《${title}》` : '', keys.length ? `${keys.length} 人` : ''].filter(Boolean).join(' · ');
         const addPath = `forum.add.${t.id}`;
-        const body = field(`forum.po.${t.id}`, '楼主', textInput(`forum.po.${t.id}`, poText(t.po), '角色名、User 或「路人:身份」'))
+        const body = field(`forum.po.${t.id}`, '楼主', textInput(`forum.po.${t.id}`, poText(t.po), '角色名、User或「路人:身份」'))
             + field(`forum.title.${t.id}`, '当前标题', textInput(`forum.title.${t.id}`, title, '留空由 AI 或自动生成'))
             + rows
             + field(addPath, '添加未出场角色', textInput(addPath, '', '填角色名，回车添加并生成代号'));
