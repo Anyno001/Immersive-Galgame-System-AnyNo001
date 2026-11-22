@@ -741,3 +741,279 @@ test('数值模型路由变化拒收迟到回包，恢复原配置也不复活�
         });
     }
 });
+
+test('回归：主角擅长项优先于 NPC 策略提示，确认后接力弹出 NPC 策略且点自动生成能正常发出模型请求', async t => {
+    const { pickStatsNotice } = await import('../src/visual/igs-ui/stats-chip.js');
+    let calls = 0;
+    const reply = deferredGeneration();
+    // 模拟真实酒馆：使用独立 openai 备用模型时，每次 getContext() 返回新绑定的 generateRaw 引用
+    const route = createModelRouteIdentity({
+        getContext: () => ({ generateRaw: () => {}, generateQuietPrompt: () => {} }),
+        readConfig: () => ({ llm: { source: 'openai', url: 'https://api.example.com/v1', model: 'm1', apiKey: 'k1' } }),
+    });
+    t.after(() => route.dispose());
+    assert.equal(route.get(), route.get(), '独立 API 路由不应受酒馆 generateRaw 动态绑定引用影响');
+
+    const f = await generationFixture(t, (prompt) => {
+        if (String(prompt?.user || '').includes('小雪') && String(prompt?.system || '').includes('角色')) {
+            calls += 1;
+            return reply.promise;
+        }
+        return Promise.resolve('{}');
+    }, {
+        generationRoute: route.get,
+    });
+    f.set({ enabled: true, sheetGen: 'auto', backfill: 'off', push: { enabled: false }, ruleset: 'dnd5e' });
+    f.rt.sync();
+    // 注册一个未建档 NPC，并模拟读上下文期间 chatMetadata 引用被刷新
+    generate(f.host, '小雪走了过来。[igs-stat:favor|小雪|开心]');
+    await f.rt.whenSaved();
+    assert.ok(f.rt.getState().characters.小雪, '小雪应已登记为未建档 NPC');
+
+    // 主角擅长项提示应排在 NPC 策略提示前面
+    const firstShown = pickStatsNotice(f.rt.notices());
+    assert.equal(firstShown?.id, 'hero-pick');
+
+    // 在设置中确认主角擅长项后，应立刻切换展示 NPC 建档策略提示
+    const picked = f.rt.heroOp('pick', '', {
+        skills: { 察言观色: 65, 交涉: 65, 潜行: 65, 侦查: 50, 急救: 50, 博物: 50, 攀爬: 50, 驾驶: 50 },
+    });
+    assert.equal(picked.ok, true);
+    const secondShown = pickStatsNotice(f.rt.notices());
+    assert.equal(secondShown?.id, 'npc-policy');
+
+    // 点击「自动生成」后，哪怕 chatMetadata 引用变化，仍必须真正发出 API 请求并落库，不卡在 busy
+    calls = 0;
+    f.host.ctx.chatMetadata = { ...f.host.ctx.chatMetadata };
+    const chosen = await f.rt.noticeAction('npc-policy', 'auto');
+    assert.equal(chosen.ok, true);
+    await settleGeneration();
+    assert.equal(calls, 1, '点击 NPC 自动生成后必须实际发出模型请求');
+    reply.resolve(sheetReply);
+    await settleGeneration();
+    await f.rt.whenSaved();
+    assert.ok(f.rt.getCatalog().sheets.小雪, 'NPC 角色卡应已保存');
+    assert.notEqual(f.rt.notices().find(n => n.id === 'sheets')?.kind, 'busy');
+});
+
+test('回归：generateSheets 遇冲突退出时必须清理 busy 状态为可重试提示', async t => {
+    const reply = deferredGeneration();
+    const f = await generationFixture(t, () => reply.promise);
+    const run = f.rt.generateSheets(['小雪']);
+    await settleGeneration();
+    assert.equal(f.rt.notices().find(n => n.id === 'sheets')?.kind, 'busy');
+    assert.equal(f.rt.sheetOp('edit', '小雪', { skill: '潜行', tier: '熟练' }).ok, true);
+    await f.rt.whenSaved();
+    reply.resolve(sheetReply);
+    const res = await run;
+    assert.equal(res.reason, 'stats-generation-conflict');
+    const notice = f.rt.notices().find(n => n.id === 'sheets');
+    assert.equal(notice?.kind, 'sheets', '冲突退出后不得永久卡在 busy');
+    assert.match(notice?.text || '', /stats-generation-conflict/, '未完成提示应带具体原因码');
+    assert.ok(notice?.actions?.some(([act]) => act === 'generate'));
+});
+
+test('回归：NPC 建档期间无关 catalog 改动（如 romanceSeen/主角技能）不误报冲突，静默后台任务慢请求不顶掉主角擅长项', async t => {
+    const { pickStatsNotice } = await import('../src/visual/igs-ui/stats-chip.js');
+    const sheetDeferred = deferredGeneration();
+    const traitDeferred = deferredGeneration();
+    let sheetCalls = 0;
+    const f = await generationFixture(t, (prompt) => {
+        if (String(prompt?.system || '').includes('角色设定评定助手')) return traitDeferred.promise;
+        sheetCalls += 1;
+        return sheetDeferred.promise;
+    });
+    f.set({ enabled: true, sheetGen: 'auto', backfill: 'off', push: { enabled: false }, ruleset: 'dnd5e' });
+    f.rt.sync();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+
+    // 1. 后台 initial-traits 超过 60 秒触发 onSlow，不得用 busy 顶掉主角擅长项 hero-pick
+    f.rt.relationOp('fill-traits');
+    await settleGeneration();
+    t.mock.timers.tick(60001);
+    assert.equal(pickStatsNotice(f.rt.notices())?.id, 'hero-pick', '后台特质评定慢请求不得顶掉主角擅长项选择');
+
+    // 2. NPC 建档期间发生无关的 romanceSeen 改动，不误报 stats-generation-conflict，能正常发出请求并保存
+    const run = f.rt.generateSheets(['小雪']);
+    await settleGeneration();
+    assert.equal(sheetCalls, 1);
+    f.rt.noteRomanceSeen(['小雪']);
+    await f.rt.whenSaved();
+    sheetDeferred.resolve(sheetReply);
+    const result = await run;
+    assert.equal(result.ok, true, `无关字段改动不应阻断 NPC 建档：${JSON.stringify(result)}`);
+    assert.ok(f.rt.getCatalog().sheets.小雪);
+    traitDeferred.resolve('{}');
+    await settleGeneration();
+});
+
+test('回归：D&D5e 下未学技能/六维记录不误判为已选擅长，且支持按人设生成主角擅长并在人际关系 lookup 返回擅长与六维', async t => {
+    const f = await generationFixture(t, (prompt) => {
+        if (String(prompt?.user || '').includes('可分配技能')) {
+            return Promise.resolve(JSON.stringify({ 察言观色: '精通', 话术: '熟练', 学习: '熟练', 电脑: '入门' }));
+        }
+        return Promise.resolve(sheetReply);
+    });
+    f.set({ enabled: true, sheetGen: 'auto', backfill: 'off', push: { enabled: false }, ruleset: 'dnd5e' });
+    f.rt.sync();
+
+    // 模拟开局出现未学内置技能（<25）与六维键写入 protagonist.skills：不应导致 needsPick 误判为 false
+    const ledger = f.rt.getLedger();
+    const cur = ledger.initial;
+    cur.protagonist.skills.察言观色 = { value: 15, marked: true };
+    cur.protagonist.skills.力量 = { value: 60, marked: false };
+    f.rt.sync();
+    assert.equal(f.rt.archive().needsPick, true, '未学技能(<25)与六维不得阻断主角擅长项选择');
+    const heroPick = f.rt.notices().find((n) => n.id === 'hero-pick');
+    assert.ok(heroPick, '应显示 hero-pick 提示');
+    assert.ok(heroPick.actions.some(([act]) => act === 'assign'), '有辅助模型时 hero-pick 应提供按人设生成按钮');
+
+    // 在 D&D5e 下直接点击按人设生成主角擅长技能
+    const assignRes = await f.rt.noticeAction('hero-pick', 'assign');
+    assert.equal(assignRes.ok, true, `D&D5e 应支持按人设生成主角擅长：${JSON.stringify(assignRes)}`);
+    assert.equal(f.rt.archive().needsPick, false);
+    assert.ok(f.rt.archive().skills.some((s) => s.name === '察言观色'));
+
+    // protagonistLookup 应向人际关系页提供主角擅长与六维，metricsLookup 应向人际关系页提供 NPC 六维
+    const heroLookup = f.rt.protagonistLookup();
+    const heroCard = heroLookup('陈默') || heroLookup('主角');
+    assert.ok(heroCard?.sheet?.hero, '主角 lookup 应包含 hero sheet');
+    assert.ok(heroCard.sheet.strong.some((s) => s.startsWith('察言观色')), '主角 lookup 应包含已生成的擅长技能');
+    assert.equal(heroCard.attributes?.length, 6, '主角 lookup 应包含六维属性');
+
+    const genNpc = await f.rt.generateSheets(['小雪']);
+    assert.equal(genNpc.ok, true);
+    const npcCard = f.rt.metricsLookup()('小雪');
+    assert.equal(npcCard.attributes?.length, 6, 'NPC lookup 应包含六维属性');
+});
+
+test('并发建档：主角与 NPC 询问框并发堆叠显示，并发触发生成且落库写入互相不锁不冲突', async t => {
+    const { JSDOM } = await import('jsdom');
+    const { createStatsChip, pickStatsNotices } = await import('../src/visual/igs-ui/stats-chip.js');
+    const heroSkillDeferred = deferredGeneration();
+    const npcSheetDeferred = deferredGeneration();
+    let heroSkillCalls = 0;
+    let npcSheetCalls = 0;
+    const f = await generationFixture(t, (prompt) => {
+        if (String(prompt?.user || '').includes('可分配技能')) {
+            heroSkillCalls += 1;
+            return heroSkillDeferred.promise;
+        }
+        if (String(prompt?.system || '').includes('NPC 角色评定初始数值')) {
+            npcSheetCalls += 1;
+            return npcSheetDeferred.promise;
+        }
+        return Promise.resolve('{}');
+    });
+    f.set({ enabled: true, sheetGen: 'auto', backfill: 'off', push: { enabled: false }, ruleset: 'dnd5e' });
+    f.rt.sync();
+    generate(f.host, '小雪迎面走来。[igs-stat:favor|小雪|开心]');
+    await f.rt.whenSaved();
+
+    // 1. 主角擅长项与 NPC 策略提示框同时存在并并发渲染成多条堆叠 pill
+    const visible = pickStatsNotices(f.rt.notices());
+    assert.ok(visible.some(n => n.id === 'hero-pick'), '主角擅长提示应同时显示');
+    assert.ok(visible.some(n => n.id === 'npc-policy'), 'NPC 策略提示应同时显示');
+
+    const dom = new JSDOM('<div id="dialog"></div>');
+    const actions = [];
+    const chip = createStatsChip({
+        getDialog: () => dom.window.document.querySelector('#dialog'),
+        getNotices: () => f.rt.notices(),
+        onAction: (id, act) => { actions.push([id, act]); },
+    });
+    chip.sync();
+    const rows = [...dom.window.document.querySelectorAll('#igs-stats-chip .igs-stats-chip-item')];
+    assert.ok(rows.length >= 2, 'DOM 应同时渲染主角与 NPC 两条提示');
+    const npcAutoBtn = dom.window.document.querySelector('.igs-stats-chip-item[data-id="npc-policy"] [data-stats-act="auto"]');
+    const heroAssignBtn = dom.window.document.querySelector('.igs-stats-chip-item[data-id="hero-pick"] [data-stats-act="assign"]');
+    assert.ok(npcAutoBtn && heroAssignBtn);
+    heroAssignBtn.click();
+    npcAutoBtn.click();
+    assert.deepEqual(actions, [['hero-pick', 'assign'], ['npc-policy', 'auto']]);
+    dom.window.close();
+
+    // 2. 同时触发主角擅长生成与 NPC 自动建档：两路模型请求并发发出，不互锁
+    const heroRun = f.rt.noticeAction('hero-pick', 'assign');
+    const npcPolicyRun = await f.rt.noticeAction('npc-policy', 'auto');
+    assert.equal(npcPolicyRun.ok, true);
+    await settleGeneration();
+    assert.equal(heroSkillCalls, 1, '主角擅长生成应已发出请求');
+    assert.equal(npcSheetCalls, 1, 'NPC 建档应已并发发出请求');
+
+    // 3. 同一时间返回两路结果：落库写入顺序无冲突完成，两者数据都完整保留
+    heroSkillDeferred.resolve(JSON.stringify({ 察言观色: '精通', 话术: '熟练', 学习: '熟练' }));
+    npcSheetDeferred.resolve(sheetReply);
+    const heroRes = await heroRun;
+    await settleGeneration();
+    await f.rt.whenSaved();
+    assert.equal(heroRes.ok, true, `主角擅长并发提交应成功：${JSON.stringify(heroRes)}`);
+    assert.ok(f.rt.archive().skills.some(s => s.name === '察言观色'), '主角擅长技能应已落库');
+    assert.ok(f.rt.getCatalog().sheets.小雪, 'NPC 角色卡应已并发落库且不被覆盖');
+});
+
+test('新聊天第0层并发：重要角色表人物在选自动生成时立即触发建档，不与主角擅长生成/版本递增冲突', async t => {
+    const heroSkillDeferred = deferredGeneration();
+    const npcSheetDeferred = deferredGeneration();
+    let heroSkillCalls = 0;
+    let npcSheetCalls = 0;
+    const f = await generationFixture(t, (prompt) => {
+        if (String(prompt?.user || '').includes('可分配技能：')) {
+            heroSkillCalls += 1;
+            return heroSkillDeferred.promise;
+        }
+        if (String(prompt?.system || '').includes('NPC 角色评定初始数值')) {
+            npcSheetCalls += 1;
+            return npcSheetDeferred.promise;
+        }
+        return Promise.resolve('{}');
+    });
+    // 重建运行时并注入重要角色表名单，且不先触发 AI 楼层结算（模拟新聊天第0层）
+    f.rt.destroy();
+    const rt = f.make({
+        tablePeople: () => ['苏曼珠', '秦若仪'],
+        getBackgroundRequest: () => (prompt) => {
+            if (String(prompt?.user || '').includes('可分配技能：')) {
+                heroSkillCalls += 1;
+                return heroSkillDeferred.promise;
+            }
+            if (String(prompt?.system || '').includes('NPC 角色评定初始数值')) {
+                npcSheetCalls += 1;
+                return npcSheetDeferred.promise;
+            }
+            return Promise.resolve('{}');
+        },
+        describePeople: async (names) => names.map((name) => ({ name, summary: `${name}人设` })),
+    });
+    t.after(() => rt.destroy());
+    f.set({ enabled: true, sheetGen: 'auto', backfill: 'off', push: { enabled: false }, ruleset: 'coc7' });
+    rt.sync();
+    await rt.whenSaved();
+
+    // 模拟外部表版本变化（例如 heroInit 写属性表/物品表），再并发点击主角按人设生成 + NPC 自动生成
+    const heroRun = rt.noticeAction('hero-pick', 'assign');
+    f.tables.version += 1;
+    const npcRun = await rt.noticeAction('npc-policy', 'auto');
+    assert.equal(npcRun.ok, true);
+    await settleGeneration();
+
+    assert.equal(heroSkillCalls, 1, '主角擅长技能应立即发起 API 请求');
+    assert.equal(npcSheetCalls, 1, '第0层重要角色表 NPC 在选自动生成后应立即发起 API 请求');
+    assert.ok(rt.notices().some(n => n.id === 'hero-skills' && n.kind === 'busy'), 'setNpcPolicy 的 ensureLoaded 不得清掉进行中的 hero-skills 忙提示');
+    assert.ok(rt.notices().some(n => n.id === 'sheets' && n.kind === 'busy'), 'sheets 忙提示应并发存在');
+
+    heroSkillDeferred.resolve(JSON.stringify({ 察言观色: '精通', 话术: '熟练', 学习: '熟练' }));
+    npcSheetDeferred.resolve(JSON.stringify({
+        苏曼珠: { 资历: '老手', 属性: { 魅力: '出众' }, 擅长: ['察言观色', '交涉', '魅惑'], 比较擅长: ['侦查', '隐匿', '急救', '说服', '威吓'] },
+        秦若仪: { 资历: '普通人', 属性: { 感知: '出众' }, 擅长: ['侦查', '急救', '说服'], 比较擅长: ['察言观色', '隐匿', '驾驶', '攀爬', '交涉'] },
+    }));
+    const heroRes = await heroRun;
+    await settleGeneration();
+    await rt.whenSaved();
+    assert.equal(heroRes.ok, true);
+    assert.equal(rt.getNpcPolicy(), 'auto', '并发提交后 npcPolicy 不得被 adopt(merged) 回滚');
+    assert.ok(rt.getCatalog().sheets.苏曼珠 && rt.getCatalog().sheets.秦若仪, '第0层重要角色表人物均应建档成功');
+    assert.ok(rt.archive().skills.some(s => s.name === '察言观色'), '主角擅长技能应保存成功');
+});
+
+

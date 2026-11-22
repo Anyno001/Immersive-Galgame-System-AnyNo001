@@ -4,15 +4,10 @@ import { abilityKeyOf } from '../../combat/abilities.js';
 import { ABILITY_KEYS, ABILITY_LABELS, normalizeHeroScores } from './ability-fields.js';
 import { CURRENCY_INITIAL_FACTOR, currencyRequestFailure, describeCurrencyFailure, normalizeCurrencyConfig } from './stat-currency.js';
 import { ABILITY_SCORE_TIERS, attributeTier, bandValue } from './stat-sheets.js';
+import { DEFAULT_HERO_INIT_PROMPT } from './stat-prompt.js';
 
 export const HERO_INIT_PROTOCOL_VERSION = 1;
-
-export const DEFAULT_HERO_INIT_PROMPT = [
-    '你为一段角色扮演初始化主角的基础数值与剧情货币。只输出一个 JSON 对象，不要代码块、解释或其他文字。',
-    '按本次「需要补齐的项目」输出对应字段；已有项目不要改写，不需要输出战斗职业、卡组或物品。',
-    '- attributes（六维对象）：包含 力量、敏捷、体质、智力、感知、魅力 六项，值为 3–18 的整数（普通人约 10，弱项 6–9，擅长 12–16，顶尖 17–18），按主角人设、世界观与剧情给出。',
-    '- currency（剧情货币对象）：{ "name": "货币名(1-6字，不可为积分)", "initial": 主角开局持有整数, "prices": { "少量": 整数, "普通": 整数, "昂贵": 整数, "巨额": 整数 }, "rate": 1积分可兑换多少货币(0.01-100) }；四档价格须逐档递增，开局金额不超过「巨额」的 10 倍。',
-].join('\n');
+export { DEFAULT_HERO_INIT_PROMPT };
 
 function balancedEnd(text, start) {
     let depth = 0;
@@ -93,11 +88,12 @@ function parseCurrencyObject(raw) {
 
 export function buildHeroInitRequest({
     protagonist = '主角', worldview = '', story = '', people = [], worldInfo = '', userPersona = '',
-    needAttributes = true, needCurrency = true, existingCurrency = null,
+    needAttributes = true, needCurrency = true, needBio = false, existingCurrency = null,
 } = {}, { prompt = '' } = {}) {
     const missing = [];
     if (needAttributes) missing.push('attributes（主角六维）');
     if (needCurrency) missing.push('currency（剧情货币定义与开局金额）');
+    if (needBio) missing.push('bio（主角简介）');
     const lines = [
         `协议版本：heroInit/v${HERO_INIT_PROTOCOL_VERSION}`,
         `主角：${protagonist}`,
@@ -119,6 +115,9 @@ export function buildHeroInitRequest({
     if (needCurrency) {
         shape.push('"currency":{"name":"货币名","initial":100,"prices":{"少量":10,"普通":50,"昂贵":200,"巨额":1000},"rate":1}');
     }
+    if (needBio) {
+        shape.push('"bio":"1-3句简洁主角简介"');
+    }
     lines.push(`【输出要求】\n只输出一个 JSON 对象：{${shape.join(',')}}`);
     return { system: prompt || DEFAULT_HERO_INIT_PROMPT, user: lines.join('\n\n') };
 }
@@ -139,6 +138,11 @@ export function parseHeroInitReply(reply, { needAttributes = true, needCurrency 
         const parsedCurrency = parseCurrencyObject(rawCurrency);
         if (!parsedCurrency.ok) return { ok: false, stage: 'parse', reason: parsedCurrency.reason };
         out.currency = { config: parsedCurrency.config, initial: parsedCurrency.initial };
+    }
+    const rawBio = data.bio ?? data.简介 ?? data.主角简介 ?? data.summary;
+    if (typeof rawBio === 'string') {
+        const bio = rawBio.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').trim().slice(0, 240);
+        if (bio) out.bio = bio;
     }
     return out;
 }

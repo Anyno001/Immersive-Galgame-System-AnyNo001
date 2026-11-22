@@ -1279,20 +1279,24 @@ test('P4 主角统一建档（v2 无战斗表）：一次请求补齐六维与�
     for (let i = 0; i < 40 && requests.length === 0; i += 1) await new Promise(r => setTimeout(r, 10));
     assert.equal(requests.length, 1, '全缺时仅发一次统一主角初始化请求');
     assert.equal(rt.heroBasicReady(), false, '主角基础确认前不就绪');
-    assert.equal(rt.notices().some(n => n.id === 'hero-pick' || n.id === 'sheets'), false, '主角基础确认前不弹技能或NPC交互');
+    assert.equal(rt.notices().some(n => n.id === 'hero-pick'), true, '主角擅长技能与 NPC 建档策略提示可并发出现');
+    assert.equal(rt.notices().some(n => n.id === 'npc-policy'), true, 'NPC 建档策略提示与主角建档并发出现');
 
     requests[0].resolve(JSON.stringify({
         attributes: { 力量: 13, 敏捷: 15, 体质: 12, 智力: 11, 感知: 14, 魅力: 10 },
         currency: { name: '银币', initial: 50, prices: { 少量: 5, 普通: 20, 昂贵: 100, 巨额: 500 }, rate: 1 },
+        bio: '出身港城的年轻调查员，做事谨慎且善于观察细节。',
     }));
     await rt.whenSaved();
     assert.equal(requests.length, 1);
     assert.equal(rt.heroBasicReady(), true);
     assert.equal(rt.currencyBalance(), 50);
+    assert.equal(rt.archive().heroBio, '出身港城的年轻调查员，做事谨慎且善于观察细节。');
+    assert.equal(rt.protagonistLookup()('主角')?.bio, '出身港城的年轻调查员，做事谨慎且善于观察细节。');
     const heroAttrs = chatStore.get().attributeAccess.source().readAbilities('主角');
     assert.equal(heroAttrs.initialized, true);
     assert.deepEqual(heroAttrs.permanentScores, { str: 13, dex: 15, con: 12, int: 11, wis: 14, cha: 10 });
-    assert.equal(rt.notices().some(n => n.id === 'hero-pick'), true, '主角基础确认后才展示技能选择交互');
+    assert.equal(rt.notices().some(n => n.id === 'hero-pick'), true, '未选技能前仍保留技能选择提示');
     const sheetNames = Object.values(db.sheets).map(s => s.name);
     assert.equal(sheetNames.includes('IGS战斗·档案'), false, '纯数值初始化不得建立战斗档案表');
     assert.equal(sheetNames.includes('IGS战斗·日志'), false, '纯数值初始化不得建立战斗日志表');

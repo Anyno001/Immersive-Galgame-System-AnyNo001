@@ -37,7 +37,7 @@ import { getSillyTavernContext } from '../../host/tavern-helper-adapter.js';
 import { secondaryLlmText } from '../../host/secondary-llm-result.js';
 
 import { isMarkerDirectiveLine, stripMarkerDirectives } from '../../scene/directive-tags.js';
-import { composeStatsHud, dropUserFavor } from '../../scene/stats/stat-metrics.js';
+import { composeStatsHud, dropUserFavor, isUserName } from '../../scene/stats/stat-metrics.js';
 import { PROTAGONIST } from '../../scene/stats/stat-engine.js';
 import { readStoryNow, resolveDuePromises } from '../../scene/promise-reminder.js';
 import { normalizeItemImageSettings } from '../../generated-images/illustration/item-image-settings.js';
@@ -327,7 +327,14 @@ export function createIgsReaderHost(options = {}) {
         onAction: async (id, act) => {
             if (typeof options.statsNoticeAction !== 'function') return;
             let result = null;
-            try { result = await options.statsNoticeAction(id, act); } catch (error) { result = null; }
+            try { result = await options.statsNoticeAction(id, act); }
+            catch (error) {
+                try { console.warn('[IGS 数值提示条] 操作异常', id, act, error); } catch { /* */ }
+                result = null;
+            }
+            if (result && result.ok === false && result.reason && result.reason !== 'stats-notice-gone' && result.reason !== 'request-stale') {
+                try { console.warn('[IGS 数值提示条] 操作未完成', id, act, result.reason); } catch { /* */ }
+            }
             if (result && result.openSettings) openSettings({ tab: result.openSettings, mode: state.activeReader ? state.activeReader.mode : undefined });
             // 手动建档逐角色询问「填写」（P8c）：打开人物状态面板并定位到这位角色的建档页；已有面板打开时不叠开。
             if (result && result.openPanel === 'build') {
@@ -1188,6 +1195,43 @@ export function createIgsReaderHost(options = {}) {
         }
         for (const candidate of fuzzyPortraitNames(name, knownCharacterNames(sceneAssets))) {
             const url = lookup(canonicalName(sceneAssets, candidate));
+            if (url) return url;
+        }
+        return '';
+    }
+
+    // 资料页（人际关系 / 好感总览）角色默认立绘：按当前素材库解析角色默认立绘（主角优先查「设为User立绘」）。
+    function resolveRecordPersonPortrait(name) {
+        const current = state.activeReader;
+        const readerSettings = current && current.snapshot && current.snapshot.readerSettings;
+        const sceneAssets = (readerSettings && readerSettings._sceneAssets)
+            || resolveRenderConfig(current ? current.mode : 'default').bridge?.sceneAssets;
+        if (!sceneAssets) return '';
+        const raw = String(name || '').trim();
+        if (!raw) return '';
+        const stCtx = getSillyTavernContext(options.global || globalThis);
+        const userName = String(stCtx?.name1 || '').trim();
+        const userChar = String(sceneAssets.userCharacter || '').trim();
+        const isHeroTarget = isUserName(raw, userName) || (Boolean(userChar) && raw === userChar);
+        const seedNames = isHeroTarget
+            ? [...new Set([userChar, raw, userName, '主角'].filter(Boolean))]
+            : [raw];
+        const generatedAssets = options.generatedAssets || null;
+        const chatId = current?.illustrationIdentity?.chatId || '';
+        const lookup = (character) => {
+            let hit = { url: '' };
+            try {
+                hit = resolveReaderSpriteAsset(character, '', {
+                    chatId, sceneAssets, generatedAssets: sceneAssets.generated, imageAvailability: readerSpriteAvailability,
+                    tempSprite: generatedAssets ? generatedAssets.tempSprite : null,
+                    tempSpriteForOutfit: generatedAssets ? generatedAssets.tempSpriteForOutfit : null,
+                });
+            } catch (error) { hit = { url: '' }; }
+            return concreteReaderAssetUrl(hit.url, 'high');
+        };
+        for (const seed of seedNames) {
+            const canonical = canonicalName(sceneAssets, seed);
+            const url = lookup(canonical) || (canonical !== seed ? lookup(seed) : '');
             if (url) return url;
         }
         return '';
@@ -5408,6 +5452,10 @@ ${row.key}`;
             statsProtagonistLookup: () => (typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null),
             statsFavorOverview: () => (typeof options.statsFavorOverview === 'function' ? options.statsFavorOverview() : null),
             statsGenerate: (name) => (typeof options.statsOp === 'function' ? options.statsOp('generate', '', name) : null),
+            statsAssignHero: () => (typeof options.statsOp === 'function' ? options.statsOp('hero', 'assign', '', { overwrite: false }) : null),
+            resolvePersonPortrait: (name) => resolveRecordPersonPortrait(name),
+            subscribePortraits: (handler) => (typeof options.onGeneratedAssetUpdated === 'function'
+                ? options.onGeneratedAssetUpdated((detail) => { if (detail && (detail.reason === 'image-loaded' || detail.reason === 'image-lost' || detail.reason === 'combat-prewarm')) handler(detail); }) : null),
             // 背包「使用」（P7c）：有装配定义的回复道具走场外使用；返回 draft 时照旧填草稿。
             useInventoryItem: typeof options.useCombatInventoryItem === 'function' ? (name) => options.useCombatInventoryItem(name) : null,
             // 背包分组、已装备标记与装备映射（P7e）：战斗开启时读主角背包投影；装上 / 卸下走现有换装服务。

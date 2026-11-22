@@ -3,7 +3,7 @@ export const STATS_HERO_CARD_STYLE_TEXT = `
 #igs-unified-settings .igs-stats-hero-section{gap:10px}
 #igs-unified-settings .igs-stats-dash{display:grid;gap:10px;min-width:0}
 #igs-unified-settings .igs-stats-day{font-size:11px;color:var(--igs-settings-ink-3);font-variant-numeric:tabular-nums}
-#igs-unified-settings .igs-stats-overview{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,1.2fr);gap:12px;align-items:stretch}
+#igs-unified-settings .igs-stats-overview{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(220px,1fr);gap:12px;align-items:stretch}
 #igs-unified-settings .igs-stats-radar-panel,#igs-unified-settings .igs-stats-resources{padding:14px;border-radius:var(--igs-settings-radius-control);background:var(--igs-settings-field);min-width:0}
 #igs-unified-settings .igs-stats-dash h4{margin:0;font:inherit;font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--igs-settings-ink-2)}
 #igs-unified-settings .igs-stats-radar{display:block;width:100%;max-width:280px;height:auto;margin:0 auto;overflow:visible}

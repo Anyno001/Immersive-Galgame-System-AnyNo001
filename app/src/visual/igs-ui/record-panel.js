@@ -24,6 +24,7 @@ import { STOCK_RARITY_LABELS, STOCK_SLOT_LABELS } from '../../combat/inventory-w
 import { sellPrice } from '../../combat/points.js';
 import { equippedGear, slotGearList } from '../../combat/gear-slots.js';
 import { createIgsModal } from './igs-modal.js';
+import { renderStatsRadar } from './stats-hero-card.js';
 
 const labels = Object.freeze({ diary: '日记', inventory: '物品', relationships: '人际关系', favor: '好感度' });
 const pageTitles = Object.freeze({ diary: '珍藏心事', inventory: '你的背包', relationships: '人际关系', favor: '好感总览' });
@@ -184,6 +185,42 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     const relationshipPeople = () => model?.people?.filter(item => item.uid === activeUid) || [];
     // 背包格位与详情头图标：设置为「生图」且本聊天已有物品图时显示图片，否则保留 SVG。
     let unsubscribeItemImages = null;
+    let unsubscribePortraits = null;
+    const SAFE_PORTRAIT_URL = /^(?:https?:|blob:|data:image\/|\/|\.\.?\/)/i;
+    const personPortrait = name => {
+        if (typeof options.resolvePersonPortrait !== 'function' || !name) return '';
+        try {
+            const url = String(options.resolvePersonPortrait(name) || '').trim();
+            return SAFE_PORTRAIT_URL.test(url) ? url : '';
+        } catch (_) { return ''; }
+    };
+    const personAvatarInner = name => {
+        const url = personPortrait(name);
+        return url
+            ? `<img class="igs-record-avatar-img" src="${escapeHtml(url)}" alt="" loading="lazy">`
+            : personInitial(name);
+    };
+    const isHeroPerson = name => {
+        const userName = getSillyTavernContext(global || globalThis)?.name1;
+        const userCharacter = String(((settings?._sceneAssets || settings?.sceneAssets) || {}).userCharacter || '').trim();
+        return (Boolean(userCharacter) && String(name || '').trim() === userCharacter) || isUserName(name, userName);
+    };
+    const readHeroBio = name => {
+        if (typeof options.readHeroBio === 'function') {
+            try {
+                const custom = String(options.readHeroBio(name) || '').trim();
+                if (custom) return custom;
+            } catch (_) { /* */ }
+        }
+        const stCtx = getSillyTavernContext(global || globalThis);
+        const persona = String(stCtx?.powerUserSettings?.persona_description || '').trim();
+        if (persona) return persona;
+        const userCharacter = String(((settings?._sceneAssets || settings?.sceneAssets) || {}).userCharacter || '').trim();
+        const cards = Array.isArray(stCtx?.characters) ? stCtx.characters : [];
+        const targets = [userCharacter, String(name || '').trim()].filter(Boolean);
+        const card = cards.find(ch => ch && targets.includes(String(ch.name || '').trim()));
+        return String(card?.description || '').trim();
+    };
     const readItemIconMode = () => { try { return options.getItemIconMode?.() || 'image'; } catch (_) { return 'image'; } };
     const itemIcon = name => inventoryIconHtml(name, RECORD_ICONS[inventoryIconKey(name)], options.resolveItemImage, readItemIconMode());
     // 详情头的物品图可点开大图：只在设置为「生图」且本聊天已有物品图时给按钮；点击时按物品名现取地址，不读 DOM 里的 src。
@@ -201,6 +238,20 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         render();
         const next = root.querySelector?.('.igs-record-scroll');
         if (next) next.scrollTop = top;
+    };
+    const onPortraitsChanged = () => {
+        if (!root || (category !== 'relationships' && category !== 'favor')) return;
+        const active = doc.activeElement;
+        if (active && String(active.tagName || '').toUpperCase() === 'INPUT' && root.contains?.(active)) return;
+        const scroller = root.querySelector?.('.igs-record-scroll');
+        const detail = root.querySelector?.('.igs-record-relationship-detail');
+        const top = scroller ? scroller.scrollTop : 0;
+        const detailTop = detail ? detail.scrollTop : 0;
+        render();
+        const next = root.querySelector?.('.igs-record-scroll');
+        if (next) next.scrollTop = top;
+        const nextDetail = root.querySelector?.('.igs-record-relationship-detail');
+        if (nextDetail) nextDetail.scrollTop = detailTop;
     };
     const relationshipEdges = () => model?.edges?.filter(item => item.uid === activeUid) || [];
     const entries = () => category === 'diary' || category === 'inventory'
@@ -316,6 +367,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         client = createShujukuClient((global || globalThis).AutoCardUpdaterAPI || null);
         try { client.registerCallback(callback); } catch (_) { /* Optional subscription. */ }
         try { unsubscribeItemImages = options.subscribeItemImages?.(onItemImagesChanged) || null; } catch (_) { unsubscribeItemImages = null; }
+        try { unsubscribePortraits = options.subscribePortraits?.(onPortraitsChanged) || null; } catch (_) { unsubscribePortraits = null; }
         reload();
         root.querySelector?.('[data-record-act="close"]')?.focus?.();
         return { ok: true };
@@ -335,6 +387,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         root.removeEventListener('change', onChange);
         unsubscribeItemImages?.();
         unsubscribeItemImages = null;
+        unsubscribePortraits?.();
+        unsubscribePortraits = null;
         root.remove();
         root = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
@@ -402,11 +456,11 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             // 用户本人与「设为User立绘」的角色都没有人际数值：显示主角生活条（压力、体力等），表格里的好感、信任、芥蒂等列不显示。
             const userCharacter = String(((settings?._sceneAssets || settings?.sceneAssets) || {}).userCharacter || '').trim();
             metricsOf = (name) => {
-                const userName = getSillyTavernContext()?.name1;
+                const userName = getSillyTavernContext(global || globalThis)?.name1;
                 const picked = Boolean(userCharacter) && String(name || '').trim() === userCharacter;
                 if (!picked && !isUserName(name, userName)) return others(name);
                 const own = heroLookup ? heroLookup(name) : null;
-                if (own && own.metrics && own.metrics.length) return own;
+                if (own && ((own.metrics && own.metrics.length) || (own.attributes && own.attributes.length) || own.sheet)) return own;
                 let fromTable = null;
                 try { fromTable = tableLookup ? tableLookup(name) : null; } catch (_) { fromTable = null; }
                 return { ...dropUserFavor({ metrics: (fromTable && fromTable.metrics) || [] }, picked ? '主角' : name, userName), stages: [] };
@@ -581,6 +635,14 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             openItemImageViewer(doc, pageOverlay, { src: zoomUrl(name), name });
             return;
         }
+        const portraitZoom = event.target?.closest?.('[data-record-zoom-portrait]');
+        if (portraitZoom && root?.contains(portraitZoom)) {
+            event.preventDefault?.();
+            const name = portraitZoom.getAttribute('data-record-zoom-portrait') || '';
+            const src = personPortrait(name);
+            if (src) openItemImageViewer(doc, pageOverlay, { src, name });
+            return;
+        }
         const button = event.target?.closest?.('[data-record-act]');
         if (!button || !root?.contains(button)) return;
         event.preventDefault?.();
@@ -644,6 +706,12 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             button.disabled = true;
             button.textContent = '生成中…';
             Promise.resolve(options.statsGenerate(id)).catch(() => null).finally(() => { if (root) reload(); });
+            return;
+        }
+        if (action === 'stats-hero-skills' && category === 'relationships' && typeof options.statsAssignHero === 'function') {
+            button.disabled = true;
+            button.textContent = '生成中…';
+            Promise.resolve(options.statsAssignHero()).catch(() => null).finally(() => { if (root) reload(); });
             return;
         }
         if (action === 'person' && category === 'relationships') {
@@ -829,15 +897,28 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             return `<span class="igs-record-relationship-label" style="left:${left}%;top:${top}%">${escapeHtml(labels.join('·') || '关系未标注')}</span>`;
         }).join('');
         const graphHtml = chosen ? `<div class="igs-record-relationship-graph" aria-label="${escapeHtml(chosen.name)}的局部关系图"><svg class="igs-record-relationship-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lineHtml}</svg>${labelHtml}${graphNodes.map(node =>
-            `<button type="button" class="igs-record-relationship-node${node.person.id === chosen.id ? ' is-current' : ''}" style="left:${node.x}%;top:${node.y}%" data-record-act="person" data-record-id="${escapeHtml(node.person.id)}" aria-label="查看${escapeHtml(node.person.name)}" ${node.person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-node-avatar" aria-hidden="true">${personInitial(node.person.name)}</span><span class="igs-record-node-name">${escapeHtml(node.person.name)}</span></button>`).join('')}</div>` : '<p class="igs-record-relationship-empty">当前来源没有可识别的人物记录。</p>';
-        const { metrics, stages, sheet } = chosen ? metricsOf(chosen.name) : { metrics: [], stages: [] };
+            `<button type="button" class="igs-record-relationship-node${node.person.id === chosen.id ? ' is-current' : ''}" style="left:${node.x}%;top:${node.y}%" data-record-act="person" data-record-id="${escapeHtml(node.person.id)}" aria-label="查看${escapeHtml(node.person.name)}" ${node.person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-node-avatar" aria-hidden="true">${personAvatarInner(node.person.name)}</span><span class="igs-record-node-name">${escapeHtml(node.person.name)}</span></button>`).join('')}</div>` : '<p class="igs-record-relationship-empty">当前来源没有可识别的人物记录。</p>';
+        const { metrics, stages, sheet, attributes, attributesRelative, bio: generatedHeroBio } = chosen ? metricsOf(chosen.name) : { metrics: [], stages: [] };
         const stageLive = chosen ? relationLive.get(chosen.name) : null;
-        // 数值系统的角色卡（v2 §9.3）：资历与擅长项；没有卡时给「生成数值」。
-        const sheetHtml = !sheet ? '' : sheet.missing
-            ? `<p class="igs-record-stage"><span>角色数值</span><strong>未生成</strong></p><button type="button" class="igs-rp-btn" data-record-act="stats-sheet" data-record-id="${escapeHtml(sheet.name)}">生成数值</button>`
-            : `<p class="igs-record-stage"><span>资历</span><strong>${escapeHtml(sheet.rank)}${sheet.provisional ? '（部分待定）' : ''}</strong></p>${sheet.strong.length ? `<p class="igs-record-stage"><span>擅长</span><strong>${escapeHtml(sheet.strong.join('、'))}</strong></p>` : ''}`;
-        const metricsHtml = metrics.length || stages.length ? `<section class="igs-record-metrics" aria-label="${escapeHtml(chosen.name)}的数值">${stages.map(stage =>
-            `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.label === '关系阶段' && stageLive ? stageLabel(stageLive.dims?.好感, stageLive.romance) : stage.value)}</strong></p>`).join('')}${sheetHtml}${metrics.map(metric =>
+        // 数值系统的角色卡：主角展示擅长技能（未生成可一键按人设生成）；NPC 展示资历与擅长项（没有卡时给「生成数值」）。
+        const sheetHtml = !sheet ? '' : sheet.hero
+            ? (sheet.strong?.length
+                ? `<p class="igs-record-stage"><span>擅长</span><strong>${escapeHtml(sheet.strong.join('、'))}</strong></p>`
+                : `<p class="igs-record-stage"><span>擅长</span><strong>未生成</strong></p>${typeof options.statsAssignHero === 'function' ? '<button type="button" class="igs-rp-btn" data-record-act="stats-hero-skills">按人设生成擅长</button>' : ''}`)
+            : sheet.missing
+                ? `<p class="igs-record-stage"><span>角色数值</span><strong>未生成</strong></p><button type="button" class="igs-rp-btn" data-record-act="stats-sheet" data-record-id="${escapeHtml(sheet.name)}">生成数值</button>`
+                : `<p class="igs-record-stage"><span>资历</span><strong>${escapeHtml(sheet.rank)}${sheet.provisional ? '（部分待定）' : ''}</strong></p>${sheet.strong.length ? `<p class="igs-record-stage"><span>擅长</span><strong>${escapeHtml(sheet.strong.join('、'))}</strong></p>` : ''}`;
+        const stageItemsHtml = stages.map(stage =>
+            `<p class="igs-record-stage"><span>${escapeHtml(stage.label)}</span><strong>${escapeHtml(stage.label === '关系阶段' && stageLive ? stageLabel(stageLive.dims?.好感, stageLive.romance) : stage.value)}</strong></p>`).join('');
+        const summaryMetaHtml = stageItemsHtml || sheetHtml ? `<div class="igs-record-person-meta">${stageItemsHtml}${sheetHtml}</div>` : '';
+        const portraitUrl = chosen ? personPortrait(chosen.name) : '';
+        const portraitHtml = portraitUrl
+            ? `<button type="button" class="igs-record-person-portrait" data-record-zoom-portrait="${escapeHtml(chosen.name)}" aria-label="放大查看${escapeHtml(chosen.name)}的默认立绘"><img src="${escapeHtml(portraitUrl)}" alt="${escapeHtml(chosen.name)}默认立绘" loading="lazy"></button>`
+            : '';
+        const radarHtml = Array.isArray(attributes) && attributes.length === 6
+            ? `<div class="igs-record-person-radar" aria-label="${escapeHtml(chosen.name)}的六维属性">${attributesRelative ? '<span class="igs-record-radar-note">六维 · 相对值</span>' : ''}${renderStatsRadar(attributes, { compact: true })}</div>`
+            : '';
+        const metricsHtml = metrics.length ? `<section class="igs-record-metrics" aria-label="${escapeHtml(chosen.name)}的数值">${metrics.map(metric =>
             `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</section>` : '';
         const age = chosen?.profile?.find(field => field.key === 'age')?.value || '';
         const tags = [chosen?.role, age && (/^\d+$/.test(age) ? `${age}岁` : age)].filter(Boolean);
@@ -845,16 +926,37 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const live = chosen ? relationLive.get(chosen.name) : null;
         const relation = live ? relationLabel(live.dims, { nsfw: live.nsfw, romance: live.romance, kin: live.kin, hero: live.hero }) : null;
         const headHtml = chosen ? `<header class="igs-record-person-head"><h2>${escapeHtml(chosen.name)}</h2>${tags.map(tag => `<span class="igs-record-tag">${escapeHtml(tag)}</span>`).join('')}${relation ? `<span class="igs-record-tag igs-record-relation-tag" title="${escapeHtml(`${towardYou(chosen.name)}：${relation.desc}`)}">${escapeHtml(relation.name)}</span>` : ''}</header>${thought ? `<p class="igs-record-thought" aria-label="当下想法">${escapeHtml(thought)}</p>` : ''}` : '';
-        // 档案表只展示外貌/打扮/过往经历（年龄进标题标签、当下想法做名下引语）；旧表没有这些列时才回退为描述 + 原始字段。
+        // 档案表只展示外貌/打扮/过往经历（年龄进标题标签、当下想法做名下引语）；主角若表格无简介则读取酒馆人设简介。
         const profile = (chosen?.profile || []).filter(field => field.key !== 'age' && field.key !== 'thought');
-        const profileHtml = !chosen ? '' : chosen.hasProfile
-            ? (profile.length ? `<dl class="igs-record-profile">${profile.map(field => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.value)}</dd></div>`).join('')}</dl>` : '<p class="igs-record-relationship-note">暂无外貌与经历记录。</p>')
-            : `<p class="igs-record-relationship-description">${chosen.description ? escapeHtml(chosen.description) : '暂无人物描述。'}</p>${cellsHtml(chosen.detailCells || [])}${chosen.synthetic ? '<p class="igs-record-relationship-note">仅记录了姓名，未提供身份或描述。</p>' : ''}`;
+        const chosenIsHero = chosen ? isHeroPerson(chosen.name) : false;
+        const heroBio = chosenIsHero ? (String(generatedHeroBio || '').trim() || readHeroBio(chosen.name)) : '';
+        let profileHtml = '';
+        if (chosen) {
+            if (chosen.hasProfile) {
+                if (profile.length) {
+                    profileHtml = `<dl class="igs-record-profile">${profile.map(field => `<div><dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.value)}</dd></div>`).join('')}</dl>`;
+                } else if (heroBio) {
+                    profileHtml = `<dl class="igs-record-profile"><div><dt>主角简介</dt><dd>${escapeHtml(heroBio)}</dd></div></dl>`;
+                } else {
+                    profileHtml = chosenIsHero
+                        ? '<p class="igs-record-relationship-note">暂无主角简介（可在酒馆「人设管理」中填写）。</p>'
+                        : '<p class="igs-record-relationship-note">暂无外貌与经历记录。</p>';
+                }
+            } else if (chosen.description || (chosen.detailCells && chosen.detailCells.length)) {
+                profileHtml = `<p class="igs-record-relationship-description">${chosen.description ? escapeHtml(chosen.description) : '暂无人物描述。'}</p>${cellsHtml(chosen.detailCells || [])}`;
+            } else if (chosenIsHero) {
+                profileHtml = heroBio
+                    ? `<dl class="igs-record-profile"><div><dt>主角简介</dt><dd>${escapeHtml(heroBio)}</dd></div></dl>`
+                    : '<p class="igs-record-relationship-note">暂无主角简介（可在酒馆「人设管理」中填写）。</p>';
+            } else {
+                profileHtml = `<p class="igs-record-relationship-description">暂无人物描述。</p>${chosen.synthetic ? '<p class="igs-record-relationship-note">仅记录了姓名，未提供身份或描述。</p>' : ''}`;
+            }
+        }
         return `<div class="igs-record-relationships">` +
             `<section class="igs-record-relationship-stage">${graphHtml}</section>` +
             `<section class="igs-record-people" aria-label="人物索引"><div class="igs-record-people-list">${people.map(person =>
-                `<button type="button" data-record-act="person" data-record-id="${escapeHtml(person.id)}" aria-label="查看${escapeHtml(person.name)}" ${person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-person-avatar" aria-hidden="true">${personInitial(person.name)}</span><span class="igs-record-person-copy"><strong>${escapeHtml(person.name)}</strong></span></button>`).join('')}</div></section>` +
-            `<article class="igs-record-relationship-detail">${chosen ? `${headHtml}${metricsHtml}<section class="igs-record-relationship-section">${profileHtml}</section>` : '<p>请选择人物。</p>'}</article></div>`;
+                `<button type="button" data-record-act="person" data-record-id="${escapeHtml(person.id)}" aria-label="查看${escapeHtml(person.name)}" ${person.id === relationshipPersonId ? 'aria-current="true"' : ''}><span class="igs-record-person-avatar" aria-hidden="true">${personAvatarInner(person.name)}</span><span class="igs-record-person-copy"><strong>${escapeHtml(person.name)}</strong></span></button>`).join('')}</div></section>` +
+            `<article class="igs-record-relationship-detail">${chosen ? `<div class="igs-record-person-top${radarHtml ? ' has-radar' : ''}"><div class="igs-record-person-summary"><div class="igs-record-person-intro${portraitHtml ? ' has-portrait' : ''}">${portraitHtml}<div class="igs-record-person-head-wrap">${headHtml}${summaryMetaHtml}</div></div></div>${radarHtml}</div>${metricsHtml}<section class="igs-record-relationship-section">${profileHtml}</section>` : '<p>请选择人物。</p>'}</article></div>`;
     }
 
     // 变动记录一行：「第N天 · 第M楼　好感 +5　感动」；增为暖色、减为冷色。
@@ -935,7 +1037,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const logBody = !open ? '' : person.log.length
                 ? `<ol class="igs-record-favor-log-list">${shown.map(favorLogLine).join('')}</ol>${!all && person.log.length > FAVOR_LOG_RECENT ? `<button type="button" class="igs-record-favor-log-more" data-record-act="favor-log-all" data-record-id="${escapeHtml(person.name)}">查看全部</button>` : ''}`
                 : '<p class="igs-record-favor-log-empty">暂无变动。</p>';
-            return `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personInitial(person.name)}</span>` +
+            return `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personAvatarInner(person.name)}</span>` +
                 `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong><button type="button" class="igs-record-relation" data-record-act="favor-desc" data-record-id="${escapeHtml(person.name)}" aria-expanded="${favorDesc.has(person.name) ? 'true' : 'false'}" title="${escapeHtml(`${toward}：${label.desc}`)}">${escapeHtml(label.name)}</button></span>` +
                 `<div class="igs-record-favor-bars">${person.metrics.map(metric =>
                     `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b data-tone="${escapeHtml(metric.colorKey || '')}" style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div>` +
@@ -953,7 +1055,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     function favorTableRows() {
         const showSource = (model?.tables || []).length > 1;
         return favorVisible(favorTableOrdered()).map(person =>
-            `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personInitial(person.name)}</span>` +
+            `<div class="igs-record-favor-row" role="listitem"><span class="igs-record-favor-avatar" aria-hidden="true">${personAvatarInner(person.name)}</span>` +
             `<span class="igs-record-favor-who"><strong>${escapeHtml(person.name)}</strong>${showSource ? `<small>${escapeHtml(person.source)}</small>` : ''}</span>` +
             `<div class="igs-record-favor-bars">${person.metrics.map(metric =>
                 `<div class="igs-record-metric"><span>${escapeHtml(metric.label)}</span><i role="img" aria-label="${escapeHtml(metric.label)} ${escapeHtml(metric.display)}"><b style="width:${Math.max(0, Math.min(100, Number(metric.percent) || 0))}%"></b></i><em>${escapeHtml(metric.display)}</em></div>`).join('')}</div></div>`).join('');

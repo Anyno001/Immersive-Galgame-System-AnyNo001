@@ -53,8 +53,10 @@ export function createModelRouteIdentity({ getContext, readConfig, owner = () =>
             providers: settings.openrouter_providers, fallbacks: settings.openrouter_allow_fallbacks } : null;
         const next = fingerprint({ config, route, epoch });
         const nextOwner = owner();
-        const nextRefs = [ctx.generateRaw, ctx.generateQuietPrompt, ctx.ChatCompletionService, ctx.ChatCompletionService?.sendRequest];
-        if (!identity || signature !== next || heldOwner !== nextOwner || nextRefs.some((ref, i) => ref !== refs[i])) {
+        const nextRefs = tavern
+            ? [ctx.generateRaw, ctx.generateQuietPrompt, ctx.ChatCompletionService, ctx.ChatCompletionService?.sendRequest]
+            : [];
+        if (!identity || signature !== next || heldOwner !== nextOwner || nextRefs.length !== refs.length || nextRefs.some((ref, i) => ref !== refs[i])) {
             signature = next; heldOwner = nextOwner; refs = nextRefs;
             identity = Object.freeze({});
         }

@@ -545,3 +545,37 @@ test('P7 v2 独立表：数值与战斗关闭时 Origin 独立恢复和保存，
     assert.equal(runtime2.engine.getState().world, 'v2独立世界');
     assert.equal(runtime2.engine.getState().bag.find(i => i.name === '独立手札')?.count, 2);
 });
+
+test('回归：同聊天读表期间 chatMetadata/chat 引用刷新与空 chatId 冷启动不卡死 origin-database-loading', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const origLoad = h.store.load;
+    let refreshed = false;
+    const game = createHarness({}, { database: () => h.store, wallet: () => 200 });
+    t.after(() => { game.engine.stop(); h.tables.client.dispose(); });
+    // 1. 模拟酒馆在读表/建表期间替换 chatMetadata 和 chat 引用，不应误判 request-stale 卡死
+    h.store.load = async options => {
+        if (!refreshed) {
+            refreshed = true;
+            game.ctx.chatMetadata = { ...game.ctx.chatMetadata };
+            game.ctx.chat = [...game.ctx.chat];
+        }
+        return origLoad(options);
+    };
+    await game.engine.reload();
+    await settleOrigin(game.engine);
+    assert.equal(game.engine.isBlocked(), null);
+    assert.equal(game.engine.recoveryStatus().busy, false);
+    assert.equal(game.state().points, 200);
+
+    // 2. 启动时 chatId 暂时为空不应把 recovery.busy 锁死在 origin-database-loading，进入聊天后自动恢复
+    h.store.load = origLoad;
+    game.ctx.chatId = '';
+    await game.engine.reload();
+    assert.equal(game.engine.recoveryStatus().busy, false);
+    assert.notEqual(game.engine.isBlocked(), 'origin-database-loading');
+    game.ctx.chatId = 'chat-recovered-1';
+    game.engine.getState();
+    await settleOrigin(game.engine);
+    assert.equal(game.engine.isBlocked(), null);
+    assert.equal(game.engine.recoveryStatus().busy, false);
+});

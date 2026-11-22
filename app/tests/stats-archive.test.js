@@ -175,3 +175,99 @@ test('每日冷却扣好感：写入 note 为「冷却」的变动，好感总�
     assert.equal(statsFavorOverview(ledger)[0].log.find((r) => r.note === '冷却').messageId, 4);
     assert.ok(statsArchiveModel(ledger).log.some((r) => r.note === '冷却'));
 });
+
+test('主角与 NPC 卡片：六维雷达图居右上角，主角显示擅长技能且无技能时提供按人设生成入口', async () => {
+    const { JSDOM } = await import('jsdom');
+    const { createRecordPanelController } = await import('../src/visual/igs-ui/record-panel.js');
+    const ledger = createStatsLedger('hero', createStatsState({ skills: [] }));
+    const readers = { readAbilities: () => ({ scores: { str: 6, dex: 11, con: 8, int: 13, wis: 13, cha: 12 }, initialized: true }) };
+    const model = {
+        ...statsArchiveModel(ledger, { engine: createEngine({}, {}, 'dnd5e', readers) }),
+        needsPick: false,
+    };
+    const dashHtml = renderStatsHeroDashboard(model);
+    assert.ok(dashHtml.indexOf('igs-stats-condition') < dashHtml.indexOf('igs-stats-radar-panel'), '设置页当前状态在左，六维雷达图在右上');
+    const emptyCard = renderStatsHeroCard(model);
+    assert.match(emptyCard, /data-action="stats-op:hero-assign"/, '主角技能为空时提供按人设生成擅长按钮');
+    const pickCard = renderStatsHeroCard({ ...model, needsPick: true });
+    assert.match(pickCard, /data-stats-hero-pick[\s\S]*data-action="stats-op:hero-assign"/, '选择擅长技能区提供按人设自动生成按钮');
+
+    // 人际关系页：主角与 NPC 都在卡片右上角渲染六维雷达图，展示默认立绘，且主角无表行时展示酒馆人设简介
+    const dom = new JSDOM('<div id="overlay"><div id="igs-db-layer"></div></div>');
+    const doc = dom.window.document;
+    const globalObj = {
+        SillyTavern: {
+            getContext: () => ({
+                name1: '陈默',
+                powerUserSettings: { persona_description: '二十二岁刚继承老宅的普通青年，性格沉稳内敛。' },
+            }),
+        },
+        AutoCardUpdaterAPI: {
+            exportTableAsJson: () => ({
+                sheet_zhong_yao_jue_se_biao: {
+                    uid: 'sheet_zhong_yao_jue_se_biao',
+                    name: '重要角色表',
+                    content: [
+                        [null, '姓名', '年龄', '外貌', '人际关系'],
+                        ['0', '刘桂芳', '40', '圆盘脸', '陈默:雇主'],
+                    ],
+                },
+            }),
+        },
+    };
+    const attrs = model.attributes;
+    let assignCalls = 0;
+    let portraitReady = false;
+    let notifyPortrait = null;
+    const controller = createRecordPanelController(doc, globalObj, null, {
+        statsProtagonistLookup: () => () => ({
+            metrics: [{ label: '生命', percent: 100, display: '57/57' }],
+            stages: [],
+            sheet: { name: '主角', hero: true, strong: ['察言观色 精通', '话术 熟练'], missing: false },
+            attributes: attrs,
+        }),
+        statsLookup: () => (name) => (name === '刘桂芳' ? {
+            metrics: [{ label: '好感', percent: 15, display: '15' }],
+            stages: [{ label: '关系阶段', value: '初步好感' }],
+            sheet: { name: '刘桂芳', rank: '普通人', strong: ['家务 熟练', '烹饪 熟练'], provisional: false },
+            attributes: attrs,
+        } : { metrics: [], stages: [] }),
+        statsAssignHero: async () => { assignCalls += 1; return { ok: true }; },
+        resolvePersonPortrait: (name) => {
+            if (name === '刘桂芳') return 'data:image/png;base64,TElV';
+            if (name === '陈默' && portraitReady) return 'data:image/png;base64,Q0hFTg==';
+            return '';
+        },
+        subscribePortraits: (handler) => { notifyPortrait = handler; return () => { notifyPortrait = null; }; },
+    });
+    try {
+        controller.open(doc.querySelector('#overlay'), {}, 'relationships');
+        const detail = () => doc.querySelector('.igs-record-relationship-detail')?.innerHTML || '';
+        // 首个选中 NPC「刘桂芳」：右上角雷达图 + 默认立绘 + 擅长
+        assert.match(detail(), /igs-record-person-top has-radar/, 'NPC 卡启用右上角雷达布局');
+        assert.match(detail(), /igs-record-person-radar[\s\S]*igs-stats-radar/, 'NPC 卡右上角渲染六维雷达图');
+        assert.match(detail(), /igs-record-person-portrait[\s\S]*data:image\/png;base64,TElV/, 'NPC 卡渲染默认立绘');
+        assert.match(detail(), /<span>擅长<\/span><strong>家务 熟练、烹饪 熟练<\/strong>/, 'NPC 卡展示擅长技能');
+
+        // 切换到由关系边派生出的主角「陈默」：展示主角简介、擅长技能与右上角雷达图
+        const heroBtn = [...doc.querySelectorAll('[data-record-act="person"]')].find((b) => b.textContent.includes('陈默'));
+        assert.ok(heroBtn);
+        heroBtn.click();
+        assert.match(detail(), /igs-record-person-top has-radar/, '主角卡启用右上角雷达布局');
+        assert.match(detail(), /igs-record-person-radar[\s\S]*igs-stats-radar/, '主角卡右上角渲染六维雷达图');
+        assert.match(detail(), /<span>擅长<\/span><strong>察言观色 精通、话术 熟练<\/strong>/, '主角卡展示擅长技能');
+        assert.match(detail(), /<dt>主角简介<\/dt><dd>二十二岁刚继承老宅的普通青年，性格沉稳内敛。<\/dd>/, '主角卡展示酒馆人设简介');
+        assert.doesNotMatch(detail(), /仅记录了姓名，未提供身份或描述/);
+        assert.doesNotMatch(detail(), /igs-record-person-portrait/, '无默认立绘时不占立绘框');
+
+        // 模拟图库读回主角默认立绘：订阅触发后自动刷新出立绘与头像
+        portraitReady = true;
+        notifyPortrait?.({ reason: 'image-loaded' });
+        assert.match(detail(), /igs-record-person-portrait[\s\S]*data:image\/png;base64,Q0hFTg==/, '图库读回后主角卡自动渲染默认立绘');
+        assert.ok(doc.querySelectorAll('.igs-record-avatar-img').length >= 2, '人物索引与关系图节点同步渲染立绘头像');
+    } finally {
+        controller.close();
+        dom.window.close();
+    }
+    assert.equal(assignCalls, 0);
+});

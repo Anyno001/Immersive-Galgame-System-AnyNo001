@@ -1,18 +1,22 @@
-// 数值系统的阅读器提示条（v2 §6.4、§9.5）：对话框上沿一条小提示，带按钮（快速开始、生成数值、掷骰）。
-// 同时只显示一条，优先级：掷骰 > 新角色 > 开局引导 > 其余说明（说明类显示几秒后自动收起）。样式见 original-reader-source.js。
+// 数值系统的阅读器提示条（v2 §6.4、§9.5）：对话框上沿堆叠提示条，支持主角与 NPC 建档询问/进度并发显示。样式见 original-reader-source.js。
 const PRIORITY = Object.freeze({ roll: 0, recovery: 1, sheets: 1, busy: 1, onboarding: 2, info: 3 });
 const INFO_MS = 5000;
+const MAX_VISIBLE = 4;
+
+export function pickStatsNotices(notices, seen = new Set(), limit = MAX_VISIBLE) {
+    const list = (Array.isArray(notices) ? notices : []).filter((n) => n && (n.kind !== 'info' || !seen.has(`${n.id}:${n.text}`)));
+    list.sort((a, b) => (PRIORITY[a.kind] ?? 9) - (PRIORITY[b.kind] ?? 9) || (a.order ?? 9) - (b.order ?? 9));
+    return list.slice(0, Math.max(1, limit));
+}
 
 export function pickStatsNotice(notices, seen = new Set()) {
-    const list = (Array.isArray(notices) ? notices : []).filter((n) => n && (n.kind !== 'info' || !seen.has(`${n.id}:${n.text}`)));
-    list.sort((a, b) => (PRIORITY[a.kind] ?? 9) - (PRIORITY[b.kind] ?? 9));
-    return list[0] || null;
+    return pickStatsNotices(notices, seen, 1)[0] || null;
 }
 
 export function createStatsChip(options = {}) {
     const timers = options.timers || globalThis;
     const seen = new Set();
-    let timer = null;
+    const infoTimers = new Map();
     let shown = '';
 
     function element(create) {
@@ -27,7 +31,8 @@ export function createStatsChip(options = {}) {
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
                 const button = event.target && event.target.closest ? event.target.closest('[data-stats-act]') : null;
                 if (!button) return;
-                const id = el.getAttribute('data-id') || '';
+                const item = button.closest ? button.closest('.igs-stats-chip-item[data-id]') : null;
+                const id = (item && item.getAttribute('data-id')) || el.getAttribute('data-id') || '';
                 const act = button.getAttribute('data-stats-act') || '';
                 if (typeof options.onAction === 'function') Promise.resolve(options.onAction(id, act)).finally(() => sync());
             });
@@ -36,39 +41,67 @@ export function createStatsChip(options = {}) {
         return el;
     }
 
-    function render(el, notice) {
+    function render(el, list) {
         const doc = el.ownerDocument;
         el.textContent = '';
-        const text = doc.createElement('span');
-        text.className = 'igs-stats-chip-text';
-        text.textContent = notice.text || '';
-        el.appendChild(text);
-        // 动作第三项为布尔时是单选按钮，用 aria-pressed 表示选中（建档方式三选一）。
-        for (const [act, label, pressed] of notice.actions || []) {
-            const b = doc.createElement('button');
-            b.type = 'button';
-            b.className = 'igs-stats-chip-btn';
-            b.setAttribute('data-stats-act', act);
-            if (typeof pressed === 'boolean') b.setAttribute('aria-pressed', String(pressed));
-            b.textContent = label;
-            el.appendChild(b);
+        for (const notice of list) {
+            const row = doc.createElement('div');
+            row.className = 'igs-stats-chip-item';
+            row.setAttribute('data-id', notice.id);
+            row.setAttribute('data-kind', notice.kind || 'info');
+            const text = doc.createElement('span');
+            text.className = 'igs-stats-chip-text';
+            text.textContent = notice.text || '';
+            row.appendChild(text);
+            // 动作第三项为布尔时是单选按钮，用 aria-pressed 表示选中。
+            for (const [act, label, pressed] of notice.actions || []) {
+                const b = doc.createElement('button');
+                b.type = 'button';
+                b.className = 'igs-stats-chip-btn';
+                b.setAttribute('data-stats-act', act);
+                if (typeof pressed === 'boolean') b.setAttribute('aria-pressed', String(pressed));
+                b.textContent = label;
+                row.appendChild(b);
+            }
+            el.appendChild(row);
         }
-        el.setAttribute('data-id', notice.id);
-        el.setAttribute('data-kind', notice.kind || 'info');
+        el.setAttribute('data-id', list[0].id);
+        el.setAttribute('data-kind', list[0].kind || 'info');
     }
 
     function sync() {
         const notices = typeof options.getNotices === 'function' ? options.getNotices() : [];
-        const notice = pickStatsNotice(notices, seen);
-        const el = element(Boolean(notice));
-        if (!el) return Boolean(notice);
-        if (!notice) { el.setAttribute('hidden', ''); shown = ''; return false; }
-        const key = `${notice.id}:${notice.text}:${(notice.actions || []).map((a) => `${a[0]}${a[2] === true ? '*' : ''}`).join(',')}`;
-        if (key !== shown) { render(el, notice); shown = key; }
+        const active = pickStatsNotices(notices, seen);
+        const el = element(active.length > 0);
+        if (!el) return active.length > 0;
+        if (!active.length) {
+            el.setAttribute('hidden', '');
+            shown = '';
+            for (const id of infoTimers.values()) timers.clearTimeout(id);
+            infoTimers.clear();
+            return false;
+        }
+        const key = active.map((notice) => `${notice.id}:${notice.kind || 'info'}:${notice.text}:${(notice.actions || []).map((a) => `${a[0]}${a[2] === true ? '*' : ''}`).join(',')}`).join('\n');
+        if (key !== shown) { render(el, active); shown = key; }
         el.removeAttribute('hidden');
-        if (notice.kind === 'info') {
-            if (timer) timers.clearTimeout(timer);
-            timer = timers.setTimeout(() => { timer = null; seen.add(`${notice.id}:${notice.text}`); sync(); }, INFO_MS);
+        const activeInfoKeys = new Set();
+        for (const notice of active) {
+            if (notice.kind !== 'info') continue;
+            const infoKey = `${notice.id}:${notice.text}`;
+            activeInfoKeys.add(infoKey);
+            if (!infoTimers.has(infoKey)) {
+                infoTimers.set(infoKey, timers.setTimeout(() => {
+                    infoTimers.delete(infoKey);
+                    seen.add(infoKey);
+                    sync();
+                }, INFO_MS));
+            }
+        }
+        for (const [infoKey, timerId] of infoTimers) {
+            if (!activeInfoKeys.has(infoKey)) {
+                timers.clearTimeout(timerId);
+                infoTimers.delete(infoKey);
+            }
         }
         return true;
     }

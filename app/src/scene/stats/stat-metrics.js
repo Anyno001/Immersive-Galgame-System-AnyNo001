@@ -4,8 +4,8 @@
 import { stageOf } from './stat-favor.js';
 import { stageLabel } from './stat-relation-label.js';
 import { DEFAULT_MONEY_TABLE, walletBalance } from './stat-bars.js';
-import { isProtagonist } from './stat-engine.js';
-import { barsOf, grudgeTier } from './stat-state.js';
+import { PROTAGONIST, isProtagonist, profileOf } from './stat-engine.js';
+import { BASE_ATTRIBUTES, barsOf, grudgeTier } from './stat-state.js';
 import { strainBarLook } from './stat-strain.js';
 
 const FAVOR_LABEL_RE = /好感|喜欢|爱意|爱慕|信任|信赖|了解|认知|熟悉|欲望|芥蒂|仇怨|怨恨|关系/;
@@ -129,18 +129,74 @@ export function protagonistStatMetrics(bars, { enabledBars = { stamina: true, st
     return out;
 }
 
+// 角色六维属性（用于人物卡右上角雷达图）：同时支持主角与 NPC，按当前规则体系格式化显示。
+export function characterAttributeAxes(engine, state, actor) {
+    if (!engine || !state) return [];
+    const axes = BASE_ATTRIBUTES.map((name) => {
+        const profile = profileOf(engine, state, actor, name);
+        if (!profile || profile.unavailable || !Number.isFinite(Number(profile.value))) return null;
+        const value = Number(profile.value);
+        let display;
+        if (engine.ruleset && engine.ruleset.ID === 'dnd5e') {
+            const m = engine.ruleset.modOf(value);
+            display = `${engine.ruleset.scoreOf(value)}（${m >= 0 ? '+' : ''}${m}）`;
+        } else {
+            display = String(Math.round(value));
+        }
+        return { name, value, display };
+    });
+    return axes.every(Boolean) ? axes : [];
+}
+
+// 主角擅长项摘要（用于人际关系页主角卡）：展示生效值达到入门（25）的技能，按数值从高到低最多 8 项。
+export function protagonistSheetSummary(engine, state) {
+    if (!engine || !state) return { name: PROTAGONIST, hero: true, strong: [], missing: true };
+    const owned = (state.protagonist && state.protagonist.skills) || {};
+    const names = [...new Set([
+        ...Object.keys(owned),
+        ...Object.keys(engine.protagonistBase || {}),
+        ...Object.keys(engine.protagonistEdit || {}),
+    ])].filter((name) => !BASE_ATTRIBUTES.includes(name) && name !== '理智');
+    const items = names.map((name) => {
+        const profile = profileOf(engine, state, PROTAGONIST, name);
+        if (!profile || (profile.entry && profile.entry.kind !== 'skill')) return null;
+        const value = Math.round(Number(profile.value) || 0);
+        return value >= 25 ? { name, value } : null;
+    }).filter(Boolean).sort((a, b) => b.value - a.value).slice(0, 8);
+    const strong = items.map(({ name, value }) => {
+        if (engine.ruleset && engine.ruleset.ID === 'dnd5e') {
+            const tier = value >= 90 ? '大师' : value >= 75 ? '精通' : value >= 50 ? '熟练' : '入门';
+            return `${name} ${tier}`;
+        }
+        return `${name} ${value}`;
+    });
+    return { name: PROTAGONIST, hero: true, strong, missing: strong.length === 0 };
+}
+
 // 与 createCharacterMetricsLookup 同形；未登记的名字返回空，调用方可按原逻辑退回表格。
-// sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定。
+// sheets：聊天级 NPC 角色卡（v2 §9.3）；有卡时返回 sheet 段：资历、擅长项、是否待定；同步返回六维属性供雷达图展示。
 export function createStatsMetricsLookup(state, { resolve = (name) => name, hudLabel = 'number', nsfw = false, stamina = false, sheets = null, engine = null, favorTier = 'vivid', isRomanceOf = null } = {}) {
     return (name) => {
         const key = state && resolve(String(name || '').trim());
         const c = key && state.characters[key];
-        if (!c) return { metrics: [], stages: [] };
+        const hasSheet = Boolean(key && sheets && sheets[key]);
+        if (!c && !hasSheet) return { metrics: [], stages: [] };
         const out = {
-            metrics: characterStatMetrics(c, { hudLabel, nsfw, stamina, favorTier }),
-            stages: [{ label: '关系阶段', value: isRomanceOf ? stageLabel(c.dims.好感, isRomanceOf(c, key)) : stageOf(c.dims.好感).name }],
+            metrics: c ? characterStatMetrics(c, { hudLabel, nsfw, stamina, favorTier }) : [],
+            stages: c ? [{ label: '关系阶段', value: isRomanceOf ? stageLabel(c.dims.好感, isRomanceOf(c, key)) : stageOf(c.dims.好感).name }] : [],
         };
         if (sheets) out.sheet = sheetSummary(key, sheets[key], engine);
+        if (engine) {
+            const attributes = characterAttributeAxes(engine, state, key);
+            if (attributes.length === BASE_ATTRIBUTES.length) {
+                out.attributes = attributes;
+                let initialized = hasSheet;
+                if (!initialized && typeof engine.readAbilities === 'function') {
+                    try { initialized = engine.readAbilities(key)?.initialized === true; } catch { /* */ }
+                }
+                if (!initialized) out.attributesRelative = true;
+            }
+        }
         return out;
     };
 }
@@ -166,7 +222,16 @@ export function preferStatsLookup(statsLookup, tableLookup) {
     return (name) => {
         const own = stats(name);
         if (own && own.metrics && own.metrics.length) return own;
-        try { return table(name) || empty(); } catch (error) { return empty(); }
+        let fromTable = empty();
+        try { fromTable = table(name) || empty(); } catch (error) { fromTable = empty(); }
+        if (own && (own.sheet || (own.attributes && own.attributes.length))) {
+            return {
+                ...fromTable,
+                ...(own.sheet ? { sheet: own.sheet } : {}),
+                ...(own.attributes ? { attributes: own.attributes, ...(own.attributesRelative ? { attributesRelative: true } : {}) } : {}),
+            };
+        }
+        return fromTable;
     };
 }
 

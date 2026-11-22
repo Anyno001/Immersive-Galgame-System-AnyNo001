@@ -40,7 +40,7 @@ export function createGenerationTasks({ capture, onSlow = () => {}, slowMs = 600
             check() { if (!job.alive()) throw staleError(); },
             onFinish(fn) { cleanups.add(fn); return () => cleanups.delete(fn); },
             guard(fn) { guards.add(fn); job.check(); },
-            async request(request, prompt, ms = slowMs) {
+            async request(request, prompt, ms = slowMs, options = {}) {
                 job.check();
                 job.stage = 'request';
                 const slow = () => {
@@ -50,8 +50,13 @@ export function createGenerationTasks({ capture, onSlow = () => {}, slowMs = 600
                 };
                 const timer = setTimeout(slow, ms);
                 try {
-                    const reply = await request(prompt, { signal: job.signal, shouldStart: job.alive, onSlow: slow,
-                        guard: job.guard });
+                    const reply = await request(prompt, {
+                        signal: job.signal,
+                        shouldStart: job.alive,
+                        onSlow: slow,
+                        guard: job.guard,
+                        ...(typeof options?.onRetry === 'function' ? { onRetry: options.onRetry } : {}),
+                    });
                     job.check();
                     job.stage = 'parse';
                     return reply;

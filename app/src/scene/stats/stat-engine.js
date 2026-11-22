@@ -107,9 +107,9 @@ export function heroSkillLevel(engine, owned, skill) {
     const edit = engine && engine.protagonistEdit && engine.protagonistEdit[skill];
     const own = Number(owned && owned.value) || 0;
     if (edit && Number(edit.value) > 0) return clamp(Math.round(Number(edit.value) + Math.max(0, own - (Number(edit.from) || 0))), 1, 99);
-    if (own > 0) return own;
-    const base = Number(engine && engine.protagonistBase && engine.protagonistBase[skill]);
-    return base > 0 ? base : null;
+    const base = Number(engine && engine.protagonistBase && engine.protagonistBase[skill]) || 0;
+    if (own > 0 || base > 0) return Math.max(own, base);
+    return null;
 }
 
 // 随身系统同名属性加成（百分制）：readers.readBonus() 返回 [{ name, val }] 或 null，只读。

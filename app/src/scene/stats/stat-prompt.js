@@ -13,7 +13,21 @@ import { fameLines, fameTagLines } from './stat-fame.js';
 import { hasStatus, STATUS_TAG_LINE, statusPromptLines } from './stat-status.js';
 import { BREAK_TAG_LINE, OBSESSED_NOTE, STRESS_EXTREME, STRESS_SOURCE_TAG_LINE, strainSentence, stressLimitActive } from './stat-strain.js';
 import { applyCombatRuleModifiers, COMBAT_GROWTH_LINES, COMBAT_RULE_HEAD, COMBAT_STORY_LINES, COMBAT_SYNTAX_LINES } from '../combat-prompt.js';
-import { DEFAULT_HERO_INIT_PROMPT } from './stat-hero-init.js';
+
+const RETIRED_HERO_INIT_PROMPT_V1 = [
+    '你为一段角色扮演初始化主角的基础数值与剧情货币。只输出一个 JSON 对象，不要代码块、解释或其他文字。',
+    '按本次「需要补齐的项目」输出对应字段；已有项目不要改写，不需要输出战斗职业、卡组或物品。',
+    '- attributes（六维对象）：包含 力量、敏捷、体质、智力、感知、魅力 六项，值为 3–18 的整数（普通人约 10，弱项 6–9，擅长 12–16，顶尖 17–18），按主角人设、世界观与剧情给出。',
+    '- currency（剧情货币对象）：{ "name": "货币名(1-6字，不可为积分)", "initial": 主角开局持有整数, "prices": { "少量": 整数, "普通": 整数, "昂贵": 整数, "巨额": 整数 }, "rate": 1积分可兑换多少货币(0.01-100) }；四档价格须逐档递增，开局金额不超过「巨额」的 10 倍。',
+].join('\n');
+
+export const DEFAULT_HERO_INIT_PROMPT = [
+    '你为一段角色扮演初始化主角的基础数值、简介与剧情货币。只输出一个 JSON 对象，不要代码块、解释或其他文字。',
+    '按本次「需要补齐的项目」输出对应字段；已有项目不要改写，不需要输出战斗职业、卡组或物品。',
+    '- attributes（六维对象）：包含 力量、敏捷、体质、智力、感知、魅力 六项，值为 3–18 的整数（普通人约 10，弱项 6–9，擅长 12–16，顶尖 17–18），按主角人设、世界观与剧情给出。',
+    '- currency（剧情货币对象）：{ "name": "货币名(1-6字，不可为积分)", "initial": 主角开局持有整数, "prices": { "少量": 整数, "普通": 整数, "昂贵": 整数, "巨额": 整数 }, "rate": 1积分可兑换多少货币(0.01-100) }；四档价格须逐档递增，开局金额不超过「巨额」的 10 倍。',
+    '- bio（主角简介字符串）：结合主角人设、世界观与开场剧情，用 1–3 句简洁中文概括主角的身份、性格、外貌特征或当前处境（不超过 120 字，不写具体数值）。',
+].join('\n');
 
 export const STAT_PROMPT_SEGMENTS = Object.freeze(['protagonist', 'fame', 'perception', 'present', 'status', 'check', 'dice', 'tags', 'combat', 'party', 'mandates']);
 // 后台请求的提示词（主角初始化、NPC 角色卡生成、批量补全等）：可编辑，不参与注入开关。
@@ -28,6 +42,7 @@ export const STAT_PROMPT_OVERWRITE_MIGRATIONS = Object.freeze({
 export const STAT_STALE_PROMPT_KEYS = Object.freeze(['roll', 'rollManual', 'protagonist']);
 // 已退役的旧默认原文：设置里存着与它们一字不差的文本时视同未改，跟随新默认。
 export const RETIRED_STAT_PROMPTS = Object.freeze({
+    heroInit: Object.freeze([RETIRED_HERO_INIT_PROMPT_V1]),
     sheetGen: Object.freeze([
         '你是跑团数值设计。按角色资料给每个角色分配数值，只输出档位词，不输出任何数字。\n属性档：很弱、偏弱、普通、出众、顶尖（非人可用「超凡」），属性写 力量、敏捷、体质、智力、感知、魅力 与 理智。技能：从可用技能里按人设选「擅长」3 项、「比较擅长」5 项，其余技能不写。资历：普通人、老手、精英、大师、传奇。\n属性只列与「普通」不同的项。招牌技能最多 3 个，可以是清单外的新技能，并写所属属性（力量、敏捷、体质、智力、感知、魅力之一）。\n只输出 JSON：{"角色名":{"资历":"","属性":{"属性名":"档"},"擅长":["技能名"],"比较擅长":["技能名"],"招牌技能":[{"名":"","属性":""}]}}',
     ]),

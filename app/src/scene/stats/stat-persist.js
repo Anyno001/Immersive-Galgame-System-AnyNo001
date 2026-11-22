@@ -104,7 +104,7 @@ export function sheetDropsOf(records) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, expenses: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, heroBio: '', intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, expenses: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -141,6 +141,7 @@ export function sanitizeCatalog(raw) {
     out.heroAssigned = raw.heroAssigned === true;
     // 新聊天选过擅长技能（3+5）后为真，「我的角色」不再显示选择区。
     out.heroPicked = raw.heroPicked === true;
+    out.heroBio = typeof raw.heroBio === 'string' ? raw.heroBio.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').trim().slice(0, 240) : '';
     // 3+5 每格占的技能 { strong1: 名, … good5: 名 }；旧存档没有该字段（null），由运行时按已学技能回填。
     if (plainObject(raw.heroSlots)) {
         out.heroSlots = {};

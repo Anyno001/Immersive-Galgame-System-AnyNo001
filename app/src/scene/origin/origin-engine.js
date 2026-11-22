@@ -165,9 +165,10 @@ export function createOriginEngine(host) {
             walletValue = 0;
             try { readiness = host.databaseReadiness?.() || null; } catch { readiness = null; }
             const source = readiness || database;
-            if (offs.length && typeof source.subscribe === 'function') {
+            if ((offs.length || settings().enabled) && typeof source.subscribe === 'function') {
                 try { databaseOff = source.subscribe(onDatabaseUpdated); } catch { /* 手动重试仍可用 */ }
             }
+            if (!chatId) return Promise.resolve(databaseWaiting('origin-no-chat'));
             if (pendingSave) return Promise.resolve(databaseFailure({ reason: 'origin-save-pending' }));
             return loadDatabase();
         }
@@ -195,7 +196,8 @@ export function createOriginEngine(host) {
         remember();
     }
     function ensure() {
-        if (!ledger || idOf(ctx()) !== chatId || (!pendingSave && databaseOf() !== database)) load();
+        if (!ledger || idOf(ctx()) !== chatId || (!pendingSave && databaseOf() !== database)
+            || (database && blocked === 'origin-no-chat' && Boolean(idOf(ctx())))) load();
     }
     // 不主动 saveChat：只把账本写进 chatMetadata，落盘交给宿主的防抖保存。
     function persist() {
@@ -266,14 +268,12 @@ export function createOriginEngine(host) {
     function databaseLease() {
         const owner = ctx();
         const id = idOf(owner);
-        const messages = owner?.chat;
-        const metadata = metaOf(owner);
         const epoch = databaseEpoch;
         const store = database;
         return () => {
             const current = ctx();
-            return Boolean(id) && settings().enabled && idOf(current) === id && current?.chat === messages
-                && metaOf(current) === metadata && databaseEpoch === epoch && databaseOf() === store;
+            return Boolean(id) && settings().enabled && idOf(current) === id
+                && databaseEpoch === epoch && databaseOf() === store;
         };
     }
     function pathLease(allowAppend = false) {
@@ -336,7 +336,7 @@ export function createOriginEngine(host) {
         };
         databaseTail.then(run, run).catch(() => {});
     }
-    const transientDatabaseRead = (result) => result?.reason === 'combat-table-not-ready';
+    const transientDatabaseRead = (result) => ['combat-table-not-ready', 'combat-table-runtime-not-ready', 'not-ready', 'missing-api'].includes(result?.reason);
     function setRecovery(value) {
         recovery = value;
         emit('recovery');
@@ -360,15 +360,23 @@ export function createOriginEngine(host) {
         if (databaseLoadTask) return databaseLoadTask.promise;
         chatId = idOf(ctx());
         cache = null;
+        if (!chatId) return Promise.resolve(databaseWaiting('origin-no-chat'));
         blocked = 'origin-database-loading';
         databaseReadBlocked = false;
         remember();
+        const epoch = databaseEpoch;
         const alive = databaseLease();
         const store = database;
         const task = { promise: null };
         databaseLoadTask = task;
+        const finishStale = () => {
+            if (databaseEpoch === epoch && blocked === 'origin-database-loading') {
+                setRecovery({ stage: 'read', status: 'failed', reason: 'request-stale', busy: false });
+            }
+            return { ok: false, reason: 'request-stale' };
+        };
         const run = async () => {
-            if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (!alive()) return finishStale();
             if (readiness) {
                 const probe = readiness.read();
                 if (probe.status === 'waiting') return databaseWaiting(probe.reason);
@@ -376,7 +384,7 @@ export function createOriginEngine(host) {
             }
             setRecovery({ stage: 'read', status: 'loading', reason: blocked, busy: true });
             let read = await store.load({ shouldStart: alive });
-            if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (!alive()) return finishStale();
             if (!read.ok) {
                 if (transientDatabaseRead(read)) return databaseWaiting(read.reason);
                 return databaseFailure(read, 'read');
@@ -388,14 +396,14 @@ export function createOriginEngine(host) {
                 if (!restored.ok) return databaseFailure(restored, 'read');
                 const intent = store.prepare(read, databaseRaw());
                 read = await store.commit(intent, { shouldStart: alive });
-                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (!alive()) return finishStale();
                 if (!read.ok) { ledger = createLedger(chatId); cache = null; return databaseFailure(read, 'read'); }
             }
             const restored = adoptDatabase(read.raw);
             if (!restored.ok) return databaseFailure(restored, 'read');
             databaseState = read;
             const wallet = await readWallet();
-            if (!alive()) return { ok: false, reason: 'request-stale' };
+            if (!alive()) return finishStale();
             if (!wallet.ok && !wallet.pending) {
                 return databaseFailure(wallet, 'read');
             }
@@ -407,8 +415,13 @@ export function createOriginEngine(host) {
             return { ok: true };
         };
         task.promise = databaseTail.then(run, run).catch(() => alive()
-            ? databaseFailure({ reason: 'origin-database-load-failed' }, 'read') : { ok: false, reason: 'request-stale' })
-            .finally(() => { if (databaseLoadTask === task) databaseLoadTask = null; });
+            ? databaseFailure({ reason: 'origin-database-load-failed' }, 'read') : finishStale())
+            .finally(() => {
+                if (databaseLoadTask === task) databaseLoadTask = null;
+                if (databaseEpoch === epoch && blocked === 'origin-database-loading' && recovery.busy) {
+                    setRecovery({ stage: 'read', status: 'failed', reason: 'origin-database-read-failed', busy: false });
+                }
+            });
         databaseTail = task.promise;
         return task.promise;
     }

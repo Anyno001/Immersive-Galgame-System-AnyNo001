@@ -175,7 +175,9 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     for (const [name, value] of Object.entries(clean.protagonistBase)) map.set(`base:${name}`, value);
     for (const [name, value] of Object.entries(clean.protagonistEdit)) map.set(`edit:${name}`, value);
     if (clean.heroAssigned) map.set('hero:assigned', true);
+    if (clean.heroPicked) map.set('hero:picked', true);
     if (clean.heroSlots) map.set('hero:slots', clean.heroSlots);
+    if (clean.heroBio) map.set('hero:bio', clean.heroBio);
     // 豁免亲密门槛已并入 trait:名（键 forced）；force: 键只在读档时兼容旧记录，不再写。
     for (const [name, level] of Object.entries(clean.aptitude)) map.set(`aptitude:${name}`, level);
     for (const [name, marks] of Object.entries(clean.traits)) map.set(`trait:${name}`, marks);
@@ -244,7 +246,9 @@ export function restoreChat(map) {
         else if (prefix === 'base') raw.protagonistBase[name] = value;
         else if (prefix === 'edit') raw.protagonistEdit[name] = value;
         else if (prefix === 'hero' && name === 'assigned') raw.heroAssigned = value === true;
+        else if (prefix === 'hero' && name === 'picked') raw.heroPicked = value === true;
         else if (prefix === 'hero' && name === 'slots') raw.heroSlots = value;
+        else if (prefix === 'hero' && name === 'bio') raw.heroBio = value;
         else if (prefix === 'queue' && (name === 'skills' || name === 'people')) raw.queue[name] = value;
         else if (prefix === 'notified') raw.notified = value;
         else if (prefix === 'traitinit') raw.traitInit = value;

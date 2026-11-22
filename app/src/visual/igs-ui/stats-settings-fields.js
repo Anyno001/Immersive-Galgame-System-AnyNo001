@@ -268,19 +268,23 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
 // 「我的角色」已开始时的角色卡：新聊天先选擅长技能；数值区为六维雷达、生命/体力/压力条与积分、剧情货币分栏；技能与六维同一种数值格。
 export function renderStatsHeroCard(model, advancedOpen = () => '', build = null) {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
-    // 新聊天还没选擅长技能：选择区放在最前，确定后不再显示。
+    // 新聊天还没选擅长技能：选择区放在最前，同时提供「按人设自动生成」，确定或生成后不再显示。
     const pick = model.needsPick
         ? `<div class="igs-settings-section" data-stats-hero-pick><div class="igs-source-filter-title">选择擅长技能</div>${renderSkillPicks(build, model.ruleset)}`
-            + `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-pick" type="button"${pickSummary(build).ok ? '' : ' disabled'}>确定</button></div></div>`
+            + `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-pick" type="button"${pickSummary(build).ok ? '' : ' disabled'}>确定</button>`
+            + `<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设自动生成</button></div></div>`
         : '';
     const cell = statCell;
     // 技能与六维同一种数值格，一项一格；✓ 跟在技能名后。
     const skillCells = [...model.skills].sort((a, b) => b.value - a.value).map((s) => cell(`${s.name}${s.marked ? ' ✓' : ''}`, s.display ?? String(Math.round(s.value)))).join('');
-    const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>` : '<div class="igs-source-filter-note">无</div>';
+    const skills = skillCells ? `<div class="igs-stats-hero-grid is-skills">${skillCells}</div>`
+        : (model.needsPick ? '<div class="igs-source-filter-note">无（请在上方选择或点击按人设自动生成）</div>'
+            : '<div class="igs-source-filter-note">暂无擅长技能，可按人设自动生成，或在下方「高级」里手动挑选。</div><div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设生成擅长</button></div>');
     const d20 = model.ruleset === 'dnd5e' && skillCells ? '技能数值为检定加值，掷二十面骰后加上此值。' : '';
     // 技能与六维同一种数值格；编辑全部收在下方「高级」里。✓ 表示今天有成长机会，提示放在标题的 title 里。
     const skillHead = sectionHead('技能', `<em class="is-inline">${model.skills.length}</em>`,`✓ 表示今天有成长机会${d20 ? `。${d20}` : ''}`);
-    return pick + `<div class="igs-settings-section igs-stats-sec" data-stats-numbers>${sectionHead('数值')}${renderStatsHeroDashboard(model)}</div>`
+    const bio = model.heroBio ? `<div class="igs-source-filter-note" data-stats-hero-bio>${esc(model.heroBio)}</div>` : '';
+    return pick + `<div class="igs-settings-section igs-stats-sec" data-stats-numbers>${sectionHead('数值')}${bio}${renderStatsHeroDashboard(model)}</div>`
         + `<div class="igs-settings-section igs-stats-sec" data-stats-skills>${skillHead}${skills}</div>`;
 }
 

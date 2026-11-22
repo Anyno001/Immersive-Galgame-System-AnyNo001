@@ -10,7 +10,7 @@ const point = (i, radius) => {
 };
 const polygon = (radii) => radii.map((r, i) => point(i, r).join(',')).join(' ');
 
-function radar(attributes = []) {
+export function renderStatsRadar(attributes = [], { compact = false } = {}) {
     const axes = BASE_ATTRIBUTES.map((name) => attributes.find((a) => a.name === name));
     if (axes.some((axis) => !axis || !Number.isFinite(axis.value))) {
         return `<div class="igs-stats-empty">${attributes.length ? attributes.map((a) => `${esc(a.name)} ${esc(a.display)}`).join(' · ') : '暂无属性'}</div>`;
@@ -27,7 +27,7 @@ function radar(attributes = []) {
         const [dx, dy] = point(i, values[i]);
         return `<circle class="igs-stats-radar-dot" cx="${dx}" cy="${dy}" r="3"/><text x="${x}" y="${y}" text-anchor="middle"><tspan class="igs-stats-radar-name">${esc(a.name)}</tspan><tspan class="igs-stats-radar-value" x="${x}" dy="16">${esc(a.display)}</tspan></text>`;
     }).join('');
-    return `<svg class="igs-stats-radar" viewBox="0 0 280 252" role="img" aria-label="六维属性：${esc(label)}">${rings}${spokes}<polygon class="igs-stats-radar-fill" points="${polygon(values)}"/>${labels}</svg>`;
+    return `<svg class="igs-stats-radar${compact ? ' is-compact' : ''}" viewBox="0 0 280 252" role="img" aria-label="六维属性：${esc(label)}">${rings}${spokes}<polygon class="igs-stats-radar-fill" points="${polygon(values)}"/>${labels}</svg>`;
 }
 
 function meter(label, value, max, kind) {
@@ -62,6 +62,6 @@ export function renderStatsHeroDashboard(model) {
     // 天数挂在「当前状态」标题行右端，不单独占一行。
     const day = model.day != null ? `<span class="igs-stats-day">第 ${number(model.day)} 天</span>` : '';
     return `<div class="igs-stats-dash">`
-        + `<div class="igs-stats-overview"><div class="igs-stats-radar-panel"><h4>六维属性</h4>${radar(model.attributes)}</div>`
-        + `<div class="igs-stats-condition"><div class="igs-stats-resources"><h4 class="igs-stats-resources-head">当前状态${day}</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}${wallet}</div></div></div></div>`;
+        + `<div class="igs-stats-overview"><div class="igs-stats-condition"><div class="igs-stats-resources"><h4 class="igs-stats-resources-head">当前状态${day}</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}${wallet}</div></div>`
+        + `<div class="igs-stats-radar-panel"><h4>六维属性</h4>${renderStatsRadar(model.attributes)}</div></div></div>`;
 }

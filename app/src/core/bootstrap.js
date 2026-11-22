@@ -1086,7 +1086,9 @@ export function bootstrapIGS(options = {}) {
             return (prompt, task = {}) => secondaryLlm.request({ system: prompt.system, user: prompt.user }, {
                 ...llm,
                 ...(task.signal && { signal: task.signal }),
+                ...(typeof task.shouldStart === 'function' && { shouldStart: task.shouldStart }),
                 ...(typeof task.onSlow === 'function' && { onSlow: task.onSlow }),
+                ...(typeof task.onRetry === 'function' && { onRetry: task.onRetry }),
             });
         },
         describePeople: describeStatsPeople,

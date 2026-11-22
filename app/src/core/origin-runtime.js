@@ -9,8 +9,20 @@ import { createModelRouteIdentity } from '../host/model-route-identity.js';
 import { createPointsEngine } from '../scene/points/points-engine.js';
 import { createPointsIntents } from '../storage/points-intents.js';
 
+import { DEFAULT_SECONDARY_LLM_RETRIES, DEFAULT_SECONDARY_LLM_RETRY_DELAY_MS, isRetryableSecondaryLlmError } from '../host/secondary-llm.js';
+
 // 核心的通知类别 → 阅读器细线的级别。
 const NOTICE_LEVEL = Object.freeze({ warn: 'warn', info: 'info' });
+
+function waitOriginRetry(ms, signal) {
+    if (signal?.aborted) return Promise.resolve(false);
+    if (!(ms > 0)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+        const onAbort = () => { clearTimeout(timer); resolve(false); };
+        const timer = setTimeout(() => { signal?.removeEventListener?.('abort', onAbort); resolve(true); }, ms);
+        signal?.addEventListener?.('abort', onAbort, { once: true });
+    });
+}
 
 function externalPoints(value) {
     if (!value?.ok) return value || { ok: false, reason: 'origin-wallet-unavailable' };
@@ -78,7 +90,7 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
         if (task.signal?.aborted || task.shouldStart?.() === false) throw stale();
     };
 
-    async function viaTavern(prompt, task) {
+    async function viaTavernOnce(prompt, task) {
         const c = ctx();
         if (!c) throw new Error('酒馆上下文不可用');
         if (task.signal?.aborted || task.shouldStart?.() === false) throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
@@ -87,6 +99,29 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
         }
         if (typeof c.generateRaw === 'function') return String(await c.generateRaw({ prompt }) || '');
         throw new Error('当前酒馆不支持后台生成');
+    }
+
+    async function viaTavern(prompt, task) {
+        const maxRetries = Number.isInteger(task.retries) && task.retries >= 0 ? task.retries : DEFAULT_SECONDARY_LLM_RETRIES;
+        const delayMs = Number.isFinite(Number(task.retryDelayMs)) && Number(task.retryDelayMs) >= 0
+            ? Number(task.retryDelayMs) : DEFAULT_SECONDARY_LLM_RETRY_DELAY_MS;
+        let attempt = 0;
+        while (true) {
+            try {
+                return await viaTavernOnce(prompt, task);
+            } catch (error) {
+                if (task.signal?.aborted || task.shouldStart?.() === false || error?.reason === 'request-stale') throw stale();
+                const msg = String(error?.message || '');
+                if (attempt >= maxRetries || !isRetryableSecondaryLlmError(error) || /酒馆上下文不可用|当前酒馆不支持后台生成/.test(msg)) {
+                    throw error;
+                }
+                attempt += 1;
+                try { task.onRetry?.({ attempt, maxRetries, delayMs, reason: error?.reason || '', status: error?.status }); } catch { /* */ }
+                try { console.info(`[IGS 随身系统] 酒馆后台生成失败，${Math.round(delayMs / 1000)} 秒后第 ${attempt}/${maxRetries} 次重试`); } catch { /* */ }
+                const waited = await waitOriginRetry(delayMs, task.signal);
+                if (!waited || task.signal?.aborted || task.shouldStart?.() === false) throw stale();
+            }
+        }
     }
 
     // 设置快照引用不变就复用上次规范化的结果：核心按引用缓存 fillSettings，每次给新对象会让它每次都重新序列化比对。
@@ -192,7 +227,13 @@ export function createOriginRuntime({ getContext, readSettings, readLlm, readPro
             // 备用模型直接发请求，不触发酒馆生成事件，不必标后台；标了反而会让这期间用户正常发的消息漏掉注入。
             try {
                 const reply = route.via === 'llm' && secondaryLlm
-                    ? await secondaryLlm.request({ system: '', user: prompt }, { ...route.llm, signal: task.signal, onSlow: task.onSlow })
+                    ? await secondaryLlm.request({ system: '', user: prompt }, {
+                        ...route.llm,
+                        signal: task.signal,
+                        shouldStart: task.shouldStart,
+                        onSlow: task.onSlow,
+                        onRetry: task.onRetry,
+                    })
                     : await runBackgroundGeneration(() => viaTavern(prompt, task));
                 await verify();
                 return reply;

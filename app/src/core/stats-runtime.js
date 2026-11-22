@@ -27,7 +27,7 @@ import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.
 import { pushStats, readSkillAdoptions, readTableAdoptions, withTimeout } from '../data/shujuku/stats-push.js';
 import { statsPushActive } from '../data/shujuku/igs-managed.js';
 import { canonicalAttribute, isSixAttribute } from '../data/shujuku/skill-table.js';
-import { characterStatMetrics, createStatsMetricsLookup, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
+import { characterAttributeAxes, characterStatMetrics, createStatsMetricsLookup, protagonistSheetSummary, protagonistStatMetrics } from '../scene/stats/stat-metrics.js';
 import { FAME_BAR_MAX, buildFameFillPrompt, fameDraftText, fameHudMetrics, famePairs, fameRows, fameTemplateBar, fameTier, fameValue, parseFameDraft, parseFameFill } from '../scene/stats/stat-fame.js';
 import { stageLabel } from '../scene/stats/stat-relation-label.js';
 import { swipeTextOf } from '../scene/stats/stat-log.js';
@@ -267,17 +267,21 @@ export function createStatsRuntime({
         return forced;
     };
     const active = () => Boolean(settings().enabled && chatEnabled && ledger);
+    const VISIBLE_BUSY_TASKS = new Set(['sheets', 'hero-skills', 'start-relations']);
     const generationTasks = createGenerationTasks({
         capture: () => {
             const owner = ctx();
             const id = chatIdOf(owner);
-            const chat = messages(owner);
-            const metadata = owner?.chatMetadata || owner?.chat_metadata;
             const identity = generationIdentity();
-            return () => Boolean(id) && settings().enabled && chatIdOf(ctx()) === id && messages(ctx()) === chat
-                && (ctx()?.chatMetadata || ctx()?.chat_metadata) === metadata && generationIdentity() === identity;
+            return () => Boolean(id) && settings().enabled && chatIdOf(ctx()) === id && generationIdentity() === identity;
         },
-        onSlow: job => setNotice(job.key, { kind: 'busy', text: '仍在等待同一次模型请求，请勿重复提交', slow: true }),
+        onSlow: job => {
+            if (VISIBLE_BUSY_TASKS.has(job.key)) {
+                setNotice(job.key, { kind: 'busy', text: '仍在等待同一次模型请求，请勿重复提交', slow: true });
+            } else {
+                diag('stats-generation-slow', { key: job.key });
+            }
+        },
         slowMs: BACKGROUND_TIMEOUT_MS,
     });
     function invalidateGenerations() {
@@ -292,6 +296,10 @@ export function createStatsRuntime({
     function checkGeneration(job) {
         job.check();
         if (!active()) throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
+        if (typeof job.conflictCheck === 'function') {
+            if (!job.conflictCheck()) throw Object.assign(new Error('stats-generation-conflict'), { reason: 'stats-generation-conflict' });
+            return;
+        }
         if (job.revision !== undefined && job.revision !== JSON.stringify(catalog)) throw Object.assign(new Error('stats-generation-conflict'), { reason: 'stats-generation-conflict' });
         if (job.sourceRevision !== undefined && job.sourceRevision !== generationRevision())
             throw Object.assign(new Error('stats-generation-conflict'), { reason: 'stats-generation-conflict' });
@@ -299,6 +307,16 @@ export function createStatsRuntime({
     const generationSave = createStatsGenerationSave({
         intents: generationIntents, tables: () => tables(), chatId: () => chatIdOf(ctx()),
     });
+    // 生成类提交队列：只串行极短的落库临界区，不阻塞主角/NPC 并发模型请求，也不会因另一方正在提交而误报 pending。
+    let generationCommitTail = Promise.resolve();
+    let generationCommitActive = 0;
+    let sheetsDeferredByGenerating = false;
+    function enqueueGenerationCommit(fn) {
+        generationCommitActive += 1;
+        const run = generationCommitTail.then(fn, fn);
+        generationCommitTail = run.then(() => {}, () => {});
+        return run.finally(() => { generationCommitActive -= 1; });
+    }
     const life = () => { try { return combatSource() || null; } catch (error) { return null; } };
     // 未注入聊天档案的旧嵌入端仍使用其自带的读取口；生产读取失败不退回旧卡。
     const attributes = () => attributeAccess ? attributeAccess().source() : life();
@@ -784,6 +802,12 @@ export function createStatsRuntime({
                 const adv = saveStage({ stage: 'done' });
                 if (!adv.ok) return adv;
             }
+            // 阶段 4.5：写入主角简介（不覆盖已有简介，独立键值不锁 NPC 或技能写入）
+            if (intent.bio && !String(catalog.heroBio || '').trim() && alive()) {
+                catalog = sanitizeCatalog({ ...catalog, heroBio: intent.bio });
+                persist([], { shouldStart: alive });
+                await tail;
+            }
             // 阶段 5：清除意图并恢复其余待完成写口
             const cleared = heroInitIntents.save(chatId, null);
             if (!cleared.ok) return { ok: false, stage: 'recover', reason: cleared.reason };
@@ -842,8 +866,18 @@ export function createStatsRuntime({
             try { people = typeof describePeople === 'function' ? await describePeople(names) : []; } catch { /* 仅使用现有剧情 */ }
             if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
             let extraCtx = {};
-            try { extraCtx = typeof readSheetContext === 'function' ? (await readSheetContext([heroName])) || {} : {}; } catch { extraCtx = {}; }
+            try {
+                if (typeof readSheetContext === 'function') {
+                    const c = ctx();
+                    let picked = '';
+                    try { picked = String(userCharacter() || '').trim(); } catch { picked = ''; }
+                    const protagonistCards = [...new Set([picked, c?.name2, ...(Array.isArray(c?.groupMembers) ? c.groupMembers : [])]
+                        .map((name) => String(name || '').trim()).filter((name) => name && isHero(name)))];
+                    extraCtx = (await readSheetContext({ names: [heroName], protagonists: [heroName], protagonistCards })) || {};
+                }
+            } catch { extraCtx = {}; }
             if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
+            const needBio = !String(catalog.heroBio || '').trim();
             const prompt = buildHeroInitRequest({
                 protagonist: heroName,
                 worldview: view?.label || '',
@@ -853,6 +887,7 @@ export function createStatsRuntime({
                 people,
                 needAttributes,
                 needCurrency,
+                needBio,
                 existingCurrency: currency,
             }, { prompt: settings().prompts.heroInit });
             progress('request');
@@ -866,7 +901,15 @@ export function createStatsRuntime({
             try {
                 reply = await Promise.race([stopped, Promise.resolve().then(() => {
                     if (!requestAlive() || signal.aborted) throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
-                    return request(prompt, { signal, onSlow: () => progress('request', true) });
+                    return request(prompt, {
+                        signal,
+                        shouldStart: requestAlive,
+                        onSlow: () => progress('request', true),
+                        onRetry: ({ attempt, maxRetries }) => {
+                            if (!requestAlive() || currencyJob !== job) return;
+                            setNotice('currency', { kind: 'busy', ...currencyProgress, text: `正在重试主角初始化（第 ${attempt}/${maxRetries} 次）` });
+                        },
+                    });
                 })]);
             } catch (error) {
                 return heroInitRequestFailure(error);
@@ -923,6 +966,7 @@ export function createStatsRuntime({
                 attributes: finalNeedAttributes ? parsed.attributes : null,
                 attributeRecordId: finalNeedAttributes ? `hero-base|${heroKey}|${operationId}` : null,
                 currency: finalNeedCurrency ? { ...parsed.currency.config, initial: parsed.currency.initial } : null,
+                bio: parsed.bio || '',
                 seed: null,
                 createdAt,
             };
@@ -936,6 +980,7 @@ export function createStatsRuntime({
             if (currencyJob === job) currencyJob = null;
             const outcome = current ? { ...result, stage: result?.stage || job.stage } : { ok: false, reason: 'request-stale', stage: job.stage };
             if (current) {
+                if (outcome.ok && inflight === 0 && loadedChat === chatId) loadedKey = cacheKey(tables());
                 settleCurrencyNotice(outcome);
                 currencyChanged();
                 if (outcome.ok) {
@@ -945,7 +990,12 @@ export function createStatsRuntime({
                 }
             }
             return outcome;
-        }).finally(() => { if (currencyJob === job) currencyJob = null; });
+        }).finally(() => {
+            if (currencyJob === job) {
+                currencyJob = null;
+                if (notices.get('currency')?.kind === 'busy') setNotice('currency', null);
+            }
+        });
         return job.promise;
     }
 
@@ -1110,11 +1160,20 @@ export function createStatsRuntime({
     const onTableUpdated = () => {
         tableCache = null;
         managedCache = null;
+        if (settings().enabled && !ledger
+            && ['combat-table-not-ready', 'combat-table-runtime-not-ready', 'not-ready', 'missing-api'].includes(blocked || unavailable)) {
+            load();
+            autoEnable();
+            refreshOnboarding();
+            if (active()) refreshLife();
+            ensureCurrency();
+        }
         // 填表窗口内、或窗口刚关后的余波（插件一轮填表可能连发几次更新）都按 AI 填表处理：只盖回，不采纳。
         const covered = fillOpen || Date.now() < fillGraceUntil;
         if (fillOpen) fillGraceUntil = Date.now() + FILL_GRACE;
         closeFillWindow();
         if (!covered && (writingTable || Date.now() < selfWriteUntil)) return;
+        if (active() && npcPolicy && !generating) detectNewCharacters({ syncTables: true });
         scheduleTableSync(covered);
     };
     // 延迟处理表格更新。到点时若正在写表、刚写完或又进了填表窗口，采纳会读到写了一半的表：顺延，并改按 AI 填表处理。
@@ -1181,11 +1240,20 @@ export function createStatsRuntime({
     }
 
     function resetLoaded() {
-        const currencyNotice = currencyNoticeLease?.() ? notices.get('currency') : null;
+        const sameChat = Boolean(loadedChat && loadedChat === chatIdOf(ctx()));
+        const currencyNotice = (currencyNoticeLease?.() || (sameChat && currencyJob?.alive?.())) ? notices.get('currency') : null;
+        const preservedBusy = [];
+        if (sameChat) {
+            for (const key of VISIBLE_BUSY_TASKS) {
+                const notice = notices.get(key);
+                if (notice?.kind === 'busy' && generationTasks.get(key)) preservedBusy.push([key, notice]);
+            }
+        }
         ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; npcPolicy = null; npcChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
         currencyEdit = null; currencyEditError = '';
         baseline = new Map(); pendingOption = null; manualCheck = null; notices.clear();
         if (currencyNotice) notices.set('currency', currencyNotice);
+        for (const [key, notice] of preservedBusy) notices.set(key, notice);
     }
 
     function load() {
@@ -1230,6 +1298,7 @@ export function createStatsRuntime({
         // 挂着聊天监听不代表数据库已就绪；失败后和表版本变化后仍需恢复读取。
         if (inflight > 0 && inflightChat === chatIdOf(ctx())) return;
         if (currencyBusy > 0 && loadedChat === chatIdOf(ctx())) return;
+        if (generationCommitActive > 0 && loadedChat === chatIdOf(ctx())) return;
         const chatId = chatIdOf(ctx());
         if (!explicit && !settings().enabled) { if (loadedChat !== chatId) { resetLoaded(); loadedKey = ''; loadedChat = chatId; } return; }
         if (loadedKey && loadedKey === cacheKey(tables())) return;
@@ -1352,7 +1421,7 @@ export function createStatsRuntime({
         const conflict = ['stats-generation-conflict', 'stats-generation-log-conflict', 'stats-generation-record-conflict'].includes(result?.reason);
         const held = generationSave.pending();
         const retained = held.ok && Boolean(held.intent);
-        setNotice('generation-save', result?.ok ? null : { kind: 'info',
+        setNotice('generation-save', result?.ok ? null : { kind: 'recovery',
             text: result?.stage === 'read' ? `数值日志读取失败，已停止本次操作：${result.reason}`
                 : conflict ? `生成结果与当前档案冲突，已停止写入${retained ? '并保留原结果' : ''}：${result.reason}`
                 : `生成结果保存未完成：${result?.reason || 'stats-generation-save-unverified'}`,
@@ -1360,26 +1429,42 @@ export function createStatsRuntime({
                 : [['dismiss', '知道了']] });
     }
     function stageGeneration(task, apply) {
-        checkGeneration(task);
-        const previous = { catalog, ledger, learned };
-        const effects = { notices: [], codex: false, push: false };
-        task.beforeEntries = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit });
-        let saved;
-        try {
-            catalog = structuredClone(catalog);
-            ledger = structuredClone(ledger);
-            learned = structuredClone(learned);
-            generationStage = effects;
-            const { extra = [], result = { ok: true } } = apply();
-            saved = persist(extra, { generation: task, result: { ...result, effects } });
-        } finally {
-            generationStage = null;
-            ({ catalog, ledger, learned } = previous);
-        }
-        return Promise.resolve(saved).then(result => {
+        return enqueueGenerationCommit(async () => {
+            await tail;
+            checkGeneration(task);
+            if (typeof task.conflictCheck === 'function') {
+                const latest = generationSave.read(null, task.alive);
+                if (!latest.ok) {
+                    task.check();
+                    if (notices.get(task.key)?.kind === 'busy') setNotice(task.key, null);
+                    generationSaveNotice(latest);
+                    return latest;
+                }
+                task.beforeRows = latest.rows;
+                task.saveRevision = generationRevision();
+            }
+            const previous = { catalog, ledger, learned };
+            const effects = { notices: [], codex: false, push: false };
+            task.beforeEntries = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit });
+            let saved;
+            try {
+                catalog = structuredClone(catalog);
+                ledger = structuredClone(ledger);
+                learned = structuredClone(learned);
+                generationStage = effects;
+                const { extra = [], result = { ok: true } } = apply();
+                saved = persist(extra, { generation: task, result: { ...result, effects } });
+            } finally {
+                generationStage = null;
+                ({ catalog, ledger, learned } = previous);
+            }
+            const result = await Promise.resolve(saved);
             task.check();
             if (result?.ok && !result.recovered) publishGeneration(task, result);
-            if (!result?.ok) generationSaveNotice(result);
+            if (!result?.ok) {
+                if (notices.get(task.key)?.kind === 'busy') setNotice(task.key, null);
+                generationSaveNotice(result);
+            }
             return result;
         });
     }
@@ -1398,19 +1483,93 @@ export function createStatsRuntime({
     async function finishGenerationSave(task) {
         task.check();
         task.stage = 'save';
-        const revision = task.sourceRevision ?? generationRevision();
-        const alive = () => task.alive() && generationRevision() === revision;
+        const revision = task.saveRevision ?? task.sourceRevision ?? generationRevision();
+        const stillMatches = () => (typeof task.conflictCheck === 'function'
+            ? task.conflictCheck()
+            : generationRevision() === revision);
+        const alive = () => task.alive() && stillMatches();
         inflight += 1;
         inflightChat = chatIdOf(ctx());
         const run = async () => {
             try {
+                // 并发非生成写口（如 setNpcPolicy、heroInit 的 heroBio/currency、detectNewCharacters 的 notified/queue）
+                // 可能在 recover 等待 DB I/O 期间刚更新内存并入队 persist()；adopt(merged) 不得将其回滚成旧快照。
+                const beforeSnap = {
+                    npcPolicy,
+                    npcChoices: JSON.stringify(npcChoices),
+                    buildMode,
+                    buildChoices: JSON.stringify(buildChoices),
+                    currency: JSON.stringify(currency),
+                    currencyEdit: JSON.stringify(currencyEdit),
+                    heroBio: catalog.heroBio || '',
+                    notified: JSON.stringify(catalog.notified || []),
+                    queue: JSON.stringify(catalog.queue || {}),
+                };
                 let result = await generationSave.recover(alive);
                 task.check();
-                if (generationRevision() !== revision) result = { ok: false, reason: 'stats-generation-conflict' };
+                if (!stillMatches()) result = { ok: false, reason: 'stats-generation-conflict' };
                 if (result.ok && result.rows) {
+                    const liveNow = {
+                        npcPolicy, npcChoices, buildMode, buildChoices, currency, currencyEdit,
+                        heroBio: catalog.heroBio || '', notified: catalog.notified || [], queue: catalog.queue || {},
+                        baseline: new Map(baseline),
+                    };
                     const merged = mergeStatLog(result.rows, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
                     task.check();
                     adopt(merged);
+                    const restoreKey = (key) => {
+                        if (liveNow.baseline.has(key)) baseline.set(key, liveNow.baseline.get(key));
+                        else baseline.delete(key);
+                    };
+                    if (liveNow.npcPolicy !== beforeSnap.npcPolicy && npcPolicy !== liveNow.npcPolicy) {
+                        npcPolicy = liveNow.npcPolicy;
+                        restoreKey('chat:npcPolicy');
+                    }
+                    if (JSON.stringify(liveNow.npcChoices) !== beforeSnap.npcChoices && JSON.stringify(npcChoices) !== JSON.stringify(liveNow.npcChoices)) {
+                        npcChoices = liveNow.npcChoices;
+                        restoreKey('chat:npcChoices');
+                    }
+                    if (liveNow.buildMode !== beforeSnap.buildMode && buildMode !== liveNow.buildMode) {
+                        buildMode = liveNow.buildMode;
+                        restoreKey('chat:buildMode');
+                    }
+                    if (JSON.stringify(liveNow.buildChoices) !== beforeSnap.buildChoices && JSON.stringify(buildChoices) !== JSON.stringify(liveNow.buildChoices)) {
+                        buildChoices = liveNow.buildChoices;
+                        restoreKey('chat:buildChoices');
+                    }
+                    if (JSON.stringify(liveNow.currency) !== beforeSnap.currency && JSON.stringify(currency) !== JSON.stringify(liveNow.currency)) {
+                        currency = liveNow.currency;
+                        restoreKey('chat:currency');
+                    }
+                    if (JSON.stringify(liveNow.currencyEdit) !== beforeSnap.currencyEdit && JSON.stringify(currencyEdit) !== JSON.stringify(liveNow.currencyEdit)) {
+                        currencyEdit = liveNow.currencyEdit;
+                        restoreKey('chat:currencyEdit');
+                    }
+                    let nextCat = catalog;
+                    if (liveNow.heroBio !== beforeSnap.heroBio && (nextCat.heroBio || '') !== liveNow.heroBio) {
+                        nextCat = { ...nextCat, heroBio: liveNow.heroBio };
+                        restoreKey('hero:bio');
+                    }
+                    if (JSON.stringify(liveNow.notified) !== beforeSnap.notified && JSON.stringify(nextCat.notified || []) !== JSON.stringify(liveNow.notified)) {
+                        nextCat = { ...nextCat, notified: [...new Set([...(nextCat.notified || []), ...liveNow.notified])] };
+                        restoreKey('queue:notified');
+                    }
+                    if (JSON.stringify(liveNow.queue) !== beforeSnap.queue && JSON.stringify(nextCat.queue || {}) !== JSON.stringify(liveNow.queue)) {
+                        const livePeople = Array.isArray(liveNow.queue.people) ? liveNow.queue.people : [];
+                        const mergedPeople = Array.isArray(nextCat.queue?.people) ? nextCat.queue.people : [];
+                        const mergedSkills = Array.isArray(nextCat.queue?.skills) ? nextCat.queue.skills : [];
+                        const liveSkills = Array.isArray(liveNow.queue.skills) ? liveNow.queue.skills : [];
+                        nextCat = {
+                            ...nextCat,
+                            queue: {
+                                people: [...new Set([...mergedPeople, ...livePeople.filter((n) => !nextCat.sheets?.[n])])],
+                                skills: [...new Set([...mergedSkills, ...liveSkills])],
+                            },
+                        };
+                        restoreKey('queue:people');
+                        restoreKey('queue:skills');
+                    }
+                    if (nextCat !== catalog) catalog = sanitizeCatalog(nextCat);
                     loadedKey = cacheKey(tables());
                     publishGeneration(task, result);
                 }
@@ -1430,9 +1589,16 @@ export function createStatsRuntime({
             return result;
         });
     }
-    function pendingGenerationSave() {
+    function pendingGenerationSave(forKey = '', onRecovered = null) {
+        if (generationCommitActive > 0) return null;
         const held = generationSave.pending();
-        return !held.ok ? Promise.resolve(held) : held.intent ? retryGenerationSave() : null;
+        if (!held.ok) return Promise.resolve(held);
+        if (!held.intent) return null;
+        const recovery = retryGenerationSave();
+        if (forKey && held.intent.key && held.intent.key !== forKey && typeof onRecovered === 'function') {
+            return recovery.then((res) => (res?.ok ? onRecovered() : res));
+        }
+        return recovery;
     }
 
     // 才艺技能表里的技能名：旧六维名换成现行名，别名换成注册表里的正式名。
@@ -1969,7 +2135,7 @@ export function createStatsRuntime({
         const s = settings();
         const directives = parseStatDirectives(body, { rev: 2 }).directives;
         for (const d of directives) reviewTouched.add(d.target || PROTAGONIST);
-        if (reviewing || generating || !requester()) return;
+        if (!heroBasicReady() || reviewing || generating || !requester()) return;
         if (pendingInitial().length) { runInitialTraits(); return; }
         const last = Number(catalog.counters.reviewFloor) || 0;
         const scan = scanFloorForReview(directives, messageId, last, s.traitReviewN, { recentChars: [...reviewTouched], text: stripStatDirectives(body), protagonist: PROTAGONIST });
@@ -2411,12 +2577,19 @@ export function createStatsRuntime({
         const g = generating;
         generating = null;
         clearPrompt();
-        if (!g || !active()) return;
+        if (!g || !active()) {
+            if (sheetsDeferredByGenerating && active() && npcPolicy === 'auto') detectNewCharacters();
+            return;
+        }
         const c = ctx();
         const lastId = messages(c).length - 1;
-        if (lastId < 0) return;
+        if (lastId < 0) {
+            if (sheetsDeferredByGenerating && npcPolicy === 'auto') detectNewCharacters();
+            return;
+        }
         const plan = { check: g.check, preroll: g.preroll, note: g.note, ruleset: g.ruleset };
-        settleAt(lastId, { redo: g.type === 'continue', plan });
+        const settled = settleAt(lastId, { redo: g.type === 'continue', plan });
+        if (sheetsDeferredByGenerating && npcPolicy === 'auto' && (!settled || settled.reused)) detectNewCharacters();
     }
 
     function onSwiped(messageId) {
@@ -2451,6 +2624,7 @@ export function createStatsRuntime({
     function onChatChanged() {
         invalidateGenerations();
         invalidateCurrencyJob();
+        sheetsDeferredByGenerating = false;
         currencyAsked.delete(chatIdOf(ctx()));
         managedCache = null;
         pushedHeroSkills = {};
@@ -2467,6 +2641,7 @@ export function createStatsRuntime({
     function detach() {
         invalidateGenerations();
         invalidateCurrencyJob();
+        sheetsDeferredByGenerating = false;
         for (const off of offs) { try { off(); } catch (error) { /* */ } }
         offs = [];
         generating = null;
@@ -2514,7 +2689,7 @@ export function createStatsRuntime({
     function sync() {
         const on = settings().enabled;
         if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) refreshLife(); ensureCurrency(); } }
-        else if (on && offs.length && combatOn()) { autoEnable(); refreshOnboarding(); }
+        else if (on && offs.length) { if (combatOn()) autoEnable(); refreshOnboarding(); }
         else if (!on && offs.length) { detach(); notices.clear(); emitNotices(); }
         return { attached: offs.length > 0 };
     }
@@ -2575,24 +2750,25 @@ export function createStatsRuntime({
         if (chatId !== modeChat) { modeChat = chatId; modeDefault = 'auto'; modePending = false; askedFill.clear(); }
         if (notices.has('onboarding')) setNotice('onboarding', null);
         if (notices.has('build-mode')) setNotice('build-mode', null);
-        refreshBuildAsk();
+        refreshHeroPick();
+        refreshHeroOffer();
         refreshNpcPolicy();
         refreshNpcAsk();
-        refreshHeroOffer();
-        refreshHeroPick();
+        refreshBuildAsk();
     }
 
     function refreshNpcPolicy() {
-        const offer = heroBasicReady() && settings().sheetGen !== 'off' && !npcPolicy;
+        const offer = active() && settings().sheetGen !== 'off' && !npcPolicy;
         setNotice('npc-policy', offer ? {
             kind: 'onboarding',
+            order: 3,
             text: 'NPC 建档策略：新角色出场时如何处理？',
             actions: [['auto', '自动生成'], ['per-npc', '逐个询问']],
         } : null);
     }
 
     function pendingNpcAskName() {
-        if (!heroBasicReady() || settings().sheetGen === 'off' || npcPolicy !== 'per-npc') return null;
+        if (!active() || settings().sheetGen === 'off' || npcPolicy !== 'per-npc') return null;
         const state = currentStatsState(ledger);
         for (const rawName of Object.keys(state.characters || {})) {
             const name = canonPersonName(catalog.renames, rawName);
@@ -2607,24 +2783,40 @@ export function createStatsRuntime({
         const name = pendingNpcAskName();
         setNotice('npc-ask', name ? {
             kind: 'onboarding',
+            order: 4,
             name,
             text: `新角色「${name}」：是否现在生成数值档案？`,
             actions: [['generate', '现在生成'], ['defer', '暂不建档']],
         } : null);
     }
 
-    // 主角还没有任何内置技能、也没选过时，需要选擅长技能。剧情技能、世界观技能不算（补全出来的不顶替这一步）。
+    // 主角还没有任何已学（生效值 ≥ 25）的内置技能、也没选过擅长格时，需要选或按人设生成擅长技能。
+    // 注意：BUILTIN_SKILLS 包含六维属性（kind: 'attribute'），不能把六维、CoC 未学基础值或未学技能检定记录（< 25）误判为已选技能。
+    function hasLearnedHeroSkill() {
+        if (!ledger) return false;
+        const state = currentStatsState(ledger);
+        const engine = memoEngineOf();
+        const own = state.protagonist.skills || {};
+        const names = [...new Set([...Object.keys(own), ...Object.keys(catalog.protagonistBase), ...Object.keys(catalog.protagonistEdit)])];
+        return names.some((name) => {
+            const entry = BUILTIN_SKILLS[name];
+            if (!entry || entry.kind !== 'skill') return false;
+            return Math.round(Number(heroSkillLevel(engine, own[name], name)) || 0) >= 25;
+        });
+    }
+
     function needsHeroPick() {
         if (!ledger || catalog.heroPicked) return false;
-        const own = currentStatsState(ledger).protagonist.skills || {};
-        const builtin = (name) => Object.hasOwn(BUILTIN_SKILLS, name);
-        return ![...Object.keys(own), ...Object.keys(catalog.protagonistBase), ...Object.keys(catalog.protagonistEdit)].some(builtin);
+        if (catalog.heroSlots && Object.values(catalog.heroSlots).some(Boolean)) return false;
+        return !hasLearnedHeroSkill();
     }
 
     function refreshHeroPick() {
         const chatId = chatIdOf(ctx());
-        const offer = Boolean(chatId) && heroBasicReady() && !heroPickAsked.has(chatId) && needsHeroPick();
-        setNotice('hero-pick', offer ? { kind: 'onboarding', text: '主角技能：请选3项擅长、5项比较擅长', actions: [['open', '去选择'], ['later', '稍后']] } : null);
+        const offer = Boolean(chatId) && active() && !heroPickAsked.has(chatId) && needsHeroPick();
+        const canAssign = Boolean(requester());
+        const actions = canAssign ? [['open', '手动选择'], ['assign', '按人设生成'], ['later', '稍后']] : [['open', '去选择'], ['later', '稍后']];
+        setNotice('hero-pick', offer ? { kind: 'onboarding', order: 1, text: '主角擅长技能：请选3项擅长、5项比较擅长，或按人设生成', actions } : null);
     }
 
     // 建卡里玩家自定义的技能：注册表认不得的名字按所选六维登记成剧情技能；已认得的（内置或已登记）沿用原条目。
@@ -2660,15 +2852,17 @@ export function createStatsRuntime({
         setNotice('hero-pick', null);
         persist();
         onChange(currentStatsState(ledger), null);
+        refreshOnboarding();
         return { ok: true };
     }
 
-    // CoC 且主角还没分配过技能时，在主角基础确认后每个聊天提示一次。
+    // CoC 且主角已跳过/无需 3+5 选格但尚未分配过技能时，每个聊天提示一次（避免与 hero-pick 重复打扰）。
     function refreshHeroOffer() {
         const chatId = chatIdOf(ctx());
-        const offer = Boolean(chatId) && heroBasicReady() && !heroAsked.has(chatId) && !catalog.heroAssigned && IS_COC(engineOf()) && Boolean(requester());
-        if (!offer && notices.has('hero-skills') && notices.get('hero-skills').kind === 'busy') return;
-        setNotice('hero-skills', offer ? { kind: 'onboarding', text: '主角技能：按人设分配一次？', actions: [['assign', '分配'], ['later', '稍后']] } : null);
+        const offer = Boolean(chatId) && heroBasicReady() && !heroAsked.has(chatId) && !catalog.heroAssigned && !catalog.heroPicked && !needsHeroPick() && IS_COC(engineOf()) && Boolean(requester());
+        const current = notices.get('hero-skills');
+        if (!offer && current && (current.kind === 'busy' || current.kind === 'info' || current.retry === true)) return;
+        setNotice('hero-skills', offer ? { kind: 'onboarding', order: 2, text: '主角技能：按人设分配一次？', actions: [['assign', '分配'], ['later', '稍后']] } : null);
     }
 
     // 手动建档模式下，仅对非主角角色逐个询问（主角统一走自动初始化，不再走旧手动建档门禁）。
@@ -2696,13 +2890,18 @@ export function createStatsRuntime({
     // 角色卡入库前过一遍 sanitizeCatalog 的同一套规整（旧格式属性迁成六维分数），内存与存档保持一致。
     const tidySheet = (sheet) => sanitizeCatalog({ sheets: { x: sheet } }).sheets.x || sheet;
 
-    // ---- 新角色与角色卡（v2 §6.4 / P5）：主角基础确认后按本聊天 NPC 策略运行；停止跨聊天 NPC 缓存读取 ----
-    function detectNewCharacters() {
-        if (!heroBasicReady()) return;
+    // ---- 新角色与角色卡（v2 §6.4 / P5）：按本聊天 NPC 策略运行；同步重要角色表 / 开场名单，停止跨聊天 NPC 缓存读取 ----
+    function detectNewCharacters({ triggerExisting = false, syncTables = false } = {}) {
+        if (!active()) return;
         const s = settings();
         if (s.sheetGen === 'off') return;
+        if (syncTables && npcPolicy && s.register !== 'manual' && !generating) syncTablePeopleIntoLedger();
         const state = currentStatsState(ledger);
-        const candidates = [...new Set(Object.keys(state.characters || {}).map((n) => canonPersonName(catalog.renames, n)))]
+        const rawNames = [
+            ...Object.keys(state.characters || {}),
+            ...(triggerExisting || sheetsDeferredByGenerating ? (catalog.queue.people || []) : []),
+        ];
+        const candidates = [...new Set(rawNames.map((n) => canonPersonName(catalog.renames, n)))]
             .filter((n) => n && !isHero(n) && !catalog.sheets[n] && npcChoices[n] !== 'defer');
         if (!candidates.length) { refreshNpcAsk(); return; }
         if (!npcPolicy) {
@@ -2710,15 +2909,25 @@ export function createStatsRuntime({
             return;
         }
         if (npcPolicy === 'auto') {
-            const fresh = candidates.filter((n) => !catalog.notified.includes(n));
-            if (!fresh.length) return;
-            catalog = {
-                ...catalog,
-                notified: [...catalog.notified, ...fresh],
-                queue: { ...catalog.queue, people: [...new Set([...catalog.queue.people, ...fresh])] },
-            };
-            persist();
-            generateSheets(fresh);
+            const fresh = triggerExisting
+                ? candidates
+                : candidates.filter((n) => !catalog.notified.includes(n));
+            const deferred = !fresh.length && sheetsDeferredByGenerating && !generating
+                ? (catalog.queue.people || []).map((n) => canonPersonName(catalog.renames, n)).filter((n) => candidates.includes(n))
+                : [];
+            const targets = fresh.length ? fresh : deferred;
+            if (!targets.length) return;
+            const addedNotified = targets.filter((n) => !catalog.notified.includes(n));
+            const nextQueue = [...new Set([...catalog.queue.people, ...targets])];
+            if (addedNotified.length || nextQueue.length !== catalog.queue.people.length) {
+                catalog = {
+                    ...catalog,
+                    notified: addedNotified.length ? [...catalog.notified, ...addedNotified] : catalog.notified,
+                    queue: { ...catalog.queue, people: nextQueue },
+                };
+                persist();
+            }
+            generateSheets(targets);
             return;
         }
         // per-npc：只对无正式档案且无已记录决定者进入首次询问；未建档角色自动由相对算法提供带来源标记的派生值。
@@ -2739,11 +2948,11 @@ export function createStatsRuntime({
         };
     }
 
-    async function ask(request, prompt, ms = BACKGROUND_TIMEOUT_MS, job) {
+    async function ask(request, prompt, ms = BACKGROUND_TIMEOUT_MS, job, options = {}) {
         if (job) {
             const route = generationRoute();
             job.guard(() => generationRoute() === route);
-            const held = generationSave.pending();
+            const held = generationCommitActive > 0 ? { ok: true, intent: null } : generationSave.pending();
             const source = !held.ok || held.intent
                 ? { ok: false, reason: held.reason || 'stats-generation-save-pending', stage: 'save' }
                 : generationSave.read(null, job.alive);
@@ -2757,12 +2966,12 @@ export function createStatsRuntime({
             }
             job.beforeRows = source.rows;
             job.sourceRevision = generationRevision();
-            return job.request(request, prompt, ms);
+            return job.request(request, prompt, ms, options);
         }
         return generationTasks.start('supplement', async task => {
             const route = generationRoute();
             task.guard(() => generationRoute() === route);
-            return { reply: await task.request(request, prompt, ms) };
+            return { reply: await task.request(request, prompt, ms, options) };
         })
             .then(result => {
                 if (result?.reason === 'request-stale') throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
@@ -2790,7 +2999,7 @@ export function createStatsRuntime({
         const pending = generationTasks.get('sheets');
         if (pending) return !supersede || (pending.supersede || []).includes(names?.[0])
             ? pending.promise : Promise.resolve({ ok: false, reason: 'stats-sheet-busy' });
-        const recovery = pendingGenerationSave();
+        const recovery = pendingGenerationSave('sheets', () => generateSheets(names, { supersede }));
         if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         const request = requester();
@@ -2798,7 +3007,11 @@ export function createStatsRuntime({
             setNotice('sheets', { kind: 'sheets', text: '生成数值需要可用的辅助模型（自动插图设置里的写词模型）', actions: [['dismiss', '知道了']] });
             return Promise.resolve({ ok: false, reason: 'stats-no-model' });
         }
-        if (generating) return Promise.resolve({ ok: false, reason: 'stats-generating', queued: true });
+        if (generating) {
+            sheetsDeferredByGenerating = true;
+            return Promise.resolve({ ok: false, reason: 'stats-generating', queued: true });
+        }
+        sheetsDeferredByGenerating = false;
         // 不点名时：待生成队列，加上有人际档却没有角色卡的角色（角色卡被删或生成失败丢失）。
         const orphans = () => !ledger ? [] : Object.keys(currentStatsState(ledger).characters || {})
             .filter((n) => n !== PROTAGONIST && !isHero(n) && !catalog.sheets[n]);
@@ -2806,12 +3019,26 @@ export function createStatsRuntime({
         if (!targets.length) return Promise.resolve({ ok: true, skipped: true });
         setNotice('sheets', { kind: 'busy', text: `正在生成数值：${targets.join('、')}` });
         const chatSeed = chatIdOf(ctx());
+        const sheetTargetSnapshot = () => JSON.stringify(targets.map((name) => [name, catalog.sheets[name] || null, catalog.sheetDrops[name] || null]));
         const started = generationTasks.start('sheets', async job => {
-            job.revision = JSON.stringify(catalog);
+            let failureReason = '';
+            job.onFinish(() => {
+                if (job.alive() && notices.get('sheets')?.kind === 'busy') {
+                    const code = failureReason || 'stats-sheet-unfinished';
+                    diag(code);
+                    try { console.warn('[IGS 数值] 角色卡生成未完成：', code); } catch { /* */ }
+                    setNotice('sheets', { kind: 'sheets', text: `生成数值未完成（${code}），可重试`, actions: [['generate', '重试'], ['dismiss', '稍后']] });
+                }
+            });
+            try {
+            await tail;
+            job.check();
+            job.conflictSnapshot = sheetTargetSnapshot();
+            job.conflictCheck = () => sheetTargetSnapshot() === job.conflictSnapshot;
             // 重新生成只取代发起时已确认的手改；之后保存的手改 ID 不同，不会被迟到结果撤掉。
             const replaced = supersede ? manualBaseIds(targets) : { ok: true, ids: {} };
             if (!replaced.ok) {
-                setNotice('sheets', { kind: 'sheets', text: '属性档读取失败，未发送请求，可重试', actions: [['generate', '重试'], ['dismiss', '稍后']] });
+                setNotice('sheets', { kind: 'sheets', text: `属性档读取失败（${replaced.reason || 'unknown'}），未发送请求，可重试`, actions: [['generate', '重试'], ['dismiss', '稍后']] });
                 return replaced;
             }
             const protagonists = targets.filter(isHero);
@@ -2834,7 +3061,7 @@ export function createStatsRuntime({
                 if (!resolved || resolved.ok === false) {
                     const reason = resolved?.reason || 'stats-sheet-context-failed';
                     diag(reason);
-                    setNotice('sheets', { kind: 'sheets', text: '生成数值所需的上下文读取失败，未发送请求，可重试', actions: [['generate', '重试'], ['dismiss', '稍后']] });
+                    setNotice('sheets', { kind: 'sheets', text: `生成数值所需的上下文读取失败（${reason}），未发送请求，可重试`, actions: [['generate', '重试'], ['dismiss', '稍后']] });
                     return { ok: false, reason };
                 }
                 context = { ...context, ...resolved };
@@ -2843,17 +3070,24 @@ export function createStatsRuntime({
             const skills = engine.registry.entries().filter(([, e]) => e.kind === 'skill' && (e.origin !== 'world')).map(([n, e]) => [n, e.attribute]);
             const prompt = buildSheetRequest(context.people, { ...context, worldview: worldviewOf(), skills, prompt: settings().prompts.sheetGen });
             let parsed = null;
-            try { parsed = parseSheetReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job), { names: targets, registry: engine.registry }); }
+            try {
+                parsed = parseSheetReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job, {
+                    onRetry: ({ attempt, maxRetries }) => {
+                        if (job.alive()) setNotice('sheets', { kind: 'busy', text: `正在重试生成数值（第 ${attempt}/${maxRetries} 次）：${targets.join('、')}` });
+                    },
+                }), { names: targets, registry: engine.registry });
+            }
             catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-sheet-request-failed' }; }
             checkGeneration(job);
             if (!parsed || !parsed.ok) {
-                diag(parsed ? parsed.reason : 'stats-sheet-request-failed');
-                setNotice('sheets', { kind: 'sheets', text: '生成数值失败，可重试', actions: [['generate', '重试'], ['dismiss', '稍后']] });
-                return { ok: false, reason: parsed ? parsed.reason : 'stats-sheet-request-failed' };
+                const reason = parsed ? parsed.reason : 'stats-sheet-request-failed';
+                diag(reason);
+                setNotice('sheets', { kind: 'sheets', text: `生成数值失败（${reason}），可重试`, actions: [['generate', '重试'], ['dismiss', '稍后']] });
+                return { ok: false, reason };
             }
             (parsed.diagnostics || []).forEach((d) => diag(d.code, d));
             const done = Object.keys(parsed.sheets);
-            return stageGeneration(job, () => {
+            return await stageGeneration(job, () => {
                 const sheets = { ...catalog.sheets };
                 const sheetDrops = { ...catalog.sheetDrops };
                 for (const [name, tiers] of Object.entries(parsed.sheets)) {
@@ -2868,6 +3102,10 @@ export function createStatsRuntime({
                     : { kind: 'info', text: `已生成数值：${done.join('、')}`, ttl: true });
                 return { result: { ok: true, names: done } };
             });
+            } catch (error) {
+                failureReason = error?.reason || error?.message || 'stats-sheet-threw';
+                throw error;
+            }
         });
         const job = generationTasks.get('sheets');
         if (job) job.supersede = supersede ? targets : [];
@@ -2959,60 +3197,100 @@ export function createStatsRuntime({
             .map(([name]) => name);
     }
 
-    // 只在 CoC 下提供。已分配过且未传 overwrite 时返回 needs-confirm，由设置页确认后再带 overwrite 调用。
-    // 账本里已有的技能（建卡与成长）以账本为准，不参与分配；重新分配会清掉本次名单内的旧底数与手改。
+    // 按人设一次分配主角擅长技能（CoC 与 D&D5e 通用）。已分配过且仍有已学技能、未传 overwrite 时返回 needs-confirm，由设置页确认后再覆盖。
+    // 账本里已有的已学技能（>= 25）以账本为准，不参与覆盖；重新分配会清掉本次名单内的旧底数与手改，并自动回填擅长格。
     function assignHeroSkills({ overwrite = false } = {}) {
         const pending = generationTasks.get('hero-skills');
         if (pending) return pending.promise;
-        const recovery = pendingGenerationSave();
+        const recovery = pendingGenerationSave('hero-skills', () => assignHeroSkills({ overwrite }));
         if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
-        if (!IS_COC(engineOf())) return Promise.resolve({ ok: false, reason: 'stats-hero-skills-coc-only' });
-        if (catalog.heroAssigned && !overwrite) return Promise.resolve({ ok: false, reason: 'needs-confirm' });
+        if (hasLearnedHeroSkill() && !overwrite) return Promise.resolve({ ok: false, reason: 'needs-confirm' });
         const request = requester();
-        if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        if (!request) {
+            setNotice('hero-skills', { kind: 'onboarding', order: 2, retry: true, text: '生成主角擅长技能需要可用的辅助模型（自动插图设置里的写词模型）', actions: [['later', '知道了']] });
+            return Promise.resolve({ ok: false, reason: 'stats-no-model' });
+        }
         const chatId = chatIdOf(ctx());
         const owned = currentStatsState(ledger).protagonist.skills;
-        const skills = heroSkillNames().filter((name) => !owned[name]);
+        const skills = heroSkillNames().filter((name) => !(owned[name] && Number(owned[name].value) >= 25));
         if (!skills.length) {
             // 全部技能已在账本里：记为已分配，开局提示不再出现。
-            catalog = sanitizeCatalog({ ...catalog, heroAssigned: true });
+            catalog = sanitizeCatalog({ ...catalog, heroAssigned: true, heroPicked: true });
             heroAsked.add(chatId);
+            heroPickAsked.add(chatId);
             persist();
             setNotice('hero-skills', null);
+            setNotice('hero-pick', null);
+            refreshOnboarding();
             return Promise.resolve({ ok: true, skipped: true });
         }
-        setNotice('hero-skills', { kind: 'busy', text: '正在按人设分配主角技能' });
+        setNotice('hero-skills', { kind: 'busy', text: '正在按人设生成主角擅长技能' });
+        const heroSkillSnapshot = () => JSON.stringify([catalog.protagonistBase, catalog.protagonistEdit, catalog.heroSlots, catalog.heroAssigned]);
         return generationTasks.start('hero-skills', async job => {
-            job.revision = JSON.stringify(catalog);
+            let failureReason = '';
+            job.onFinish(() => {
+                if (job.alive() && notices.get('hero-skills')?.kind === 'busy') {
+                    const code = failureReason || 'stats-hero-skills-unfinished';
+                    diag(code);
+                    try { console.warn('[IGS 数值] 主角擅长技能生成未完成：', code); } catch { /* */ }
+                    setNotice('hero-skills', { kind: 'onboarding', order: 2, retry: true, text: `主角擅长技能生成未完成（${code}），可重试`, actions: [['assign', '重试'], ['later', '稍后']] });
+                }
+            });
+            try {
+            await tail;
+            job.check();
+            job.conflictSnapshot = heroSkillSnapshot();
+            job.conflictCheck = () => heroSkillSnapshot() === job.conflictSnapshot;
             let people;
             try { people = typeof describePeople === 'function' ? await describeWithHero([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
             catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
             checkGeneration(job);
             const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills });
             let parsed = null;
-            try { parsed = parseHeroSkillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job), { skills }); }
+            try {
+                parsed = parseHeroSkillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job, {
+                    onRetry: ({ attempt, maxRetries }) => {
+                        if (job.alive()) setNotice('hero-skills', { kind: 'busy', text: `正在重试生成主角擅长技能（第 ${attempt}/${maxRetries} 次）` });
+                    },
+                }), { skills });
+            }
             catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-hero-skills-request-failed' }; }
             checkGeneration(job);
             if (!parsed || !parsed.ok) {
-                diag(parsed ? parsed.reason : 'stats-hero-skills-request-failed');
-                setNotice('hero-skills', { kind: 'onboarding', text: '主角技能分配失败', actions: [['assign', '重试'], ['later', '稍后']] });
-                return { ok: false, reason: parsed ? parsed.reason : 'stats-hero-skills-request-failed' };
+                const reason = parsed ? parsed.reason : 'stats-hero-skills-request-failed';
+                diag(reason);
+                try { console.warn('[IGS 数值] 主角擅长技能生成失败：', reason); } catch { /* */ }
+                setNotice('hero-skills', { kind: 'onboarding', order: 2, retry: true, text: `主角擅长技能生成失败（${reason}），可重试`, actions: [['assign', '重试'], ['later', '稍后']] });
+                return { ok: false, reason };
             }
-            return stageGeneration(job, () => {
+            const res = await stageGeneration(job, () => {
                 const base = { ...catalog.protagonistBase };
                 const edit = { ...catalog.protagonistEdit };
                 for (const name of skills) { delete base[name]; delete edit[name]; }
                 const done = [];
+                const entries = [];
                 for (const [skill, tier] of Object.entries(parsed.tiers)) {
-                    base[skill] = bandValue(SKILL_TIERS[tier], `${chatId}|${PROTAGONIST}|${skill}`);
+                    const val = bandValue(SKILL_TIERS[tier], `${chatId}|${PROTAGONIST}|${skill}`);
+                    base[skill] = val;
+                    entries.push([skill, val]);
                     done.push(`${skill} ${tier}`);
                 }
-                catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true });
+                const heroSlots = backfillHeroSlots(entries);
+                catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true, heroPicked: true, heroSlots });
                 generationStage.heroAssigned = true;
-                setNotice('hero-skills', { kind: 'info', text: `已分配主角技能：${done.join('、')}`, ttl: true });
+                heroAsked.add(chatId);
+                heroPickAsked.add(chatId);
+                setNotice('hero-pick', null);
+                setNotice('hero-skills', { kind: 'info', text: `已生成主角擅长技能：${done.join('、')}`, ttl: true });
                 return { result: { ok: true, assigned: done } };
             });
+            if (res?.ok && job.alive()) refreshOnboarding();
+            return res;
+            } catch (error) {
+                failureReason = error?.reason || error?.message || 'stats-hero-skills-threw';
+                throw error;
+            }
         });
     }
 
@@ -3253,6 +3531,8 @@ export function createStatsRuntime({
         if (id === 'hero-pick') {
             heroPickAsked.add(chatIdOf(ctx()));
             setNotice('hero-pick', null);
+            if (action === 'assign') return assignHeroSkills({ overwrite: true });
+            refreshOnboarding();
             return action === 'open' ? { ok: true, openSettings: 'stats' } : { ok: true };
         }
         if (id === 'hero-skills') {
@@ -3794,10 +4074,9 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // 把数据库表格里的人物登记进数值账本：关系一律从 0 起，表格里的数字不采用（以 IGS 为准）。
-    // 记在最近一楼的 meta.manual 上（空对象只建档不改值），重算本楼也保留。
-    function importTablePeople() {
-        if (generating) return { ok: false, reason: 'stats-generating' };
+    // 把数据库表格与开场卡名单里尚未登记的人物写入数值账本（不递归调用 detectNewCharacters）。
+    function syncTablePeopleIntoLedger() {
+        if (!ledger || generating) return { ok: false, reason: !ledger ? 'stats-no-ledger' : 'stats-generating' };
         const entry = activeEntryBefore(ledger, Infinity);
         const known = entry ? entry.after.characters : ledger.initial.characters;
         const fresh = [...new Set([...tableNames({ fresh: true }), ...rosterNames()])].filter((name) => !known[name] && !Object.hasOwn(catalog.renames, name));
@@ -3805,8 +4084,16 @@ export function createStatsRuntime({
         const manual = Object.fromEntries(fresh.map((name) => [name, {}]));
         const result = entry ? commitManualRelations(entry, manual) : commitInitialRelations(manual);
         if (!result.ok) return result;
-        detectNewCharacters();
         return { ok: true, imported: fresh };
+    }
+
+    // 把数据库表格里的人物登记进数值账本：关系一律从 0 起，表格里的数字不采用（以 IGS 为准）。
+    // 记在最近一楼的 meta.manual 上（空对象只建档不改值），重算本楼也保留。
+    function importTablePeople() {
+        const result = syncTablePeopleIntoLedger();
+        if (!result.ok) return result;
+        detectNewCharacters();
+        return result;
     }
 
     // 按人设补填起始关系：只处理好感、信任、了解都还在 ±START_FILL_SPAN 以内的已登记角色（视为没定过初值）。
@@ -3900,6 +4187,11 @@ export function createStatsRuntime({
         };
         setNotice('start-relations', { kind: 'busy', text: `正在按人设计算初始关系：${names.join('、')}` });
         return generationTasks.start('start-relations', async job => {
+            job.onFinish(() => {
+                if (job.alive() && notices.get('start-relations')?.kind === 'busy') setNotice('start-relations', null);
+            });
+            await tail;
+            job.check();
             const result = await run(job);
             job.check();
             const more = result && result.ok && result.left ? `；还有 ${result.left} 个角色，再点一次继续` : '';
@@ -4139,12 +4431,14 @@ export function createStatsRuntime({
         const verified = await verifyNpcPolicyWrite(npcPolicy, npcChoices, alive);
         if (!verified.ok) {
             if (alive()) { npcPolicy = prevPolicy; baseline = prevBaseline; }
+            try { console.warn('[IGS 数值] NPC 建档策略保存失败：', verified.reason); } catch { /* */ }
             return verified;
         }
+        npcPolicy = normalized;
         refreshOnboarding();
-        detectNewCharacters();
         onBuildPolicyChange();
         onChange(currentStatsState(ledger), null);
+        detectNewCharacters({ triggerExisting: normalized === 'auto', syncTables: true });
         return { ok: true, npcPolicy };
     }
 
@@ -4170,8 +4464,10 @@ export function createStatsRuntime({
         const verified = await verifyNpcPolicyWrite(npcPolicy, npcChoices, alive);
         if (!verified.ok) {
             if (alive()) { npcChoices = prevChoices; baseline = prevBaseline; }
+            try { console.warn('[IGS 数值] NPC 建档选择保存失败：', verified.reason); } catch { /* */ }
             return verified;
         }
+        npcChoices = next;
         refreshOnboarding();
         onBuildPolicyChange();
         onChange(currentStatsState(ledger), null);
@@ -4229,7 +4525,7 @@ export function createStatsRuntime({
                 if (ab && !ab.initialized) npcRelative[c.name] = { source: ab.source || 'relative', initialized: false, scores: { ...ab.scores }, tier: ab.tier };
             }
         }
-        return model ? { ...model, npcPolicy, npcChoices: { ...npcChoices }, npcRelative, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+        return model ? { ...model, heroBio: catalog.heroBio || '', npcPolicy, npcChoices: { ...npcChoices }, npcRelative, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
     }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;
@@ -4359,12 +4655,17 @@ export function createStatsRuntime({
             });
             return { nsfw, people };
         }),
-        // 状态栏主角条：积分沿用原余额，剧情货币单独读取物品表。
+        // 状态栏与人际关系页主角数据：积分沿用原余额，剧情货币单独读取物品表；附主角擅长技能与六维属性供人际关系卡显示。
         protagonistLookup: ev(() => {
             if (!active()) return null;
             const s = settings();
-            const metrics = protagonistStatMetrics(currentStatsState(ledger).protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(memoEngineOf()) : null, walletExtra: combatPoints(), currency: currencySnapshot() }).concat(heroFameMetrics(s));
-            return (name) => (isHero(name) && metrics.length ? { metrics, stages: [] } : null);
+            const state = currentStatsState(ledger);
+            const engine = memoEngineOf();
+            const metrics = protagonistStatMetrics(state.protagonist.bars, { enabledBars: s.bars, vitals: combatOn() ? protagonistVitals(engine) : null, walletExtra: combatPoints(), currency: currencySnapshot() }).concat(heroFameMetrics(s));
+            const sheet = protagonistSheetSummary(engine, state);
+            const attributes = characterAttributeAxes(engine, state, PROTAGONIST);
+            return (name) => (isHero(name) && (metrics.length || attributes.length || sheet.strong.length || catalog.heroBio)
+                ? { metrics, stages: [], sheet, ...(catalog.heroBio ? { bio: catalog.heroBio } : {}), ...(attributes.length === BASE_ATTRIBUTES.length ? { attributes } : {}) } : null);
         }),
         // 角色当前挂的特质名（含主角；不含合成占位与成就），供战斗生成按人设偏向模板；没有启用时为 null。
         traitNamesOf: (name) => {

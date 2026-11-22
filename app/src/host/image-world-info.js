@@ -3,9 +3,21 @@ import { stripIllustrationMarkers } from '../scene/scene-directives.js';
 import { attachWorldInfoExclude } from './world-info-filter.js';
 
 const NOTE_KEY = '2_floating_prompt';
+const WORLDINFO_TIMEOUT_MS = 15000;
 const queues = new WeakMap();
 const failure = reason => ({ ok: false, reason, stopGeneration: true,
     error: '世界书参考读取失败，未发送写词请求；请检查酒馆世界书接口' });
+
+function withWorldInfoTimeout(promise, ms = WORLDINFO_TIMEOUT_MS) {
+    if (!(ms > 0)) return promise;
+    let timer = null;
+    return Promise.race([
+        Promise.resolve(promise),
+        new Promise((_, reject) => {
+            timer = setTimeout(() => reject(Object.assign(new Error('WORLDINFO_TIMEOUT'), { reason: 'WORLDINFO_TIMEOUT' })), ms);
+        }),
+    ]).finally(() => { if (timer) clearTimeout(timer); });
+}
 
 // 只向宿主交付本次写词窗口；关键词、常量、概率及递归规则均由原生扫描器决定。
 export function createImageWorldInfoSource(globalObject = globalThis, deps = {}) {
@@ -28,12 +40,13 @@ export function createImageWorldInfoSource(globalObject = globalThis, deps = {})
             const note = existed ? { ...prompts[NOTE_KEY] } : null;
             const detach = attachWorldInfoExclude(ctx, typeof deps.readExclude === 'function' ? deps.readExclude() : null);
             try {
-                const result = await ctx.getWorldInfoPrompt(scan, scanBudget(ctx), true, scanFields(ctx));
+                const timeoutMs = Number.isFinite(Number(deps.timeoutMs)) ? Number(deps.timeoutMs) : WORLDINFO_TIMEOUT_MS;
+                const result = await withWorldInfoTimeout(ctx.getWorldInfoPrompt(scan, scanBudget(ctx), true, scanFields(ctx)), timeoutMs);
                 if (stale()) return failure('request-stale');
                 if (!result || typeof result.worldInfoString !== 'string') return failure('WORLDINFO_INVALID');
                 return { ok: true, text: referenceText(result) };
-            } catch {
-                return failure('WORLDINFO_RESOLVE_FAILED');
+            } catch (error) {
+                return failure(error?.reason === 'WORLDINFO_TIMEOUT' ? 'WORLDINFO_TIMEOUT' : 'WORLDINFO_RESOLVE_FAILED');
             } finally {
                 detach();
                 // dryRun 仍会改写作者注释；本适配器的扫描串行，结束后恢复原值。

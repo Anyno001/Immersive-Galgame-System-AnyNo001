@@ -86,7 +86,8 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-book{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:8px 10px;border:0;border-radius:var(--igs-rp-radius-l);background:transparent;text-align:left;transition:background .18s var(--igs-rp-ease);}
 #igs-record-panel .igs-record-book:hover{background:var(--igs-rp-fill);}
 #igs-record-panel .igs-record-book[aria-current="true"]{background:var(--igs-rp-fill-active);}
-#igs-record-panel .igs-record-book-avatar,#igs-record-panel .igs-record-timeline-avatar,#igs-record-panel .igs-record-person-avatar,#igs-record-panel .igs-record-node-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;box-sizing:border-box;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1px var(--igs-rp-text-ghost);color:var(--igs-rp-text-soft);font-size:15px;font-weight:500;line-height:1;transition:box-shadow .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),transform .2s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-book-avatar,#igs-record-panel .igs-record-timeline-avatar,#igs-record-panel .igs-record-person-avatar,#igs-record-panel .igs-record-node-avatar{display:grid;place-items:center;flex:none;width:36px;height:36px;box-sizing:border-box;border-radius:50%;overflow:hidden;background:transparent;box-shadow:inset 0 0 0 1px var(--igs-rp-text-ghost);color:var(--igs-rp-text-soft);font-size:15px;font-weight:500;line-height:1;transition:box-shadow .18s var(--igs-rp-ease),color .18s var(--igs-rp-ease),transform .2s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-avatar-img{width:100%;height:100%;display:block;object-fit:cover;object-position:center 15%;}
 #igs-record-panel .igs-record-book[aria-current="true"] .igs-record-book-avatar,#igs-record-panel .igs-record-people-list button[aria-current="true"] .igs-record-person-avatar,#igs-record-panel .igs-record-relationship-node.is-current .igs-record-node-avatar{box-shadow:inset 0 0 0 1.5px var(--igs-rp-accent,var(--igs-rp-text));color:var(--igs-rp-accent,var(--igs-rp-text));}
 #igs-record-panel .igs-record-book-meta{display:flex;flex-direction:column;min-width:0;}
 #igs-record-panel .igs-record-book-meta>span{font-size:14px;font-weight:500;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -150,6 +151,24 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-person-copy strong{display:block;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--igs-rp-text-soft);font-size:12px;font-weight:500;}
 #igs-record-panel .igs-record-people-list button[aria-current="true"] strong{color:var(--igs-rp-text);}
 #igs-record-panel .igs-record-relationship-detail{grid-area:detail;align-self:start;max-height:100%;padding:24px 24px;border-radius:var(--igs-rp-radius-l);background:var(--igs-rp-pane);box-shadow:var(--igs-rp-pane-edge);overflow:auto;}
+#igs-record-panel .igs-record-person-top{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start;}
+#igs-record-panel .igs-record-person-top.has-radar{grid-template-columns:minmax(0,1fr) minmax(176px,220px);gap:12px 18px;}
+#igs-record-panel .igs-record-person-summary{display:flex;flex-direction:column;gap:10px;min-width:0;}
+#igs-record-panel .igs-record-person-intro{display:flex;align-items:flex-start;gap:14px;min-width:0;}
+#igs-record-panel .igs-record-person-head-wrap{display:flex;flex-direction:column;gap:10px;min-width:0;flex:1 1 0;}
+#igs-record-panel .igs-record-person-portrait{flex:none;width:104px;aspect-ratio:2/3;padding:4px 4px 0;border:0;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);overflow:hidden;display:grid;place-items:end center;transition:background .18s var(--igs-rp-ease),transform .16s var(--igs-rp-ease);}
+#igs-record-panel .igs-record-person-portrait:hover{background:var(--igs-rp-fill-hover);transform:translateY(-1px);}
+#igs-record-panel .igs-record-person-portrait img{width:100%;height:100%;display:block;object-fit:contain;object-position:bottom center;}
+#igs-record-panel .igs-record-person-meta{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;}
+#igs-record-panel .igs-record-person-radar{display:flex;flex-direction:column;align-items:center;justify-self:end;width:100%;max-width:220px;box-sizing:border-box;padding:8px 6px 4px;border-radius:var(--igs-rp-radius-m);background:var(--igs-rp-fill);}
+#igs-record-panel .igs-record-radar-note{margin-bottom:2px;color:var(--igs-rp-text-faint);font-size:10px;letter-spacing:.08em;}
+#igs-record-panel .igs-record-person-radar svg.igs-stats-radar{display:block;width:100%;max-width:208px;height:auto;overflow:visible;}
+#igs-record-panel .igs-record-person-radar .igs-stats-radar-ring{fill:none;stroke:var(--igs-rp-text-faint);stroke-opacity:.28;stroke-width:1;}
+#igs-record-panel .igs-record-person-radar .igs-stats-radar-axis{fill:none;stroke:var(--igs-rp-text-faint);stroke-opacity:.2;stroke-width:1;}
+#igs-record-panel .igs-record-person-radar .igs-stats-radar-fill{fill:var(--igs-rp-accent,var(--igs-rp-warm));fill-opacity:.22;stroke:var(--igs-rp-accent,var(--igs-rp-warm));stroke-width:2;stroke-linejoin:round;}
+#igs-record-panel .igs-record-person-radar .igs-stats-radar-dot{fill:var(--igs-rp-accent,var(--igs-rp-warm));}
+#igs-record-panel .igs-record-person-radar .igs-stats-radar-name{fill:var(--igs-rp-text-soft);font-size:12px;}
+#igs-record-panel .igs-record-person-radar .igs-stats-radar-value{fill:var(--igs-rp-text);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;}
 #igs-record-panel .igs-record-person-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;}
 #igs-record-panel .igs-record-person-head h2{margin:0 4px 0 0;font-size:20px;font-weight:600;letter-spacing:.06em;line-height:1.4;overflow-wrap:anywhere;}
 #igs-record-panel .igs-record-thought{margin:12px 0 0;padding:1px 0 1px 12px;box-shadow:inset 2px 0 0 var(--igs-rp-accent,var(--igs-rp-warm));color:var(--igs-rp-text-soft);font-family:var(--igs-rp-font-body);font-size:14px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere;}
@@ -158,10 +177,10 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel .igs-record-metric i{display:block;height:4px;border-radius:2px;background:var(--igs-rp-fill-hover);overflow:hidden;}
 #igs-record-panel .igs-record-metric b{display:block;height:100%;border-radius:inherit;background:var(--igs-rp-accent,var(--igs-rp-warm));}
 #igs-record-panel .igs-record-metric em{font-style:normal;font-weight:600;text-align:right;color:var(--igs-rp-text);font-variant-numeric:tabular-nums;}
-#igs-record-panel .igs-record-stage{display:inline-flex;align-items:center;gap:10px;width:fit-content;margin:0;padding:4px 10px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-hover);font-size:12px;}
+#igs-record-panel .igs-record-stage{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;width:fit-content;max-width:100%;box-sizing:border-box;margin:0;padding:4px 10px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-hover);font-size:12px;overflow-wrap:anywhere;}
 #igs-record-panel .igs-record-favor{display:grid;gap:10px;max-width:760px;margin:6px auto 0;}
 #igs-record-panel .igs-record-favor-row{display:grid;grid-template-columns:32px minmax(4em,9em) minmax(0,1fr);align-items:center;gap:12px;padding:10px 14px;border-radius:var(--igs-rp-radius-s);background:var(--igs-rp-fill-hover);}
-#igs-record-panel .igs-record-favor-avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--igs-rp-text-faint);color:var(--igs-rp-text-soft);font-size:13px;}
+#igs-record-panel .igs-record-favor-avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;overflow:hidden;box-shadow:inset 0 0 0 1px var(--igs-rp-text-faint);color:var(--igs-rp-text-soft);font-size:13px;}
 #igs-record-panel .igs-record-favor-who{display:grid;min-width:0;}
 #igs-record-panel .igs-record-favor-who strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--igs-rp-text);font-size:14px;font-weight:600;}
 #igs-record-panel .igs-record-favor-who small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--igs-rp-text-faint);font-size:11px;}
@@ -206,6 +225,8 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel.igs-rp-mid .igs-record-inventory{grid-template-columns:minmax(0,1fr) minmax(250px,38%);}
 #igs-record-panel.igs-rp-mid .igs-record-inventory.is-solo{grid-template-columns:minmax(0,1fr);}
 #igs-record-panel.igs-rp-mid .igs-record-relationships{grid-template-columns:minmax(0,1fr) minmax(280px,.9fr);}
+#igs-record-panel.igs-rp-mid .igs-record-person-top.has-radar{grid-template-columns:minmax(0,1fr) minmax(160px,196px);}
+#igs-record-panel.igs-rp-mid .igs-record-person-portrait{width:84px;}
 #igs-record-panel.igs-rp-narrow .igs-record-scroll{padding:4px 14px 20px;}
 #igs-record-panel.igs-rp-narrow .igs-record-inventory{display:flex;flex-direction:column;align-items:stretch;gap:16px;}
 #igs-record-panel.igs-rp-narrow .igs-record-inventory-tools{flex-direction:column;flex-wrap:nowrap;align-items:stretch;}
@@ -248,6 +269,9 @@ export const RECORD_PANEL_STYLE_TEXT = `
 #igs-record-panel.igs-rp-narrow .igs-record-node-name{max-width:6em;}
 #igs-record-panel.igs-rp-narrow .igs-record-relationship-label{max-width:26%;padding:2px 6px;font-size:11px;}
 #igs-record-panel.igs-rp-narrow .igs-record-relationship-detail{padding:18px 16px;}
+#igs-record-panel.igs-rp-narrow .igs-record-person-top.has-radar{grid-template-columns:minmax(0,1fr);}
+#igs-record-panel.igs-rp-narrow .igs-record-person-portrait{width:86px;}
+#igs-record-panel.igs-rp-narrow .igs-record-person-radar{justify-self:center;max-width:220px;}
 #igs-record-panel.igs-rp-narrow .igs-record-person-head h2{font-size:18px;}
 #igs-record-panel.igs-rp-short .igs-record-relationship-graph{min-height:200px;}
 `;
