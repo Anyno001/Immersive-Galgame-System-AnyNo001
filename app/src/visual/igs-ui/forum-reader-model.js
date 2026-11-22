@@ -488,17 +488,25 @@ export function forumNameMap(thread) {
     return map;
 }
 
+export function forumNamePairs(ctx) {
+    const { poster, alias = {}, userNames = [], namesOf: baseNamesOf = () => [], extraNames = {} } = ctx;
+    const namesOf = (key) => [...baseNamesOf(key), ...(extraNames[key] || [])];
+    const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
+    const pairs = [];
+    for (const [key, code] of Object.entries({ ...alias, ...(posterKey ? { [posterKey]: '我' } : {}) })) {
+        const names = key === FORUM_USER_KEY ? userNames : [key, ...namesOf(key)];
+        for (const name of names) pairs.push([String(name || '').trim(), code]);
+    }
+    return pairs;
+}
+
 export function forumRowsOf(rows, ctx) {
     const { poster, alias = {}, userKey = '', userNames = [], namesOf: baseNamesOf = () => [], extraNames = {}, settings } = ctx;
     const namesOf = (key) => [...baseNamesOf(key), ...(extraNames[key] || [])];
     const st = normalizeForumReaderSettings(settings);
     const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
     const aliasOf = (key) => (key === posterKey ? '我' : alias[key] || '');
-    const pairs = [];
-    for (const [key, code] of Object.entries({ ...alias, ...(posterKey ? { [posterKey]: '我' } : {}) })) {
-        const names = key === FORUM_USER_KEY ? userNames : [key, ...namesOf(key)];
-        for (const name of names) pairs.push([String(name || '').trim(), code]);
-    }
+    const pairs = forumNamePairs(ctx);
     return rows.map((row, i) => {
         const key = row.key && userKey && row.key === userKey ? FORUM_USER_KEY : row.key;
         const mine = Boolean(key) && key === posterKey;

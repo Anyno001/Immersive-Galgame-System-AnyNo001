@@ -174,7 +174,7 @@ import { personaOfTraits } from '../../stickers/sticker-persona.js';
 import { shotGroupsOf } from './forum-reader-chat-shot.js';
 import { storyClock } from './phone-sense.js';
 import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumAnkeOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumNamePairs, replaceNames, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumAnkeOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -3692,7 +3692,7 @@ ${row.key}`;
             const order = [...new Set(forumRowsIn.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
             const bodyText = forumRowsIn.map((row) => String(row.text || '')).join(' ');
             for (const key of Object.keys(assets.characters || {})) {
-                if (key && !order.includes(key) && [key, ...(assets.characterAliases && Array.isArray(assets.characterAliases[key]) ? assets.characterAliases[key] : [])].some((n) => n && bodyText.includes(n))) order.push(key);
+                if (key && !nameMap.has(key) && !order.includes(key) && [key, ...(assets.characterAliases && Array.isArray(assets.characterAliases[key]) ? assets.characterAliases[key] : []), ...((thread.names || {})[key] || [])].some((n) => n && bodyText.includes(n))) order.push(key);
             }
             const aliased = ensureAliases(thread, order, posterKey);
             if (aliased.changed) { thread = aliased.thread; data = replaceForumThread(data, thread); }
@@ -3701,7 +3701,8 @@ ${row.key}`;
             if (!data.board) data = { ...data, board: forumBoardOf(data, worldview) };
             if (forumRegistry.stage(data)) forumRegistry.flush();
         }
-        const threadAlias = (thread && thread.alias) || {};
+        // 已登记为别人别名的名字不再单独占代号，免得和本名的代号抢同一个词。
+        const threadAlias = Object.fromEntries(Object.entries((thread && thread.alias) || {}).filter(([key]) => !nameMap.has(key)));
         const threadManual = (thread && thread.manual) || { alias: {}, asked: {} };
         // 新角色首次出场：已有（自动）代号但还没问过用户的，弹小卡片让他确认或改名；问过（改名或沿用）就记下不再问。按本帖问。
         const askedKeys = threadManual.asked || {};
@@ -3724,7 +3725,9 @@ ${row.key}`;
             if (state.activeReader) rerenderActiveReader();
         };
         const namesOf = (key) => (Array.isArray(assets.characterAliases && assets.characterAliases[key]) ? assets.characterAliases[key] : []);
-        const rows = forumRowsOf(forumRowsIn, { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, extraNames: (thread && thread.names) || {}, settings: rs.forumReader });
+        const nameCtx = { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, extraNames: (thread && thread.names) || {}, settings: rs.forumReader };
+        const rows = forumRowsOf(forumRowsIn, nameCtx);
+        const namePairs = forumNamePairs(nameCtx);
         const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
         const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
         const poId = (thread && thread.poId) || forumPoId(chatId, threadId);
@@ -3772,7 +3775,8 @@ ${row.key}`;
                 if (m.kind === 'msg') {
                     const name = codeOf(m);
                     if (!m.self && !lefts.includes(name)) lefts.push(name);
-                    return { kind: 'msg', type: m.type, text: m.text, side: m.side, name, showName: m.showName, color: m.color, textColor: m.textColor };
+                    const text = m.type !== 'sticker' ? replaceNames(m.text, namePairs.filter(([, to]) => to !== name)) : m.text;
+                    return { kind: 'msg', type: m.type, text, side: m.side, name, showName: m.showName, color: m.color, textColor: m.textColor };
                 }
                 if (m.kind === 'recall') return { kind: 'recall', text: `${m.self ? '你' : codeOf(m)}撤回了一条消息` };
                 return m;
