@@ -5,11 +5,15 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { logRowsOf } from '../src/visual/igs-ui/log-reader-model.js';
 import {
-    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumClock, forumFixedOf, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
+    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumAnkeLockKey, forumAnkeOf, forumClock, forumFixedOf, forumMinutesAfter, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
 import { FORUM_KAOMOJI } from '../src/visual/igs-ui/forum-reader-lines.js';
+import { ankeCheckPlay, ankeFillLine, ankeVisibleVotes, ankeVoteOf, ankeVotePlay } from '../src/visual/igs-ui/forum-anke-play.js';
+import { ANKE_REACT_POOLS, ANKE_REACT_STICKERS, ankeReactions, ankeSituation } from '../src/visual/igs-ui/forum-anke-react.js';
+import { ankeQuotedFloors, createAnkeStore } from '../src/visual/igs-ui/forum-anke-store.js';
+import { stickerNames } from '../src/stickers/sticker-catalog.js';
 import { createForumRegistry } from '../src/visual/igs-ui/forum-reader-registry.js';
 import { finishForumReveal, syncForumReader } from '../src/visual/igs-ui/forum-reader-layer.js';
 import { FORUM_READER_STYLE_TEXT } from '../src/visual/igs-ui/forum-reader-style.js';
@@ -498,4 +502,185 @@ test('半角 [ 开头、「】」收口的台词不漏出 】，台词里成对�
     assert.equal(canonicalizeIgsDirectives('[igs-char:李哪吒|慌乱|白衬衫|……怎么里头这么怪……喂！】'), '[igs-char:李哪吒|慌乱|白衬衫|……怎么里头这么怪……喂！]');
     assert.equal(canonicalizeIgsDirectives('[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！】'), '[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！]');
     assert.equal(canonicalizeIgsDirectives('[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！]'), '[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！]');
+});
+
+test('安科标签：四种形式与旧格式、判定的成功线 / 对象 / 属性、选项数与别名', () => {
+    assert.deepEqual(forumAnkeOf('[igs-anke:去哪|甲|乙|丙]'), { kind: 'pick', question: '去哪', options: ['甲', '乙', '丙'] });
+    assert.equal(forumAnkeOf('[igs-anke:投票|去哪|甲|乙]').kind, 'vote');
+    assert.equal(forumAnkeOf('[igs-anke:多数决|去哪|甲]'), null);
+    assert.equal(forumAnkeOf('[igs-anke:安价|说什么|甲|乙|丙|丁|戊|己|庚|辛|壬|癸]').options.length, 8);
+    assert.equal(forumAnkeOf('[igs-anke:征集|取名|甲|乙]').kind, 'collect');
+    assert.deepEqual(forumAnkeOf('[igs-anke:判定|偷看|阿吒|敏捷|60]'), { kind: 'check', question: '偷看', options: [], actor: '阿吒', ability: 'dex', line: 60 });
+    const loose = forumAnkeOf('[igs-anke:判定|逃跑|楼主|乱写|0|120]');
+    assert.deepEqual([loose.actor, loose.ability, loose.line], ['楼主', null, 50]);
+    assert.notEqual(forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:多数决|去哪|甲|乙]')), forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:多数决|去哪|甲|丙]')));
+});
+
+test('楼层计划预留安科楼与候选楼：号码排在最后一个主楼之后、AI 回帖之前，时间每楼推后 1 分钟', () => {
+    const rows = forumRowsOf(rowsOf([page('dialogue', '一句。', { bubbleSpeaker: '阿吒' }), page('dialogue', '二句。', { bubbleSpeaker: '阿吒' })]), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const ai = forumRepliesOf('[igs-reply:路人甲|投2][igs-reply:路人乙|2+1]');
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 4, settings: { perPost: 1, replies: 'normal' }, poId: 'p', aiReplies: ai, sceneTime: '17:40', reserve: 4 });
+    const last = plan[plan.length - 1];
+    assert.equal(last.reserved.length, 4);
+    assert.equal(last.reserved[0].id, 'p');
+    assert.equal(last.reserved[1].time, forumMinutesAfter(last.time, 2));
+    const nos = [...plan.flatMap((p) => [p.no, ...(p.reserved || []).map((r) => r.no), ...p.replies.map((r) => r.no)])];
+    assert.deepEqual(nos, [...nos].sort((a, b) => a - b));
+    assert.equal(new Set(nos).size, nos.length);
+    assert.ok(forumNo('c', 4, last.nextK) > nos[nos.length - 1]);
+});
+
+test('多数决：认 投N / N+1 / N！的票，暗骰按权重、票数严格最多且不少于可见票', () => {
+    assert.deepEqual(['投3', '2+1', '2！！！面馆', '随便聊聊'].map((t) => ankeVoteOf(t, 3)), [3, 2, 2, 0]);
+    assert.equal(ankeVoteOf('投9', 3), 0);
+    assert.deepEqual(ankeVisibleVotes(3, ['投2', '2+1', '3！', '哈哈']), [0, 2, 1]);
+    for (let s = 0; s < 40; s++) {
+        const play = ankeVotePlay({ visible: [1, 3, 0], pick: s % 3, unit: () => (s % 10) / 10, seed: `t${s}` });
+        const mins = [1, 3, 0].map((v, i) => v + (i === s % 3 ? 1 : 0));
+        assert.ok(play.tally.every((v, i) => v >= mins[i]));
+        assert.ok(play.tally.every((v, i) => i === play.winner || v < play.tally[play.winner]));
+        const total = play.tally.reduce((a, b) => a + b, 0);
+        assert.ok(total >= 18 && total <= 34);
+    }
+    const low = ankeVotePlay({ visible: [0, 0, 0], pick: 1, unit: () => 0.1, seed: 'a' });
+    assert.equal(low.winner, 0);
+    assert.equal(ankeVotePlay({ visible: [0, 0, 0], pick: 1, unit: () => 0.1, seed: 'a' }).tally.join(), low.tally.join());
+});
+
+test('判定与填入行：大成功 / 大失败优先，其余看总值与成功线；各形式的填入文字', () => {
+    assert.equal(ankeCheckPlay({ die: 4, bonus: -5, line: 99 }).tier, '大成功');
+    assert.equal(ankeCheckPlay({ die: 97, bonus: 50, line: 10 }).tier, '大失败');
+    assert.equal(ankeCheckPlay({ die: 51, bonus: 10, line: 60 }).tier, '成功');
+    assert.equal(ankeCheckPlay({ die: 51, bonus: -5, line: 60 }).tier, '失败');
+    const check = { kind: 'check', actor: '楼主', actorLabel: '阿吒', line: 60, bonus: 10 };
+    assert.equal(ankeFillLine(check, { pick: -1, die: 51, total: 61, tier: '成功' }), '【判定】阿吒：1D100=51+10=61，成功线60，成功');
+    assert.equal(ankeFillLine({ ...check, bonus: null }, { pick: -1, die: 3, total: 3, tier: '大成功' }), '【判定】阿吒：1D100=3，成功线60，大成功');
+    const opts = ['甲', '乙', '丙'];
+    assert.equal(ankeFillLine({ kind: 'vote', options: opts }, { pick: 1, roll: 2, tally: [4, 11, 13] }), '【多数决】投2，3号胜出：丙（4/11/13票）');
+    const floors = [{ no: 5501 }, { no: 5502 }, { no: 5503 }];
+    assert.equal(ankeFillLine({ kind: 'anchor', options: opts, floors }, { pick: 1, roll: 3, die: 2 }), '【安价】>>No.5502 乙（🎲1D3=2）');
+    assert.equal(ankeFillLine({ kind: 'collect', options: opts, floors }, { pick: 2, roll: 0 }), '【征集】采用>>No.5503：丙');
+    assert.equal(ankeFillLine({ kind: 'collect', options: opts, floors }, { pick: -1 }), '【征集】');
+});
+
+test('内置短楼：词池 15–25 条且表情包名在目录里，数量按情境，组内不重复、避开 AI 已有句子、同种子同结果', () => {
+    const names = new Set(stickerNames());
+    for (const [pool, list] of Object.entries(ANKE_REACT_POOLS)) {
+        if (pool !== 'voter') assert.ok(list.length >= 15 && list.length <= 25, pool);
+        assert.equal(new Set(list).size, list.length, pool);
+    }
+    for (const list of Object.values(ANKE_REACT_STICKERS)) assert.ok(list.every((n) => names.has(n)));
+    const big = ankeReactions({ kind: 'check', outcome: { tier: '大成功', diff: 40 }, seed: 'x', ids: ['a1', 'b2', 'c3', 'd4'] });
+    assert.ok(big.length >= 3 && big.length <= 4);
+    assert.equal(new Set(big.map((r) => r.text)).size, big.length);
+    assert.deepEqual(ankeReactions({ kind: 'check', outcome: { tier: '大成功', diff: 40 }, seed: 'x', ids: ['a1', 'b2', 'c3', 'd4'] }), big);
+    const plain = ankeReactions({ kind: 'anchor', outcome: { mode: 'mid' }, seed: 'y', ids: ['a1'] });
+    assert.ok(plain.length >= 1 && plain.length <= 2);
+    const avoid = ANKE_REACT_POOLS.mid.slice(1);
+    for (let s = 0; s < 30; s++) for (const r of ankeReactions({ kind: 'anchor', outcome: { mode: 'mid' }, seed: `z${s}`, ids: ['a1'], avoid })) assert.ok(!avoid.includes(r.text));
+    assert.equal(ankeSituation('check', { tier: '失败', diff: -3 }), 'nearFail');
+    assert.equal(ankeSituation('check', { tier: '成功', diff: 2 }), 'nearPass');
+    assert.equal(ankeSituation('vote', { won: true, lead: 2 }), 'voteClose');
+    assert.equal(ankeSituation('vote', { won: false, lead: 9 }), 'voteCrush');
+    let voter = null;
+    for (let s = 0; s < 40 && !voter; s++) voter = ankeReactions({ kind: 'vote', outcome: { won: true, lead: 4, voters: [{ id: 'zz', n: 1 }] }, seed: `v${s}`, ids: ['a1'] }).find((r) => r.id === 'zz');
+    assert.ok(voter && voter.text.includes('1') && !voter.text.includes('{n}'));
+});
+
+test('安科锁：写读、只留最近 200 条、读不到元数据时留在内存；引用内置楼时查得到楼号', () => {
+    const memory = createAnkeStore({ getContext: () => null, getChatId: () => 'c1' });
+    memory.put('k', { kind: 'vote' });
+    assert.equal(memory.get('k').kind, 'vote');
+    const meta = {};
+    let saved = 0;
+    const store = createAnkeStore({ getContext: () => ({ chatMetadata: meta, saveMetadata: () => { saved += 1; } }), getChatId: () => 'c1' });
+    for (let i = 0; i < 205; i++) store.put(`k${i}`, { kind: 'check', floors: [], react: [] });
+    assert.equal(Object.keys(meta.igs_forum_anke).length, 200);
+    assert.ok(!store.get('k4') && store.get('k5') && saved === 205);
+    const locks = { a: { floors: [{ no: 5501, text: '候选甲' }], react: [{ no: 5502, text: '[igs-sticker:开心]' }, { no: 5503, text: '楼主快更[igs-sticker:期待]' }] } };
+    assert.deepEqual(ankeQuotedFloors(locks, '>>No.5501 和 >>5502，还有 >>No.9'), [{ no: '5501', text: '候选甲' }, { no: '5502', text: '（表情包：开心）' }]);
+    assert.deepEqual(ankeQuotedFloors(locks, '没有引用'), []);
+    const block = collectGrammarBlocks({ forumReader: { on: true, anke: 'key' }, _forumQuoted: [{ no: '5503', text: '楼主快更' }] }).find((b) => b.key === 'forum').full;
+    assert.ok(block.includes('{{user}} 引用的楼层：No.5503 路人说「楼主快更」') && block.includes('判定对象'));
+    assert.ok(!collectGrammarBlocks({ forumReader: { on: true } }).find((b) => b.key === 'forum').full.includes('引用的楼层'));
+});
+
+function ankeView(overlay, kind, extra = {}) {
+    overlay.ownerDocument.defaultView.matchMedia = () => ({ matches: true });
+    const rows = forumRowsOf(rowsOf([page('dialogue', '一句。', { bubbleSpeaker: '阿吒' })]), { poster: { kind: 'witness' }, alias: {}, userKey: '我', settings: {} });
+    const options = kind === 'check' ? [] : ['甲', '乙', '丙'];
+    const plan = forumPlan(rows, { chatId: 'c', messageId: 1, settings: { replies: 'normal' }, poId: 'p', reserve: kind === 'anchor' || kind === 'collect' ? 4 : 1, sceneTime: '17:40' });
+    const slots = plan[plan.length - 1].reserved;
+    const anke = {
+        kind, question: '怎么办', options, key: `c:1:${kind}`, id: 'p', no: slots[0].no, time: slots[0].time, lock: null, readonly: false, actor: '阿吒', ability: 'dex', line: 50,
+        floors: slots.slice(1).map((r, i) => ({ no: r.no, id: r.id, time: r.time, text: options[i] })), visible: [0, 0, 0], voters: [], passers: ['a1', 'b2', 'c3'], aiTexts: [],
+        reactSlots: Array.from({ length: 5 }, (_, j) => ({ no: 9000 + j, time: `18:0${j}` })),
+        ...extra,
+    };
+    const fills = [];
+    const locks = [];
+    const view = { floorKey: 'k', rows, plan, board: '版', head: null, upto: 0, live: -1, settings: normalizeForumReaderSettings({}), sig: `s${kind}`, anke, ankeBonus: () => 10, onAnke: (text) => { fills.push(text); return { ok: true }; }, onAnkeLock: (key, value) => locks.push([key, value]) };
+    return { view, fills, locks, anke };
+}
+
+test('安科楼：多数决点一次就锁，不能重投，重建后从锁恢复票数与勾，内置短楼带 is-builtin', () => {
+    const { overlay } = mountOverlay();
+    const { view, fills, locks } = ankeView(overlay, 'vote');
+    syncForumReader(overlay, view);
+    assert.equal(overlay.querySelectorAll('.igs-fm-anke-opt').length, 3);
+    overlay.querySelector('.igs-fm-anke-opt[data-pick="1"]').click();
+    assert.equal(locks.length, 1);
+    const lock = locks[0][1];
+    assert.equal(lock.pick, 1);
+    assert.match(fills[0], /^【多数决】投2，\d号胜出：.（\d+\/\d+\/\d+票）$/);
+    assert.equal(overlay.querySelectorAll('.igs-fm-anke-trow').length, 3);
+    assert.equal(overlay.querySelectorAll('.igs-fm-anke-trow.is-win').length, 1);
+    assert.equal(overlay.querySelector('.igs-fm-anke-you').textContent, '你投了这个');
+    assert.ok(overlay.querySelectorAll('.is-builtin').length >= 1);
+    overlay.querySelector('.igs-fm-anke-opt[data-pick="2"]').click();
+    assert.equal(locks.length, 1);
+    assert.ok(overlay.querySelector('.igs-fm-anke').classList.contains('is-locked'));
+    const again = ankeView(overlay, 'vote', { lock });
+    syncForumReader(overlay, { ...again.view, sig: 'rebuilt' });
+    assert.equal(overlay.querySelectorAll('.igs-fm-anke-trow').length, 3);
+    assert.equal(overlay.querySelectorAll('.is-builtin').length, lock.react.length);
+    assert.equal(overlay.querySelector('.igs-fm-anke-opt.is-pick').dataset.pick, String(lock.roll));
+    assert.equal(again.locks.length, 0);
+});
+
+test('安科楼：安价候选楼排在安科楼之后，点楼选中并填入楼号；征集自己写一楼；只读时没锁就禁用', () => {
+    const { overlay } = mountOverlay();
+    const { view, fills } = ankeView(overlay, 'anchor');
+    syncForumReader(overlay, view);
+    const order = [...overlay.querySelectorAll('.igs-fm-list > *')].map((n) => ['igs-fm-anke', 'igs-fm-anke-floor', 'igs-fm-reply'].find((c) => n.classList.contains(c))).filter(Boolean);
+    assert.deepEqual(order.slice(0, 4), ['igs-fm-anke', 'igs-fm-anke-floor', 'igs-fm-anke-floor', 'igs-fm-anke-floor']);
+    overlay.querySelector('.igs-fm-anke-floor[data-floor="2"]').click();
+    assert.match(fills[0], /^【安价】>>No\.\d+ 丙$/);
+    assert.ok(overlay.querySelector('.igs-fm-anke-floor.is-pick'));
+    const free = ankeView(overlay, 'collect');
+    syncForumReader(overlay, { ...free.view, sig: 'c' });
+    overlay.querySelector('.is-free').click();
+    assert.equal(free.fills[0], '【征集】');
+    const ro = ankeView(overlay, 'anchor', { readonly: true });
+    syncForumReader(overlay, { ...ro.view, sig: 'ro' });
+    overlay.querySelector('.igs-fm-anke-floor').click();
+    assert.equal(ro.fills.length, 0);
+    assert.equal(ro.locks.length, 0);
+    assert.equal(overlay.querySelectorAll('.is-builtin').length, 0);
+});
+
+test('安科楼：判定掷骰后算式、结果与填入行一致，落定后不能重骰', () => {
+    const { overlay } = mountOverlay();
+    const { view, fills, locks } = ankeView(overlay, 'check');
+    syncForumReader(overlay, view);
+    assert.ok(overlay.querySelector('.igs-fm-anke-mods').textContent.includes('敏捷 +10'));
+    overlay.querySelector('.is-roll').click();
+    const lock = locks[0][1];
+    assert.equal(lock.total, lock.die + 10);
+    assert.ok(fills[0].startsWith('【判定】阿吒：1D100=') && fills[0].endsWith(lock.tier));
+    assert.equal(overlay.querySelector('.igs-fm-anke-res').textContent, lock.tier);
+    const rolled = overlay.querySelector('.igs-fm-anke-dice').textContent;
+    overlay.querySelector('.igs-fm-anke-res').click();
+    assert.equal(locks.length, 1);
+    assert.equal(overlay.querySelector('.igs-fm-anke-dice').textContent, rolled);
 });

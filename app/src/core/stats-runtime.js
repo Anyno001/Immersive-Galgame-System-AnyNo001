@@ -3576,6 +3576,10 @@ export function createStatsRuntime({
         checkReplayFor: ev(checkReplayFor),
         promptActive: ev((type = null) => Boolean(active() && !SKIP_TYPES.has(type) && !background())),
         npcAbilities,
+        abilitiesOf: ev((name) => {
+            if (!active()) return null;
+            try { const engine = memoEngineOf(); return (isHero(name) ? engine.readAbilities(userName() || PROTAGONIST) : npcAbilities(name) || engine.readAbilities(name)) || null; } catch (error) { return null; }
+        }),
         notices: () => [...notices.values()],
         noticeAction: ev(noticeAction),
         generateSheets: ev(generateSheets),

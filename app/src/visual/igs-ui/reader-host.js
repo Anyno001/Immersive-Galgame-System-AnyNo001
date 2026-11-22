@@ -115,7 +115,7 @@ import { createReaderTableData } from '../../data/shujuku/reader-table-data.js';
 import { createImageResourceCache } from '../../media/resource-cache.js';
 import { collectFloorAssetUrls } from './floor-asset-prefetch.js';
 import { createChatStreamObserver, isUserFloorNode } from '../../host/chat-stream-observer.js';
-import { findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
+import { d20Bonus, findAcuDice, formatCheckMessage, resolveDiceCommand } from '../../choices/dice-check.js';
 import { abilitiesForName } from '../../combat/ledger.js';
 import { buildResultFxPlan, normalizeResultFxSettings, resultDetailOf } from './fx-result-model.js';
 import { cancelResultFx, playResultFx } from './fx-result.js';
@@ -174,8 +174,10 @@ import { personaOfTraits } from '../../stickers/sticker-persona.js';
 import { shotGroupsOf } from './forum-reader-chat-shot.js';
 import { storyClock } from './phone-sense.js';
 import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumNamePairs, replaceNames, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumAnkeOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumNamePairs, replaceNames, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumAnkeOf, forumAnkeLockKey, forumMinutesAfter, forumPasserId, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
+import { createAnkeStore } from './forum-anke-store.js';
+import { ankeVisibleVotes, ankeVoteOf } from './forum-anke-play.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
@@ -698,6 +700,10 @@ export function createIgsReaderHost(options = {}) {
         ? options.onImageActivity((event) => generationStrip.activity(event))
         : () => {};
 
+    const ankeStore = createAnkeStore({
+        getContext: () => getSillyTavernContext(options.global || globalThis),
+        getChatId: currentChatIdText,
+    });
     const forumRegistry = createForumRegistry({
         getContext: () => getSillyTavernContext(options.global || globalThis),
         getChatId: currentChatIdText,
@@ -3734,7 +3740,9 @@ ${row.key}`;
         const aiReplies = forumRepliesOf(floor.source);
         const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
         const prevReplies = aiReplies.some((r) => r.prev) ? forumPrevRepliesOf(ctx.chat, messageId) : [];
-        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
+        const ankeFound = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
+        const reserve = ankeFound && ankeFound.kind !== 'pick' ? 1 + (ankeFound.kind === 'anchor' || ankeFound.kind === 'collect' ? ankeFound.options.length : 0) : 0;
+        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies, reserve });
         const tailSig = (id) => `${(ctx.chat && ctx.chat[id] && String(ctx.chat[id].mes || '').length) || 0}:${settings.replies}:${settings.perPost}:${settings.posterText}`;
         if (idle) {
             const mine = { sig: tailSig(messageId), replies: forumTailOf(plan, 3) };
@@ -3794,14 +3802,47 @@ ${row.key}`;
                 groups: groups.length ? groups : [[]],
             };
         };
-        // 安价楼：楼号接在本楼最后一条之后；安科关闭时不显示。
+        // 安科楼：旧四选一接在本楼最后一条之后；新四种形式排在最后一个主楼与它的 AI 回帖之间（楼号已在 forumPlan 里占好）。
+        const ankeHeroNames = [floor.userName, ctx.name1].filter(Boolean);
+        const ankeBonus = (actor, key) => {
+            if (!key || typeof options.statsAbilities !== 'function') return null;
+            const text = String(actor || '').trim();
+            let name = '';
+            if (text === '楼主') name = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? ctx.name1 || '主角' : '';
+            else if (/^\{\{\s*user\s*\}\}$/i.test(text) || text === '我' || text === '主角' || ankeHeroNames.includes(text)) name = ctx.name1 || '主角';
+            else name = known(text) || text;
+            if (!name) return null;
+            let abilities = null;
+            try { abilities = options.statsAbilities(name); } catch (_) { abilities = null; }
+            const bonus = d20Bonus(abilities, key);
+            return bonus === null ? null : Math.round(bonus) * 5;
+        };
         const anke = (() => {
-            const found = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
-            if (!found || !plan.length) return null;
-            const items = plan.flatMap((p) => [p, ...(p.replies || [])]);
-            const lastItem = items[items.length - 1];
-            const maxK = Math.max(...items.map((p) => p.k));
-            return { ...found, key: `${chatId}:${messageId}`, id: poId, no: forumNo(chatId, messageId, maxK + 1), time: lastItem.time || '' };
+            if (!ankeFound || !plan.length) return null;
+            const key = forumAnkeLockKey(chatId, messageId, ankeFound);
+            const lock = ankeStore.get(key);
+            const readonly = Array.isArray(ctx.chat) && ctx.chat.slice(messageId + 1).some((m) => m && m.is_user);
+            const flat = plan.flatMap((p) => [p, ...(p.replies || [])]);
+            const lastItem = flat[flat.length - 1];
+            if (ankeFound.kind === 'pick') return { ...ankeFound, key, id: poId, no: forumNo(chatId, messageId, Math.max(...flat.map((p) => p.k)) + 1), time: lastItem.time || '', lock, readonly };
+            const lastPost = plan[plan.length - 1];
+            const slots = lastPost.reserved || [];
+            if (!slots.length) return null;
+            const aiReplies2 = flat.filter((p) => p.text && p.po !== true && p.id !== poId);
+            const passers = [...new Set([...aiReplies2.map((p) => p.id), ...slots.slice(1).map((r) => r.id)])];
+            const nextK = lastPost.nextK || slots[slots.length - 1].k + 1;
+            const count = ankeFound.options.length;
+            return {
+                ...ankeFound, key, id: poId, no: slots[0].no, time: slots[0].time, lock, readonly,
+                floors: slots.slice(1).map((r, i) => ({ no: r.no, id: r.id, time: r.time, text: ankeFound.options[i] })),
+                actorLabel: ankeFound.actor === '楼主' && poster.kind === 'char' ? poster.key : ankeFound.actor,
+                bonus: ankeFound.kind === 'check' ? ankeBonus(ankeFound.actor, ankeFound.ability) : null,
+                visible: ankeFound.kind === 'vote' ? ankeVisibleVotes(count, aiReplies2.map((p) => p.text)) : [],
+                voters: ankeFound.kind === 'vote' ? aiReplies2.map((p) => ({ id: p.id, n: ankeVoteOf(p.text, count) })).filter((v) => v.n) : [],
+                passers: passers.length ? passers : [0, 1, 2, 3, 4, 5].map((i) => forumPasserId(chatId, i, threadId)),
+                aiTexts: aiReplies2.map((p) => p.text),
+                reactSlots: Array.from({ length: 5 }, (_, j) => ({ no: forumNo(chatId, messageId, nextK + j), time: forumMinutesAfter(lastItem.time || '', j + 1) })),
+            };
         })();
         const onAnke = async (text, replace) => {
             if (state.activeReader !== current) return { ok: false, reason: 'reader-not-open' };
@@ -3818,9 +3859,10 @@ ${row.key}`;
             return { ok: true };
         };
         return syncForumReader(overlay, {
-            anke, onAnke,
+            anke, onAnke, ankeBonus,
+            onAnkeLock: (key, value) => ankeStore.put(key, value),
             floorKey: log.key,
-            sig: JSON.stringify([anke, rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            sig: JSON.stringify([anke && { ...anke, lock: null }, rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
             rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,
             board: forumBoardOf(data, worldview),
             threadNo: (() => { const froms = thread ? (data.timeline || []).filter((e) => e.thread === thread.id).map((e) => Number(e.from)).filter(Number.isFinite) : []; return froms.length ? forumNo(chatId, Math.min(...froms), 0) : (plan[0] ? plan[0].no : ''); })(),
