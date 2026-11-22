@@ -387,7 +387,7 @@ function buildRow(overlay, list, i, view, live) {
         return { fades, text: null, post, postIndex };
     }
     const html = view.htmlOf ? view.htmlOf(row) : esc(row.text);
-    const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}${row.kind === 'dialogue' ? ' is-say' : ''}${row.kind === 'dialogue' && row.cont ? ' is-cont' : ''}`);
+    const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}${row.kind === 'dialogue' || row.kind === 'thought' ? ' is-say' : ''}${(row.kind === 'dialogue' || row.kind === 'thought') && row.cont ? ' is-cont' : ''}`);
     line.dataset.index = String(row.index);
     let inner = html;
     if (row.kind === 'dialogue') {

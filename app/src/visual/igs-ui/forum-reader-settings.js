@@ -3,7 +3,7 @@ import { FORUM_MODES, FORUM_PALETTE_IDS } from './forum-reader-palettes.js';
 import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log-reader-settings.js';
 
 // 论坛体阅读模式的设置：与纵向、线上聊天互斥并列。标题 / 板块 / 代号按聊天存（chatMetadata），不在这里。
-export const FORUM_POSTERS = Object.freeze(['auto', 'char', 'witness', 'user', 'pair']);
+export const FORUM_POSTERS = Object.freeze(['auto', 'fixed', 'pair']);
 export const FORUM_THOUGHTS = Object.freeze(['show', 'hide']);
 export const FORUM_REPLIES = Object.freeze(['off', 'few', 'normal']);
 export const FORUM_MOODS = Object.freeze(['off', 'all', 'random']);
@@ -28,13 +28,26 @@ function clampInt(value, min, max, fallback) {
     return Number.isFinite(n) ? Math.round(Math.max(min, Math.min(max, n))) : fallback;
 }
 
+// 楼主只用一个文本框：留空 AI 挑，一个人锁定，顿号隔开两个人为双楼主。旧版五选一按钮折算成文本（「角色本人」不知道是谁，回到 AI 挑）。
+function posterTextOf(src) {
+    if (typeof src.posterText === 'string') return src.posterText.trim().slice(0, 160);
+    if (src.poster === 'user') return '{{user}}';
+    if (src.poster === 'witness') return '路人';
+    if (src.poster === 'pair' && Array.isArray(src.posterPair)) return src.posterPair.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join('、');
+    return '';
+}
+
 export function normalizeForumReaderSettings(value) {
     const src = plain(value);
+    const posterText = posterTextOf(src);
+    const posterList = posterText.split(/[、,，;；]+/).map((x) => x.trim().slice(0, 80)).filter(Boolean).slice(0, 2);
     const out = {
         on: src.on === true,
         enabled: src.on === true,
-        poster: FORUM_POSTERS.includes(src.poster) ? src.poster : 'auto',
-        posterPair: [0, 1].map((i) => (Array.isArray(src.posterPair) && typeof src.posterPair[i] === 'string' ? src.posterPair[i].trim().slice(0, 80) : '')),
+        posterText,
+        poster: FORUM_POSTERS[Math.min(posterList.length, 2)],
+        posterFixed: posterList.length === 1 ? posterList[0] : '',
+        posterPair: posterList.length === 2 ? posterList : ['', ''],
         othersThoughts: FORUM_THOUGHTS.includes(src.othersThoughts) ? src.othersThoughts : 'hide',
         replies: FORUM_REPLIES.includes(src.replies) ? src.replies : 'normal',
         perPost: clampInt(src.perPost, FORUM_PER_POST_MIN, FORUM_PER_POST_MAX, 8),

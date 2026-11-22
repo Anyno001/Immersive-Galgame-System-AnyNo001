@@ -54,13 +54,17 @@ function pairText(settings) {
     return a && b ? `${a}、${b}` : '两位当事人';
 }
 
-function posterLine(settings, data) {
+function fixedText(settings) {
+    const raw = String(settings.posterFixed || '').trim();
+    if (/^(user|\{\{\s*user\s*\}\})$/i.test(raw)) return '{{user}}';
+    const witness = raw.match(/^路人\s*[:：]?\s*(.*)$/);
+    if (witness) return `围观路人${witness[1].trim() ? `（${witness[1].trim()}）` : ''}`;
+    return raw;
+}
+
+function posterLine(settings) {
     const poster = settings.poster;
-    const thread = threadAt(data, Infinity);
-    const po = thread && thread.po;
-    if (poster === 'char') return `楼主是${po && po.kind === 'char' && po.key ? po.key : '剧中的角色本人'}，不要改`;
-    if (poster === 'user') return '楼主是{{user}}，不要改';
-    if (poster === 'witness') return `楼主是围观路人${po && po.kind === 'witness' && po.note ? `（${po.note}）` : ''}，不要改`;
+    if (poster === 'fixed') return `楼主是${fixedText(settings)}，不要改`;
     if (poster === 'pair') return `楼主只在 ${pairText(settings)} 之间交替，${SWITCH_NOTE}`;
     return `楼主是发这个帖子的人，从剧中角色本人、{{user}}、围观路人里挑最有戏的一个；${AUTO_NOTE}；${SWITCH_NOTE}`;
 }
@@ -100,7 +104,7 @@ export function forumPrevPromptText(settings, prev) {
 
 // 登记齐了：只留事实与改写入口，不再重复整段格式。
 export function forumShortPromptText(settings, data) {
-    return `【论坛体】正文以匿名论坛帖展示。已登记：${forumFactsText(data)}。仅需改动时在正文末尾写一行 ${settings.poster === 'char' || settings.poster === 'user' || settings.poster === 'witness' ? TAG_FORMAT_SHORT_LOCKED : TAG_FORMAT_SHORT}，不写则沿用。${settings.poster === 'auto' ? `${AUTO_NOTE}；${SWITCH_NOTE}。` : settings.poster === 'pair' ? `楼主只在 ${pairText(settings)} 之间交替；${SWITCH_NOTE}。` : ''}${replyLine(settings) ? `每段正文${replyLine(settings)}。` : ''}`;
+    return `【论坛体】正文以匿名论坛帖展示。已登记：${forumFactsText(data)}。仅需改动时在正文末尾写一行 ${settings.poster === 'fixed' ? TAG_FORMAT_SHORT_LOCKED : TAG_FORMAT_SHORT}，不写则沿用。${settings.poster === 'auto' ? `${AUTO_NOTE}；${SWITCH_NOTE}。` : `${posterLine(settings)}。`}${replyLine(settings) ? `每段正文${replyLine(settings)}。` : ''}`;
 }
 
 // 设置里自填的提示词（非空）整段替换内置写法，登记前后都用它；留空用内置。
@@ -114,12 +118,12 @@ export function forumDefaultPromptText(settings) {
 }
 
 export function forumPromptText(settings, data) {
-    const locked = ['char', 'user', 'witness'].includes(settings.poster);
+    const locked = settings.poster === 'fixed';
     const facts = forumFactsText(data);
     return [
         '【论坛体】本段正文会以匿名论坛帖的形式展示。仅在以下信息尚未确定或剧情需要改变时，在正文末尾写一行（不写则沿用已有）：',
         locked ? TAG_FORMAT_LOCKED : TAG_FORMAT,
-        `${posterLine(settings, data)}；标题用楼主口吻；${CODE_NOTE}。${facts ? `已登记：${facts}。` : ''}`,
+        `${posterLine(settings)}；标题用楼主口吻；${CODE_NOTE}。${facts ? `已登记：${facts}。` : ''}`,
         replyLine(settings) ? `每段正文${replyLine(settings)}。` : '',
     ].filter(Boolean).join('\n');
 }

@@ -5,7 +5,7 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { logRowsOf } from '../src/visual/igs-ui/log-reader-model.js';
 import {
-    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumClock, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
+    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumClock, forumFixedOf, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
@@ -477,4 +477,19 @@ test('末尾回帖落进登记：内存缓存空也能读出，只留最近 30 �
     assert.deepEqual(forumChainTail({ chat, messageId: 36, count: 2, sameThread: () => true, lookup }), [item(35)]);
     assert.deepEqual(forumChainTail({ chat, messageId: 4, count: 2, sameThread: () => true, lookup }), []);
     assert.deepEqual(normalizeForum({ tails: { 3: { sig: 'x', items: [{ foo: 1 }] }, x: { sig: 'y', items: [item(1)] }, 4: 'z' } }).tails, {});
+});
+
+test('楼主文本框：留空自动、一人锁定、两人交替；旧按钮折算；锁定后换人从本楼起生效且短提示词写明楼主', () => {
+    assert.equal(normalizeForumReaderSettings({ posterText: '' }).poster, 'auto');
+    assert.deepEqual(forumPairOf({ posterText: '阿吒、霜见' }), [A, B]);
+    assert.deepEqual(forumFixedOf({ posterText: 'User' }), { kind: 'user' });
+    assert.equal(normalizeForumReaderSettings({ poster: 'user' }).posterText, '{{user}}');
+    assert.equal(normalizeForumReaderSettings({ poster: 'char' }).poster, 'auto');
+    const before = applyFloorTags(emptyForum(), 3, [], { known, fallbackPo: A, firstFloor: 3, chatId: 'c' }).data;
+    const fixed = forumFixedOf({ posterText: '霜见' });
+    const after = applyFloorTags(before, 5, tagsOf('[igs-forum:新帖|楼主=阿吒]'), { known, posterLock: 'fixed', fixed, firstFloor: 3, chatId: 'c' }).data;
+    assert.equal(threadAt(after, 3).po.key, '阿吒');
+    assert.equal(threadAt(after, 5).po.key, '霜见');
+    const block = collectGrammarBlocks({ forumReader: { on: true, posterText: '霜见' }, _forum: after }).find((b) => b.key === 'forum');
+    assert.match(block.full, /楼主是霜见，不要改/);
 });

@@ -299,14 +299,24 @@ export function forumTagsOf(source) {
 }
 
 // 设置里「双楼主」的两个人都填了才生效；每项写法同标签（角色名 / {{user}} / 路人:身份）。返回 [po, po] 或 null。
+export function forumPoFromText(text, keyOfName = (n) => n) {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+    const po = /^user$/i.test(raw) ? { kind: 'user' } : parseForumTag(`楼主=${raw}`).po;
+    return po ? resolveTagPo(po, keyOfName, true) : null;
+}
+
 export function forumPairOf(settings, keyOfName = (n) => n) {
     const st = normalizeForumReaderSettings(settings);
     if (st.poster !== 'pair') return null;
-    const list = st.posterPair.map((text) => {
-        const po = text ? parseForumTag(`楼主=${text}`).po : null;
-        return po ? resolveTagPo(po, keyOfName, true) : null;
-    });
+    const list = st.posterPair.map((text) => forumPoFromText(text, keyOfName));
     return list[0] && list[1] ? list : null;
+}
+
+// 设置里只填了一个人：楼主锁定为此人，AI 的「楼主=」标签不再生效。
+export function forumFixedOf(settings, keyOfName = (n) => n) {
+    const st = normalizeForumReaderSettings(settings);
+    return st.poster === 'fixed' ? forumPoFromText(st.posterFixed, keyOfName) : null;
 }
 
 export function forumKeyResolver(known, userNames = []) {
@@ -328,7 +338,7 @@ function resolveTagPo(po, keyOfName, keepRaw = false) {
 // 一楼自己的标签写进登记，写在本楼 messageId 上，与渲染顺序无关：先清掉本楼旧条目（swipe / 重写后重算，幂等），再按本楼标签重新登记。
 // opts：chatId、known、userNames、posterLock、pair（[po,po] 或 null）、fallbackPo、firstFloor、fallbackTitle。返回 { data, dropped, threadId }。
 export function applyFloorTags(data, messageId, tags, opts = {}) {
-    const { known = (n) => n, userNames = [], posterLock = 'auto', pair = null, fallbackPo = null, firstFloor = messageId, fallbackTitle = '', chatId = '' } = opts;
+    const { known = (n) => n, userNames = [], posterLock = 'auto', pair = null, fixed = null, fallbackPo = null, firstFloor = messageId, fallbackTitle = '', chatId = '' } = opts;
     const id = wholeFrom(messageId);
     const next = normalizeForum(data);
     const dropped = [];
@@ -345,6 +355,10 @@ export function applyFloorTags(data, messageId, tags, opts = {}) {
             else if (tag.po && tag.po.kind === 'char') dropped.push(tag.po.name);
         }
         if (po && pair && !pair.some((p) => samePo(p, po))) { dropped.push(describePo(po)); po = null; }
+    }
+    if (fixed) {
+        const anyWitness = fixed.kind === 'witness' && !fixed.note ? next.threads.find((t) => t.po && t.po.kind === 'witness') : null;
+        po = anyWitness ? anyWitness.po : fixed;
     }
     const create = (who) => {
         let n = 1;
@@ -399,13 +413,10 @@ export function floorMarks(data, messageId) {
 }
 
 // 楼主：设置锁定 > 本帖登记 > 兜底（双楼主取第一个人，再到本卡主角，再到第一个非 User 说话人）。
-export function resolvePoster({ thread, settings, defaultChar = '', firstSpeaker = '', pair = null }) {
-    const st = normalizeForumReaderSettings(settings);
+export function resolvePoster({ thread, settings, defaultChar = '', firstSpeaker = '', pair = null, fixed = forumFixedOf(settings) }) {
     const stored = thread && thread.po;
     const fallbackChar = defaultChar || firstSpeaker || '';
-    if (st.poster === 'user') return { kind: 'user' };
-    if (st.poster === 'witness') return { kind: 'witness', note: stored && stored.kind === 'witness' ? stored.note : '' };
-    if (st.poster === 'char') return stored && stored.kind === 'char' ? stored : (fallbackChar ? { kind: 'char', key: fallbackChar } : { kind: 'witness', note: '' });
+    if (fixed) return fixed.kind === 'witness' && !fixed.note && stored && stored.kind === 'witness' ? stored : fixed;
     if (stored) return stored;
     if (pair) return pair[0];
     return fallbackChar ? { kind: 'char', key: fallbackChar } : { kind: 'witness', note: '' };

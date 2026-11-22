@@ -172,8 +172,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + checkbox(`${p}.chatReader.userAvatar`, cr.userAvatar, '显示User头像')
         + stickerRowsOf(false));
     const fr = s.forumReader;
-    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.poster`, '楼主', segmentedInput(`${p}.forumReader.poster`, fr.poster, [['auto', '让 AI 挑'], ['char', '角色本人'], ['witness', '围观路人'], ['user', 'User'], ['pair', '双楼主']], '楼主'))
-        + (fr.poster === 'pair' ? field(`${p}.forumReader.posterPair.0`, '第一位楼主', textInput(`${p}.forumReader.posterPair.0`, fr.posterPair[0], '角色名、{{user}} 或 路人:身份')) + field(`${p}.forumReader.posterPair.1`, '第二位楼主', textInput(`${p}.forumReader.posterPair.1`, fr.posterPair[1], '两人之间交替发帖')) : '')
+    const forumReader = featureRow(more, 'forum-reader', `${p}.forumReader.on`, fr.on, '论坛体模式', '改为匿名论坛帖', field(`${p}.forumReader.posterText`, '楼主', textInput(`${p}.forumReader.posterText`, fr.posterText, '留空由 AI 挑'), '可填角色名、User 或「路人:身份」；用顿号隔开两个人则由两人交替发帖')
         + field(`${p}.forumReader.othersThoughts`, '其他人的心里话', segmentedInput(`${p}.forumReader.othersThoughts`, fr.othersThoughts, [['hide', '不显示'], ['show', '照常显示']], '其他人的心里话'))
         + field(`${p}.forumReader.replies`, '路人回帖', segmentedInput(`${p}.forumReader.replies`, fr.replies, [['off', '关'], ['few', '少'], ['normal', '标准']], '路人回帖'))
         + field(`${p}.forumReader.palette`, '配色', selectInput(`${p}.forumReader.palette`, fr.palette, FORUM_PALETTES.map((x) => [x.id, x.name])))

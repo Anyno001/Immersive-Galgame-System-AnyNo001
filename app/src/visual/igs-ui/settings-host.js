@@ -1,4 +1,4 @@
-import { ensureAliases } from './forum-reader-model.js';
+import { ensureAliases, forumPoFromText } from './forum-reader-model.js';
 import { clearNaiQuota, syncNaiQuota, querySettingsNaiQuota, renderNaiQuota } from './settings-nai-quota.js';
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
@@ -573,7 +573,7 @@ export function createSettingsHost(deps) {
         }
 
         // 论坛登记（标题、板块、代号）随聊天存在 chatMetadata，不进设置草稿：虚拟 path 直接写登记。
-        const forumField = /^forum\.(title|board|alias|names|add)(?:\.(t\d+))?(?:\.(.+))?$/.exec(path);
+        const forumField = /^forum\.(title|board|alias|names|add|po)(?:\.(t\d+))?(?:\.(.+))?$/.exec(path);
         if (forumField && forumRegistry) {
             const registry = forumRegistry;
             const data = registry.read();
@@ -590,6 +590,12 @@ export function createSettingsHost(deps) {
                 const key = decodeURIComponent(forumField[3] || '');
                 next.alias = { ...thread.alias };
                 if (text) { next.alias[key] = text; manual.alias[key] = true; } else { delete next.alias[key]; delete manual.alias[key]; }
+            } else if (forumField[1] === 'po') {
+                const po = forumPoFromText(text);
+                if (!po) return { ok: true };
+                next.po = po;
+                registry.commit({ ...data, threads: data.threads.map((t) => (t.id === thread.id ? next : t)) });
+                return rerenderSettings();
             } else if (forumField[1] === 'add') {
                 const name = text.slice(0, 24);
                 if (!name || next.alias[name]) return { ok: true };

@@ -174,7 +174,7 @@ import { personaOfTraits } from '../../stickers/sticker-persona.js';
 import { shotGroupsOf } from './forum-reader-chat-shot.js';
 import { storyClock } from './phone-sense.js';
 import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -3671,18 +3671,19 @@ ${row.key}`;
         const firstSpeaker = (log.rows.find((row) => row.key && row.key !== floor.userKey) || {}).key || '';
         const defaultChar = ctx.name2 ? known(ctx.name2) : '';
         const pair = forumPairOf(rs.forumReader, forumKeyResolver(known, userNames));
+        const fixed = forumFixedOf(rs.forumReader, forumKeyResolver(known, userNames));
         const firstScene = String((log.rows.find((row) => row.scene) || {}).scene || '').split(' · ').pop();
         let data = forumRegistry.read();
-        const fallbackPo = resolvePoster({ thread: null, settings: rs.forumReader, defaultChar, firstSpeaker, pair });
+        const fallbackPo = resolvePoster({ thread: null, settings: rs.forumReader, defaultChar, firstSpeaker, pair, fixed });
         if (idle) {
             data = applyFloorTags(data, messageId, forumTagsOf(floor.source), {
-                chatId, known, userNames, posterLock: settings.poster, pair, fallbackPo,
+                chatId, known, userNames, posterLock: settings.poster, pair, fixed, fallbackPo,
                 firstFloor: forumFirstFloor(messageId), fallbackTitle: forumFallbackTitle(fallbackPo, firstScene),
             }).data;
         }
         const marks = floorMarks(data, messageId);
         let thread = marks.thread;
-        const poster = resolvePoster({ thread, settings: rs.forumReader, defaultChar, firstSpeaker, pair });
+        const poster = resolvePoster({ thread, settings: rs.forumReader, defaultChar, firstSpeaker, pair, fixed });
         const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
         const nameMap = forumNameMap(thread);
         const forumRowsIn = nameMap.size ? log.rows.map((row) => (nameMap.has(row.key) ? { ...row, key: nameMap.get(row.key) } : row)) : log.rows;
@@ -3730,7 +3731,7 @@ ${row.key}`;
         const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
         const prevReplies = aiReplies.some((r) => r.prev) ? forumPrevRepliesOf(ctx.chat, messageId) : [];
         const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
-        const tailSig = (id) => `${(ctx.chat && ctx.chat[id] && String(ctx.chat[id].mes || '').length) || 0}:${settings.replies}:${settings.perPost}:${settings.poster}`;
+        const tailSig = (id) => `${(ctx.chat && ctx.chat[id] && String(ctx.chat[id].mes || '').length) || 0}:${settings.replies}:${settings.perPost}:${settings.posterText}`;
         if (idle) {
             const mine = { sig: tailSig(messageId), replies: forumTailOf(plan, 3) };
             forumTails.set(`${chatId}:${messageId}`, mine);
