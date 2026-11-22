@@ -22,7 +22,7 @@ const anchorText = (anchor) => (anchor ? JSON.stringify(anchor) : '');
 const anchorOf = (cell) => (cell ? JSON.parse(cell) : null);
 
 // 属性表与数值日志表的列、编码完全相同，只是名称与 uid 不同。
-function logSheetSpec(name, uid) {
+export function logSheetSpec(name, uid) {
     return Object.freeze({
         name,
         uid,
@@ -125,29 +125,29 @@ export function buildIgsSheet({ name, columns, note }, orderNo, uid) {
 }
 
 // 按种类生成战斗表模板。
-export function buildCombatSheet(kind, orderNo, uid = COMBAT_TABLE_SPECS[kind].uid) {
-    const spec = COMBAT_TABLE_SPECS[kind];
-    return buildIgsSheet({ name: spec.name, columns: spec.columns, note: `IGS 战斗扩展的${TABLE_LABELS[kind]}` }, orderNo, uid);
+export function buildCombatSheet(kind, orderNo, uid, specs = COMBAT_TABLE_SPECS) {
+    const spec = specs[kind];
+    return buildIgsSheet({ name: spec.name, columns: spec.columns, note: `IGS ${TABLE_LABELS[kind] || spec.name}` }, orderNo, uid || spec.uid);
 }
 
 const isSheetEntry = ([, value]) => value && typeof value === 'object' && typeof value.uid === 'string';
 
 // 在用户当前模板上补齐缺的战斗表，返回新模板（不改入参）与新增的种类。
 // 整体 JSON 克隆只在建表时跑一次，不在热路径上。
-export function withCombatSheets(template) {
+export function withCombatSheets(template, { specs = COMBAT_TABLE_SPECS, kinds = Object.keys(specs) } = {}) {
     const cloned = JSON.parse(JSON.stringify(template || {}));
     const sheets = Object.entries(cloned || {}).filter(isSheetEntry);
     const existingNames = new Set(sheets.map(([, sheet]) => sheet.name));
     let orderNo = sheets.reduce((max, [, sheet]) => Math.max(max, Number(sheet.orderNo) || 0), -1);
     const added = [];
-    for (const kind of SPEC_KINDS) {
-        const spec = COMBAT_TABLE_SPECS[kind];
+    for (const kind of kinds) {
+        const spec = specs[kind];
         if (existingNames.has(spec.name)) continue;
         // uid 被占用时加数字后缀。
         let uid = spec.uid;
         for (let n = 2; Object.hasOwn(cloned, uid); n += 1) uid = `${spec.uid}${n}`;
         orderNo += 1;
-        cloned[uid] = buildCombatSheet(kind, orderNo, uid);
+        cloned[uid] = buildCombatSheet(kind, orderNo, uid, specs);
         added.push(kind);
     }
     if (added.length) {
@@ -156,13 +156,13 @@ export function withCombatSheets(template) {
     return { template: cloned, added };
 }
 
-const findSheet = (sheets, kind) => sheets.find((sheet) => sheet.name === COMBAT_TABLE_SPECS[kind].name) || null;
+const findSheet = (sheets, kind, specs) => sheets.find((sheet) => sheet.name === specs[kind].name) || null;
 const SEGMENT_PATTERN = /^(\d{1,4})\/(\d{1,4})$/;
 const rowToCells = (sheet, row) => Object.fromEntries(sheet.columns.map((column, i) => [column, text(row[i])]));
 
 // 把一张表的行解码成记录：同键的分段行按 i/n 拼回 JSON。缺段、段数不符、JSON 非法只进诊断，不抛错。
-export function decodeCombatRows(kind, sheet) {
-    const spec = COMBAT_TABLE_SPECS[kind];
+export function decodeCombatRows(kind, sheet, specs = COMBAT_TABLE_SPECS) {
+    const spec = specs[kind];
     const groups = new Map();
     const diagnostics = [];
     sheet.rows.forEach((row, rowIndex) => {
@@ -273,12 +273,13 @@ export function createCachedTableClient({ api, now = Date.now, ttlMs = TABLE_CAC
     }
 
     // 按 sheet 惰性解码：同一版本同一种类只解码一次。
-    function decodeKind(kind, sheet) {
+    function decodeKind(kind, sheet, specs = COMBAT_TABLE_SPECS) {
         const store = entry && entry.decoded;
-        if (store && store.has(kind)) return store.get(kind);
+        const key = specs[kind];
+        if (store && store.has(key)) return store.get(key);
         stats.decodes += 1;
-        const decoded = decodeCombatRows(kind, sheet);
-        if (store) store.set(kind, decoded);
+        const decoded = decodeCombatRows(kind, sheet, specs);
+        if (store) store.set(key, decoded);
         return decoded;
     }
 
@@ -399,17 +400,17 @@ function loadSheets(client) {
 
 // 从 sheet 列表里整理出结果。kinds 为数组时只解码这些种类（其余只检查表是否存在）；
 // 缺表情况始终按全部种类统计，所以只读 stats 也不会漏掉其他表缺失。
-function summarizeSheets(client, sheets, kinds) {
+function summarizeSheets(client, sheets, kinds, specs = COMBAT_TABLE_SPECS) {
     const result = { ok: true, missing: [], optionalMissing: [], diagnostics: [] };
-    for (const kind of SPEC_KINDS) {
-        const sheet = findSheet(sheets, kind);
+    for (const kind of Object.keys(specs)) {
+        const sheet = findSheet(sheets, kind, specs);
         if (!sheet) {
-            (COMBAT_TABLE_SPECS[kind].optional ? result.optionalMissing : result.missing).push(kind);
+            (specs[kind].optional ? result.optionalMissing : result.missing).push(kind);
             result[kind] = null;
             continue;
         }
         if (Array.isArray(kinds) && !kinds.includes(kind)) continue;
-        const decoded = typeof client.decodeKind === 'function' ? client.decodeKind(kind, sheet) : decodeCombatRows(kind, sheet);
+        const decoded = typeof client.decodeKind === 'function' ? client.decodeKind(kind, sheet, specs) : decodeCombatRows(kind, sheet, specs);
         result[kind] = decoded.records.map((item) => item.record);
         result.diagnostics.push(...decoded.diagnostics);
         result[`${kind}Raw`] = decoded.records;
@@ -418,14 +419,14 @@ function summarizeSheets(client, sheets, kinds) {
 }
 
 // 读取并解码战斗表。options.kinds 可限定只解码某几种（如数值侧只要 ['stats']）。
-export function readCombatTables(client, { kinds } = {}) {
+export function readCombatTables(client, { kinds, specs = COMBAT_TABLE_SPECS } = {}) {
     const loaded = loadSheets(client);
-    return loaded.ok ? summarizeSheets(client, loaded.sheets, kinds) : loaded;
+    return loaded.ok ? summarizeSheets(client, loaded.sheets, kinds, specs) : loaded;
 }
 
 // 把一条记录编码成待写入的行：JSON 超过 cellMax 时拆成多段，每段一行，分段列写 i/n。
-export function encodeCombatRecord(kind, record, cellMax = DEFAULT_COMBAT_CELL_MAX) {
-    const spec = COMBAT_TABLE_SPECS[kind];
+export function encodeCombatRecord(kind, record, cellMax = DEFAULT_COMBAT_CELL_MAX, specs = COMBAT_TABLE_SPECS) {
+    const spec = specs[kind];
     const cells = spec.toCells(record);
     const raw = JSON.stringify(spec.jsonOf(record) ?? null);
     const size = Math.max(1, Math.floor(cellMax));
@@ -449,26 +450,44 @@ function requestStillValid(item) {
     }
 }
 
+export function matchingCombatParts(kind, sheet, record, cellMax = DEFAULT_COMBAT_CELL_MAX, specs = COMBAT_TABLE_SPECS) {
+    const spec = specs[kind];
+    if (!spec || !sheet) return null;
+    const expected = encodeCombatRecord(kind, record, cellMax, specs);
+    const parts = new Set();
+    for (const row of sheet.rows) {
+        const cells = rowToCells(sheet, Array.isArray(row) ? row : []);
+        if (spec.keyOf(cells) !== expected.key) continue;
+        const match = cells[SEGMENT_COLUMN].match(SEGMENT_PATTERN);
+        const wanted = match && expected.rows[Number(match[1]) - 1];
+        if (!wanted || Object.keys(wanted).some(key => cells[key] !== wanted[key])) return null;
+        parts.add(Number(match[1]));
+    }
+    return parts;
+}
+
 // 战斗表读写入口。
 //   probe()   检查宿主函数；read({kinds}) 读已解码的记录；ensure() 缺表时按模板补建；
 //   append(kind, records, options) 入队并 flush；flush() 把队列写进表；pending() 查看未写完的请求。
 // 所有写操作经 serial() 串行。可传入 client 复用同一份缓存（inventory-tables 与账本共用）。
-export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, client = createCachedTableClient({ api }) } = {}) {
+export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, client = createCachedTableClient({ api }), specs = COMBAT_TABLE_SPECS, serial: serialize } = {}) {
     const queue = [];
     let writing = false;
     let tail = Promise.resolve();
-    const serial = (task) => {
+    const serial = serialize || ((task) => {
         const run = tail.then(task, task);
         tail = run.catch(() => {});
         return run;
-    };
+    });
+    const readSnapshot = (options = {}) => readCombatTables(client, { ...options, specs });
+    const encode = (kind, record) => encodeCombatRecord(kind, record, cellMax, specs);
 
     const probe = () => probeCombatTableSupport(api);
 
     function read({ kinds } = {}) {
         const support = probe();
         if (!support.ok) return support;
-        const result = readCombatTables(client, { kinds });
+        const result = readSnapshot({ kinds });
         if (!result.ok) return result;
         const visible = { ...result };
         for (const key of RAW_KEYS_HIDDEN_FROM_READ) delete visible[key];
@@ -476,48 +495,39 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
     }
 
     function matchingParts(kind, record) {
-        const spec = COMBAT_TABLE_SPECS[kind];
+        const spec = specs[kind];
         if (!spec) return null;
         const loaded = loadSheets(client);
         if (!loaded.ok) return null;
-        const sheet = findSheet(loaded.sheets, kind);
+        const sheet = findSheet(loaded.sheets, kind, specs);
         if (!sheet) return null;
-        const expected = encodeCombatRecord(kind, record, cellMax);
-        const parts = new Set();
-        for (const row of sheet.rows) {
-            const cells = rowToCells(sheet, Array.isArray(row) ? row : []);
-            if (spec.keyOf(cells) !== expected.key) continue;
-            const match = cells[SEGMENT_COLUMN].match(SEGMENT_PATTERN);
-            const wanted = match && expected.rows[Number(match[1]) - 1];
-            if (!wanted || Object.keys(wanted).some((key) => cells[key] !== wanted[key])) return null;
-            parts.add(Number(match[1]));
-        }
-        return parts;
+        return matchingCombatParts(kind, sheet, record, cellMax, specs);
     }
 
     function matchesIncomplete(kind, record) {
         const parts = matchingParts(kind, record);
-        return !!parts && parts.size > 0 && parts.size < encodeCombatRecord(kind, record, cellMax).rows.length;
+        return !!parts && parts.size > 0 && parts.size < encode(kind, record).rows.length;
     }
 
     // 缺表时在用户当前模板上补建，建完核对。
-    function ensure({ shouldStart = () => true } = {}) {
+    function ensure({ shouldStart = () => true, kinds = Object.keys(specs) } = {}) {
+        if (!Array.isArray(kinds) || kinds.some(kind => !Object.hasOwn(specs, kind))) return Promise.resolve({ ok: false, reason: 'combat-table-unknown-kind' });
         return serial(async () => {
             if (!shouldStart()) return { ok: false, reason: 'request-stale' };
             const support = probe();
             if (!support.ok) return support;
             const loaded = loadSheets(client);
             if (!loaded.ok) return loaded;
-            const summary = summarizeSheets(client, loaded.sheets, []);
-            const wanted = [...summary.missing, ...summary.optionalMissing];
+            const summary = summarizeSheets(client, loaded.sheets, [], specs);
+            const wanted = [...summary.missing, ...summary.optionalMissing].filter(kind => kinds.includes(kind));
             if (!wanted.length) return { ok: true, created: [] };
             const templateRead = client.getTableTemplate();
             if (!templateRead.ok) return { ok: false, reason: 'combat-table-template-unavailable', detail: templateRead.reason };
-            const planned = withCombatSheets(templateRead.data);
+            const planned = withCombatSheets(templateRead.data, { specs, kinds });
             if (!planned.added.length) return { ok: false, reason: 'combat-table-template-mismatch', missing: wanted };
             // 用户模板与已有表集合不一致时不导入，避免覆盖用户的表。
             const existingNames = new Set(loaded.sheets.map((sheet) => sheet.name));
-            const addedNames = new Set(planned.added.map((kind) => COMBAT_TABLE_SPECS[kind].name));
+            const addedNames = new Set(planned.added.map((kind) => specs[kind].name));
             const templateNames = parseTables(planned.template).map((sheet) => sheet.name);
             const hidden = [...existingNames].filter((name) => !templateNames.includes(name));
             const extra = templateNames.filter((name) => !existingNames.has(name) && !addedNames.has(name));
@@ -543,8 +553,8 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                     detail: String(imported.result.postCommitWarning || imported.result.message || ''),
                 };
             }
-            const after = readCombatTables(client, { kinds: [] });
-            const stillMissing = after.ok ? [...after.missing, ...after.optionalMissing] : wanted;
+            const after = readSnapshot({ kinds: [] });
+            const stillMissing = after.ok ? [...after.missing, ...after.optionalMissing].filter(kind => kinds.includes(kind)) : wanted;
             return !after.ok || stillMissing.length
                 ? { ok: false, reason: 'combat-table-create-unverified', missing: stillMissing }
                 : { ok: true, created: planned.added };
@@ -552,7 +562,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
     }
 
     const pending = () => queue.map((item) => ({
-        kind: item.kind, key: encodeCombatRecord(item.kind, item.record, cellMax).key, reason: item.reason,
+        kind: item.kind, key: encode(item.kind, item.record).key, reason: item.reason,
     }));
 
     // 一批记录只整表读取两次：写前读一次判重，全部写完后读一次核对。
@@ -577,7 +587,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                     let snapshot = null;
                     let snapshotIndex = new Map(); // kind -> Map(key -> raw)
                     const loadSnapshot = (kinds) => {
-                        snapshot = readCombatTables(client, { kinds });
+                        snapshot = readSnapshot({ kinds });
                         snapshotIndex = new Map();
                         return snapshot;
                     };
@@ -589,7 +599,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                     };
                     for (let at = 0; at < queue.length; at += 1) {
                         const item = queue[at];
-                        const encoded = encodeCombatRecord(item.kind, item.record, cellMax);
+                        const encoded = encode(item.kind, item.record);
                         if (!requestStillValid(item)) {
                             finished.add(item);
                             rejected.push({ key: encoded.key, reason: 'request-stale' });
@@ -600,7 +610,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                         }
                         if (!snapshot.ok) { failure = { reason: snapshot.reason, detail: snapshot.detail }; break; }
                         if (snapshot[item.kind] === null) {
-                            if (!COMBAT_TABLE_SPECS[item.kind].optional) { failure = { reason: 'combat-table-missing', kind: item.kind }; break; }
+                            if (!specs[item.kind].optional) { failure = { reason: 'combat-table-missing', kind: item.kind }; break; }
                             finished.add(item);
                             rejected.push({ key: encoded.key, kind: item.kind, reason: 'combat-table-missing' });
                             continue;
@@ -613,8 +623,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                             continue;
                         }
                         // 逐段插入；中途请求过期则停下，已插入的段数计入 inserted。
-                        const recoverSegments = item.options?.recoverSegments === true && item.kind === 'stats'
-                            && String(item.record.id).startsWith('sc|ce-');
+                        const recoverSegments = item.options?.recoverSegments === true;
                         const parts = recoverSegments ? matchingParts(item.kind, item.record) : new Set();
                         if (!parts) {
                             finished.add(item);
@@ -627,7 +636,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                         for (const [part, row] of encoded.rows.entries()) {
                             if (!requestStillValid(item)) { stale = true; break; }
                             if (parts.has(part + 1)) continue;
-                            const result = await client.insertRow(COMBAT_TABLE_SPECS[item.kind].name, row, BATCH_WRITE_OPTIONS);
+                            const result = await client.insertRow(specs[item.kind].name, row, BATCH_WRITE_OPTIONS);
                             if (!result.ok) { insertFailed = true; break; }
                             insertedHere += 1;
                         }
@@ -648,7 +657,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                     // 全部写完后统一核对：作废缓存，整表只读一次。
                     if (batch.length) {
                         client.invalidate?.();
-                        const verify = readCombatTables(client, { kinds: [...new Set(batch.map((entry) => entry.item.kind))] });
+                        const verify = readSnapshot({ kinds: [...new Set(batch.map((entry) => entry.item.kind))] });
                         const verifiedIndex = new Map();
                         const verifiedRaw = (kind) => {
                             if (!verifiedIndex.has(kind)) {
@@ -669,7 +678,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
                     }
                     for (let at = queue.length - 1; at >= 0; at -= 1) if (finished.has(queue[at])) queue.splice(at, 1);
                     // 逐行写入带 skipRefresh，合并刷新与世界书重写在批末统一做一次；不进世界书的积分 / Origin 记录不刷新（旧版插件的 insertRow 仍自行刷新）。
-                    if (inserted > 0 && batch.some(({ item }) => item.options?.refresh !== false)) {
+                    if (inserted > 0 && batch.some(({ item }) => item.options?.refresh !== false && requestStillValid(item))) {
                         try {
                             if (!(await client.refresh()).ok && !failure) failure = { reason: 'combat-table-refresh-failed' };
                         } catch {
@@ -686,7 +695,7 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
     }
 
     async function append(kind, records, options) {
-        if (!Object.hasOwn(COMBAT_TABLE_SPECS, kind)) return Promise.resolve({ ok: false, reason: 'combat-table-unknown-kind' });
+        if (!Object.hasOwn(specs, kind)) return Promise.resolve({ ok: false, reason: 'combat-table-unknown-kind' });
         const requests = (Array.isArray(records) ? records : [records]).map((record) => ({ kind, record, reason: 'queued', ...(options && { options }) }));
         queue.push(...requests);
         try {

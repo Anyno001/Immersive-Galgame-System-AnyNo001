@@ -16,12 +16,12 @@ export function challengeFoeEntity({ event, domain = '' } = {}) {
 const localFoe = (event, domain, reason) => ({ foe: pickFoe(event, domain), name: '', source: 'local', reason });
 
 // 返回 { foe, name, source: 'llm' | 'local', reason? }；name 为空表示沿用难关登记的日常名称。
-export async function chooseChallengeFoe({ event, domain = '', request, llm, signal, context = {}, retryDelays } = {}) {
+export async function chooseChallengeFoe({ event, domain = '', request, llm, signal, context = {}, retryDelays, maxRounds, shouldStart } = {}) {
     if (typeof request !== 'function') return localFoe(event, domain, 'combat-llm-unavailable');
     const withLine = (req, config) => request({ ...req, system: `${req.system}\n${CHALLENGE_FOE_SYSTEM}` }, config);
     let result;
     try {
-        result = await generateWithRetry([challengeFoeEntity({ event, domain })], { request: withLine, llm, signal, context, ...(retryDelays ? { retryDelays } : {}) });
+        result = await generateWithRetry([challengeFoeEntity({ event, domain })], { request: withLine, llm, signal, context, maxRounds, shouldStart, ...(retryDelays ? { retryDelays } : {}) });
     } catch {
         return localFoe(event, domain, 'combat-llm-request-failed');
     }

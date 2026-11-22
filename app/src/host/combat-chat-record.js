@@ -15,8 +15,7 @@ export function createCombatChatRecord(host = globalThis) {
     const context = () => getSillyTavernContext(host);
 
     // 按锚点（messageId + swipeId）找到对应的 AI 楼层消息，找不到返回 null
-    const findMessage = (anchor) => {
-        const ctx = context();
+    const findMessage = (anchor, ctx = context()) => {
         const chat = ctx && Array.isArray(ctx.chat) ? ctx.chat : null;
         const message = chat && Number.isInteger(anchor?.messageId) ? chat[anchor.messageId] : null;
         return isPlainObject(message) && message.is_user !== true && swipeOf(message) === anchor.swipeId ? message : null;
@@ -41,12 +40,21 @@ export function createCombatChatRecord(host = globalThis) {
         }
     }
 
-    // 合并写入 patch 到记录，保存聊天；保存失败时逐个恢复被改动对象的 extra
-    async function write(anchor, key, patch) {
+    // saveChat 一旦发出不能撤回。迟到回执不确认新楼层；回滚只处理本次仍占有的记录。
+    async function write(anchor, key, patch, { shouldStart = () => true } = {}) {
         const ctx = context();
         if (!ctx || typeof ctx.saveChat !== 'function') return { ok: false, reason: 'combat-record-unsupported' };
-        const message = findMessage(anchor);
-        if (!message) return { ok: false, reason: 'combat-record-stale' };
+        const chat = ctx.chat, message = findMessage(anchor, ctx), text = message?.mes;
+        const stale = () => ({ ok: false, reason: 'combat-record-stale' });
+        const sameFloor = () => {
+            const current = context();
+            return !!message && current?.chat === chat && findMessage(anchor, current) === message && message.mes === text;
+        };
+        const active = () => {
+            try { return sameFloor() && shouldStart() === true; }
+            catch { return false; }
+        };
+        if (!active()) return stale();
         const existing = readFromMessage(message, key);
         if (!existing.ok) return existing;
         const merged = { ...(existing.value || {}), ...deepClone(patch) };
@@ -64,21 +72,26 @@ export function createCombatChatRecord(host = globalThis) {
                 box: extra[EXTRA_KEY],
             });
             extra[EXTRA_KEY] = { ...(isPlainObject(extra[EXTRA_KEY]) ? extra[EXTRA_KEY] : {}), [key]: deepClone(merged) };
+            backups[backups.length - 1].written = extra[EXTRA_KEY][key];
             target.extra = extra;
         }
         try {
             await ctx.saveChat();
         } catch {
+            if (!sameFloor()) return stale();
             for (const backup of backups.reverse()) {
-                if (!backup.hadExtra) delete backup.target.extra;
-                else if (backup.target.extra !== backup.extra) backup.target.extra = backup.extra;
-                else if (backup.hadBox) backup.target.extra[EXTRA_KEY] = backup.box;
-                else delete backup.target.extra[EXTRA_KEY];
+                if (backup.target === swipeInfo && message.swipe_info?.[anchor.swipeId] !== swipeInfo) continue;
+                const extra = backup.target.extra, box = extra?.[EXTRA_KEY];
+                if (box?.[key] !== backup.written) continue;
+                if (Object.hasOwn(backup.box || {}, key)) box[key] = backup.box[key];
+                else delete box[key];
+                if (!Object.keys(box).length && !backup.hadBox) delete extra[EXTRA_KEY];
+                if (!Object.keys(extra).length && !backup.hadExtra) delete backup.target.extra;
             }
-            return { ok: false, reason: 'combat-record-save-failed' };
+            return active() ? { ok: false, reason: 'combat-record-save-failed' } : stale();
         }
-        // 保存后回读，内容必须与写入一致
-        const verified = read(anchor, key);
+        if (!active()) return stale();
+        const verified = readFromMessage(message, key);
         return verified.ok && verified.value && JSON.stringify(verified.value) === JSON.stringify(merged)
             ? { ok: true, value: verified.value }
             : { ok: false, reason: 'combat-record-unverified' };

@@ -22,6 +22,7 @@ export const CHECK_LOG_MAX = 50;
 
 // 技能显示（v2 §9.3）：CoC 显示百分值；D&D 显示属性值 / 修正与熟练标记。
 export function displaySkill(engine, profile) {
+    if (profile.unavailable) return '未就绪';
     if (!engine || engine.ruleset.ID !== 'dnd5e') return String(Math.round(Number(profile.value) || 0));
     const r = engine.ruleset;
     if (profile.kind === 'attribute') {
@@ -170,7 +171,8 @@ export function statsArchiveModel(ledger, { logMax = ARCHIVE_LOG_MAX, catalog = 
     // 主角本人的角色卡（旧存档里生成过的）不在「其他角色」里显示，数据保留。
     const sheets = Object.entries(cat.sheets || {}).filter(([name]) => !heroOf(name)).map(([name, sheet]) => ({
         name, rank: sheet.rank || '普通人', source: sheet.source || 'default',
-        attributes: Object.entries(sheet.attributes || {}).map(([k]) => ({ name: k, display: engine ? displaySkill(engine, profileOf(engine, state, name, k)) : String(sheet.attributes[k]) })),
+        attributes: (engine?.authoritativeAttributes && engine.readAbilities(name)?.initialized ? BASE_ATTRIBUTES : Object.keys(sheet.attributes || {}))
+            .map(k => ({ name: k, display: engine ? displaySkill(engine, profileOf(engine, state, name, k)) : String(sheet.attributes[k]) })),
         skills: Object.entries(sheet.skills || {}).map(([k]) => ({ name: k, display: engine ? displaySkill(engine, profileOf(engine, state, name, k)) : String(sheet.skills[k]), provisional: Boolean(sheet.provisional && sheet.provisional[k]) })),
     }));
     return {

@@ -1,6 +1,6 @@
 // 数值系统的阅读器提示条（v2 §6.4、§9.5）：对话框上沿一条小提示，带按钮（快速开始、生成数值、掷骰）。
 // 同时只显示一条，优先级：掷骰 > 新角色 > 开局引导 > 其余说明（说明类显示几秒后自动收起）。样式见 original-reader-source.js。
-const PRIORITY = Object.freeze({ roll: 0, sheets: 1, busy: 1, onboarding: 2, info: 3 });
+const PRIORITY = Object.freeze({ roll: 0, recovery: 1, sheets: 1, busy: 1, onboarding: 2, info: 3 });
 const INFO_MS = 5000;
 
 export function pickStatsNotice(notices, seen = new Set()) {

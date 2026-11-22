@@ -43,6 +43,9 @@ const REASON_TEXT = Object.freeze({
     'combat-init-write-failed': '建档写入失败',
     'combat-init-unverified': '属性写入后未能读回确认',
     'combat-init-manual': '待手动建档',
+    'combat-attributes-waiting': '职业与卡组已就绪，等待主角六维初始化',
+    'combat-gear-write-failed': '初始装备写入未完成，可重试补发',
+    'combat-content-save-pending': '战斗内容保存尚未完成，请重试恢复',
     'stats-build-policy-waiting': '等待建档方式读取',
     'stats-build-mode-invalid': '建档方式无效',
     'combat-table-not-ready': '等待数据库加载',
@@ -560,6 +563,7 @@ function protagonistHtml(v) {
     const p = v.protagonist;
     if (!p) return '';
     if (p.status === 'ready') return row('主角准备', chip('属性与卡组已就绪'));
+    if (p.status === 'waiting-attributes') return row('主角准备', chip('职业与卡组已就绪，等待六维'));
     if (p.status === 'manual') return row('主角准备', chip('待手动建档'));
     if (p.status === 'generating') return row('主角准备', chip('生成中'));
     if (p.status === 'retrying') return row('主角准备', chip(`请求失败，自动重试第 ${p.attempt} 次`));

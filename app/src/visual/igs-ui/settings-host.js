@@ -952,15 +952,26 @@ export function createSettingsHost(deps) {
                 const attrs = read && read.attrs;
                 if (!attrs) result = { ok: false, reason: 'combat-attribute-table-missing' };
                 else {
-                    const values = await settingsDialogs.numbers(`修改属性（单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计不超过${MANUAL_TOTAL}）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: attrs.base[key], min: MANUAL_BUILD.min, max: MANUAL_BUILD.max })), { okLabel: '保存', total: { max: MANUAL_TOTAL, note: (left, total) => (left < 0 ? `超出 ${-left} 点 · 合计 ${total}/${MANUAL_TOTAL}` : `剩余 ${left} 点 · 合计 ${total}/${MANUAL_TOTAL}`) } });
-                    if (!values) result = { ok: true, cancelled: true };
+                    const draft = panel.asyncState.heroAttributeDraft;
+                    const initial = draft?.chatId === attrs.chatId && draft.ownerGeneration === attrs.ownerGeneration ? draft.scores : attrs.base;
+                    const values = await settingsDialogs.numbers(`修改属性（单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计不超过${MANUAL_TOTAL}）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: initial[key], min: MANUAL_BUILD.min, max: MANUAL_BUILD.max })), { okLabel: '保存', total: { max: MANUAL_TOTAL, note: (left, total) => (left < 0 ? `超出 ${-left} 点 · 合计 ${total}/${MANUAL_TOTAL}` : `剩余 ${left} 点 · 合计 ${total}/${MANUAL_TOTAL}`) } });
+                    if (state.activeSettings !== panel) return { ok: false, reason: 'request-stale' };
+                    if (!values) { delete panel.asyncState.heroAttributeDraft; result = { ok: true, cancelled: true }; }
                     else {
                         const scores = Object.fromEntries(ABILITY_KEYS.map((key) => [key, Math.round(Number(values[key]))]));
+                        const submission = { chatId: attrs.chatId, ownerGeneration: attrs.ownerGeneration, scores };
+                        panel.asyncState.heroAttributeDraft = submission;
                         const total = Object.values(scores).reduce((sum, v) => sum + v, 0);
                         result = total > MANUAL_TOTAL ? { ok: false, reason: 'stats-build-over-total' }
                             : ABILITY_KEYS.some((key) => !(scores[key] >= MANUAL_BUILD.min && scores[key] <= MANUAL_BUILD.max)) ? { ok: false, reason: 'stats-build-score-range' }
                                 : ABILITY_KEYS.every((key) => scores[key] === attrs.base[key]) ? { ok: true, cancelled: true }
-                                    : await op('attrs', 'set', '', { scores, className: attrs.className, role: attrs.role });
+                                    : await op('attrs', 'set', '', { ...submission, className: attrs.className, role: attrs.hasCombatInit ? attrs.role : undefined,
+                                        expectedRevision: attrs.revision, signal: panel.recoveryController.signal });
+                        if (panel.asyncState.heroAttributeDraft === submission && result?.ok) delete panel.asyncState.heroAttributeDraft;
+                        if (state.activeSettings === panel && result?.reason === 'stats-attribute-conflict')
+                            await settingsDialogs.alert('属性已变化，未覆盖新值。再次打开可复核并提交保留的输入。');
+                        else if (state.activeSettings === panel && result?.ok === false && !['stats-build-over-total', 'stats-build-score-range', 'request-stale'].includes(result.reason))
+                            await settingsDialogs.alert(`未保存主角属性修改（${result.reason}）。输入草稿已保留。`);
                     }
                 }
             }
@@ -1009,9 +1020,19 @@ export function createSettingsHost(deps) {
                     persistSettingsDraft();
                 }
             } else if (kind === 'sheet-edit') {
-                const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, '')) || '').trim();
+                const stamp = await op('sheet', 'draft', name);
+                if (!stamp?.ok || state.activeSettings !== panel) return stamp?.ok ? { ok: false, reason: 'request-stale' } : stamp;
+                const drafts = panel.asyncState.sheetDrafts ||= new Map();
+                const key = JSON.stringify([stamp.chatId, stamp.ownerGeneration, name]);
+                const text = String((await settingsDialogs.prompt(`修改「${name}」的一项数值，格式：项目 档位（如「话术 精通」「敏捷 出众」）。技能档：未学、入门、熟练、精通、大师；属性档：很弱、偏弱、普通、出众、顶尖。`, drafts.get(key) || '')) || '').trim();
+                if (state.activeSettings !== panel) return { ok: false, reason: 'request-stale' };
                 const [skill, tier] = text.split(/\s+/);
-                result = skill && tier ? await op('sheet', 'edit', name, { skill, tier }) : { ok: true, cancelled: true };
+                drafts.set(key, text);
+                result = !text ? { ok: true, cancelled: true } : !tier ? { ok: false, reason: 'stats-sheet-edit-invalid' }
+                    : await op('sheet', 'edit', name, { ...stamp, skill, tier, signal: panel.recoveryController.signal });
+                if (result?.ok && drafts.get(key) === text) drafts.delete(key);
+                if (state.activeSettings === panel && result?.ok === false && !['stats-sheet-edit-invalid', 'request-stale'].includes(result.reason))
+                    await settingsDialogs.alert(`未保存「${name}」的修改（${result.reason}）。输入已保留。`);
             } else if (kind === 'trait-fill') {
                 const busy = typeof settingsDialogs.busy === 'function' ? settingsDialogs.busy('正在按人设评定角色特质，角色较多时需要几十秒。') : null;
                 try { result = await op('relation', 'fill-traits', '', {}); } finally { if (busy) busy.close(); }
@@ -1078,6 +1099,14 @@ export function createSettingsHost(deps) {
                 const values = guess && !guess.ok ? null : await settingsDialogs.numbers(`修改主角对「${name}」的态度`, dims.map((key, i) => ({ key, label: key, value: Number.isFinite(fill[key]) ? fill[key] : Number.isFinite(before[i]) ? before[i] : 0, min: key === '欲望' || key === '芥蒂' ? 0 : -100, max: 100 })), { okLabel: '保存' });
                 const payload = values ? Object.fromEntries(dims.filter((key, i) => values[key] !== before[i]).map((key) => [key, values[key]])) : {};
                 result = guess && !guess.ok ? guess : Object.keys(payload).length ? await op('relation', 'set-hero', name, payload) : { ok: true, cancelled: true };
+            } else if (kind === 'npc-policy') {
+                result = await op('npc', 'policy', name, { policy: name });
+                if (state.activeSettings === panel && result?.ok === false && result.reason !== 'request-stale')
+                    await settingsDialogs.alert(`未保存 NPC 建档策略（${result.reason}）。`);
+            } else if (kind === 'npc-choice') {
+                result = await op('npc', 'choice', name, { choice: valuePart });
+                if (state.activeSettings === panel && result?.ok === false && result.reason !== 'request-stale')
+                    await settingsDialogs.alert(`未保存「${name}」的建档选择（${result.reason}）。`);
             } else if (kind === 'sheet-regen') {
                 result = await settingsDialogs.confirm(`重新生成「${name}」的数值？手改过的内容会被覆盖。`) ? await op('sheet', 'regen', name) : { ok: true, cancelled: true };
             } else if (kind === 'person-rename') {
@@ -1100,7 +1129,7 @@ export function createSettingsHost(deps) {
             if (state.activeSettings === panel && result.reason !== 'request-stale' && typeof settingsDialogs.alert === 'function')
                 await settingsDialogs.alert(describeCurrencyFailure(result));
         } else if (result && result.ok === false && result.reason && !result.cancelled && typeof settingsDialogs.alert === 'function') {
-            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-estimate-failed': '估算失败，辅助模型未返回结果，可稍后重试。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': `补填失败${result.detail ? `：${result.detail}` : '，辅助模型的回复无法解析'}。可稍后重试。`, 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开十条。', 'stats-fame-draft': '声望设定不完整，请检查条名、谁在看、类与两端叫法。', 'stats-fame-missing': '该声望已不存在。', 'stats-fame-fill-bad': '辅助模型返回的内容无法使用，未建立声望，可稍后重试。', 'stats-fame-fill-failed': '补全失败，辅助模型未返回结果，可稍后重试。', 'stats-fame-sentence': '请先写一句话。', 'stats-fame-kind': '请选择声望的性质。', 'stats-trait-full': '特质已满格，请先摘下一项。', 'stats-trait-refused': '该特质当前无法挂上。', 'stats-trait-initial-failed': '评定失败，辅助模型未返回结果，可稍后重试。', 'stats-trait-busy': '正在复核特质，稍后再试。', 'stats-rename-invalid': '名字须为1到20个字，不含竖线、方括号和冒号。', 'stats-rename-hero': '不能改成主角的名字。' }[result.reason];
+            const text = { 'stats-no-model': '没有可用的辅助模型，请先在自动插图设置里接好写词模型。', 'stats-generating': '正在生成回复，结束后再试。', 'stats-sheet-busy': '正在生成其他角色的数值，结束后再试。', 'stats-generation-save-pending': '上次数值结果尚未确认保存，请先在提示条里恢复。', 'stats-sheet-edit-invalid': '格式不对，请写成「项目 档位」。', 'stats-relation-invalid': '关系数值须为-100到100的整数。', 'stats-relation-missing': '该角色还没有结算记录，下一楼回复后再改。', 'stats-note-no-text': '还没有可参考的剧情正文。', 'stats-estimate-failed': '估算失败，辅助模型未返回结果，可稍后重试。', 'stats-note-failed': '拟写失败，辅助模型未返回结果，可稍后重试。', 'stats-table-none': '数据库表格里没有可导入的新角色。', 'stats-import-no-floor': '本聊天启用数值后还没有结算过回复，下一楼回复后再导入。', 'stats-inactive': '本聊天未启用数值系统。', 'stats-no-ledger': '本聊天还没有数值存档。', 'stats-start-none': '没有需要补填的角色：已登记角色的关系数值都已定过。', 'stats-start-failed': `补填失败${result.detail ? `：${result.detail}` : '，辅助模型的回复无法解析'}。可稍后重试。`, 'stats-chat-changed': '计算期间切换了聊天，未写入。','stats-hero-skill-invalid': '技能值须为1到99的整数。', 'stats-hero-edit-invalid': '格式不对，请写成「技能 档位」或「技能 数值」。', 'stats-hero-edit-attribute': '六维属性不能在这里修改。', 'stats-hero-tier-over-cap': '熟练度不能高于当前成长档位。', 'stats-hero-edit-unknown': '没有这项技能，请在擅长技能八格里选择。', 'stats-build-skill-invalid': '技能名须为1到8个字，不含数字和符号。', 'stats-hero-skills-coc-only': '主角技能分配仅适用于CoC规则。', 'stats-hero-skills-busy': '另一个聊天的分配尚未完成。', 'stats-hero-skills-invalid': '分配失败，回复无法解析。', 'stats-hero-skills-empty': '分配失败，回复中没有有效档位。', 'stats-build-pick-duplicate': '同一项技能只能选一次。', 'stats-build-strong-missing': '擅长技能须选满3项。', 'stats-build-over-total': `六维合计不能超过${MANUAL_TOTAL}。`, 'stats-build-score-range': `每项须在${MANUAL_BUILD.min}到${MANUAL_BUILD.max}之间。`, 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法修改属性。', 'combat-init-write-failed': '属性写入失败，请稍后重试。', 'stats-fame-name': '条名须为1到8个字，不含数字和符号。', 'stats-fame-dup': '已有同名的声望。', 'stats-fame-max': '声望最多开十条。', 'stats-fame-draft': '声望设定不完整，请检查条名、谁在看、类与两端叫法。', 'stats-fame-missing': '该声望已不存在。', 'stats-fame-fill-bad': '辅助模型返回的内容无法使用，未建立声望，可稍后重试。', 'stats-fame-fill-failed': '补全失败，辅助模型未返回结果，可稍后重试。', 'stats-fame-sentence': '请先写一句话。', 'stats-fame-kind': '请选择声望的性质。', 'stats-trait-full': '特质已满格，请先摘下一项。', 'stats-trait-refused': '该特质当前无法挂上。', 'stats-trait-initial-failed': '评定失败，辅助模型未返回结果，可稍后重试。', 'stats-trait-busy': '正在复核特质，稍后再试。', 'stats-rename-invalid': '名字须为1到20个字，不含竖线、方括号和冒号。', 'stats-rename-hero': '不能改成主角的名字。' }[result.reason];
             if (text) await settingsDialogs.alert(text);
         }
         if (state.activeSettings) rerenderSettings();

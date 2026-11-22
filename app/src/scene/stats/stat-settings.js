@@ -1,5 +1,5 @@
 // 数值系统设置（§1、§10、v2 §10）：总开关默认关闭；规范化只读入参、返回新对象。
-import { DEFAULT_STAGE_TEXT, DEFAULT_STAGE_TEXT_PLATONIC, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
+import { DEFAULT_STAGE_TEXT, DEFAULT_STAGE_TEXT_PLATONIC, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS, STAT_BACKGROUND_PROMPTS, STAT_INLINE_PROMPTS, STAT_PROMPT_MIGRATION_VERSION, STAT_PROMPT_OVERWRITE_MIGRATIONS, STAT_PROMPT_SEGMENTS, STAT_PROMPTS_VERSION, STAT_STALE_PROMPT_KEYS } from './stat-prompt.js';
 import { normalizeBuild } from './stat-build.js';
 import { DEFAULT_RULESET, hasRuleset } from './rulesets/index.js';
 
@@ -92,20 +92,46 @@ function textMap(raw, keys, defaults = {}, retired = {}) {
     return out;
 }
 
+function overwriteKeysSince(version) {
+    const current = Number.isInteger(version) && version >= 0 ? version : 0;
+    const out = new Set();
+    for (const [rev, keys] of Object.entries(STAT_PROMPT_OVERWRITE_MIGRATIONS)) {
+        const n = Number(rev);
+        if (Number.isInteger(n) && n > current && n <= STAT_PROMPT_MIGRATION_VERSION) {
+            for (const key of keys) out.add(key);
+        }
+    }
+    return out;
+}
+
 // 提示词覆盖按版本迁移：
-// - 版本已是当前：prompts 与 stalePrompts 各自过滤；v0.39 曾把 sheets、sheetGen 误放进 stalePrompts，prompts 里没有时搬回来。
-// - 版本较旧（含工作区旧设置，没有 promptsVersion）：失效清单里的键移进 stalePrompts，其余（含 sheets、sheetGen）原样保留；
-//   旧键 rollManual 的覆盖随失效清单移走，不再对应新键 diceManual。
+// - 独立迁移修订清单（promptMigrationVersion）：未完成目标修订时，一次性清除目标键在 prompts 与 stalePrompts（含曾可恢复键）中的旧覆盖，
+//   改用新版默认；不触碰无关提示词（如 heroSkills 等）。完成并保存版本标记后，用户新编辑跨重启保留。
+// - promptsVersion < 5 时仍将旧失效清单键（roll/rollManual/protagonist）移进 stalePrompts。
 function migratePrompts(src) {
     const prompts = src.prompts && typeof src.prompts === 'object' && !Array.isArray(src.prompts) ? src.prompts : {};
     const stale = textMap(src.stalePrompts, STALE_STORE_KEYS);
+    const currentMigration = Number.isInteger(src.promptMigrationVersion) && src.promptMigrationVersion >= 0 ? src.promptMigrationVersion : 0;
+    const overwriteKeys = overwriteKeysSince(currentMigration);
     const restore = {};
     for (const key of RESTORABLE_KEYS) {
-        if (typeof stale[key] === 'string' && !(typeof prompts[key] === 'string' && prompts[key].trim())) restore[key] = stale[key];
+        if (!overwriteKeys.has(key) && typeof stale[key] === 'string' && !(typeof prompts[key] === 'string' && prompts[key].trim())) restore[key] = stale[key];
         delete stale[key];
     }
     const merged = { ...restore, ...prompts };
-    if (src.promptsVersion === STAT_PROMPTS_VERSION) return { prompts: textMap(merged, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
+    for (const key of overwriteKeys) {
+        delete merged[key];
+        delete stale[key];
+    }
+    const version = Number.isInteger(src.promptsVersion) ? src.promptsVersion : 0;
+    if (version >= 5) {
+        return {
+            prompts: textMap(merged, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS),
+            stale: textMap(stale, STAT_STALE_PROMPT_KEYS),
+            promptMigrationVersion: Math.max(currentMigration, STAT_PROMPT_MIGRATION_VERSION),
+            migrated: currentMigration < STAT_PROMPT_MIGRATION_VERSION,
+        };
+    }
     const kept = { ...merged };
     for (const key of STAT_STALE_PROMPT_KEYS) {
         delete kept[key];
@@ -114,7 +140,30 @@ function migratePrompts(src) {
         if (typeof DEFAULT_STAT_PROMPTS[key] === 'string' && text.trim() === DEFAULT_STAT_PROMPTS[key].trim()) continue;
         stale[key] = text;
     }
-    return { prompts: textMap(kept, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS), stale: textMap(stale, STAT_STALE_PROMPT_KEYS) };
+    return {
+        prompts: textMap(kept, STAT_PROMPT_KEYS, DEFAULT_STAT_PROMPTS, RETIRED_STAT_PROMPTS),
+        stale: textMap(stale, STAT_STALE_PROMPT_KEYS),
+        promptMigrationVersion: Math.max(currentMigration, STAT_PROMPT_MIGRATION_VERSION),
+        migrated: currentMigration < STAT_PROMPT_MIGRATION_VERSION,
+    };
+}
+
+// 供启动/远端恢复持久落盘使用：只有原持久化设置尚未写入最新 promptMigrationVersion 才返回需要保存的新对象。
+export function migratePersistedStatsPrompts(raw) {
+    const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const currentMigration = Number.isInteger(src.promptMigrationVersion) && src.promptMigrationVersion >= 0 ? src.promptMigrationVersion : 0;
+    if (currentMigration >= STAT_PROMPT_MIGRATION_VERSION) return { changed: false, stats: src };
+    const migrated = migratePrompts(src);
+    return {
+        changed: true,
+        stats: {
+            ...src,
+            promptsVersion: STAT_PROMPTS_VERSION,
+            promptMigrationVersion: migrated.promptMigrationVersion,
+            prompts: migrated.prompts,
+            stalePrompts: migrated.stale,
+        },
+    };
 }
 
 // 每段注入是否开启：未写或非布尔一律视为开启。
@@ -202,6 +251,7 @@ export function normalizeStatsSettings(raw) {
         },
         push: { enabled: bool(push.enabled, d.push.enabled), mappings: mappingMap(push.mappings) },
         promptsVersion: STAT_PROMPTS_VERSION,
+        promptMigrationVersion: migrated.promptMigrationVersion,
         prompts: migrated.prompts,
         stalePrompts: migrated.stale,
         staleNoticeSeen: bool(src.staleNoticeSeen, false),

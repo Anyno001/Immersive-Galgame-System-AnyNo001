@@ -14,9 +14,9 @@ import {
 } from './origin-ledger.js';
 import { collectOriginGrants, economyContext, economyPlan, originCreditText } from './origin-economy.js';
 import { anchorKey, pointFloors } from '../points/points-policy.js';
+import { createGenerationTasks } from '../../host/generation-tasks.js';
 
 export const ORIGIN_ENGINE_SYMBOL = Symbol.for('origin.engine');
-const BUSY_MS = 60000;
 // 界面允许通过 dispatch 发起的操作（计划里的列表 + 清空对话）；其余是核心内部用的。
 const EXTERNAL = new Set(['buy', 'use', 'draw', 'addTask', 'editTask', 'completeTask', 'deleteTask', 'addItem', 'deleteItem', 'addShop', 'deleteShop', 'addGacha', 'deleteGacha', 'addStat', 'deleteStat', 'addSkill', 'deleteSkill', 'addPerk', 'deletePerk', 'setWorld', 'setDirection', 'pause', 'resume', 'reset', 'chatClear']);
 const BY_INDEX = { buy: 'shop', use: 'bag', deleteItem: 'bag', deleteShop: 'shop', deleteGacha: 'gachaPool', deleteStat: 'stats', deleteSkill: 'skills', deletePerk: 'perks' };
@@ -47,7 +47,11 @@ export function getSharedOriginEngine(host) {
             getContext: call('getContext'), settings: call('settings'), saveMetadata: call('saveMetadata'), saveSettings: call('saveSettings'),
             database: call('database'), wallet: call('wallet'), walletSnapshot: call('walletSnapshot'), spendingGate: call('spendingGate'),
             databaseReadiness: call('databaseReadiness'),
+            generationOwner: () => pick(),
+            generationIdentity: call('generationIdentity'),
             pointsEconomy: call('pointsEconomy'), ensurePointsFloor: call('ensurePointsFloor'),
+            creditSharedPoints: call('creditSharedPoints'), spendSharedPoints: call('spendSharedPoints'),
+            recoverSharedPointsOp: call('recoverSharedPointsOp'),
             withPointsLock: (task) => {
                 const h = pick();
                 return typeof h?.withPointsLock === 'function' ? h.withPointsLock(task) : task();
@@ -85,7 +89,6 @@ export function createOriginEngine(host) {
     let blocked = null;
     let cache = null;
     let generating = null;
-    let busyAt = 0;
     let warnedLegacy = false;
     let offs = [];
     const subs = new Set();
@@ -101,10 +104,15 @@ export function createOriginEngine(host) {
     let databaseRetryTask = null;
     let recovery = { stage: 'read', status: 'ready', reason: '', busy: false };
     let pendingSave = null;
+    const pendingSaves = new Map();
     let deferredEvents = [];
     let staging = null;
     let walletValue = 0;
+    let walletMode = 'legacy'; // 'legacy' | 'shared' | 'pending'
+    const publishedRevisions = new Set();
     const databaseOf = () => typeof host.database === 'function' ? host.database() : null;
+    const isV2Store = () => databaseState?.layout === 'v2' || database?.layout?.()?.layout === 'v2';
+    const pointsEconomyReady = () => host.pointsEconomy?.() === true && walletMode !== 'pending';
 
     const ctx = () => { try { return host.getContext(); } catch (e) { return null; } };
     const settings = () => fillSettings(host.settings());
@@ -141,12 +149,14 @@ export function createOriginEngine(host) {
         if (pendingSave && chatId === idOf(ctx())) {
             return Promise.resolve({ ok: false, reason: 'origin-save-pending' });
         }
+        generationTasks.invalidate();
         databaseEpoch += 1;
         detachDatabase();
         database = databaseOf();
-        pendingSave = null;
+        pendingSave = pendingSaves.get(idOf(ctx())) || null;
         deferredEvents = [];
         databaseState = null;
+        blocked = null;
         if (database) {
             chatId = idOf(ctx());
             ledger = createLedger(chatId);
@@ -158,6 +168,7 @@ export function createOriginEngine(host) {
             if (offs.length && typeof source.subscribe === 'function') {
                 try { databaseOff = source.subscribe(onDatabaseUpdated); } catch { /* 手动重试仍可用 */ }
             }
+            if (pendingSave) return Promise.resolve(databaseFailure({ reason: 'origin-save-pending' }));
             return loadDatabase();
         }
         recovery = { stage: 'read', status: 'ready', reason: '', busy: false };
@@ -204,14 +215,19 @@ export function createOriginEngine(host) {
         ensure();
         if (database && typeof host.walletSnapshot === 'function') {
             const read = host.walletSnapshot();
-            if (read?.ok && Number.isSafeInteger(read.balance)) walletValue = read.balance;
+            if (read?.ok && Number.isSafeInteger(read.balance)) {
+                walletValue = read.balance;
+                if (read.mode) walletMode = read.mode;
+            }
         }
         const wallet = database ? walletValue : 0;
+        const mode = database ? walletMode : 'legacy';
         const k = scaleOfRuleset(ruleId());
-        if (!cache || cache.wallet !== wallet || cache.k !== k) {
+        if (!cache || cache.wallet !== wallet || cache.mode !== mode || cache.k !== k) {
             const rep = compute(false);
-            const view = deepFreeze({ ...shown(rep.state, k), points: rep.state.points + wallet, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
-            cache = { rep, view, wallet, k };
+            const displayPoints = mode === 'shared' ? wallet : mode === 'pending' ? 0 : rep.state.points + wallet;
+            const view = deepFreeze({ ...shown(rep.state, k), points: displayPoints, world: meta.world, direction: meta.direction, turn: rep.turn, skipped: rep.skipped });
+            cache = { rep, view, wallet, mode, k };
         }
         return cache;
     }
@@ -277,11 +293,19 @@ export function createOriginEngine(host) {
     async function readWallet(options) {
         let value;
         try { value = await host.wallet(options); } catch { return { ok: false, reason: 'origin-wallet-unavailable' }; }
-        if (value?.ok === false) return value;
+        if (value?.ok === false) {
+            if (value.reason === 'igs-points-not-integrated' && isV2Store()) {
+                walletMode = 'pending';
+                walletValue = 0;
+                return { ok: false, reason: 'igs-points-not-integrated', pending: true };
+            }
+            return value;
+        }
         const amount = typeof value === 'number' ? value : value?.balance;
         if (!Number.isSafeInteger(amount)) return { ok: false, reason: 'origin-wallet-unavailable' };
+        walletMode = value?.mode || 'legacy';
         walletValue = amount;
-        return { ok: true, balance: amount };
+        return { ok: true, balance: amount, mode: walletMode };
     }
     function detachDatabase() {
         const off = databaseOff;
@@ -372,7 +396,7 @@ export function createOriginEngine(host) {
             databaseState = read;
             const wallet = await readWallet();
             if (!alive()) return { ok: false, reason: 'request-stale' };
-            if (!wallet.ok) {
+            if (!wallet.ok && !wallet.pending) {
                 return databaseFailure(wallet, 'read');
             }
             blocked = null;
@@ -391,28 +415,72 @@ export function createOriginEngine(host) {
     function publishDatabase(job, verified) {
         if (job.published) return job.result || { ok: true };
         job.published = true;
+        const alreadyPublished = Boolean(job.intent?.revision && publishedRevisions.has(job.intent.revision));
+        if (job.intent?.revision) publishedRevisions.add(job.intent.revision);
         ledger = job.ledger;
         meta = job.meta;
         known = job.known;
         cache = null;
         databaseState = verified;
+        if (pendingSaves.get(job.chatId) === job) pendingSaves.delete(job.chatId);
         pendingSave = null;
         blocked = null;
         recovery = { stage: 'save', status: 'ready', reason: '', busy: false };
-        for (const [type, extra] of job.events) emit(type, extra);
-        if (!job.events.length) emit('saved');
-        for (const args of job.notifications) notify(...args);
+        if (!alreadyPublished) {
+            for (const [type, extra] of job.events) emit(type, extra);
+            if (!job.events.length) emit('saved');
+            for (const args of job.notifications) notify(...args);
+        } else {
+            emit('saved');
+        }
         for (const action of job.afterCommit) action();
         drainDatabaseEvents();
         return job.result || { ok: true };
     }
-    async function saveDatabase(job) {
+    async function commitOriginRecord(job) {
+        if (job.originVerified) return job.originVerified;
         let verified;
-        try { verified = await database.commit(job.intent, { shouldStart: job.alive }); }
+        try { verified = await job.store.commit(job.intent, { shouldStart: job.alive }); }
         catch { verified = { ok: false, reason: 'origin-database-write-failed' }; }
+        if (verified?.ok) job.originVerified = verified;
+        return verified;
+    }
+    async function saveDatabase(job) {
+        pendingSaves.set(job.chatId, job);
+        if (chatId === job.chatId) pendingSave = job;
+        let verified;
+        if (job.sharedDebit && typeof host.spendSharedPoints === 'function') {
+            const spent = job.debitAttempted && typeof host.recoverSharedPointsOp === 'function'
+                ? await host.recoverSharedPointsOp(job.sharedDebit.sourceId, {
+                    locked: true, shouldStart: job.alive,
+                    apply: () => commitOriginRecord(job),
+                })
+                : await host.spendSharedPoints({
+                    ...job.sharedDebit, locked: true, shouldStart: job.alive,
+                    apply: () => commitOriginRecord(job),
+                });
+            job.debitAttempted = true;
+            if (!job.ownerAlive()) return { ok: false, reason: 'request-stale' };
+            if (!job.alive()) return databaseFailure({ reason: 'origin-database-path-changed' });
+            if (!spent?.ok) return databaseFailure(spent || { reason: 'points-write-failed' });
+            if (Number.isSafeInteger(spent.balance)) walletValue = spent.balance;
+            verified = job.originVerified || job.store.read({ fresh: true });
+            if (!verified?.ok) return databaseFailure(verified || { reason: 'origin-database-read-failed' });
+            return publishDatabase(job, verified);
+        }
+        verified = await commitOriginRecord(job);
         if (!job.ownerAlive()) return { ok: false, reason: 'request-stale' };
-        if (!job.alive()) { pendingSave = job; return databaseFailure({ reason: 'origin-database-path-changed' }); }
-        if (!verified.ok) { pendingSave = job; return databaseFailure(verified); }
+        if (!job.alive()) return databaseFailure({ reason: 'origin-database-path-changed' });
+        if (!verified.ok) return databaseFailure(verified);
+        if (job.sharedCredit && typeof host.creditSharedPoints === 'function') {
+            const credited = await host.creditSharedPoints({
+                ...job.sharedCredit, locked: true, shouldStart: job.alive,
+            });
+            if (!job.ownerAlive()) return { ok: false, reason: 'request-stale' };
+            if (!job.alive()) return databaseFailure({ reason: 'origin-database-path-changed' });
+            if (!credited?.ok) return databaseFailure(credited || { reason: 'points-write-failed' });
+            if (Number.isSafeInteger(credited.balance)) walletValue = credited.balance;
+        }
         return publishDatabase(job, verified);
     }
     async function recoverDatabaseBranch(job) {
@@ -425,13 +493,15 @@ export function createOriginEngine(host) {
         if (present.revision !== job.intent.revision && present.revision !== parent) {
             return databaseFailure({ reason: 'origin-database-conflict' });
         }
-        if (present.incomplete) {
+        if (present.incomplete || present.revision !== job.intent.revision) {
             present = await database.commit(job.intent, { shouldStart: alive });
+            if (!alive()) return { ok: false, reason: 'request-stale' };
             if (!present.ok) return databaseFailure(present);
         }
-        const wallet = await readWallet({ intent: job.intent });
-        if (!alive()) return databaseFailure({ reason: 'origin-database-path-changed' });
-        if (!wallet.ok) return databaseFailure(wallet);
+        const wallet = job.walletMode === 'pending' ? { ok: true, balance: 0, mode: 'pending' } : await readWallet({ intent: job.intent });
+        if (!job.ownerAlive()) return { ok: false, reason: 'request-stale' };
+        if (!requestedPath()) return databaseFailure({ reason: 'origin-database-path-changed' });
+        if (!wallet.ok && !wallet.pending) return databaseFailure(wallet);
         const previous = { ledger, meta, cache, known, blocked };
         const effects = { events: [], notifications: [], afterCommit: [], dirty: false };
         let recovered;
@@ -466,19 +536,23 @@ export function createOriginEngine(host) {
         ensure();
         const ownerAlive = event?.ownerAlive || databaseLease();
         const requestedPath = event?.requestedPath || pathLease(Boolean(event));
+        const currentRevision = () => !event?.generation || event.revision === JSON.stringify(databaseRaw());
         const run = async () => {
             if (!ownerAlive() || !requestedPath()) return { ok: false, reason: 'request-stale' };
+            if (!currentRevision()) return { ok: false, reason: 'origin-generation-conflict' };
             if (blocked || pendingSave || !databaseState) {
-                if (event) deferredEvents.push({ fn, ownerAlive, requestedPath });
-                return { ok: false, reason: blocked || 'origin-database-unavailable', ...(event ? { deferred: true } : {}) };
+                if (event && !event.generation) deferredEvents.push({ fn, ownerAlive, requestedPath });
+                return { ok: false, reason: blocked || 'origin-database-unavailable', ...(event && !event.generation ? { deferred: true } : {}) };
             }
             const read = database.read();
             if (!read.ok) return databaseFailure(read);
             if (read.revision !== databaseState.revision) return databaseFailure({ reason: 'origin-database-conflict' });
             const wallet = await readWallet();
             if (!ownerAlive() || !requestedPath()) return { ok: false, reason: 'request-stale' };
-            if (!wallet.ok) return databaseFailure(wallet);
-            if (host.pointsEconomy?.() === true) {
+            if (!currentRevision()) return { ok: false, reason: 'origin-generation-conflict' };
+            if (!wallet.ok && !wallet.pending) return databaseFailure(wallet);
+            const pendingEconomy = wallet.pending === true;
+            if (!pendingEconomy && pointsEconomyReady()) {
                 const messages = (ctx() || {}).chat || [];
                 for (const floor of pointFloors(messages).filter(f => !f.floorId)) {
                     const saved = await host.ensurePointsFloor(floor.messageId);
@@ -487,6 +561,7 @@ export function createOriginEngine(host) {
                 }
             }
             const pointsBefore = current().rep.state.points;
+            const opsBefore = ledger.ops.length;
             const previous = { ledger, meta, cache, known };
             const copy = deserializeLedger(databaseRaw(), chatId);
             if (!copy.ok) return databaseFailure(copy);
@@ -499,15 +574,44 @@ export function createOriginEngine(host) {
                 staging = effects;
                 const result = fn();
                 if (result?.ok === false) return result;
-                if (current().rep.state.points < pointsBefore && typeof host.spendingGate === 'function') {
+                const pointsAfter = current().rep.state.points;
+                const pointsDelta = pointsAfter - pointsBefore;
+                const newOps = ledger.ops.slice(opsBefore);
+                const touchedEconomy = pointsDelta !== 0
+                    || newOps.some(rec => rec?.op?.type === 'buy' || rec?.op?.type === 'draw');
+                if (pendingEconomy && touchedEconomy) {
+                    return { ok: false, reason: 'igs-points-not-integrated' };
+                }
+                if (pointsAfter < pointsBefore && typeof host.spendingGate === 'function') {
                     const allowed = host.spendingGate();
                     if (allowed?.ok === false) return allowed;
                 }
                 const intent = database.prepare(databaseState, databaseRaw());
                 if (!intent.ok) return intent;
+                const sharedMode = !pendingEconomy && wallet.mode === 'shared';
+                const floorAnchor = newOps[0]?.economy?.anchor
+                    || pointFloors((ctx() || {}).chat || []).at(-1);
+                const normalizedAnchor = floorAnchor?.floorId
+                    ? { floorId: floorAnchor.floorId, swipeId: floorAnchor.swipeId }
+                    : undefined;
+                const sharedDebit = sharedMode && pointsDelta < 0 ? {
+                    sourceId: newOps[0] ? `origin-op:${chatId}:${newOps[0].id}` : `origin-spend:${chatId}:${intent.revision}`,
+                    domain: 'origin',
+                    cost: -pointsDelta,
+                    action: newOps[0]?.op?.type || 'origin-spend',
+                    ...(normalizedAnchor ? { anchor: normalizedAnchor } : {}),
+                } : null;
+                const sharedCredit = sharedMode && pointsDelta > 0 ? {
+                    sourceId: newOps[0] ? `origin-op:${chatId}:${newOps[0].id}` : `origin-credit:${chatId}:${intent.revision}`,
+                    domain: 'origin',
+                    amount: pointsDelta,
+                    ...(normalizedAnchor ? { anchor: normalizedAnchor } : {}),
+                } : null;
                 const writtenPath = pathLease(true);
                 job = { ...effects, intent, result, ledger, meta, known, beforeKnown: previous.known,
-                    wallet: wallet.balance, ownerAlive, alive: () => ownerAlive() && writtenPath() };
+                    chatId, store: database, walletMode: pendingEconomy ? 'pending' : (wallet.mode || 'legacy'),
+                    sharedDebit, sharedCredit,
+                    wallet: pendingEconomy ? 0 : wallet.balance, ownerAlive, alive: () => ownerAlive() && writtenPath() };
             } finally {
                 staging = null;
                 ({ ledger, meta, cache, known } = previous);
@@ -533,13 +637,19 @@ export function createOriginEngine(host) {
         if (!job) return retryRead();
         const task = { promise: null };
         databaseRetryTask = task;
+        const ownerAlive = databaseLease();
         const run = async () => {
+            if (!ownerAlive() || job.chatId !== chatId) return { ok: false, reason: 'request-stale' };
+            if (!job.ownerAlive()) {
+                Object.assign(job, { ownerAlive, store: database, alive: () => false,
+                    events: [['recover']], notifications: [], afterCommit: [] });
+            }
             setRecovery({ stage: 'save', status: 'loading', reason: blocked || '', busy: true });
             if (job.published) return job.result || { ok: true };
             if (!job.alive()) return recoverDatabaseBranch(job);
             const present = database.read({ intent: job.intent, fresh: true });
             if (!present.ok) return databaseFailure(present);
-            if (present.revision !== job.intent.revision) {
+            if (present.revision !== job.intent.revision && job.walletMode !== 'pending' && !job.debitAttempted && !job.originVerified) {
                 const wallet = await readWallet({ intent: job.intent });
                 if (!job.alive()) return { ok: false, reason: 'request-stale' };
                 if (!wallet.ok || wallet.balance !== job.wallet) return databaseFailure({ reason: wallet.reason || 'origin-wallet-changed' });
@@ -555,7 +665,13 @@ export function createOriginEngine(host) {
     }
     const savedAction = (fn) => (...args) => databaseOf() ? queueDatabase(() => fn(...args)) : fn(...args);
     const savedEvent = (fn) => (...args) => databaseOf() ? queueDatabase(() => fn(...args), {}) : fn(...args);
-    const commitSaved = (op) => databaseOf() ? queueDatabase(() => commit(op)) : commit(op);
+    const commitSaved = (op, task = null) => {
+        task?.check();
+        if (databaseOf()) return queueDatabase(() => commit(op), task ? {
+            ownerAlive: task.alive, requestedPath: task.path, generation: true, revision: task.revision,
+        } : null);
+        return commit(op);
+    };
     async function whenSaved() {
         let pending;
         do { pending = databaseTail; await pending; } while (pending !== databaseTail);
@@ -621,7 +737,7 @@ export function createOriginEngine(host) {
         if (existing && existing.h === entry.h) return { changed: false, entry: existing };
         if (existing?.economy) return { changed: false, entry: existing };
         if (database) entry.wallet = existing?.wallet ?? walletValue;
-        if (!existing && !legacy && staging && host.pointsEconomy?.() === true) {
+        if (!existing && !legacy && staging && pointsEconomyReady()) {
             const anchor = pointFloors(chat).find(f => f.messageId === idx);
             if (!anchor?.floorId) throw new Error('origin-no-anchor');
             entry.economy = economyPlan(`origin:${chatId}:${anchorKey(anchor)}`, { floorId: anchor.floorId, swipeId: anchor.swipeId });
@@ -656,7 +772,8 @@ export function createOriginEngine(host) {
             if (database) current();
             const cs = calcSettings();
             const rep = replay(ledger, path, cs);
-            const st = shown(database ? { ...rep.state, points: rep.state.points + walletValue } : rep.state, cs.ruleScale);
+            const displayPoints = walletMode === 'shared' ? walletValue : walletMode === 'pending' ? 0 : rep.state.points + walletValue;
+            const st = shown(database ? { ...rep.state, points: displayPoints } : rep.state, cs.ruleScale);
             const text = buildInjection({ st, world: meta.world, direction: meta.direction, ...pendingFor(rep, target) }, { ...s, ruleId: cs.ruleId }, rep.turn);
             injectInto(ev.chat, text);
             if (database) {
@@ -795,6 +912,7 @@ export function createOriginEngine(host) {
     }
 
     function detach() {
+        generationTasks.invalidate();
         databaseEpoch += 1;
         detachDatabase();
         for (const off of offs) { try { off(); } catch (e) { /* */ } }
@@ -836,14 +954,17 @@ export function createOriginEngine(host) {
     function commit(op) {
         ensure();
         if (blocked) return { ok: false, reason: blocked };
+        if (database && walletMode === 'pending' && (op.type === 'buy' || op.type === 'draw')) {
+            return { ok: false, reason: 'igs-points-not-integrated' };
+        }
         const rep = current().rep;
         const chat = (ctx() || {}).chat || [];
         const after = chat.length - 1;
         const seed = newSeed();
-        const wallet = database ? walletValue : undefined;
+        const wallet = database ? (walletMode === 'shared' ? walletValue - rep.state.points : walletValue) : undefined;
         const anchor = pointFloors(chat).at(-1);
-        if (staging && host.pointsEconomy?.() === true && !anchor?.floorId) return { ok: false, reason: 'origin-no-anchor' };
-        const economy = staging && host.pointsEconomy?.() === true
+        if (staging && pointsEconomyReady() && !anchor?.floorId) return { ok: false, reason: 'origin-no-anchor' };
+        const economy = staging && pointsEconomyReady()
             ? economyPlan(`origin:${chatId}:op:${ledger.nextOpId}`, { floorId: anchor.floorId, swipeId: anchor.swipeId }) : null;
         const cx = createCx({ turn: rep.turn, floor: after >= 0 ? after : null, s: calcSettings(), scale: scaleOfRuleset(ruleId()), random: seededRandom(seed), wallet,
             economy: economyContext(economy, economy ? { chat, grants: collectOriginGrants(ledger, chat) } : undefined) });
@@ -880,6 +1001,9 @@ export function createOriginEngine(host) {
         if (!settings().enabled) return { ok: false, reason: 'disabled' };
         ensure();
         if (blocked) return { ok: false, reason: blocked };
+        if (database && walletMode === 'pending' && (op.type === 'buy' || op.type === 'draw')) {
+            return { ok: false, reason: 'igs-points-not-integrated' };
+        }
         if (op.type === 'setWorld' || op.type === 'setDirection') {
             const v = String(op.value == null ? '' : op.value).trim();
             if (op.type === 'setWorld') meta = { ...meta, world: v };
@@ -903,6 +1027,26 @@ export function createOriginEngine(host) {
 
     // ---------- 生成请求：核心拼提示词，宿主 generate(kind, prompt) 发请求 ----------
     const BUSY = { ok: false, reason: 'busy' };
+    const generationTasks = createGenerationTasks({
+        capture: () => {
+            const ownerAlive = databaseLease();
+            const owner = host.generationOwner?.();
+            const identity = host.generationIdentity?.();
+            return () => ownerAlive() && host.generationOwner?.() === owner && host.generationIdentity?.() === identity;
+        },
+        onSlow: () => notify('info', '随身系统仍在等待同一次请求，请勿重复提交'),
+    });
+    function checkGeneration(task) {
+        task.check();
+        if (!task.path() || task.revision !== JSON.stringify(databaseRaw())) {
+            throw Object.assign(new Error('origin-generation-conflict'), { reason: 'origin-generation-conflict' });
+        }
+    }
+    function refreshGeneration(task) {
+        task.check();
+        task.path = pathLease(true);
+        task.revision = JSON.stringify(databaseRaw());
+    }
     function material(recentN) {
         const c = ctx() || {};
         let cd = '';
@@ -910,82 +1054,118 @@ export function createOriginEngine(host) {
         const list = (Array.isArray(c.chat) ? c.chat : []).filter((m) => !m.is_system).slice(-recentN);
         return { cd, recent: list.map((m) => (m.is_user ? '我：' : '') + stripHtml(m.mes)).join('\n') };
     }
-    async function runGen(kind, prompt) {
-        try { return { out: String(await host.generate(kind, prompt) || '') }; } catch (e) { return { err: String((e && e.message) || e) }; }
+    async function runGen(kind, prompt, task) {
+        try { return { out: String(await task.request((text, options) => host.generate(kind, text, options), prompt) || '') }; }
+        catch (error) { task.check(); return { err: String(error?.message || error) }; }
     }
     async function guarded(fn) {
         if (!settings().enabled) return { ok: false, reason: 'disabled' };
         ensure();
         if (blocked) return { ok: false, reason: blocked };
-        if (busyAt && Date.now() - busyAt < BUSY_MS) return BUSY;
-        busyAt = Date.now();
-        try { return await fn(); } finally { busyAt = 0; }
+        if (generationTasks.get('origin')) return BUSY;
+        return generationTasks.start('origin', async task => {
+            refreshGeneration(task);
+            try { return await fn(task); }
+            catch (error) {
+                task.check();
+                const reason = error?.reason || 'origin-generation-failed';
+                notify('warn', reason === 'origin-generation-conflict' ? '随身系统已变化，未采用旧生成结果，请重新操作' : '生成失败，请手动重试');
+                return { ok: false, reason };
+            }
+        });
     }
     const view = () => { const v = current().view; return { st: v, world: v.world, direction: v.direction, turn: v.turn, s: calcSettings() }; };
 
     function genTask() {
-        return guarded(async () => {
+        return guarded(async task => {
             const v = view();
             const mt = material(4);
             notify('info', '正在生成任务…');
-            const r = await runGen('task', taskPrompt({ ...v, ...mt }));
+            const r = await runGen('task', taskPrompt({ ...v, ...mt }), task);
+            checkGeneration(task);
             const line = r.out ? pickTaskLine(r.out) : '';
             if (!line) { notify('warn', '没生成出来，再点一次或手动添加'); return { ok: false, reason: r.err || 'no-result' }; }
-            const res = await commitSaved({ type: 'applyBlock', block: line });
+            const res = await commitSaved({ type: 'applyBlock', block: line }, task);
+            task.check();
             if (res.ok) notify('info', '任务已派发');
             return res;
         });
     }
     function genShop() {
-        return guarded(async () => {
+        return guarded(async task => {
             const v = view();
             notify('info', '正在刷新商城…');
-            const r = await runGen('shop', shopPrompt({ ...v, cd: material(1).cd }));
+            const r = await runGen('shop', shopPrompt({ ...v, cd: material(1).cd }), task);
+            checkGeneration(task);
             const items = parseShopLines(r.out);
             if (!items.length) { notify('warn', '刷新失败，重试'); return { ok: false, reason: r.err || 'no-result' }; }
-            const res = await commitSaved({ type: 'setShop', items });
+            const res = await commitSaved({ type: 'setShop', items }, task);
+            task.check();
             if (res.ok) notify('info', '商城已刷新');
             return res;
         });
     }
     function genGacha() {
-        return guarded(async () => {
+        return guarded(async task => {
             const v = view();
             notify('info', '正在重出奖池…');
-            const r = await runGen('gacha', gachaPrompt({ ...v, cd: material(1).cd }));
+            const r = await runGen('gacha', gachaPrompt({ ...v, cd: material(1).cd }), task);
+            checkGeneration(task);
             const items = parseGachaLines(r.out);
             if (!items.length) { notify('warn', '重出失败，重试'); return { ok: false, reason: r.err || 'no-result' }; }
-            const res = await commitSaved({ type: 'setGacha', items });
+            const res = await commitSaved({ type: 'setGacha', items }, task);
+            task.check();
             if (res.ok) notify('info', '奖池已刷新');
             return res;
         });
     }
     // 系统对话：先记下宿主这句（界面立刻能看到），再记系统的回复与随之生效的数据块；结果可进剧情。
-    function sysChat(text) {
-        const ask = String(text || '').trim();
-        if (!ask) return Promise.resolve({ ok: false, reason: 'empty' });
-        return guarded(async () => {
-            const asked = await commitSaved({ type: 'chatMe', text: ask });
-            if (!asked.ok) return asked;
+    function sysChat(text, retryId = null) {
+        if (retryId === null && !String(text || '').trim()) return Promise.resolve({ ok: false, reason: 'empty' });
+        return guarded(async task => {
+            let ask = String(text || '').trim();
+            const requestId = retryId ?? `origin-chat:${chatId}:${ledger.nextOpId}:${newSeed()}:${newSeed()}`;
+            if (retryId !== null) {
+                const chat = current().rep.state.chat;
+                const original = chat.find(row => row.who === 'me' && row.requestId === retryId);
+                if (!original || chat.some(row => row.who === 'sys' && row.replyTo === retryId))
+                    return { ok: false, reason: 'origin-chat-retry-unavailable' };
+                ask = original.text;
+            } else {
+                const asked = await commitSaved({ type: 'chatMe', text: ask, requestId }, task);
+                task.check();
+                if (!asked.ok) return asked;
+            }
+            refreshGeneration(task);
             const v = view();
             const mt = material(2);
             const p = sysChatPrompt({ st: v.st, world: v.world, s: v.s, turn: v.turn, recent: mt.recent });
-            const r = await runGen('sysChat', flatChat(p.system, p.msgs));
-            if (r.err !== undefined) return commitSaved({ type: 'chatSys', text: '（连接失败：' + r.err + '）', block: null, toStory: false, ask });
+            const r = await runGen('sysChat', flatChat(p.system, p.msgs), task);
+            checkGeneration(task);
+            if (r.err !== undefined || !r.out.trim()) {
+                notify('warn', '系统对话生成失败，提问已保存，请手动重试');
+                return { ok: false, reason: 'origin-generation-failed' };
+            }
             const sp = splitReplyBlock(r.out);
-            return commitSaved({ type: 'chatSys', text: sp.text, block: sp.block && sp.block !== '无' ? sp.block : null, toStory: v.s.chatToStory !== false, ask });
+            if (!sp.text.trim() && (!sp.block || sp.block === '无')) {
+                notify('warn', '系统对话未返回有效内容，提问已保存，请手动重试');
+                return { ok: false, reason: 'no-result' };
+            }
+            return commitSaved({ type: 'chatSys', text: sp.text, block: sp.block && sp.block !== '无' ? sp.block : null, toStory: v.s.chatToStory !== false, ask, replyTo: requestId }, task);
         });
     }
+    const retrySysChat = requestId => sysChat('', String(requestId || ''));
     function rpChatGen() {
-        return guarded(async () => {
+        return guarded(async task => {
             const v = view();
             if (!hostOf(v.s)) return { ok: false, reason: 'no-host' };
             const mt = material(3);
             notify('info', '正在生成私聊…');
-            const r = await runGen('rpChat', rpChatPrompt({ st: v.st, world: v.world, s: v.s, cd: mt.cd, recent: mt.recent }));
+            const r = await runGen('rpChat', rpChatPrompt({ st: v.st, world: v.world, s: v.s, cd: mt.cd, recent: mt.recent }), task);
+            checkGeneration(task);
             const lines = parseRpChatLines(r.out);
             if (!lines.length) { notify('warn', '没生成出来，再试一次'); return { ok: false, reason: r.err || 'no-result' }; }
-            return commitSaved({ type: 'chatRp', lines });
+            return commitSaved({ type: 'chatRp', lines }, task);
         });
     }
     // 系统对角色喊话：下回合他会听到（事件挂在这条操作上，随下一个用户楼发出）。
@@ -1107,7 +1287,7 @@ export function createOriginEngine(host) {
     }
 
     return {
-        getState, rawStats, subscribe, dispatch: savedAction(dispatch), genTask, genShop, genGacha, sysChat, rpChatGen, rpChatCall,
+        getState, rawStats, subscribe, dispatch: savedAction(dispatch), genTask, genShop, genGacha, sysChat, retrySysChat, rpChatGen, rpChatCall,
         recalcAll: savedAction(recalcAll), importLegacy: savedAction(importLegacy), legacyDetected,
         dismissLegacy: savedAction(dismissLegacy), lastFloorStatus, whenSaved, retrySave, retryRead,
         recoveryStatus: () => ({ ...recovery,

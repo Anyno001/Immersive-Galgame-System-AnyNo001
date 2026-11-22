@@ -439,12 +439,22 @@ const capChat = (st) => { if (st.chat.length > 80) st.chat = st.chat.slice(-80);
 const chatRow = (cx, o) => ({ ...o, turn: cx.turn, ...(cx.floor != null ? { floor: cx.floor } : {}) });
 function mChat(st, op, cx) {
     switch (op.type) {
-        case 'chatMe': st.chat.push(chatRow(cx, { who: 'me', text: String(op.text || '') })); capChat(st); return OK;
+        case 'chatMe': {
+            const requestId = typeof op.requestId === 'string' && op.requestId ? op.requestId : null;
+            if (requestId && st.chat.some(row => row.requestId === requestId)) return fail('origin-chat-request-conflict', '提问标识已存在');
+            st.chat.push(chatRow(cx, { who: 'me', text: String(op.text || ''), ...(requestId && { requestId }) }));
+            capChat(st);
+            return OK;
+        }
         case 'chatSys': {
+            const replyTo = typeof op.replyTo === 'string' && op.replyTo ? op.replyTo : null;
+            if (replyTo && (!st.chat.some(row => row.who === 'me' && row.requestId === replyTo)
+                || st.chat.some(row => row.who === 'sys' && row.replyTo === replyTo)))
+                return fail('origin-chat-retry-unavailable', '原提问已不存在或已有回复');
             const n0 = cx.logged.length;
             if (op.block) applyOps(st, parseBlock(op.block).ops, cx, {});
             const notes = cx.logged.slice(n0).join('；');
-            st.chat.push(chatRow(cx, { who: 'sys', text: op.text || '（系统没有回应）', note: notes }));
+            st.chat.push(chatRow(cx, { who: 'sys', text: op.text || '（系统没有回应）', note: notes, ...(replyTo && { replyTo }) }));
             capChat(st);
             if (op.toStory) cx.events.push('宿主刚在系统频道对系统说「' + String(op.ask || '').slice(0, 80) + '」，系统答「' + String(op.text || '').slice(0, 80) + '」' + (notes ? '（随之生效：' + notes + '）' : '') + '。这段对话只有宿主和系统知道，其他角色听不见，但宿主的言行可以受它影响');
             return OK;

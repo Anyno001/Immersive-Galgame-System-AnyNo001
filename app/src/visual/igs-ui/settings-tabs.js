@@ -519,7 +519,7 @@ const STATS_SET_TEMPLATE = `
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">登记与补全</div>
-      <div class="igs-source-filter-grid">{{newChatField}}{{registerField}}{{backfillField}}{{sheetGenField}}{{traitReviewField}}</div>
+      <div class="igs-source-filter-grid">{{registerField}}{{backfillField}}{{sheetGenField}}{{traitReviewField}}</div>
       <div class="igs-source-filter-note">以下操作作用于本聊天全部角色，由辅助模型给出结果；需要在自动插图设置里接好写词模型。</div>
       <div class="igs-stats-hero-actions">
         <button class="igs-settings-action" data-action="stats-op:relation-import" type="button">导入表格角色</button>

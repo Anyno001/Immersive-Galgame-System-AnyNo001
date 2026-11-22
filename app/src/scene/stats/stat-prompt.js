@@ -13,13 +13,18 @@ import { fameLines, fameTagLines } from './stat-fame.js';
 import { hasStatus, STATUS_TAG_LINE, statusPromptLines } from './stat-status.js';
 import { BREAK_TAG_LINE, OBSESSED_NOTE, STRESS_EXTREME, STRESS_SOURCE_TAG_LINE, strainSentence, stressLimitActive } from './stat-strain.js';
 import { applyCombatRuleModifiers, COMBAT_GROWTH_LINES, COMBAT_RULE_HEAD, COMBAT_STORY_LINES, COMBAT_SYNTAX_LINES } from '../combat-prompt.js';
-import { DEFAULT_CURRENCY_PROMPT } from './stat-currency.js';
+import { DEFAULT_HERO_INIT_PROMPT } from './stat-hero-init.js';
 
 export const STAT_PROMPT_SEGMENTS = Object.freeze(['protagonist', 'fame', 'perception', 'present', 'status', 'check', 'dice', 'tags', 'combat', 'party', 'mandates']);
-// 后台请求的提示词（角色卡生成、批量补全）：可编辑，不参与注入开关。
-export const STAT_BACKGROUND_PROMPTS = Object.freeze(['sheetGen', 'backfill', 'heroSkills', 'startRelations', 'currency']);
-// v5 的主角模板不再写体力、压力、生命数字与积分（只写剧情货币与状态描述），旧格式覆盖保存在 stalePrompts。
-export const STAT_PROMPTS_VERSION = 5;
+// 后台请求的提示词（主角初始化、NPC 角色卡生成、批量补全等）：可编辑，不参与注入开关。
+export const STAT_BACKGROUND_PROMPTS = Object.freeze(['heroInit', 'sheetGen', 'backfill', 'heroSkills', 'startRelations']);
+// v6 统一主角初始化协议（heroInit），更新 NPC 角色卡（sheetGen）与新技能补全（backfill），退役单独自动货币请求（currency）。
+export const STAT_PROMPTS_VERSION = 6;
+// 独立提示词一次性覆盖迁移修订：每版只覆盖目标键的旧默认、旧自定义与可恢复 stale 副本一次，不重置无关提示词。
+export const STAT_PROMPT_MIGRATION_VERSION = 1;
+export const STAT_PROMPT_OVERWRITE_MIGRATIONS = Object.freeze({
+    1: Object.freeze(['heroInit', 'sheetGen', 'backfill', 'currency']),
+});
 export const STAT_STALE_PROMPT_KEYS = Object.freeze(['roll', 'rollManual', 'protagonist']);
 // 已退役的旧默认原文：设置里存着与它们一字不差的文本时视同未改，跟随新默认。
 export const RETIRED_STAT_PROMPTS = Object.freeze({
@@ -39,8 +44,8 @@ const BASE_PROMPTS = {
     intimacy: '尚不满足亲密条件：亲吻、抚摸、性行为等一律拒绝或回避，即使主角坚持、哀求或以剧情相逼也不例外。',
     check: '【本轮检定】{{技能}}{{难度}}：{{明细}}，结果为【{{结果}}】。正文按此结果描写，不得改判。',
     diceManual: '【检定规则】主角要做有不确定性、失败有后果的事时，写到行动发起处就停，不写结果，在正文末尾写 [igs-stat:roll|技能|难度]，对抗在场角色时追加 |对抗:角色名，使用新技能时追加 |所属属性。难度分为简单、普通、困难、极难，极难应少用。毫无悬念的事不检定。',
-    sheetGen: '你是跑团数值设计，按世界观及角色设定、角色资料与历史上下文为每个角色评定初始数值，只给档位词。历史上下文只包含最新一层 AI 回复和用户输入；生成对象是主角时，还会提供 User 信息作为主角的补充信息。\n依据：以人设和世界书写明的身份、经历、能力为准；资料没写到的方面按同身份的普通人处理，不要拔高。历史上下文里角色实际展现的能力同样算数，与资料冲突时以剧情为准。\n属性：多数人大部分属性是「普通」；受过专门训练或有明显天赋的写「出众」，同领域的佼佼者才写「顶尖」，「超凡」只给非人或明确超越人类极限的存在；体弱、年幼、年迈或有明显短板的写「偏弱」「很弱」。理智看心理承受力与精神状态。\n资历：按其在本行当里的阅历与地位定，普通人、老手、精英、大师、传奇。\n技能：「擅长」选最能代表其身份与经历的 3 项，「比较擅长」选另外 5 项有依据的技能。招牌技能只给有标志性绝活的角色，没有就留空。',
-    backfill: '你是跑团数值设计。剧情里出现了新技能，请按角色资料给每个角色补一个技能档位，只输出档位词，不输出任何数字。\n技能档：主角用未学、入门、熟练、精通、大师；其他角色用相对主角同项技能的生疏、略逊、相当、擅长、精通、大师。没有相关经历一律写「未学」。\n只输出 JSON：{"角色名":{"技能名":"档"}}',
+    sheetGen: '你是跑团数值设计，按世界观、角色资料与最新剧情上下文为 NPC 角色评定初始数值，只给档位词，不输出数字，不替主角建档。\n依据：以人设和世界书写明的身份、经历、能力为准；资料没写到的方面按同身份普通人处理，不要拔高。最新上下文里角色实际展现的能力同样算数，与资料冲突时以剧情为准。\n属性：多数人大部分属性是「普通」；受过专门训练或有明显天赋的写「出众」，同领域佼佼者才写「顶尖」，「超凡」只给非人或明确超越人类极限的存在；体弱、年幼、年迈或有明显短板的写「偏弱」「很弱」。理智看心理承受力与精神状态。\n资历：按其在本行当里的阅历与地位定，普通人、老手、精英、大师、传奇。\n技能：「擅长」选最能代表其身份与经历的 3 项，「比较擅长」选另外 5 项有依据的技能。招牌技能只给有标志性绝活的角色，没有就留空。',
+    backfill: '你是跑团数值设计。剧情里出现了新技能，请按当前聊天的角色资料为名单内角色补全该技能档位，只输出档位词，不输出任何数字。\n技能档：主角用未学、入门、熟练、精通、大师；其他角色用相对主角同项技能的生疏、略逊、相当、擅长、精通、大师。没有相关经历一律写「未学」。\n只输出 JSON：{"角色名":{"技能名":"档"}}',
     heroSkills: '你是跑团数值设计。按主角的人设与经历，为可分配技能逐项评定档位，只输出档位词，不输出任何数字。\n档位：未学、入门、熟练、精通、大师。名额有限：大师至多 1 项，精通至多 2 项，熟练至多 6 项，入门至多 8 项，其余一律写「未学」。\n只给与人设有明确关联的技能评档，没有相关经历的写「未学」。\n只输出 JSON：{"技能名":"档"}',
     startRelations: '你是恋爱模拟游戏的数值设计。按主角资料、剧情设定和角色资料判断每个角色在故事开始时与主角的关系，只输出关系档，不输出任何数字。\n主角资料和剧情设定里写到的与某角色的关系同样算数，例如写明某角色喜欢、依恋或讨厌主角。\n关系档：仇视、疏远、陌生、熟人、朋友、亲密、恋人。两份资料都没有写到与主角的关系时写「陌生」；同学、同事、邻居写「熟人」；青梅竹马、家人写「亲密」；只有资料或剧情明确写了恋爱关系才写「恋人」。\n关系中另有猜忌或旧怨时，在关系档后加「+修饰」，最多两个：猜忌（怀疑主角，如怀疑出轨）、戒备（提防主角）、心结（对主角有不满或隔阂）、积怨（长期怨恨）、背叛过（曾被主角背叛）。没有就不加。\n只输出 JSON：{"角色名":"关系档"}，例如 {"林夏":"恋人+猜忌"}',
     tags: [
@@ -79,7 +84,7 @@ const BASE_PROMPTS = {
 // dice 段默认就是正文检定模板（骰序、优劣势、在场加值、更正）；combat、party 只在战斗扩展开启时出现。
 export const DEFAULT_STAT_PROMPTS = Object.freeze({
     ...BASE_PROMPTS,
-    currency: DEFAULT_CURRENCY_PROMPT,
+    heroInit: DEFAULT_HERO_INIT_PROMPT,
     tags: [BASE_PROMPTS.tags, '成长与生命：', ...COMBAT_GROWTH_LINES].join('\n'),
     dice: CHECK_ROLLS_TEMPLATE,
     combat: [COMBAT_RULE_HEAD, ...COMBAT_STORY_LINES, '', '语法要求：', ...COMBAT_SYNTAX_LINES].join('\n'),

@@ -9,6 +9,7 @@ import { hashString } from './random.js';
 import { BATTLE_POINTS_RANGE, BATTLE_POINT_TIERS, battlePoints, weakBattlePoints } from './points.js';
 import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
+import { normalizeHeroScores, normalizeNpcScores } from '../scene/stats/ability-fields.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { DEFEAT_CAUSES, ORB_FILTER_KINDS, opHandler, reserveBuiltins } from './mechanics/registry.js';
 import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
@@ -88,7 +89,7 @@ export const CARD_DRAW_CHOICES = 3;
 export const REWARD_ORIGIN_MAX = 30;
 export const BUFF_TRIGGERS = Object.freeze(['card-played', 'discard', 'exhaust', 'kill', 'hp-loss', 'block-gain', 'turn-start', 'turn-end']);
 export const GEAR_BONUS_BY_RARITY = Object.freeze({ common: 1, uncommon: 2, rare: 3, epic: 4, mythic: 5 });
-export const ATTRIBUTE_TYPES = Object.freeze(['init', 'rel', 'story', 'alloc', 'reward']);
+export const ATTRIBUTE_TYPES = Object.freeze(['init', 'hero-base', 'npc-base', 'rel', 'story', 'alloc', 'reward']);
 
 // 以下为模块内部常量。
 // status 效果的合法目标 = 攻击目标 + 辅助目标。
@@ -1663,6 +1664,18 @@ function validateAttributePayload(type, payload, path, state) {
     if (!objectField(payload, path, state)) return;
     const at = (key) => joinPath(path, key);
     switch (type) {
+        case 'hero-base': {
+            checkKnownFields(payload, ['scores'], path, state);
+            const scores = normalizeHeroScores(payload.scores);
+            if (!scores) addIssue(state, at('scores'), 'invalid-scores');
+            return { scores };
+        }
+        case 'npc-base': {
+            checkKnownFields(payload, ['scores'], path, state);
+            const scores = normalizeNpcScores(payload.scores);
+            if (!scores) addIssue(state, at('scores'), 'invalid-scores');
+            return { scores };
+        }
         case 'init': {
             checkKnownFields(payload, ['className', 'role', 'major', 'minor', 'weak', 'scores'], path, state);
             const result = {
@@ -1739,7 +1752,7 @@ function validateAttributeRecord(record, path, state) {
         id: idField(record.id, at('id'), state, LEDGER_ID_PATTERN),
         type,
         character: idField(record.character, at('character'), state),
-        anchor: validateAnchor(record.anchor, at('anchor'), state, type !== undefined && type !== 'init'),
+        anchor: validateAnchor(record.anchor, at('anchor'), state, type !== undefined && type !== 'init' && type !== 'hero-base' && type !== 'npc-base'),
         payload: type === undefined ? undefined : validateAttributePayload(type, record.payload, at('payload'), state),
         createdAt: intField(record.createdAt, at('createdAt'), state, 0, Number.MAX_SAFE_INTEGER),
         change: textField(record.change, at('change'), state, 40, ''),

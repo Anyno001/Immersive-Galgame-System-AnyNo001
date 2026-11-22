@@ -7,6 +7,8 @@ import { planRewardSlots } from '../src/combat/rewards.js';
 import { planChallengeReward } from '../src/combat/challenge-reward.js';
 import { battleRandomKeyFor } from '../src/combat/random-domain.js';
 import { generateEntities, generationWrites, rewardEntity, templateEnemy } from '../src/combat/generation.js';
+import { reportIdFor } from '../src/combat/report.js';
+import { createCombatChatRecord } from '../src/host/combat-chat-record.js';
 import { createCountingStorage } from './helpers/combat-mock-host-services.js';
 import { createGenerationFixture } from './helpers/combat-generation-fixture.js';
 
@@ -38,12 +40,197 @@ async function fixture(t, chatId) {
         write: async (_, id, patch) => { records.set(id, { ...(records.get(id) || {}), ...structuredClone(patch) }); return { ok: true }; },
     };
     const requests = [];
-    const makeSession = () => createCombatSession({ ledger, tables: {}, chat, getChatId: () => chatId, userName: '艾拉', storage, chatRecord,
-        request: async (p) => { requests.push(JSON.parse(p.user)); return reply(p); }, llm: { source: 'tavern' }, retryDelays: [], now: () => 1 });
+    const makeSession = (overrides = {}) => createCombatSession({ ledger, tables: {}, chat, getChatId: () => chatId, userName: '艾拉', storage, chatRecord,
+        request: async (p) => { requests.push(JSON.parse(p.user)); return reply(p); }, llm: { source: 'tavern' }, retryDelays: [], now: () => 1, ...overrides });
     const session = makeSession();
     t.after(() => session.dispose());
     return { ...f, ledger, storage, records, requests, makeSession, session, located, floor };
 }
+
+test('候选保存未确认后，重建会话再双击重试只保存一次原候选，不再请求模型', async (t) => {
+    const f = await fixture(t, 'reward-save-retry');
+    const submitted = [];
+    let enterSave, finishSave;
+    const entered = new Promise((resolve) => { enterSave = resolve; });
+    const pending = new Promise((resolve) => { finishSave = resolve; });
+    const ledger = { ...f.ledger, async append(entries, options) {
+        if (entries.some((entry) => entry.type === 'offer')) {
+            submitted.push(structuredClone(entries));
+            if (submitted.length === 1) return { ok: false, reason: 'combat-ledger-insert-failed' };
+            enterSave();
+            await pending;
+        }
+        return f.ledger.append(entries, options);
+    } };
+    const initial = f.makeSession({ ledger, generationMaxRounds: 0 });
+    t.after(() => { finishSave(); initial.dispose(); });
+
+    assert.equal((await initial.prepare(f.floor)).ok, true);
+    assert.equal(initial.state().reward.stage, 'save');
+    initial.dispose();
+    const session = f.makeSession({ ledger, generationMaxRounds: 0 });
+    t.after(() => session.dispose());
+    assert.equal((await session.prepare(f.floor)).ok, true);
+    assert.equal(session.state().reward.status, 'failed');
+    assert.equal(session.state().reward.stage, 'save');
+    assert.equal(submitted.length, 1, '重新打开不自动补写');
+    assert.equal(f.requests.length, 1);
+    const first = session.retryReward();
+    const second = session.retryReward();
+    await entered;
+    assert.equal(session.state().reward.status, 'pending');
+    finishSave();
+    assert.ok((await Promise.all([first, second])).every((result) => result.ok));
+    assert.equal(f.requests.length, 1, '保存重试不能重发模型');
+    assert.deepEqual(submitted, [submitted[0], submitted[0]]);
+    assert.equal(session.state().reward.status, 'ready');
+    assert.ok((await f.ledger.effectiveState()).offers.has(f.located.combatId));
+});
+
+test('停止奖励生成后迟到回包不落账、不通知，也不解除新重试的单飞', async (t) => {
+    for (const outcome of ['success', 'failure']) await t.test(outcome, async t => {
+        const f = await fixture(t, 'reward-retry-failure');
+        const old = Promise.withResolvers(), next = Promise.withResolvers();
+        const oldStarted = Promise.withResolvers(), nextStarted = Promise.withResolvers();
+        let calls = 0;
+        const session = f.makeSession({ generationMaxRounds: 0, request: async (p, opts) => {
+            calls += 1;
+            if (calls === 1) return '不是 JSON';
+            if (calls === 2) {
+                oldStarted.resolve(opts.signal);
+                await old.promise;
+                if (outcome === 'failure') throw Error('模拟迟到失败');
+            } else if (calls === 3) {
+                nextStarted.resolve();
+                await next.promise;
+            } else assert.fail('重试未合并');
+            return reply(p);
+        } });
+        t.after(() => { old.resolve(); next.resolve(); session.dispose(); });
+        assert.equal((await session.prepare(f.floor)).ok, true);
+        assert.equal(session.state().reward.status, 'failed');
+
+        const abort = new AbortController();
+        const first = session.retryReward({ signal: abort.signal });
+        const sentSignal = await oldStarted.promise;
+        const follower = session.retryReward();
+        assert.equal(session.state().reward.status, 'pending');
+        abort.abort();
+        assert.equal(sentSignal.aborted, true);
+        assert.equal(session.state().reward.status, 'failed');
+
+        const newer = session.retryReward();
+        await nextStarted.promise;
+        const notices = [];
+        const unsubscribe = session.subscribe(value => notices.push(value));
+        t.after(unsubscribe);
+        old.resolve();
+        for (const result of await Promise.all([first, follower])) assert.equal(result.reason, 'request-stale');
+        assert.equal(notices.length, 0);
+        assert.equal((await f.ledger.effectiveState()).offers.has(f.located.combatId), false);
+        assert.equal(session.state().reward.status, 'pending');
+        const newerFollower = session.retryReward();
+        next.resolve();
+        assert.ok((await Promise.all([newer, newerFollower])).every(result => result.ok));
+        assert.equal(calls, 3);
+        assert.equal(session.state().reward.status, 'ready', JSON.stringify(session.state().reward));
+    });
+});
+
+test('备战保存已落库但回执迟到：停止后不发布旧大厅，再备战只回读原候选', async (t) => {
+    const f = await fixture(t, 'reward-save-retry');
+    const dispatched = Promise.withResolvers(), callback = Promise.withResolvers();
+    let appends = 0;
+    const ledger = { ...f.ledger, async append(entries, options) {
+        appends += 1;
+        const saved = await f.ledger.append(entries, options);
+        dispatched.resolve(saved);
+        await callback.promise;
+        return saved;
+    } };
+    const session = f.makeSession({ ledger, generationMaxRounds: 0 });
+    const abort = new AbortController();
+    t.after(() => { callback.resolve(); session.dispose(); });
+    const states = [];
+    t.after(session.subscribe(state => states.push(state.status)));
+
+    const first = session.prepare(f.floor, { signal: abort.signal });
+    assert.equal((await dispatched.promise).ok, true);
+    assert.equal(session.state().status, 'preparing');
+    const follower = session.prepare(f.floor);
+    abort.abort();
+    assert.equal(session.state().status, 'blocked');
+    assert.equal(session.state().reason, 'request-stale');
+    assert.equal(f.records.size, 0);
+    const original = (await f.ledger.effectiveState()).offers.get(f.located.combatId);
+    assert.ok(original);
+    callback.resolve();
+    for (const result of await Promise.all([first, follower])) assert.equal(result.reason, 'request-stale');
+    assert.deepEqual(states, []);
+
+    assert.equal((await session.prepare(f.floor, { recoverReward: true })).ok, true);
+    assert.equal(session.state().reward.status, 'ready');
+    assert.equal(appends, 1);
+    assert.equal(f.requests.flatMap(request => request.entities).filter(e => e.kind === 'battle-reward').length, 1);
+    assert.deepEqual((await f.ledger.effectiveState()).offers.get(f.located.combatId), original);
+    assert.deepEqual(states, ['lobby']);
+});
+
+test('恢复已留档战报期间停止备战，迟到账本回读不发布翻牌状态', async (t) => {
+    const f = await fixture(t, 'reward-save-retry');
+    const started = Promise.withResolvers(), read = Promise.withResolvers();
+    const { combatId } = f.located;
+    f.records.set(combatId, { result: { reportId: reportIdFor(combatId), result: 'win', text: '已留档战报' } });
+    const session = f.makeSession({ ledger: { ...f.ledger, async effectiveState() {
+        started.resolve();
+        await read.promise;
+        return f.ledger.effectiveState();
+    } } });
+    t.after(() => { read.resolve(); session.dispose(); });
+    const notices = [];
+    t.after(session.subscribe(state => notices.push(state.flip?.status)));
+    const abort = new AbortController();
+    const pending = session.prepare(f.floor, { signal: abort.signal });
+    await started.promise;
+    abort.abort();
+    read.resolve();
+    assert.equal((await pending).reason, 'request-stale');
+    assert.deepEqual(notices, []);
+});
+
+test('战斗留档失败只回滚原楼层中本次仍持有的记录，迟到回执不确认另一滑页', async (t) => {
+    const anchor = { messageId: 0, swipeId: 0 };
+    const opening = { prepared: { at: 1 } };
+    for (const mode of ['save-failure', 'stopped-failure', 'newer-record', 'swipe']) await t.test(mode, async () => {
+        const original = () => ({ unrelated: true, igsCombat: { fight: structuredClone(opening) } });
+        const firstSwipe = { extra: original() }, otherSwipe = { extra: { otherSwipe: true } };
+        const floor = { swipe_id: 0, extra: original(), swipe_info: [firstSwipe, otherSwipe] };
+        const saved = Promise.withResolvers();
+        const chat = [floor];
+        let saves = 0, alive = true;
+        const record = createCombatChatRecord({ SillyTavern: { getContext: () => ({ chat, saveChat: () => { saves += 1; return saved.promise; } }) } });
+
+        const pending = record.write(anchor, 'fight', { prepared: { at: 2 } }, { shouldStart: () => alive });
+        assert.equal(saves, 1);
+        if (mode === 'swipe') {
+            floor.swipe_id = 1;
+            floor.extra = otherSwipe.extra;
+            saved.resolve();
+            assert.equal((await pending).reason, 'combat-record-stale');
+            assert.deepEqual(otherSwipe.extra, { otherSwipe: true });
+            assert.equal(record.read({ ...anchor, swipeId: 1 }, 'fight').value, null);
+        } else {
+            if (mode === 'stopped-failure') alive = false;
+            const latest = { prepared: { at: 3 } };
+            if (mode === 'newer-record') floor.extra.igsCombat.fight = latest;
+            saved.reject(new Error('模拟宿主保存失败'));
+            assert.equal((await pending).reason, alive ? 'combat-record-save-failed' : 'combat-record-stale');
+            assert.deepEqual(record.read(anchor, 'fight').value, mode === 'newer-record' ? latest : opening);
+            assert.deepEqual(firstSwipe.extra, original());
+        }
+        assert.equal(saves, 1, '旧回执不能再调用宿主写口');
+    });
+});
 
 test('相同开战锚点跨聊天使用独立随机域，奖励的随机键通过账本保留', async (t) => {
     const a = await fixture(t, 'battle-chat-a');

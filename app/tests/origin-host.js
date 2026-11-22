@@ -28,7 +28,7 @@ export function createHarness(settingsOver = {}, hostOver = {}) {
         host: {
             getContext: () => ctx, settings: () => settings, saveSettings() { h.settingsSaved = true; },
             saveMetadata() { h.saves += 1; }, notify: (n) => notes.push(n),
-            generate: (kind, prompt) => h.generateImpl(kind, prompt),
+            generate: (kind, prompt, task) => h.generateImpl(kind, prompt, task),
             ...hostOver,
         },
     };

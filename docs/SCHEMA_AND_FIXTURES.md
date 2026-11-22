@@ -15,6 +15,19 @@
 
 优先使用 JSON Schema 描述可导入文件格式，优先使用 Zod 或轻量 runtime validator 描述运行时 LLM 输出和外部 API 返回值。schema 样例只能放脱敏短样例，不放真实聊天正文、真实 API key 或大段 prompt。
 
+## IGS 聊天存储布局
+
+`data/shujuku/igs-table-specs.js` 定义 v2 物理规格；`igs-chat-layout.js` 选择本聊天的 legacy/v2，`igs-chat-store.js` 绑定聊天/API 身份并协调按需建表。不迁移旧历史，不把未知或读取失败当空档。
+
+| v2 新表 | UID | 协议 |
+| --- | --- | --- |
+| IGS·存储 | `sheet_igsstorev2` | 日志记录 `igs-layout`，载荷 `{version:1,layout:'igs-chat-v2'}`，读回确认后才建业务表 |
+| IGS数值·属性 | `sheet_igsstatattrv2` | 永久属性日志（含 `hero-base` 纯六维、`npc-base`、`drop:<name>` 撤销记录及旧 `init` 兼容）；与 legacy 战斗属性表适配，不双写 |
+| IGS随身·日志 | `sheet_igsoriginv2` | Origin 父 revision 差分（单开 Origin 不建战斗/数值表），legacy 仍使用战斗日志 `or|` |
+| IGS共享·积分 | `sheet_igspointsv2` | 统一全来源积分增减与两阶段回执（`start/award/hand/check/close/settle/exchange/exchange-done/credit/debit/debit-done`），legacy 仍使用战斗日志 `pt|` 与原合成余额 |
+
+新增表复用 `logSheetSpec` 的列与分段编码。持有原记录的 `recoveryRecords` 只允许完全匹配的残段参与显式恢复，普通读取仍报错。`combat-tables-behavior.test.js` 覆盖有效空档/旧资料、按需表集合、标记和业务残段冷恢复、冲突零写入、排队失效及订阅释放；`stats-wallet.test.js` 的货币缺段用例经共享存储冷重建。均为 fake API 证据，不代表真实数据库或模型验收；新布局数据不能靠降级旧应用读取，回退仍须保留原表与恢复意图。
+
 ## Fixtures 规则
 
 `app/fixtures/` 只放模拟测试数据：

@@ -1,25 +1,33 @@
 import { foldPointsRecords, isPointsRecord } from '../../scene/points/points-log.js';
 
-export function createPointsStore({ tables, chat = () => [], chatId = () => '' }) {
+export function createPointsStore({ tables, kind = 'ledger', chat = () => [], chatId = () => '' }) {
+    function layout() {
+        return typeof tables.layout === 'function' ? tables.layout() : { ok: true, layout: kind === 'points' ? 'v2' : 'legacy' };
+    }
     function read({ intent, fresh = false } = {}) {
         let result;
         try {
             if (fresh) tables.client?.invalidate?.();
-            result = tables.read({ kinds: ['ledger'] });
+            result = tables.read({ kinds: [kind], recoveryRecords: intent ? [{ kind, record: intent }] : [] });
         }
         catch { return { ok: false, reason: 'points-read-failed' }; }
-        if (!result?.ok || !Array.isArray(result.ledger)) return { ok: false, reason: result?.reason || 'points-read-failed' };
-        const broken = (result.diagnostics || []).filter(d => d.kind === 'ledger' && String(d.key || '').startsWith('pt|'));
+        if (!result?.ok) return { ok: false, reason: result?.reason || 'points-read-failed' };
+        const isV2 = result.layout === 'v2' || (kind === 'points' && result.layout !== 'legacy');
+        const missing = Array.isArray(result.missing) ? result.missing : [];
+        if (!Array.isArray(result[kind])) {
+            return { ok: false, reason: missing.includes(kind) ? 'points-table-missing' : (result.reason || 'points-read-failed'), missing };
+        }
+        const broken = (result.diagnostics || []).filter(d => d.kind === kind && (isV2 || String(d.key || '').startsWith('pt|')));
         const incomplete = broken.length && intent && broken.every(d => d.code === 'combat-row-segment-incomplete' && d.key === intent.id)
-            && tables.matchesIncomplete?.('ledger', intent) === true;
+            && tables.matchesIncomplete?.(kind, intent) === true;
         if (broken.length && !incomplete) return { ok: false, reason: 'points-log-incomplete' };
-        const folded = foldPointsRecords(result.ledger, chat(), chatId());
-        return folded.ok ? { ...folded, rows: result.ledger, incomplete: Boolean(incomplete) } : folded;
+        const folded = foldPointsRecords(result[kind], chat(), chatId());
+        return folded.ok ? { ...folded, rows: result[kind], layout: result.layout || (isV2 ? 'v2' : 'legacy'), missing, incomplete: Boolean(incomplete) } : folded;
     }
     async function load({ shouldStart = () => true } = {}) {
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
         let ready;
-        try { ready = await tables.ensure(); }
+        try { ready = await tables.ensure({ shouldStart }); }
         catch { return { ok: false, reason: 'points-ensure-failed' }; }
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
         return ready?.ok ? read({ fresh: true }) : ready;
@@ -28,7 +36,7 @@ export function createPointsStore({ tables, chat = () => [], chatId = () => '' }
         if (!isPointsRecord(record)) return { ok: false, reason: 'points-log-invalid' };
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
         let ready;
-        try { ready = await tables.ensure(); }
+        try { ready = await tables.ensure({ shouldStart, recoveryRecords: [{ kind, record }] }); }
         catch { return { ok: false, reason: 'points-ensure-failed' }; }
         if (!shouldStart()) return { ok: false, reason: 'request-stale' };
         if (!ready?.ok) return ready;
@@ -42,8 +50,8 @@ export function createPointsStore({ tables, chat = () => [], chatId = () => '' }
         if (!trial.ok) return trial;
         let result;
         let active = true;
-        try { result = await tables.append('ledger', [record], {
-            retainOnFailure: false, refresh: false, shouldStart: () => active && shouldStart(),
+        try { result = await tables.append(kind, [record], {
+            retainOnFailure: false, refresh: false, recoverSegments: true, shouldStart: () => active && shouldStart(),
         }); }
         catch { result = { ok: false, reason: 'points-write-failed' }; }
         finally { active = false; }
@@ -53,5 +61,5 @@ export function createPointsStore({ tables, chat = () => [], chatId = () => '' }
         if (verified.ok && verified.rows.some(r => r.id === record.id && JSON.stringify(r.payload) === JSON.stringify(record.payload))) return verified;
         return { ok: false, reason: result?.reason || verified.reason || 'points-write-unverified' };
     }
-    return { read, load, commit };
+    return { read, load, commit, layout };
 }

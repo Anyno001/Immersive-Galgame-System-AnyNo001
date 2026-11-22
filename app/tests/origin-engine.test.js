@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { blk, createHarness } from './origin-host.js';
 import { fillSettings } from '../src/scene/origin/origin-state.js';
 import { getSharedOriginEngine, ORIGIN_ENGINE_SYMBOL } from '../src/scene/origin/origin-engine.js';
+import { createOriginRuntime } from '../src/core/origin-runtime.js';
+import { renderOriginBody } from '../src/visual/igs-ui/origin-panel-view.js';
+import { runOriginAction } from '../src/visual/igs-ui/origin-panel-actions.js';
 
 const TASKLINE = '新任务|类型:主线|标题:找猫|描述:d|条件:c|奖励:积分20|惩罚:|时限:|对象:宿主';
 
@@ -91,3 +94,148 @@ test('共享引擎生命周期：最后宿主释放后重新创建，重复释�
     assert.equal(next.sync().attached, true);
 });
 
+const deferredOrigin = () => {
+    let resolve, reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    return { promise, resolve, reject };
+};
+const settleOriginGeneration = async () => {
+    for (let i = 0; i < 5; i += 1) await new Promise(resolve => setImmediate(resolve));
+};
+
+test('Origin慢请求超过60秒仍单飞，失败不自动重发，明确重试才新建请求', async t => {
+    const h = createHarness();
+    t.after(() => h.engine.stop());
+    const replies = [deferredOrigin(), deferredOrigin()];
+    let calls = 0;
+    h.generateImpl = () => replies[calls++].promise;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const first = h.engine.genTask();
+    await settleOriginGeneration();
+    t.mock.timers.tick(60001);
+    assert.equal((await h.engine.genTask()).reason, 'busy');
+    assert.equal(calls, 1);
+    assert.ok(h.notes.some(n => n.text.includes('同一次请求')));
+    replies[0].reject(Error('模型失败'));
+    assert.equal((await first).ok, false);
+    assert.equal(calls, 1);
+    const retry = h.engine.genTask();
+    assert.equal((await h.engine.genTask()).reason, 'busy');
+    await settleOriginGeneration();
+    replies[1].resolve(TASKLINE);
+    assert.equal((await retry).ok, true);
+    assert.equal(calls, 2);
+    assert.equal(h.state().tasks.length, 1);
+});
+
+test('Origin迟到成功和失败在聊天往返、API替换、停止和重载后不保存或通知', async t => {
+    for (const mode of ['chat', 'api', 'stop', 'reload']) {
+        for (const outcome of ['success', 'failure']) await t.test(`${mode}-${outcome}`, async t => {
+            let identity = {};
+            const h = createHarness({}, { generationIdentity: () => identity });
+            t.after(() => h.engine.stop());
+            const reply = deferredOrigin();
+            h.generateImpl = () => reply.promise;
+            const first = h.engine.genTask();
+            await settleOriginGeneration();
+            if (mode === 'chat') {
+                h.ctx.chatId = 'chat-b'; h.emit('chat_changed');
+                h.ctx.chatId = 'chat-a'; h.emit('chat_changed');
+            } else if (mode === 'api') identity = {};
+            else if (mode === 'stop') h.engine.stop();
+            else h.engine.reload();
+            const saved = h.saves, notes = h.notes.length;
+            if (outcome === 'success') reply.resolve(TASKLINE);
+            else reply.reject(Error('迟到失败'));
+            assert.equal((await first).reason, 'request-stale');
+            assert.equal(h.saves, saved);
+            assert.equal(h.notes.length, notes);
+            assert.equal(h.state().tasks.length, 0);
+        });
+    }
+});
+
+test('Origin系统对话失败后冷重建：按持久化提问标识重试，不重复提问或奖励', async t => {
+    const h = createHarness();
+    t.after(() => h.engine.stop());
+    let calls = 0;
+    h.generateImpl = async () => { calls += 1; throw Error('fixture-model-failed'); };
+    assert.equal((await h.engine.sysChat('请给我一个提示')).reason, 'origin-generation-failed');
+    assert.equal(calls, 1);
+    assert.equal(h.state().chat.length, 1);
+    const requestId = h.state().chat[0].requestId;
+    assert.ok(requestId);
+    h.reopen();
+    const settings = fillSettings({ enabled: true });
+    const dom = new (await import('jsdom')).JSDOM(renderOriginBody('chat', h.state(), settings, {}));
+    t.after(() => dom.window.close());
+    const button = dom.window.document.querySelector('[data-oa="chat-retry"]');
+    assert.equal(button?.getAttribute('data-id'), requestId);
+    const reply = deferredOrigin();
+    h.generateImpl = () => { calls += 1; return reply.promise; };
+    const retry = runOriginAction('chat-retry', button, { engine: h.engine, notice() {} });
+    await settleOriginGeneration();
+    assert.equal((await h.engine.retrySysChat(requestId)).reason, 'busy');
+    assert.equal(calls, 2);
+    reply.resolve('沿河寻找。' + blk('积分|+5|提示奖励'));
+    assert.equal((await retry).ok, true);
+    assert.equal(h.state().chat.filter(row => row.who === 'me').length, 1);
+    assert.equal(h.state().chat.find(row => row.who === 'sys').replyTo, requestId);
+    const points = h.state().points;
+    assert.equal((await h.engine.retrySysChat(requestId)).reason, 'origin-chat-retry-unavailable');
+    assert.equal(calls, 2);
+    assert.equal(h.state().points, points);
+    assert.equal(renderOriginBody('chat', h.state(), settings, {}).includes('data-oa="chat-retry"'), false);
+    h.reopen();
+    assert.equal(h.state().chat[0].requestId, requestId);
+    assert.equal(h.state().chat[1].replyTo, requestId);
+    h.generateImpl = async () => { calls += 1; throw Error('fixture-model-failed'); };
+    assert.equal((await h.engine.sysChat('请给我一个提示')).ok, false);
+    const nextId = h.state().chat.at(-1).requestId;
+    assert.notEqual(nextId, requestId, '同样文本的新提问仍是独立操作');
+    h.engine.dispatch({ type: 'chatClear' });
+    assert.equal((await h.engine.retrySysChat(nextId)).reason, 'origin-chat-retry-unavailable');
+    assert.equal(calls, 3);
+});
+
+test('Origin宿主路由与模型预设变化拒收迟到成功和失败，不自动重发', async t => {
+    for (const mode of ['model', 'secret', 'config', 'profile']) {
+        for (const outcome of ['success', 'failure']) await t.test(`${mode}-${outcome}`, async t => {
+            const h = createHarness();
+            h.engine.stop();
+            const reply = deferredOrigin();
+            let calls = 0;
+            const request = () => { calls += 1; return reply.promise; };
+            h.ctx.generateQuietPrompt = request;
+            h.ctx.mainApi = 'openai';
+            h.ctx.chatCompletionSettings = { custom_model: 'first' };
+            h.ctx.getChatCompletionModel = () => h.ctx.chatCompletionSettings.custom_model;
+            h.ctx.eventTypes = { ...h.ctx.eventTypes, SECRET_ROTATED: 'secret_rotated' };
+            let llm = { source: 'openai', endpoint: 'https://fixture.invalid/v1', model: 'first', apiKey: 'fixture-key' };
+            let profiles = [{ id: 'chosen', kind: 'llm', values: { 'bridge.autoIllustration.llm.model': 'profile-first' } }];
+            const settings = { enabled: true, route: mode === 'config' || mode === 'profile' ? 'llm' : 'tavern',
+                llmProfile: mode === 'profile' ? 'chosen' : '' };
+            const runtime = createOriginRuntime({ getContext: () => h.ctx, readSettings: () => settings,
+                readLlm: () => llm, readProfiles: async () => structuredClone(profiles),
+                secondaryLlm: { request }, notice: (kind, text) => h.notes.push({ kind, text }) });
+            t.after(() => runtime.destroy());
+            runtime.sync();
+            const pending = runtime.engine.genTask();
+            await settleOriginGeneration();
+            assert.equal(calls, 1);
+            const before = structuredClone(h.ctx.chatMetadata);
+            if (mode === 'model') h.ctx.chatCompletionSettings.custom_model = 'second';
+            else if (mode === 'secret') h.emit('secret_rotated');
+            else if (mode === 'config') llm = { ...llm, apiKey: 'fixture-key-2' };
+            else profiles[0].values['bridge.autoIllustration.llm.model'] = 'profile-second';
+            const notes = h.notes.length;
+            if (outcome === 'success') reply.resolve(TASKLINE);
+            else reply.reject(Error('fixture-late-failure'));
+            assert.equal((await pending).reason, 'request-stale');
+            assert.deepEqual(h.ctx.chatMetadata, before);
+            assert.equal(runtime.engine.getState().tasks.length, 0);
+            assert.equal(h.notes.length, notes);
+            assert.equal(calls, 1);
+        });
+    }
+});

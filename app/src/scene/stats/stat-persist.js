@@ -3,6 +3,7 @@
 // v2（数值 v2 §3.5）：新增聊天级 catalog（剧情技能、NPC 角色卡、补全队列），每楼保存检定 meta；v1 读入时迁移。
 import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat-ledger.js';
 import { BASE_ATTRIBUTES } from './stat-state.js';
+import { sheetAbilityScores } from './ability-fields.js';
 import * as registry from './stat-registry.js';
 import { sanitizeFameBars } from './stat-fame.js';
 import { sanitizeCycles, sanitizeStatuses } from './stat-status.js';
@@ -74,21 +75,36 @@ function sanitizeSheet(raw) {
     };
 }
 
-// NPC 属性档 → 战斗六维 { scores:{str..cha} }；仅新格式且六维齐全时返回，否则 null（战斗侧继续推导）。
-export function sheetAbilityScores(sheet) {
-    if (!plainObject(sheet) || sheet.scale !== 'score' || !plainObject(sheet.attributes)) return null;
-    const keys = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-    const scores = {};
-    for (let i = 0; i < keys.length; i += 1) {
-        const v = Number(sheet.attributes[BASE_ATTRIBUTES[i]]);
-        if (!Number.isFinite(v) || v < 1) return null;
-        scores[keys[i]] = v;
+export { sheetAbilityScores };
+
+// 只投影本聊天日志中最后生效的角色卡；删除与不完整卡都必须撤掉先前的底数。
+export function sheetBasesOf(records) {
+    const bases = new Map();
+    for (const row of records) {
+        const p = row?.payload;
+        if (row?.type !== 'sheet' || typeof p?.key !== 'string' || !p.key.startsWith('sheet:')) continue;
+        const name = p.key.slice(6);
+        const view = !p.removed && sheetAbilityScores(sanitizeSheet(p.value));
+        if (view) bases.set(name, view.scores);
+        else bases.delete(name);
     }
-    return { scores };
+    return bases;
+}
+
+// 角色卡删除或重生成时点名取代的手改底数：{ 名 → 属性记录ID }。只撤这一条，之后确认的手改照常生效。
+export function sheetDropsOf(records) {
+    const drops = new Map();
+    for (const row of records) {
+        const p = row?.payload;
+        if (row?.type !== 'sheet' || typeof p?.key !== 'string' || !p.key.startsWith('drop:')) continue;
+        if (!p.removed && typeof p.value === 'string' && p.value) drops.set(p.key.slice(5), p.value);
+        else drops.delete(p.key.slice(5));
+    }
+    return drops;
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, expenses: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, expenses: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -111,6 +127,9 @@ export function sanitizeCatalog(raw) {
     for (const [name, sheet] of Object.entries(plainObject(raw.sheets) ? raw.sheets : {}).slice(0, SHEET_MAX)) {
         const clean = sanitizeSheet(sheet);
         if (clean && name && name.length <= 20) out.sheets[name] = clean;
+    }
+    for (const [name, id] of Object.entries(plainObject(raw.sheetDrops) ? raw.sheetDrops : {}).slice(0, SHEET_MAX * 2)) {
+        if (name && name.length <= 20 && typeof id === 'string' && id && id.length <= 200) out.sheetDrops[name] = id;
     }
     for (const [k, v] of Object.entries(plainObject(raw.protagonistBase) ? raw.protagonistBase : {})) { const name = validSkillName(k); const n = num(v, 1, 99); if (name && n) putSkill(out.protagonistBase, name, n); }
     // 玩家手改覆盖层：{ 技能: { value, from } }，规则见 stat-engine.js 的 heroSkillLevel。

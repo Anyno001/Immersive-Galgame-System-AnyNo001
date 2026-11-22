@@ -79,8 +79,14 @@ const REASON_TEXT = Object.freeze({
     'combat-record-corrupt': '聊天记录里的战斗留档已损坏',
     'combat-record-save-failed': '战斗留档未能写入聊天记录',
     'combat-record-unverified': '战斗留档写入后未能读回确认',
-    'combat-record-stale': '开战楼已改动，留档未写入',
+    'combat-record-stale': '开战楼已变更，留档未确认',
     'combat-reward-not-retryable': '当前不能重试奖励',
+    'combat-offer-save-pending': '奖励保存未确认',
+    'combat-offer-save-conflict': '奖励留档冲突，未覆盖已有记录',
+    'combat-offer-intent-invalid': '奖励恢复记录无效',
+    'combat-offer-intent-unavailable': '奖励恢复存储不可用',
+    'combat-offer-intent-read-failed': '无法读取奖励恢复记录',
+    'combat-offer-intent-write-failed': '无法保存奖励恢复记录',
     'combat-record-unsupported': '当前宿主不支持写入聊天记录',
     'combat-card-unplayable': '能量不足或当前不能出这张牌',
     'combat-hero-skill-unusable': '人物技能本回合已用过或能量不足',
@@ -355,12 +361,14 @@ const LOBBY_FOE_ROWS_AT = 4;
 // 开战生命（持续伤势已计入）紧跟 Lv；没有生命数据时不画。
 const plateMeta = (a) => `<small>Lv${esc(a.level)}</small>${a.maxHp ? `<small data-hp="">生命 ${esc(a.hp)}/${esc(a.maxHp)}</small>` : ''}${a.className ? `<small>${esc(a.className)}</small>` : ''}`;
 const plateRow = (a) => `<span class="igs-combat-plate-row"><b>${esc(a.name)}</b>${plateMeta(a)}</span>`;
-// 胜利奖励：生成成功不显示；失败（生成失败、写库失败、重开未生成）只显示「奖励生成失败」与「重试」，不阻断开战；重试进行中显示「奖励生成中」。
 function lobbyRewardHtml(r, pending) {
     if (!r || r.status === 'ready') return '';
     const waiting = r.status === 'pending';
+    const label = r.stage === 'save' ? (waiting ? '正在确认奖励保存' : combatReasonText(r.reason))
+        : r.stage === 'read' ? (waiting ? '正在读取奖励' : '奖励读取失败')
+            : waiting ? '奖励生成中' : '奖励生成失败';
     const retry = waiting ? '' : btn('retry-reward', '重试', { disabled: Boolean(pending) });
-    return `<div class="igs-combat-row igs-combat-lobby-reward" data-state="${waiting ? 'pending' : 'failed'}"><span class="igs-combat-label">${waiting ? '奖励生成中' : '奖励生成失败'}</span>${retry}</div>`;
+    return `<div class="igs-combat-row igs-combat-lobby-reward" data-state="${waiting ? 'pending' : 'failed'}"><span class="igs-combat-label">${esc(label)}</span>${retry}</div>`;
 }
 const INTIMATE_MECHANICS_ROW = Object.freeze(['合拍', '主导']);
 const INTIMATE_POSITIONS_ROW = Object.freeze([['receive', '受方'], ['lead', '攻方']]);

@@ -797,7 +797,13 @@ function rejection(entity, errors) {
 // 生成实体：向后台模型发请求，逐实体装配校验；被拒收的实体带错误信息再问，最多修正 maxRounds 轮。
 // request(请求体, llm配置) 由调用方注入。依赖职业的牌组请求会被推迟到职业落定后再校验。
 // 最后一轮仍被拒收的实体记入 rejected 并附兜底方案；中止信号触发时返回 request-stale。
-export async function generateEntities(entities, { request, llm = {}, signal, context = {}, classes = [], now = 0, maxRounds = MAX_FIX_ROUNDS } = {}) {
+export async function generateEntities(entities, { request, llm = {}, signal, shouldStart, context = {}, classes = [], now = 0, maxRounds = MAX_FIX_ROUNDS } = {}) {
+    let active = true;
+    const alive = () => {
+        try { active = active && !signal?.aborted && (!shouldStart || shouldStart() === true); }
+        catch { active = false; }
+        return active;
+    };
     const resolved = resolveCombatLlm(llm);
     if (!resolved.ok) return { ok: false, reason: resolved.reason, missing: resolved.missing, accepted: [], rejected: [], diagnostics: [] };
     if (typeof request !== 'function') return { ok: false, reason: 'combat-llm-unavailable', accepted: [], rejected: [], diagnostics: [] };
@@ -825,13 +831,13 @@ export async function generateEntities(entities, { request, llm = {}, signal, co
     for (let round = 0; round <= maxRounds && (pending.length || deferred.size); round += 1) {
         const failed = [];
         if (pending.length) {
-            if (signal?.aborted) return staleResult(state.accepted);
+            if (!alive()) return staleResult(state.accepted);
             let reply;
             try {
                 requestCount += 1;
-                reply = await request(buildGenerationRequest(pending, { context, classes: state.classes }), { ...resolved.llm, ...(signal ? { signal } : {}) });
+                reply = await request(buildGenerationRequest(pending, { context, classes: state.classes }), { ...resolved.llm, ...(signal ? { signal } : {}), shouldStart: alive });
             } catch (error) {
-                if (signal?.aborted || error?.reason === 'request-stale') return staleResult(state.accepted);
+                if (!alive() || error?.reason === 'request-stale') return staleResult(state.accepted);
                 const detail = String(error?.message || error).slice(0, 160);
                 requestFailure = { reason: typeof error?.reason === 'string' ? error.reason : 'request-failed', ...(Number.isInteger(error?.status) ? { status: error.status } : {}) };
                 for (const item of [...pending, ...deferred.values()]) rejected.push(rejection(item.entity, [errorItem('', 'combat-llm-request-failed', { detail })]));
@@ -839,7 +845,7 @@ export async function generateEntities(entities, { request, llm = {}, signal, co
                 deferred.clear();
                 break;
             }
-            if (signal?.aborted) return staleResult(state.accepted);
+            if (!alive()) return staleResult(state.accepted);
             const parsed = parseReply(reply, new Set(pending.map((item) => item.entity.key)), diagnostics);
             for (const item of pending) {
                 const { entity } = item;
@@ -896,6 +902,7 @@ export async function generateEntities(entities, { request, llm = {}, signal, co
         }
     }
     // 循环结束仍未等到职业的牌组请求
+    if (!alive()) return staleResult(state.accepted);
     for (const item of deferred.values()) rejected.push(rejection(item.entity, [errorItem('classRef', 'class-unknown')]));
     const accepted = ordered
         .filter((entity) => state.accepted.has(entity.key))

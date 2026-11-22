@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createCombatSession, sessionKeyFor } from '../src/combat/session.js';
 import { CARD_UPGRADE_RULES } from '../src/combat/card-upgrade.js';
 import { replayBattle } from '../src/combat/engine.js';
+import { createCombatServices } from '../src/core/combat-services.js';
 import { parseChallengeReport } from '../src/combat/challenge-report.js';
 import { CHALLENGE_REWARD_TAG_HASH } from '../src/combat/ledger.js';
 import { normalizeCombatExpansionSettings, planCombatPreset } from '../src/visual/igs-ui/combat-settings.js';
@@ -35,6 +36,42 @@ function makeSession({ kinds = { combat: false, challenge: true }, appended = []
     });
     return { session, chat, sent, requests };
 }
+
+test('无数据库 API 时日常选敌仍可运行，切换模型后不发布旧备战结果', async t => {
+    const chat = [{ is_user: false, mes: TAG, swipe_id: 0 }];
+    const entered = Promise.withResolvers(), release = Promise.withResolvers();
+    const models = [];
+    let model = 'fixture-before';
+    const services = createCombatServices({
+        global: { SillyTavern: { getContext: () => ({ chat }) } },
+        getChatId: () => 'daily-no-database', getUserName: () => '我', storage: memoryStorage(),
+        getReaderSettings: () => ({ combatExpansion: { enabled: true, kind: 'daily' } }),
+        getAutoIllustration: () => ({ llm: { source: 'custom', endpoint: 'https://example.invalid/v1', apiKey: 'fixture', model } }),
+       getChallengeSnapshot: () => ({ bars: { stamina: 100, stress: 0 }, skills: { 话术: { value: 60 } } }),
+        retryDelays: [], generationMaxRounds: 0,
+        request: async (prompt, llm) => {
+            const [entity] = JSON.parse(prompt.user).entities;
+            models.push(llm.model);
+            if (models.length === 1) { entered.resolve(); await release.promise; }
+            return JSON.stringify({ entities: [{ key: entity.key, value: { foe: entity.input.foes[0].key, name: '面试官' } }] });
+        },
+    });
+    t.after(() => { release.resolve(); services.dispose(); });
+    const session = services.getSession();
+    const statuses = [];
+    t.after(session.subscribe(state => statuses.push(state.status)));
+    const first = services.autoPrepare(0);
+    await Promise.race([entered.promise, first.then(r => assert.fail(`选敌未发起：${r.reason}`))]);
+    model = 'fixture-after';
+    release.resolve();
+    assert.equal((await first).reason, 'request-stale');
+    assert.equal(session.state().status, 'blocked');
+    assert.deepEqual(statuses, []);
+    assert.equal((await session.prepare(0)).ok, true);
+    assert.equal(session.state().status, 'lobby');
+    assert.deepEqual(statuses, ['lobby']);
+    assert.deepEqual(models, ['fixture-before', 'fixture-after']);
+});
 
 test('托管打完一局后发出挑战战报，不写伤势与战利品，战报楼被识别为已完成', async () => {
     const appended = [];

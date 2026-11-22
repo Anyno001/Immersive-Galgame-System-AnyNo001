@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createCombatServices } from '../../src/core/combat-services.js';
 import { createCombatTables } from '../../src/data/shujuku/combat-tables.js';
 import { deckProfileEntities, generateEntities, generationWrites } from '../../src/combat/generation.js';
+import { profileIdFor } from '../../src/combat/schema.js';
 import { createCombatGenerationMaterials } from '../../src/host/combat-generation-materials.js';
 import { createLedgerMockHost, userInventorySheet } from './combat-mock-host-ledger.js';
 import { createMemoryStorage } from '../../src/storage/preset-store.js';
@@ -24,7 +25,7 @@ export function modelReply(prompt) {
     }) });
 }
 
-export async function createGenerationFixture({ seedHero = true, chatId: initialChatId = 'fixture-chat', metadata = {}, serviceOptions = {} } = {}) {
+export async function createGenerationFixture({ seedHero = true, seedAttributes = seedHero, chatId: initialChatId = 'fixture-chat', metadata = {}, serviceOptions = {} } = {}) {
     const db = createLedgerMockHost({ supportCallbacks: true });
     db.sheets.sheet_userbag = userInventorySheet();
     db.sheets.sheet_skills = { uid: 'sheet_skills', name: '人物技能表', content: [['所属角色', '技能', '状态'], ['艾拉', '雷步', '已掌握']] };
@@ -33,6 +34,12 @@ export async function createGenerationFixture({ seedHero = true, chatId: initial
     const generated = await generateEntities(deckProfileEntities({ name: '艾拉', role: 'protagonist' }), { request: async (p) => modelReply(p), llm: { source: 'tavern' } });
     assert.equal(generated.ok, true, JSON.stringify(generated.rejected));
     if (seedHero) assert.equal((await tables.append('profile', generationWrites(generated, { createdAt: 1 }).profiles)).ok, true);
+    if (seedAttributes) {
+        assert.equal((await tables.append('attribute', {
+            id: 'fixture-hero-base', type: 'hero-base', character: profileIdFor('deck-character', '艾拉'), anchor: null, createdAt: 1,
+            change: '初始化', payload: { scores: { str: 14, dex: 12, con: 13, int: 10, wis: 11, cha: 12 } },
+        })).ok, true);
+    }
     const chat = [{ is_user: true, mes: '出发' }, ...Array.from({ length: 30 }, () => ({ is_user: false, mes: '修炼完成。\n[igs-combat:exp|艾拉|50|修炼]', swipe_id: 0 }))];
     const variables = { stat_data: { 主角: { 技能: { 雷刃: { 状态: '已掌握', 等级: 3 } } } } };
     let chatId = initialChatId;

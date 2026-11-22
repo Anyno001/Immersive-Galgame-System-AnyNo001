@@ -38,11 +38,11 @@ export const STAT_EXTRA_PROMPT_LABELS = Object.freeze({
     breakthroughPlatonic: '突破提示（非恋爱）',
     intimacy: '在场角色·未到亲密阶段时追加（NSFW）',
     intimacyForced: '在场角色·已豁免亲密门槛时追加（NSFW）',
-    sheetGen: '角色卡生成（后台请求）',
+    heroInit: '主角初始化（六维与货币，后台请求）',
+    sheetGen: 'NPC角色卡生成（后台请求）',
     backfill: '新技能补全（后台请求）',
     heroSkills: '主角技能分配（后台请求）',
     startRelations: '起始关系补填（后台请求）',
-    currency: '剧情货币判定（后台请求）',
 });
 
 // 失效提示词的显示名：只有被新版本弃用的几项（STAT_STALE_PROMPT_KEYS）会进入 stalePrompts。
@@ -406,10 +406,32 @@ function renderSheetPart(s) {
         + (skills ? `<div class="igs-stats-hero-grid is-skills">${skills}</div>` : '') + '</div>';
 }
 
-function sheetOps(name, hasSheet) {
+function sheetOps(name, hasSheet, choice = null) {
     const id = esc(encodeURIComponent(name));
-    const ops = hasSheet ? [['edit', '编辑角色卡'], ['regen', '重新生成'], ['remove', '删除角色卡']] : [['new', '生成角色卡']];
-    return ops.map(([op, label]) => `<button class="igs-settings-action" data-action="stats-op:sheet-${op}:${id}" type="button">${label}</button>`).join('');
+    if (hasSheet) {
+        return [['edit', '编辑角色卡'], ['regen', '重新生成'], ['remove', '删除角色卡']]
+            .map(([op, label]) => `<button class="igs-settings-action" data-action="stats-op:sheet-${op}:${id}" type="button">${label}</button>`).join('');
+    }
+    return `<button class="igs-settings-action" data-action="stats-op:npc-choice:${id}|generate" type="button">生成角色卡</button>`
+        + (choice === 'defer' ? '' : `<button class="igs-settings-action" data-action="stats-op:npc-choice:${id}|defer" type="button">暂不建档</button>`);
+}
+
+function renderNpcPolicyBar(model) {
+    const policy = model && model.npcPolicy || '';
+    const note = policy === 'auto' ? '新角色出场时自动生成角色卡；切换策略不覆盖已有角色卡。'
+        : policy === 'per-npc' ? '新角色首次出场时逐个询问；暂不建档的角色按相对数值派生。'
+        : '尚未选择本聊天 NPC 建档策略。';
+    return `<div class="igs-settings-section" data-stats-npc-policy>`
+        + field('', 'NPC 建档策略', segmentedInput('', policy, [['auto', '自动生成'], ['per-npc', '逐个询问']], 'NPC 建档策略', { action: 'stats-op:npc-policy' }), note)
+        + '</div>';
+}
+
+function renderRelativePart(rel, choice) {
+    const status = choice === 'defer' ? '暂不建档 · 相对值' : '未建档 · 相对值';
+    const cells = rel && rel.scores ? ABILITY_KEYS.map((k) => statCell(ABILITY_LABELS[k], String(rel.scores[k]))).join('') : '';
+    return `<div class="igs-stats-sec" data-stats-npc-relative="true">${sectionHead('数值状态', `<em class="is-inline">${esc(status)}</em>`)}`
+        + (cells ? `<div class="igs-stats-hero-grid is-attrs">${cells}</div>` : '<div class="igs-source-filter-note">未正式建档，检定与战斗自动采用相对值。</div>')
+        + '</div>';
 }
 
 // 改名与曾用名：曾用名仍被认作此人，点按钮后不再认。
@@ -451,25 +473,27 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
         const id = esc(encodeURIComponent(c.name));
         const sheet = sheetOf.get(c.name);
         sheetOf.delete(c.name);
+        const choice = (model.npcChoices || {})[c.name] || null;
+        const rel = !sheet ? (model.npcRelative || {})[c.name] || null : null;
         const key = `stats-person-${c.name}`;
-        // 面板在前（人际数值、角色卡六维与技能），所有编辑集中在末尾一个「编辑」折叠里；没有角色卡时可补生成。
+        // 面板在前（人际数值、角色卡六维与技能），所有编辑集中在末尾一个「编辑」折叠里；没有角色卡时显示相对值并可补生成或暂不建档。
         const editKey = `stats-edit-${c.name}`;
         const mine = heroDims[c.name] || {};
         const mineVals = ['好感', '信任', '了解', '芥蒂', ...(Object.hasOwn(mine, '欲望') ? ['欲望'] : [])].map((k) => n(mine[k])).join(',');
-        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${heroOn ? `<span>主角：${esc(stageOf(mine.好感).name)}</span>` : ''}${renderNameStatus(c.name, model) || renderPersonChips(c.name, c.stage, model)}</summary>`
+        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${!sheet ? `<span>${esc(choice === 'defer' ? '暂不建档·相对值' : '未建档·相对值')}</span>` : ''}${heroOn ? `<span>主角：${esc(stageOf(mine.好感).name)}</span>` : ''}${renderNameStatus(c.name, model) || renderPersonChips(c.name, c.stage, model)}</summary>`
             + (heroOn && (model.confessed || {})[c.name] ? '<div class="igs-source-filter-note">TA已表白，主角未回应</div>' : '')
             + (heroOn ? '<div class="igs-source-filter-note">TA对主角</div>' : '')
             + `<div class="igs-stats-hero-grid">${cells}</div>`
             + (heroOn ? `<div class="igs-source-filter-note">主角对TA</div><div class="igs-stats-hero-grid">${Object.entries(heroDims[c.name] || {}).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => statCell(k, k === '芥蒂' ? grudgeTier(v) : n(v))).join('')}</div>` : '')
             + renderTraitView(c.name, model)
             + personFameView(c.name, model)
-            + (sheet ? renderSheetPart(sheet) : '')
+            + (sheet ? renderSheetPart(sheet) : renderRelativePart(rel, choice))
             + editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(c.name, model, noteDrafts, `<div class="igs-stats-hero-actions">`
                 + `<button class="igs-settings-action" data-action="stats-op:relation-set:${id}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改数值</button>`
                 + (heroOn ? `<button class="igs-settings-action" data-action="stats-op:hero-dims:${id}|${mineVals}" type="button">修改主角态度</button><button class="igs-settings-action" data-action="stats-op:hero-estimate:${id}|${mineVals}" type="button">按剧情估算</button>` : '')
                 + (c.money != null ? `<button class="igs-settings-action" data-action="stats-op:money-set:${id}|${n(c.money)}" type="button">修改金钱</button>` : '')
                 + `<button class="igs-settings-action" data-action="stats-op:address-set:${id}|${encodeURIComponent((c.address && c.address.private) || '')}|${encodeURIComponent((c.address && c.address.public) || '')}" type="button">称呼：${esc((c.address && c.address.private) || '未记录')}${c.address && c.address.public ? `（人前：${esc(c.address.public)}）` : ''}</button>`
-                + sheetOps(c.name, Boolean(sheet)) + renameOps(c.name, model) + '</div>', advancedOpen) : '')
+                + sheetOps(c.name, Boolean(sheet), choice) + renameOps(c.name, model) + '</div>', advancedOpen) : '')
             + '</details>';
     });
     const sheetOnly = [...sheetOf.values()].map((s) => {
@@ -481,7 +505,7 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
     const list = [...people, ...sheetOnly].join('') || '<div class="igs-source-filter-note">还没有登记的角色。</div>';
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成角色卡：${model.pendingPeople.map(esc).join('、')}</div>` : '';
     // 全员类操作（导入、补填关系、生成数值、补全技能与特质）在「设置 › 登记与补全」。
-    return list + pending;
+    return renderNpcPolicyBar(model) + list + pending;
 }
 
 // 「我的角色」下方：检定记录（折叠）。
@@ -619,13 +643,13 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         get statsMappingFields() { return renderStatsMappingFields(stats.push.enabled ? mappings : null, advancedOpen, { pushEnabled: stats.push.enabled }); },
         get statsPromptFields() { return renderStatsPromptFields(stats, advancedOpen); },
         get statsArchiveFields() { return renderStatsArchive(archive, advancedOpen, { logByRole: advancedOpen('stats-log-by-role') !== '' }); },
-        newChatField: field('bridge.stats.newChat', '新聊天', segmentedInput('bridge.stats.newChat', stats.newChat, [['ask', '询问'], ['auto', '自动开始'], ['off', '不启用']], '新聊天')),
+        newChatField: '',
         hudLabelField: field('bridge.stats.hudLabel', '好感条右侧显示', segmentedInput('bridge.stats.hudLabel', stats.hudLabel, [['stage', '阶段名'], ['number', '数字'], ['both', '两者']], '好感条右侧显示')),
         registerField: field('bridge.stats.register', '重要角色登记', segmentedInput('bridge.stats.register', stats.register, [['auto', '自动'], ['manual', '仅手动']], '重要角色登记')),
         backfillField: field('bridge.stats.backfill', '新技能补全方式', segmentedInput('bridge.stats.backfill', stats.backfill, [['auto', '每楼自动'], ['manual', '手动'], ['off', '关闭']], '新技能补全方式')),
         autoSkillField: checkbox('bridge.stats.autoSkill', stats.autoSkill, '按玩家输入匹配检定技能'),
-        statsBuildAdvancedHidden: hiddenAttr(!chatReady || started),
-        statsBuildModeField: chatReady && !started ? renderStatsBuildModeField(mode) : '',
-        statsBuildFields: manual ? '' : build(advancedOpen),
+        statsBuildAdvancedHidden: hiddenAttr(true),
+        statsBuildModeField: '',
+        statsBuildFields: '',
     };
 }

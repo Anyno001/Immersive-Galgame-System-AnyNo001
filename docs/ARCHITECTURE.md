@@ -85,3 +85,9 @@ flowchart LR
 ```
 
 业务负责选图与生成，媒体层负责像素和生命周期，storage 负责配置引用。元数据缓存可以属于业务层；原图缓存不得属于业务层。持久记录/WAL/删除任务与可再生像素缓存使用不同数据库，清缓存不会删除用户资产。详细清单见 `MEDIA_REFACTOR.md`。
+
+## 当前聊天权威存储与系统解耦（IGS v2 布局）
+
+- `data/shujuku/igs-chat-store.js` 按 `chatId + API identity + generation` 统一管理当前聊天的新旧布局（已有 IGS 存档走 `legacy`，有效空档走 `v2`）、共用表缓存、FIFO 写口与同页面积分锁 `withPointsLock`。
+- v2 按需分表：`IGS·存储`（布局标记）、`IGS数值·属性`（永久六维）、`IGS随身·日志`（Origin）、`IGS共享·积分`（战斗/Origin/小游戏/兑换统一积分）；剧情货币继续归物品表固定行，与共享积分隔离。
+- 数值系统通过 `heroInit/v1` 一次请求补齐主角六维与货币并支持分阶段恢复；跨聊天 NPC 缓存停止运行读写（不删除存量文件）；战斗预生成与备战改为内容先行、六维后接入；Origin 单开可独立恢复与保存；`bootstrapIGS` 保持同步返回并接入一次性约 3 秒可取消启动缓冲，正文事件经 `host/illustration-message-host.js` 结合最终正文更新/渲染去重触发。

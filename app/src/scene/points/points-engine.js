@@ -12,14 +12,18 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
         return { id, db, valid: () => chatId() === id && store() === db && chat() === path };
     }
     let waiting = 0, working = 0, phase = '';
-    function run(task) {
+    function run(task, { locked = false } = {}) {
         const held = lease();
-        waiting += 1;
-        return lock(async () => {
-            waiting -= 1;
+        const exec = async () => {
             working += 1;
             try { return held.valid() ? await task(held) : fail('request-stale'); }
             finally { working -= 1; phase = ''; }
+        };
+        if (locked) return Promise.resolve().then(exec);
+        waiting += 1;
+        return lock(async () => {
+            waiting -= 1;
+            return exec();
         });
     }
     const stage = () => (working ? phase || 'points-writing' : waiting ? 'points-lock-busy' : '');
@@ -37,8 +41,11 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
         const present = before.rows.some(row => row.id === record.id);
         const active = activePointsAnchor(record.payload.anchor, chat());
         const exchange = ['exchange', 'exchange-done'].includes(record.payload.kind);
-        const finishing = record.payload.kind === 'exchange-done'
-            && before.exchanges.get(record.payload.sourceId)?.record.id === record.payload.parent;
+        const operation = ['debit', 'debit-done'].includes(record.payload.kind);
+        const finishing = (record.payload.kind === 'exchange-done'
+            && before.exchanges.get(record.payload.sourceId)?.record.id === record.payload.parent)
+            || (record.payload.kind === 'debit-done'
+                && before.operations?.get(record.payload.sourceId)?.record.id === record.payload.parent);
         if (!active && !recovering && !finishing) return fail('request-stale');
         if (!active && !present && !before.incomplete && !finishing) {
             const cleared = intents.save(held.id, null);
@@ -53,7 +60,7 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
         if (!written?.ok || !held.valid() || !shouldStart()) return written?.ok ? fail('request-stale') : written;
         const cleared = intents.save(held.id, null);
         if (!cleared.ok) return cleared;
-        return exchange || activePointsAnchor(record.payload.anchor, chat()) ? written : { ...written, skipped: true };
+        return exchange || operation || activePointsAnchor(record.payload.anchor, chat()) ? written : { ...written, skipped: true };
     }
     async function fresh(held) {
         const heldIntent = pending(held);
@@ -69,6 +76,7 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
     }
     function blocked(state) {
         return [...state.exchanges.values()].some(e => e.chatId === chatId() && !e.done)
+            || [...(state.operations?.values() || [])].some(op => op.chatId === chatId() && !op.done)
             || [...state.rounds.values()].some(r => r.active && r.game === 'mahjong' && !r.settled
             && (r.closing || (r.hands.length && !r.checked)));
     }
@@ -188,6 +196,132 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
             return round.settled ? { ...view(state, roundId), present: true } : close(held, state, round, 'manual');
         });
     }
+    async function resolveFloorAnchor(held, { messageId, anchor, shouldStart = () => true } = {}) {
+        const path = chat();
+        if (anchor && typeof anchor.floorId === 'string' && anchor.floorId && Number.isSafeInteger(anchor.swipeId) && anchor.swipeId >= 0) {
+            return activePointsAnchor(anchor, path) ? { ok: true, anchor } : fail('request-stale');
+        }
+        const source = messageId === undefined ? pointFloors(path).at(-1) : pointFloors(path).find(f => f.messageId === messageId);
+        const message = source && path[source.messageId];
+        if (!message || !path.includes(message) || pointsSwipe(message) !== source.swipeId) return fail('points-floor-missing');
+        if (source.floorId) return { ok: true, anchor: { floorId: source.floorId, swipeId: source.swipeId } };
+        if (typeof floors?.ensure !== 'function') return fail('points-floor-unsupported');
+        phase = 'points-floor-saving';
+        const bound = await floors.ensure(path.indexOf(message));
+        phase = '';
+        if (!bound?.ok || !held.valid() || !shouldStart()) return bound?.ok ? fail('request-stale') : (bound || fail('points-floor-save-failed'));
+        if (bound.anchor.swipeId !== source.swipeId || !activePointsAnchor(bound.anchor, path)) return fail('request-stale');
+        return { ok: true, anchor: bound.anchor };
+    }
+
+    function ensure() {
+        return run(async held => fresh(held));
+    }
+
+    function credit({ sourceId, domain, amount, messageId, anchor, meta = null, shouldStart = () => true, locked = false } = {}) {
+        if (typeof sourceId !== 'string' || !sourceId || !['combat', 'origin'].includes(domain)
+            || !Number.isSafeInteger(amount) || amount < 0) {
+            return Promise.resolve(fail('points-credit-invalid'));
+        }
+        return run(async held => {
+            if (!shouldStart()) return fail('request-stale');
+            const state = await fresh(held);
+            if (!state.ok) return state;
+            const existing = state.credits?.get(sourceId);
+            if (existing) {
+                return existing.domain === domain && existing.amount === amount && existing.chatId === held.id
+                    && (!anchor || same(existing.anchor, anchor))
+                    ? { ok: true, present: true, sourceId, amount: existing.amount, balance: state.balance }
+                    : fail('points-log-conflict');
+            }
+            const resolved = await resolveFloorAnchor(held, { messageId, anchor, shouldStart });
+            if (!resolved.ok) return resolved;
+            const record = pointsRecord({
+                sourceId, chatId: held.id, anchor: resolved.anchor, parent: null,
+                kind: 'credit', domain, amount, ...(meta ? { meta } : {}),
+            });
+            const written = await commit(held, record, { shouldStart });
+            return written.ok ? { ok: true, sourceId, amount, balance: written.balance, record } : written;
+        }, { locked });
+    }
+
+    async function finishOperation(held, op, { apply, shouldStart = () => true } = {}) {
+        if (op.done) return { ok: true, present: true, sourceId: op.id, cost: op.cost, done: true };
+        if (!held.valid() || !shouldStart()) return fail('request-stale');
+        if (typeof apply !== 'function') return fail('points-operation-apply-missing');
+        let applied;
+        try { applied = await apply(op); }
+        catch { applied = fail('points-operation-apply-failed'); }
+        if (!held.valid() || !shouldStart()) return fail('request-stale');
+        if (applied?.ok === false) return { ...applied, ok: false, stage: 'apply', sourceId: op.id, pendingOperation: op };
+        const doneRecord = pointsRecord({
+            sourceId: op.id, chatId: held.id, anchor: op.anchor,
+            parent: op.record.id, kind: 'debit-done', amount: 0,
+        });
+        const done = await commit(held, doneRecord, { recovering: true, shouldStart });
+        if (!done.ok) return { ...done, stage: 'receipt', sourceId: op.id, applied };
+        return { ok: true, sourceId: op.id, cost: op.cost, balance: done.balance, done: true, applied };
+    }
+
+    function spend({ sourceId, domain, cost, action, messageId, anchor, meta = null, apply, shouldStart = () => true, locked = false } = {}) {
+        if (typeof sourceId !== 'string' || !sourceId || !['combat', 'origin'].includes(domain)
+            || !Number.isSafeInteger(cost) || cost <= 0 || typeof action !== 'string' || !action
+            || typeof apply !== 'function') {
+            return Promise.resolve(fail('points-debit-invalid'));
+        }
+        return run(async held => {
+            if (!shouldStart()) return fail('request-stale');
+            const state = await fresh(held);
+            if (!state.ok) return state;
+            const existing = state.operations?.get(sourceId);
+            if (existing) {
+                if (existing.domain !== domain || existing.cost !== cost || existing.action !== action
+                    || existing.chatId !== held.id || (anchor && !same(existing.anchor, anchor))) {
+                    return fail('points-log-conflict');
+                }
+                return finishOperation(held, existing, { apply, shouldStart });
+            }
+            if (blocked(state)) return fail('points-settlement-pending');
+            const balance = await wallet();
+            if (!held.valid() || !shouldStart()) return fail('request-stale');
+            if (!balance?.ok) return balance || fail('points-wallet-unavailable');
+            if (balance.balance < cost) return fail('points-insufficient');
+            const resolved = await resolveFloorAnchor(held, { messageId, anchor, shouldStart });
+            if (!resolved.ok) return resolved;
+            const record = pointsRecord({
+                sourceId, chatId: held.id, anchor: resolved.anchor, parent: null,
+                kind: 'debit', domain, amount: -cost, balanceBefore: balance.balance,
+                action, ...(meta ? { meta } : {}),
+            });
+            const written = await commit(held, record, { shouldStart });
+            if (!written.ok) return { ...written, stage: 'debit', sourceId };
+            const op = written.operations.get(sourceId);
+            return finishOperation(held, op, { apply, shouldStart });
+        }, { locked });
+    }
+
+    function recoverOperation(sourceId, { apply, shouldStart = () => true, locked = false } = {}) {
+        if (typeof sourceId !== 'string' || !sourceId || typeof apply !== 'function') {
+            return Promise.resolve(fail('points-debit-invalid'));
+        }
+        return run(async held => {
+            if (!shouldStart()) return fail('request-stale');
+            const saved = pending(held);
+            if (!saved.ok) return saved;
+            let state;
+            if (saved.record && ['debit', 'debit-done'].includes(saved.record.payload.kind) && saved.record.payload.sourceId === sourceId) {
+                state = await commit(held, saved.record, { recovering: true, shouldStart });
+                if (!state.ok) return state;
+            } else {
+                state = await fresh(held);
+                if (!state.ok) return state;
+            }
+            const op = state.operations?.get(sourceId);
+            if (!op) return { ok: true, missing: true };
+            return finishOperation(held, op, { apply, shouldStart });
+        }, { locked });
+    }
+
     function retry() {
         return run(async held => {
             const saved = pending(held);
@@ -205,6 +339,9 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
             const unchecked = [...state.rounds.values()].find(r => r.active && r.game === 'mahjong' && !r.settled
                 && (r.closing || (r.hands.length && !r.checked)));
             if (unchecked) return checkHand(held, state, unchecked);
+            if (saved.record && ['credit', 'debit', 'debit-done'].includes(saved.record.payload.kind)) {
+                return { ok: true, sourceId: saved.record.payload.sourceId, balance: state.balance };
+            }
             return saved.record ? view(state, saved.record.payload.sourceId) : { ok: true, unchanged: true };
         });
     }
@@ -213,9 +350,13 @@ export function createPointsEngine({ store, floors, chat, chatId, lock, wallet, 
         if (!saved.ok) return saved;
         if (saved.record) return fail('points-intent-pending');
         const state = held.db.read();
-        return !state.ok ? state : blocked(state) ? fail('points-settlement-pending') : { ok: true };
+        if (!state.ok) {
+            if (state.reason === 'points-table-missing') return { ok: true };
+            return state;
+        }
+        return blocked(state) ? fail('points-settlement-pending') : { ok: true };
     }
     const exchange = createPointsExchange({ run, fresh, commit, blocked, wallet, chat, floors, pending });
-    return { start, award, hand, settle, retry, spendingGate, stage, ...exchange,
+    return { start, award, hand, settle, retry, spendingGate, stage, ensure, credit, spend, recoverOperation, ...exchange,
         read: () => store().read(), pending: () => intents.read(chatId()) };
 }

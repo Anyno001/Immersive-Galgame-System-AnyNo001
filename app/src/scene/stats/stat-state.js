@@ -4,7 +4,8 @@
 // 不从 stat-traits.js 导入：stat-traits → 特质规则 → stat-favor → stat-state 成环，打包后 stat-favor 会先于本模块求值，clamp/DIM_* 未定义。
 const traitOn = (entry) => entry === true || Boolean(entry && entry.on === true);
 export const STATS_VERSION = 2;
-export const BASE_ATTRIBUTES = Object.freeze(['力量', '敏捷', '体质', '智力', '感知', '魅力']);
+import { BASE_ATTRIBUTES } from './ability-fields.js';
+export { BASE_ATTRIBUTES };
 export const DEFAULT_SPECIAL_SKILLS = Object.freeze(['烹饪', '家务', '学习', '运动', '艺术', '话术', '照顾', '应变']);
 export const DEFAULT_DIMS = Object.freeze(['好感', '信任', '了解', '芥蒂']);
 export const SKILL_MIN = 10;

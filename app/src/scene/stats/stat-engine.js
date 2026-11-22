@@ -36,6 +36,7 @@ function buildEngine(catalog, settings, ruleset, readers) {
         // 自然 20 / 1 常开（v0.39 起不再有开关）。
         natural: true,
         readAbilities: readerOf(readAbilities),
+        authoritativeAttributes: readers?.authoritativeAttributes === true,
         readVitals: readerOf(readVitals),
         readBonus: readerOf(readBonus),
         userName: String(userName || ''),
@@ -65,7 +66,7 @@ export function engineFor(catalog, settings, ruleset, readers = {}) {
     const readAbilities = readerOf(readers && readers.readAbilities);
     const readVitals = readerOf(readers && readers.readVitals);
     const readBonus = readerOf(readers && readers.readBonus);
-    if (found && found.readAbilities === readAbilities && found.readVitals === readVitals && found.readBonus === readBonus) return found;
+    if (found && found.authoritativeAttributes === (readers?.authoritativeAttributes === true) && found.readAbilities === readAbilities && found.readVitals === readVitals && found.readBonus === readBonus) return found;
     const engine = buildEngine(cat, set, id, readers);
     byKey.set(key, engine);
     return engine;
@@ -196,11 +197,11 @@ export function gateAttributes(engine, state, actor) {
         const read = safeRead(engine.readAbilities, engine.userName || PROTAGONIST);
         const prefs = (state && state.protagonist && state.protagonist.prefs) || null;
         if (read && read.scores && (read.initialized === true || prefs)) percent = percentOf(read.scores);
-        else if (prefs) percent = percentOf(deriveAbilities({ prefs, name: engine.userName || PROTAGONIST, protagonist: true }).scores);
+        else if (prefs && !engine.authoritativeAttributes) percent = percentOf(deriveAbilities({ prefs, name: engine.userName || PROTAGONIST, protagonist: true }).scores);
         if (percent) percent = withAttributeBonus(engine, percent);
     } else {
         const sheet = engine.sheets[actor] || null;
-        const own = sheet && sheet.scale === 'score' && sheet.attributes;
+        const own = !engine.authoritativeAttributes && sheet && sheet.scale === 'score' && sheet.attributes;
         if (own && BASE_ATTRIBUTES.every((name) => Number(own[name]) > 0)) percent = Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(own[name]) * 5]));
         else {
             const read = safeRead(engine.readAbilities, actor);
@@ -220,16 +221,18 @@ function protagonistAttributes(engine, state) {
     const name = engine.userName || PROTAGONIST;
     const read = safeRead(engine.readAbilities, name);
     if (read && read.scores) return percentOf(read.scores);
+    if (engine.authoritativeAttributes) return null;
     const prefs = (state && state.protagonist && state.protagonist.prefs) || null;
     return percentOf(deriveAbilities({ prefs, name, protagonist: true }).scores);
 }
 
 // NPC 六维优先序：属性档（scale:'score' 且六维齐全）→ 战斗侧读取 → 按名字推导。
 function npcAttributes(engine, sheet, actor) {
-    const own = sheet && sheet.scale === 'score' && sheet.attributes;
+    const own = !engine.authoritativeAttributes && sheet && sheet.scale === 'score' && sheet.attributes;
     if (own && BASE_ATTRIBUTES.every((name) => Number(own[name]) > 0)) return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Number(own[name]) * 5]));
     const read = safeRead(engine.readAbilities, actor);
     if (read && read.scores) return percentOf(read.scores);
+    if (engine.authoritativeAttributes) return null;
     return percentOf(deriveAbilities({ name: actor, protagonist: false }).scores);
 }
 
@@ -266,6 +269,7 @@ export function profileOf(engine, state, actor, rawSkill) {
     if (isProtagonist(actor)) {
         // plain：IGS 自己的六维；attrs：叠加随身系统加成后的生效六维。seed、理智初值只用 plain，加成不进账本。
         const plainAttrs = protagonistAttributes(engine, state);
+        if (!plainAttrs) return { skill, kind: entry.kind, entry, learned: false, value: null, attributeValue: null, unavailable: true };
         const attrs = withAttributeBonus(engine, plainAttrs);
         const owned = state && state.protagonist && state.protagonist.skills[skill];
         const rank = rankOfGrowth(state && state.protagonist && state.protagonist.growth);
@@ -282,6 +286,7 @@ export function profileOf(engine, state, actor, rawSkill) {
     }
     const sheet = engine.sheets[actor] || null;
     const attrs = npcAttributes(engine, sheet, actor);
+    if (!attrs) return { skill, kind: entry.kind, entry, learned: false, value: null, attributeValue: null, unavailable: true };
     const rank = (sheet && sheet.rank) || RANKS[0];
     if (san) { const value = sanOf(attrs, null, sheet); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry }; }
     if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry };

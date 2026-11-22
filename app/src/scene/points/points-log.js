@@ -9,8 +9,10 @@ export function pointsRecord(payload, now = Date.now()) {
     return { id: `pt|${pointsHash(value)}`, type: 'points', character: 'Points', anchor: null, createdAt: now, payload: value };
 }
 
+const SHARED_DOMAINS = new Set(['combat', 'origin']);
+
 export function foldPointsRecords(rows, chat, chatId = '') {
-    const rounds = new Map(), exchanges = new Map(), seen = new Map();
+    const rounds = new Map(), exchanges = new Map(), credits = new Map(), operations = new Map(), seen = new Map();
     let balance = 0;
     const grants = [];
     const invalid = () => ({ ok: false, reason: 'points-log-invalid' });
@@ -27,9 +29,39 @@ export function foldPointsRecords(rows, chat, chatId = '') {
             if (!applyPointsExchange(exchanges, rounds, row)) return invalid();
             continue;
         }
+        if (p.kind === 'credit') {
+            if (credits.has(p.sourceId) || rounds.has(p.sourceId) || exchanges.has(p.sourceId) || operations.has(p.sourceId)
+                || p.parent !== null || !SHARED_DOMAINS.has(p.domain)
+                || !Number.isSafeInteger(p.amount) || p.amount < 0) return invalid();
+            credits.set(p.sourceId, {
+                id: p.sourceId, record: row, domain: p.domain, chatId: p.chatId,
+                anchor: p.anchor, amount: p.amount, meta: p.meta ?? null,
+            });
+            continue;
+        }
+        if (p.kind === 'debit') {
+            if (operations.has(p.sourceId) || rounds.has(p.sourceId) || exchanges.has(p.sourceId) || credits.has(p.sourceId)
+                || p.parent !== null || !SHARED_DOMAINS.has(p.domain)
+                || !Number.isSafeInteger(p.amount) || p.amount >= 0
+                || !Number.isSafeInteger(p.balanceBefore) || p.balanceBefore < -p.amount
+                || typeof p.action !== 'string' || !p.action) return invalid();
+            operations.set(p.sourceId, {
+                id: p.sourceId, record: row, domain: p.domain, chatId: p.chatId,
+                anchor: p.anchor, cost: -p.amount, amount: p.amount,
+                balanceBefore: p.balanceBefore, action: p.action, meta: p.meta ?? null, done: false,
+            });
+            continue;
+        }
+        if (p.kind === 'debit-done') {
+            const op = operations.get(p.sourceId);
+            if (!op || op.done || p.parent !== op.record.id || p.chatId !== op.chatId
+                || !same(p.anchor, op.anchor) || p.amount !== 0) return invalid();
+            op.done = true;
+            continue;
+        }
         let r = rounds.get(p.sourceId);
         if (p.kind === 'start') {
-            if (r || exchanges.has(p.sourceId) || p.parent !== null || !GAME_IDS.includes(p.game)) return invalid();
+            if (r || exchanges.has(p.sourceId) || credits.has(p.sourceId) || operations.has(p.sourceId) || p.parent !== null || !GAME_IDS.includes(p.game)) return invalid();
             if (p.game === 'mahjong' && !['chengdu', 'riichi'].includes(p.rules)) return invalid();
             r = { id: p.sourceId, game: p.game, rules: p.rules, anchor: p.anchor, chatId: p.chatId,
                 hands: [], total: 0, settled: false, award: null, revision: row.id, start: row.id };
@@ -78,8 +110,16 @@ export function foldPointsRecords(rows, chat, chatId = '') {
         balance += r.total;
         if (r.award?.amount > 0) grants.push(r.award);
     }
+    for (const credit of credits.values()) {
+        credit.active = (!chatId || credit.chatId === chatId) && activePointsAnchor(credit.anchor, chat);
+        if (!credit.active) continue;
+        balance += credit.amount;
+    }
+    for (const op of operations.values()) {
+        if (!chatId || op.chatId === chatId) balance += op.amount;
+    }
     for (const exchange of exchanges.values()) {
         if (!chatId || exchange.chatId === chatId) balance -= exchange.points;
     }
-    return Number.isSafeInteger(balance) ? { ok: true, balance, rounds, grants, exchanges } : invalid();
+    return Number.isSafeInteger(balance) ? { ok: true, balance, rounds, grants, exchanges, credits, operations } : invalid();
 }

@@ -272,6 +272,7 @@ function renderLog(state, ui) {
 function renderChat(state, settings) {
     const role = originBoundRole(settings);
     const list = (state.chat || []).slice(-40);
+    const answered = new Set((state.chat || []).filter(c => c.who === 'sys').map(c => c.replyTo));
     let h = '<div class="igs-or-chat">';
     if (!list.length) h += empty(role ? `暂无${role}与系统的私聊。${settings.rpChat === 'manual' ? '' : '私聊随正文生成。'}` : '可向系统询问提示、讨价还价或闲谈。');
     let lastTurn = null;
@@ -280,6 +281,8 @@ function renderChat(state, settings) {
         const cls = c.who === 'me' ? 'me' : c.who === 'sys' ? 'sys' : c.who === 'call' ? 'call' : 'char';
         const who = c.who === 'char' ? esc(c.name || role) : c.who === 'call' ? '以系统身份喊话 · 下回合生效' : '';
         h += `<div class="igs-or-bub is-${cls}">${who ? `<span class="igs-or-bub-who">${who}</span>` : ''}${esc(c.text)}${c.note ? `<span class="igs-or-bub-note">${esc(c.note)}</span>` : ''}</div>`;
+        if (!role && c.who === 'me' && c.requestId && !answered.has(c.requestId))
+            h += `<div class="igs-or-turn">${btn('chat-retry', '重试回复', ` data-id="${esc(c.requestId)}"`)}</div>`;
     }
     if (role && settings.rpChat === 'manual') h += `<div class="igs-or-turn">${btn('chat-gen', '生成一段私聊')}</div>`;
     return `${h}</div>`;

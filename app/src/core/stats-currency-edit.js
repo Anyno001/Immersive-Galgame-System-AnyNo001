@@ -12,7 +12,8 @@ export function createCurrencyEditor({ tables, inventory, intents, chatId, chat,
         const db = tables();
         if (!db.ok) return fail(db.reason);
         db.invalidate?.();
-        const rows = db.read({ kinds: ['stats'] });
+        const recoveryRecords = intent ? ['intent', 'config', 'done'].map(step => ({ kind: 'stats', record: currencyEditRecord(intent, step) })) : [];
+        const rows = db.read({ kinds: ['stats'], recoveryRecords });
         if (!alive()) return fail('request-stale');
         if (!rows?.ok || !Array.isArray(rows.stats)) return fail(rows?.reason || 'stats-log-read-failed');
         const merged = mergeStatLog(rows.stats, { chatId: chatId(), chat: chat() });

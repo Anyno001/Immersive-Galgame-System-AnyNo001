@@ -340,7 +340,7 @@ export function createCombatDeckPanelController(doc, options = {}) {
             Array.from({ length: Math.ceil(n / ASI_POINTS) }, (_, i) => ({ ability, amount: Math.min(ASI_POINTS, n - i * ASI_POINTS) })));
         if (!picks.length) return fail('combat-alloc-empty');
         const my = token;
-        const r = await run('alloc', () => l.allocate(view.id, picks, { shouldStart: () => my === token && Boolean(root) }));
+        const r = await run('alloc', () => l.allocate(view.id, picks, { expectedRevision: view.attributes?.revision, shouldStart: () => my === token && Boolean(root) }));
         if (r.ok === true && !r.stale) { allocDraft = null; await load(); }
         return r;
     }
@@ -385,7 +385,9 @@ export function createCombatDeckPanelController(doc, options = {}) {
         if (!m) return { ok: false, reason: 'combat-character-missing' };
         if (isCombatBusy(sessionState())) return fail('combat-deck-readonly');
         if (!m.ok) return fail('combat-manual-invalid');
-        const r = await run('manual', () => options.writeManualInit(view.name, { className: m.className.trim(), role: m.role, scores: { ...m.scores } }));
+        const my = token;
+        const r = await run('manual', () => options.writeManualInit(view.name, { className: m.className.trim(), role: m.role, scores: { ...m.scores } },
+            { expectedRevision: view.attributes?.revision, shouldStart: () => my === token && Boolean(root) }));
         if (r.ok === true && !r.stale) { manualDraft = null; await load(); }
         return r;
     }

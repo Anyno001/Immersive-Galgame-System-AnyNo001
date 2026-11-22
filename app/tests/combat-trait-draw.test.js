@@ -10,7 +10,10 @@ import { createGenerationFixture } from './helpers/combat-generation-fixture.js'
 import { passiveAtRarity, gearPassiveFromTemplate } from '../src/combat/card-templates.js';
 
 const settle = async () => { for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r)); };
-const shapeOf = (trait) => trait.kind === 'active' ? trait.skill.effects : trait.passive.effects;
+const shapeOf = ({ kind, skill, passive, relic, link }) => ({
+    kind, relic, link,
+    effects: kind === 'active' ? skill.effects : relic && !passive ? null : passive.effects,
+});
 
 test('同名主角在不同聊天独立抽取，保存的种子重载后继续复用', async (t) => {
     const fixtures = await Promise.all(['chat-a', 'chat-b'].map((chatId) => createGenerationFixture({ chatId })));

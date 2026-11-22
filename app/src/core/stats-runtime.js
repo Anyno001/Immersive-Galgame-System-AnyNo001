@@ -1,6 +1,7 @@
 // 数值系统运行时装配（§3、§4.2、§10A；v2 §5、§6；易错点 A1–A6、B1–B3、H1/H2、N1/N2/N5–N7）。
 // 只协调宿主事件、账本、注入与后台请求；结算规则在 scene/stats，正文解析不在这里做。
 // 总开关关闭时不挂任何监听（sync 解绑）；本聊天未启用时不注入、不结算，数值冻结。
+import { createGenerationTasks } from '../host/generation-tasks.js';
 import { STATS_LOG_MAX, activeEntryBefore, createStatsLedger, currentStatsState, deleteFloorsFrom, ledgerKey, selectSwipe, stateBefore } from '../scene/stats/stat-ledger.js';
 import { resettleFloor, settleFloor } from '../scene/stats/stat-ledger-settle.js';
 import { MANUAL_DIMS, applyManualRelations, settleFloorText } from '../scene/stats/stat-settle.js';
@@ -8,7 +9,7 @@ import { FAVOR_TIERS, normalizeFavorTier, stageOf } from '../scene/stats/stat-fa
 import { START_DIMS, startFixOffsets } from '../scene/stats/stat-vocab.js';
 import { APTITUDE_LEVELS, TRAIT_KEYS, createChatStatsStore, emptyCatalog, sanitizeCatalog, sheetAbilityScores } from '../scene/stats/stat-persist.js';
 import {
-    BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, statTagHash, verifyStatImport,
+    BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, normalizeNpcChoice, normalizeNpcPolicy, statTagHash, verifyStatImport,
 } from '../scene/stats/stat-log.js';
 import { hash32 } from '../combat/random.js';
 import { challengeDirectiveOf, parseChallengeReport } from '../combat/challenge-report.js';
@@ -49,10 +50,14 @@ import {
     buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
-import { CURRENCY_CATEGORY, buildCurrencyRequest, currencyBalanceOf, currencyRequestFailure, describeCurrencyFailure, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement, parseCurrencyReply } from '../scene/stats/stat-currency.js';
-import { normalizeCurrencyEditInput } from '../scene/stats/stat-currency-edit.js';
+import { CURRENCY_CATEGORY, currencyBalanceOf, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement } from '../scene/stats/stat-currency.js';
+import { buildHeroInitRequest, describeHeroInitFailure, heroInitRequestFailure, parseHeroInitReply } from '../scene/stats/stat-hero-init.js';
+import { currencyEditRecord, normalizeCurrencyEditInput } from '../scene/stats/stat-currency-edit.js';
 import { createCurrencyEditIntents } from '../storage/currency-edit-intents.js';
+import { createHeroInitIntents } from '../storage/hero-init-intents.js';
 import { createCurrencyEditor } from './stats-currency-edit.js';
+import { createStatsGenerationIntents } from '../storage/stats-generation-intents.js';
+import { createStatsGenerationSave } from './stats-generation-save.js';
 import { WORLDVIEWS } from '../scene/worldview.js';
 import { parseStatDirectives, stripStatDirectives } from '../scene/stats/stat-directives.js';
 import { traitEnvOf } from '../scene/stats/stat-trait-env.js';
@@ -169,10 +174,9 @@ function settleSeed(chatId, ordinal, swipe, kind = 'settle') {
 
 export function createStatsRuntime({
     getContext, readSettings, resolveCharacter, isNsfw = () => false, presentOf = null, onChange = () => {}, onBuildPolicyChange = () => {},
-    worldRoles = null, getPushClient = () => null, pushOptions = {}, isBackground = () => false, getBackgroundRequest = () => null,
+    worldRoles = null, getPushClient = () => null, pushOptions = {}, isBackground = () => false, getBackgroundRequest = () => null, generationIdentity = () => null, generationRoute = () => null,
     describePeople = null, readSheetContext = null, sheetStore = null, onCheck = () => {}, onNotices = () => {}, resumeReply = null, worldviewOf = () => '',
-    // v0.39 注入点：战斗侧生命/六维来源、数据库表读写通道、战斗提示词输入、战斗扩展是否开启。
-    combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
+    attributeAccess = null, combatSource = () => null, statsTables = () => null, combatPrompt = () => null, combatEnabled = () => false,
     // 剧情货币所在的物品表读写口（createInventoryTables 的产物：read / changeQuantities）。
     currencyInventory = () => null, pointsExchange = () => null, currencyEditStorage = null,
     // 数据库表格里的人物名单（人际关系页同一套读法），供「从表格导入角色」登记。
@@ -193,6 +197,8 @@ export function createStatsRuntime({
     let chatEnabled = false;
     let buildMode = null;
     let buildChoices = {};
+    let npcPolicy = null;
+    let npcChoices = {};
     let baseline = new Map();
     let learned = {};
     let catalog = emptyCatalog();
@@ -204,15 +210,15 @@ export function createStatsRuntime({
     let pushing = null;
     let pendingOption = null;
     let manualCheck = null;
-    let sheetJob = null;
-    let backfillJob = null;
-    let heroJob = null;
-    let startJob = null;
+    let generationStage = null;
+    const generationFailures = new Set();
     let currency = null;
     let currencyEdit = null;
     let currencyEditError = '';
     let currencyEditJob = null;
     const editIntents = currencyEditStorage ? createCurrencyEditIntents(currencyEditStorage) : null;
+    const generationIntents = createStatsGenerationIntents(currencyEditStorage);
+    const heroInitIntents = createHeroInitIntents(currencyEditStorage);
     let currencyJob = null;
     let currencyProgress = null;
     let currencyNoticeLease = null;
@@ -261,7 +267,41 @@ export function createStatsRuntime({
         return forced;
     };
     const active = () => Boolean(settings().enabled && chatEnabled && ledger);
+    const generationTasks = createGenerationTasks({
+        capture: () => {
+            const owner = ctx();
+            const id = chatIdOf(owner);
+            const chat = messages(owner);
+            const metadata = owner?.chatMetadata || owner?.chat_metadata;
+            const identity = generationIdentity();
+            return () => Boolean(id) && settings().enabled && chatIdOf(ctx()) === id && messages(ctx()) === chat
+                && (ctx()?.chatMetadata || ctx()?.chat_metadata) === metadata && generationIdentity() === identity;
+        },
+        onSlow: job => setNotice(job.key, { kind: 'busy', text: '仍在等待同一次模型请求，请勿重复提交', slow: true }),
+        slowMs: BACKGROUND_TIMEOUT_MS,
+    });
+    function invalidateGenerations() {
+        generationTasks.invalidate();
+        generationFailures.clear();
+        reviewing = false;
+    }
+    const generationFailureKey = key => `${chatIdOf(ctx())}|${key}`;
+    const generationRevision = () => JSON.stringify({ catalog, learned, chatEnabled, buildMode, buildChoices, npcPolicy, npcChoices,
+        currency, currencyEdit, initial: ledger?.initial, entries: ledger ? [...ledger.entries] : [],
+        active: ledger ? [...ledger.active] : [] });
+    function checkGeneration(job) {
+        job.check();
+        if (!active()) throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
+        if (job.revision !== undefined && job.revision !== JSON.stringify(catalog)) throw Object.assign(new Error('stats-generation-conflict'), { reason: 'stats-generation-conflict' });
+        if (job.sourceRevision !== undefined && job.sourceRevision !== generationRevision())
+            throw Object.assign(new Error('stats-generation-conflict'), { reason: 'stats-generation-conflict' });
+    }
+    const generationSave = createStatsGenerationSave({
+        intents: generationIntents, tables: () => tables(), chatId: () => chatIdOf(ctx()),
+    });
     const life = () => { try { return combatSource() || null; } catch (error) { return null; } };
+    // 未注入聊天档案的旧嵌入端仍使用其自带的读取口；生产读取失败不退回旧卡。
+    const attributes = () => attributeAccess ? attributeAccess().source() : life();
     const heroSkillValue = (skill) => {
         const own = ledger && currentStatsState(ledger).protagonist.skills[skill];
         const v = heroSkillLevel(engineOf(), own, skill);
@@ -283,6 +323,7 @@ export function createStatsRuntime({
     };
     let currencyTail = Promise.resolve();
     let currencyEpoch = 0;
+    let disposed = false;
     let currencyBusy = 0;
 
     function currencyEditPending() {
@@ -305,10 +346,12 @@ export function createStatsRuntime({
         const chatId = chatIdOf(ctx());
         const epoch = currencyEpoch;
         const client = inventoryOf()?.client;
+        const owner = generationIdentity();
         const message = messageId === null ? null : messages(ctx())[messageId];
         const swipeId = Number(message?.swipe_id) || 0;
         const tagHash = message ? statTagHash(message.mes) : null;
-        return () => active() && epoch === currencyEpoch && chatIdOf(ctx()) === chatId
+        return () => !disposed && active() && epoch === currencyEpoch && chatIdOf(ctx()) === chatId
+            && generationIdentity() === owner
             && (!client || inventoryOf()?.client === client)
             && (messageId === null || (messages(ctx())[messageId] === message
                 && (Number(message?.swipe_id) || 0) === swipeId && statTagHash(message.mes) === tagHash));
@@ -522,16 +565,35 @@ export function createStatsRuntime({
         return currency?.seeded ? confirmCurrencyBalance(alive) : { ok: true, skipped: true };
     }
 
-    async function seedCurrency(alive) {
+    async function seedCurrency(alive, persistedSeed = null, onSeedRecorded = null) {
         if (!currency || currency.seeded || !ledger) return { ok: true, skipped: true };
         if (!alive()) return { ok: false, reason: 'request-stale' };
-        if (!currency.seed) {
+        if (currency.initial === 0) {
             const ready = await ensureCurrencyInventory(alive);
             if (!ready.ok) return ready;
             const read = readCurrency();
             if (!read.ok) return read;
-            currency = normalizeCurrencyRecord({ ...currency, seed: { before: read.balance, after: read.balance + currency.initial } });
+            const prev = currency;
+            currency = normalizeCurrencyRecord({ ...prev, seeded: true });
+            const done = await currencySaved(persist([], { shouldStart: alive }), null, alive);
+            if (!done.ok) { if (alive()) currency = prev; return done; }
+            return { ok: true };
+        }
+        if (!currency.seed) {
+            let nextSeed = persistedSeed || null;
+            if (!nextSeed) {
+                const ready = await ensureCurrencyInventory(alive);
+                if (!ready.ok) return ready;
+                const read = readCurrency();
+                if (!read.ok) return read;
+                nextSeed = { before: read.balance, after: read.balance + currency.initial };
+            }
+            currency = normalizeCurrencyRecord({ ...currency, seed: nextSeed });
             if (!currency) return { ok: false, reason: 'stats-currency-balance-invalid' };
+            if (typeof onSeedRecorded === 'function') {
+                const marked = onSeedRecorded(currency.seed);
+                if (marked && marked.ok === false) return marked;
+            }
         }
         const stored = await currencySaved(persist([], { shouldStart: alive }), null, alive);
         if (!stored.ok) return stored;
@@ -550,77 +612,325 @@ export function createStatsRuntime({
         return picked.map((m) => `${m.is_user ? '用户' : '剧情'}：${m.mes.trim()}`).join('\n');
     }
 
-    // 进入对话：本聊天还没有货币配置时请辅助模型判定（每个聊天自动问一次，失败可从提示条重试）；有配置未发初始金额时补发。
-    function ensureCurrency({ force = false } = {}) {
-        if (!active() || !inventoryOf()) return null;
+    function heroBasicReady() {
+        if (!active()) return false;
+        const chatId = chatIdOf(ctx());
+        const saved = heroInitIntents.read(chatId);
+        if (!saved.ok || saved.intent) return false;
+        if (attributeAccess) {
+            const src = attributes();
+            const hero = src?.ready ? src.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }) : null;
+            if (!hero || hero.initialized !== true) return false;
+        }
+        if (inventoryOf()) {
+            if (!currency || currency.seeded !== true) return false;
+        }
+        return true;
+    }
+
+    function readAuthoritativeStatsCurrency(alive) {
+        if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+        const t = tables();
+        if (!t.ok) return { ok: false, stage: 'read', reason: t.reason || 'stats-log-read-failed' };
+        t.invalidate?.();
+        const rows = t.read({ kinds: ['stats'] });
+        if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+        if (!rows || rows.ok !== true || !Array.isArray(rows.stats)) {
+            return { ok: false, stage: 'read', reason: (rows && rows.reason) || 'stats-log-read-failed' };
+        }
+        const merged = mergeStatLog(rows.stats, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
+        if (merged.currencyEditError) return { ok: false, stage: 'edit', reason: merged.currencyEditError };
+        currency = merged.currency || null;
+        currencyEdit = merged.currencyEdit || null;
+        currencyEditError = merged.currencyEditError || '';
+        for (const key of ['chat:currency', 'chat:currencyEdit']) {
+            if (merged.baseline.has(key)) baseline.set(key, merged.baseline.get(key));
+            else baseline.delete(key);
+        }
+        return { ok: true, layout: rows.layout === 'v2' ? 'v2' : 'legacy', currency };
+    }
+
+    async function ensureHeroAttributeReadable(access, heroName, alive) {
+        if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+        const st = access.status();
+        if (!st.ok) return { ...st, stage: 'read' };
+        let read = access.readHero(heroName);
+        if (!read.ok && (read.reason === 'combat-attribute-table-missing' || read.reason === 'igs-layout-unconfirmed')) {
+            const ensured = await access.ensure({ shouldStart: alive });
+            if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+            if (!ensured?.ok) return { ok: false, stage: 'read', reason: ensured?.reason || 'combat-attribute-table-missing' };
+            read = access.readHero(heroName);
+        }
+        if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+        return read.ok ? read : { ...read, stage: 'read' };
+    }
+
+    // 主角统一初始化（P4）：先恢复未完成意图；否则读取权威六维与货币判定缺项，全缺一次请求、部分已有只补缺项，分阶段保存并读回确认。
+    function ensureHeroInit({ force = false } = {}) {
+        const hasAttr = Boolean(attributeAccess);
+        const hasInv = Boolean(inventoryOf());
+        if (!active() || (!hasAttr && !hasInv)) return null;
         const chatId = chatIdOf(ctx());
         if (currencyJob?.chatId === chatId && currencyJob.epoch === currencyEpoch && currencyJob.alive()) return currencyJob.promise;
         if (currencyJob) invalidateCurrencyJob();
-        if (currency?.seeded && !force && !exchangeOf() && !currencyEditPending()) return null;
-        if (!force && currencyAsked.has(chatId)) return null;
-        const alive = currencyLease();
-        const request = currency ? null : requester();
-        if (!currency && !request) {
-            const result = { ok: false, stage: 'request', reason: 'stats-no-model' };
-            settleCurrencyNotice(result);
-            return Promise.resolve(result);
+        const heldIntent = heroInitIntents.read(chatId);
+        const hasPendingIntent = !heldIntent.ok || Boolean(heldIntent.intent);
+        let attrReady = !hasAttr;
+        if (hasAttr) {
+            const src = attributes();
+            const hero = src?.ready ? src.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }) : null;
+            attrReady = Boolean(hero && hero.initialized === true);
         }
+        const currencyReady = !hasInv || Boolean(currency?.seeded);
+        if (!hasPendingIntent && attrReady && currencyReady && !force && !exchangeOf() && !currencyEditPending()) return null;
+        if (!force && !hasPendingIntent && currencyAsked.has(chatId)) return null;
+        const ownerAlive = currencyLease();
+        const route = generationRoute();
+        const alive = () => ownerAlive();
+        const requestAlive = () => ownerAlive() && generationRoute() === route;
         currencyAsked.add(chatId);
-        const job = { chatId, epoch: currencyEpoch, alive, controller: new AbortController(), stage: 'request', slow: false, promise: null };
+        const job = { chatId, epoch: currencyEpoch, alive, controller: new AbortController(), stage: 'read', slow: false, promise: null };
         currencyJob = job;
         const progress = (stage, slow = false) => {
             if (!alive() || currencyJob !== job) return;
             job.stage = stage;
             job.slow = slow;
             currencyProgress = { stage, reason: '', slow };
-            setNotice('currency', { kind: 'busy', ...currencyProgress,
-                text: stage === 'request' ? slow ? '剧情货币仍在处理中，正在等待同一次请求' : '正在判定剧情货币' : '正在确认剧情货币' });
+            const text = stage === 'request'
+                ? (slow ? '主角初始化仍在处理中，正在等待同一次请求' : '正在初始化主角六维与剧情货币')
+                : stage === 'attributes' ? '正在保存主角六维'
+                : stage === 'recover' ? '正在恢复主角初始化'
+                : '正在确认剧情货币';
+            setNotice('currency', { kind: 'busy', ...currencyProgress, text });
             currencyChanged();
         };
+        const commitIntent = async (initialIntent) => {
+            let intent = initialIntent;
+            const saveStage = (patch) => {
+                const next = { ...intent, ...patch };
+                const res = heroInitIntents.save(chatId, next, { allowUpdate: true });
+                if (!res.ok) return { ok: false, stage: patch.stage || intent.stage, reason: res.reason };
+                intent = next;
+                return { ok: true };
+            };
+            const heroName = userName() || PROTAGONIST;
+            // 阶段 2：六维写入/确认
+            if (intent.needAttributes && intent.stage !== 'currency-config' && intent.stage !== 'currency-seed' && intent.stage !== 'done') {
+                progress('attributes');
+                const access = attributeAccess ? attributeAccess() : null;
+                if (!access) return { ok: false, stage: 'attributes', reason: 'combat-attribute-table-missing' };
+                if (access.status().reason === 'stats-attribute-save-pending') {
+                    const rec = await access.recover({ shouldStart: alive });
+                    if (!alive()) return { ok: false, stage: 'attributes', reason: 'request-stale' };
+                    if (!rec?.ok) return { ok: false, stage: 'attributes', reason: rec?.reason || 'stats-attribute-save-pending' };
+                }
+                const read = await ensureHeroAttributeReadable(access, heroName, alive);
+                if (!read.ok) return { ...read, stage: 'attributes' };
+                const sameRow = read.rows.find(row => row.id === intent.attributeRecordId);
+                if (sameRow) {
+                    if (JSON.stringify(sameRow.payload?.scores) !== JSON.stringify(intent.attributes)) {
+                        return { ok: false, stage: 'attributes', reason: 'stats-attribute-conflict' };
+                    }
+                } else if (!read.view.initialized) {
+                    const written = await access.initHero(heroName, intent.attributes, {
+                        recordId: intent.attributeRecordId,
+                        createdAt: intent.createdAt,
+                        shouldStart: alive,
+                        signal: job.controller.signal,
+                    });
+                    if (!alive()) return { ok: false, stage: 'attributes', reason: 'request-stale' };
+                    if (!written?.ok) return { ok: false, stage: 'attributes', reason: written?.reason || 'stats-attribute-write-unverified' };
+                }
+                gateMemo = null;
+                const adv = saveStage({ stage: intent.needCurrency ? 'currency-config' : 'done' });
+                if (!adv.ok) return adv;
+                if (alive()) currencyChanged();
+            }
+            // 阶段 3：货币定义写入/确认
+            if (intent.needCurrency && intent.stage !== 'currency-seed' && intent.stage !== 'done') {
+                progress('currency-config');
+                const statsRead = readAuthoritativeStatsCurrency(alive);
+                if (!statsRead.ok) return { ...statsRead, stage: 'currency-config' };
+                const existing = statsRead.currency;
+                const wantCfg = normalizeCurrencyConfig(intent.currency);
+                if (existing) {
+                    const sameCfg = JSON.stringify(normalizeCurrencyConfig(existing)) === JSON.stringify(wantCfg)
+                        && existing.initial === intent.currency.initial;
+                    if (!sameCfg || existing.seeded) {
+                        const adv = saveStage({ stage: 'done' });
+                        if (!adv.ok) return adv;
+                    } else {
+                        const adv = saveStage({ stage: 'currency-seed' });
+                        if (!adv.ok) return adv;
+                    }
+                } else {
+                    const prevCurrency = currency;
+                    currency = normalizeCurrencyRecord({ ...intent.currency, seeded: false, ...(intent.seed ? { seed: intent.seed } : {}) });
+                    const stored = await currencySaved(persist([], { shouldStart: alive }), null, alive);
+                    if (!stored.ok) { if (alive()) currency = prevCurrency; return { ...stored, stage: 'currency-config' }; }
+                    const adv = saveStage({ stage: 'currency-seed' });
+                    if (!adv.ok) return adv;
+                }
+            }
+            // 阶段 4：初始金额入账/确认
+            if (intent.needCurrency && intent.stage === 'currency-seed') {
+                progress('currency-seed');
+                const statsRead = readAuthoritativeStatsCurrency(alive);
+                if (!statsRead.ok) return { ...statsRead, stage: 'currency-seed' };
+                if (currency && !currency.seeded) {
+                    const seeded = await seedCurrency(alive, intent.seed || null, (seed) => saveStage({ seed }));
+                    if (!seeded.ok) return { ...seeded, stage: 'currency-seed' };
+                }
+                const adv = saveStage({ stage: 'done' });
+                if (!adv.ok) return adv;
+            }
+            // 阶段 5：清除意图并恢复其余待完成写口
+            const cleared = heroInitIntents.save(chatId, null);
+            if (!cleared.ok) return { ok: false, stage: 'recover', reason: cleared.reason };
+            progress('recover');
+            return hasInv ? recoverCurrencyWrites(alive) : { ok: true };
+        };
+
         const run = async () => {
             if (!alive()) return { ok: false, reason: 'request-stale' };
             if (currencyEditPending()) {
                 const edited = await currencyEditor.recover(alive);
                 if (!edited.ok) return edited;
             }
-            if (!currency) {
-                const names = [PROTAGONIST, ...present(currentStatsState(ledger)).slice(0, 5)];
-                const view = WORLDVIEWS.find((w) => w.id === worldviewOf());
-                const source = { protagonist: userName() || PROTAGONIST, worldview: view?.label || '', story: currencyStoryText() };
-                let people = [];
-                try { people = typeof describePeople === 'function' ? await describePeople(names) : []; } catch { /* 仅使用现有剧情 */ }
-                if (!alive()) return { ok: false, reason: 'request-stale' };
-                const prompt = buildCurrencyRequest({ ...source, people }, { prompt: settings().prompts.currency });
-                progress('request');
-                let reply;
-                const signal = job.controller.signal;
-                let abort;
-                const stopped = new Promise((_, reject) => {
-                    abort = () => reject(Object.assign(new Error('request-stale'), { reason: 'request-stale' }));
-                    signal.addEventListener('abort', abort, { once: true });
-                });
-                try {
-                    reply = await Promise.race([stopped, Promise.resolve().then(() => {
-                        if (!alive() || signal.aborted) throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
-                        return request(prompt, { signal, onSlow: () => progress('request', true) });
-                    })]);
-                } catch (error) {
-                    return currencyRequestFailure(error);
-                } finally {
-                    signal.removeEventListener('abort', abort);
-                }
-                if (!alive()) return { ok: false, reason: 'request-stale' };
-                job.stage = 'parse';
-                const parsed = parseCurrencyReply(reply);
-                if (!parsed.ok) return { ...parsed, stage: 'parse' };
-                currency = normalizeCurrencyRecord({ ...parsed.config, initial: parsed.initial, seeded: false });
+            // 先读未完成主角初始化意图；有则直接恢复，绝不重发模型！
+            const pending = heroInitIntents.read(chatId);
+            if (!pending.ok) return { ok: false, stage: 'recover', reason: pending.reason };
+            if (pending.intent) return commitIntent(pending.intent);
+
+            // 读取权威六维与货币状态，捕获修订，判断缺项；读取失败不请求模型。
+            const heroName = userName() || PROTAGONIST;
+            let layout = 'legacy';
+            let attrRead = null;
+            if (hasAttr) {
+                const access = attributeAccess();
+                attrRead = await ensureHeroAttributeReadable(access, heroName, alive);
+                if (!attrRead.ok) return attrRead;
+                if (attrRead.layout === 'v2' || attrRead.layout === 'legacy') layout = attrRead.layout;
             }
-            progress('seed');
-            const seeded = await seedCurrency(alive);
-            if (!seeded.ok) return seeded;
-            progress('recover');
-            return recoverCurrencyWrites(alive);
+            let statsRead = null;
+            if (hasInv) {
+                statsRead = readAuthoritativeStatsCurrency(alive);
+                if (!statsRead.ok) return statsRead;
+                if (statsRead.layout === 'v2' || statsRead.layout === 'legacy') layout = statsRead.layout;
+            }
+            const needAttributes = Boolean(hasAttr && !attrRead.view.initialized);
+            const needCurrency = Boolean(hasInv && !currency);
+            if (!needAttributes && !needCurrency) {
+                if (hasInv && currency && !currency.seeded) {
+                    progress('currency-seed');
+                    const seeded = await seedCurrency(alive);
+                    if (!seeded.ok) return { ...seeded, stage: 'currency-seed' };
+                }
+                if (hasInv) {
+                    progress('recover');
+                    return recoverCurrencyWrites(alive);
+                }
+                return { ok: true };
+            }
+            const request = requester();
+            if (!request) return { ok: false, stage: 'request', reason: 'stats-no-model' };
+
+            // 收集角色、世界观、剧情与人设上下文
+            const names = [PROTAGONIST, ...present(currentStatsState(ledger)).slice(0, 5)];
+            const view = WORLDVIEWS.find((w) => w.id === worldviewOf());
+            let people = [];
+            try { people = typeof describePeople === 'function' ? await describePeople(names) : []; } catch { /* 仅使用现有剧情 */ }
+            if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
+            let extraCtx = {};
+            try { extraCtx = typeof readSheetContext === 'function' ? (await readSheetContext([heroName])) || {} : {}; } catch { extraCtx = {}; }
+            if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
+            const prompt = buildHeroInitRequest({
+                protagonist: heroName,
+                worldview: view?.label || '',
+                worldInfo: extraCtx.worldInfo || '',
+                userPersona: extraCtx.userPersona || '',
+                story: currencyStoryText(),
+                people,
+                needAttributes,
+                needCurrency,
+                existingCurrency: currency,
+            }, { prompt: settings().prompts.heroInit });
+            progress('request');
+            let reply;
+            const signal = job.controller.signal;
+            let abort;
+            const stopped = new Promise((_, reject) => {
+                abort = () => reject(Object.assign(new Error('request-stale'), { reason: 'request-stale' }));
+                signal.addEventListener('abort', abort, { once: true });
+            });
+            try {
+                reply = await Promise.race([stopped, Promise.resolve().then(() => {
+                    if (!requestAlive() || signal.aborted) throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
+                    return request(prompt, { signal, onSlow: () => progress('request', true) });
+                })]);
+            } catch (error) {
+                return heroInitRequestFailure(error);
+            } finally {
+                signal.removeEventListener('abort', abort);
+            }
+            if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
+            job.stage = 'parse';
+            const parsed = parseHeroInitReply(reply, { needAttributes, needCurrency, chatSeed: chatId });
+            if (!parsed.ok) return { ...parsed, stage: 'parse' };
+
+            // 回包前再次核对权威状态：若期间手改已补足，绝不覆盖！
+            let finalNeedAttributes = needAttributes;
+            let finalNeedCurrency = needCurrency;
+            let heroKey = attrRead?.view?.key || '';
+            if (finalNeedAttributes) {
+                const access = attributeAccess();
+                const latestAttr = await ensureHeroAttributeReadable(access, heroName, alive);
+                if (!latestAttr.ok) return latestAttr;
+                if (latestAttr.view.initialized) finalNeedAttributes = false;
+                else heroKey = latestAttr.view.key;
+            }
+            if (finalNeedCurrency) {
+                const latestStats = readAuthoritativeStatsCurrency(alive);
+                if (!latestStats.ok) return latestStats;
+                if (latestStats.currency) finalNeedCurrency = false;
+            }
+            if (!finalNeedAttributes && !finalNeedCurrency) {
+                if (hasInv && currency && !currency.seeded) {
+                    progress('currency-seed');
+                    const seeded = await seedCurrency(alive);
+                    if (!seeded.ok) return { ...seeded, stage: 'currency-seed' };
+                }
+                return hasInv ? recoverCurrencyWrites(alive) : { ok: true, skipped: true };
+            }
+
+            // 阶段 1：保存规范化结果与稳定操作 ID
+            const createdAt = Date.now();
+            const opSeed = JSON.stringify({
+                chatId,
+                createdAt,
+                attributes: finalNeedAttributes ? parsed.attributes : null,
+                currency: finalNeedCurrency ? parsed.currency : null,
+            });
+            const operationId = `hi-${hash32(opSeed).toString(36)}`;
+            const intent = {
+                version: 1,
+                chatId,
+                layout,
+                operationId,
+                stage: 'result-saved',
+                needAttributes: finalNeedAttributes,
+                needCurrency: finalNeedCurrency,
+                attributes: finalNeedAttributes ? parsed.attributes : null,
+                attributeRecordId: finalNeedAttributes ? `hero-base|${heroKey}|${operationId}` : null,
+                currency: finalNeedCurrency ? { ...parsed.currency.config, initial: parsed.currency.initial } : null,
+                seed: null,
+                createdAt,
+            };
+            const savedIntent = heroInitIntents.save(chatId, intent);
+            if (!savedIntent.ok) return { ok: false, stage: 'result-saved', reason: savedIntent.reason };
+            return commitIntent(intent);
         };
+
         job.promise = queueCurrency(run).then((result) => {
             const current = alive() && currencyJob === job;
             if (currencyJob === job) currencyJob = null;
@@ -628,11 +938,20 @@ export function createStatsRuntime({
             if (current) {
                 settleCurrencyNotice(outcome);
                 currencyChanged();
-                if (outcome.ok) push();
+                if (outcome.ok) {
+                    refreshOnboarding();
+                    detectNewCharacters();
+                    push();
+                }
             }
             return outcome;
         }).finally(() => { if (currencyJob === job) currencyJob = null; });
         return job.promise;
+    }
+
+    // 兼容调用名：自动初始化复用统一主角建档结果，不再另发单独货币模型请求。
+    function ensureCurrency(options = {}) {
+        return ensureHeroInit(options);
     }
 
     function settleCurrencyNotice(r) {
@@ -642,7 +961,7 @@ export function createStatsRuntime({
         currencyNoticeLease = r?.ok ? null : currencyLease();
         if (r?.ok) { currencyProgress.stage = 'ready'; setNotice('currency', null); return; }
         diag('stats-currency-failed', currencyProgress);
-        setNotice('currency', { kind: 'onboarding', ...currencyProgress, text: describeCurrencyFailure(currencyProgress), actions: [['retry', '重试'], ['later', '稍后']] });
+        setNotice('currency', { kind: 'onboarding', ...currencyProgress, text: describeHeroInitFailure(currencyProgress), actions: [['retry', '重试'], ['later', '稍后']] });
     }
 
     function currencySnapshot() {
@@ -658,7 +977,8 @@ export function createStatsRuntime({
     }
     // 引擎读数闭包保持稳定（引用不变引擎缓存才命中）；每次调用时再取战斗源，userName 用 getter 随时取最新。
     const readers = {
-        readAbilities: (name) => { const s = life(); return s && typeof s.readAbilities === 'function' ? s.readAbilities(name, { heroPrefs: heroPrefs() }) : null; },
+        readAbilities: (name) => attributes()?.readAbilities?.(name, { heroPrefs: heroPrefs() }) ?? null,
+        authoritativeAttributes: !!attributeAccess,
         readVitals: (name) => { const s = life(); return s && typeof s.readVitals === 'function' ? s.readVitals(name, { heroPrefs: heroPrefs() }) : null; },
         // 随身系统属性加成（只读，按名字与 IGS 同名属性、技能相加）；没有随身系统或没有数据为 null。
         readBonus: () => { try { const list = originStats(); return Array.isArray(list) && list.length ? list : null; } catch (error) { return null; } },
@@ -813,6 +1133,7 @@ export function createStatsRuntime({
         try { onNotices([...notices.values()]); } catch (error) { /* 提示出错不影响结算 */ }
     }
     function setNotice(id, notice) {
+        if (generationStage) { generationStage.notices.push([id, notice]); return; }
         if (notice) notices.set(id, { id, ...notice });
         else notices.delete(id);
         emitNotices();
@@ -854,13 +1175,14 @@ export function createStatsRuntime({
 
     function adopt(merged) {
         ledger = merged.ledger; chatEnabled = merged.chatEnabled; buildMode = merged.buildMode ?? null; buildChoices = merged.buildChoices || {};
+        npcPolicy = merged.npcPolicy ?? null; npcChoices = merged.npcChoices || {};
         catalog = merged.catalog; learned = merged.learned; baseline = merged.baseline; currency = merged.currency || null;
         currencyEdit = merged.currencyEdit || null; currencyEditError = merged.currencyEditError || '';
     }
 
     function resetLoaded() {
         const currencyNotice = currencyNoticeLease?.() ? notices.get('currency') : null;
-        ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
+        ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; npcPolicy = null; npcChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
         currencyEdit = null; currencyEditError = '';
         baseline = new Map(); pendingOption = null; manualCheck = null; notices.clear();
         if (currencyNotice) notices.set('currency', currencyNotice);
@@ -870,13 +1192,24 @@ export function createStatsRuntime({
         resetLoaded();
         const chatId = chatIdOf(ctx());
         loadedChat = chatId;
+        refreshAttributeRecovery();
         const read = store.read();
         if (!read.ok) { blocked = read.reason; diag('stats-read-failed', { reason: read.reason }); loadedKey = ''; return; }
         declined = read.declined === true;
         const t = tables();
         if (!t.ok) { unavailable = t.reason; diag(t.reason); loadedKey = ''; return; }
-        const rows = t.read({ kinds: ['stats'] });
+        const savedEdit = editIntents ? editIntents.read(chatId) : { ok: true, intent: null };
+        if (!savedEdit.ok) { blocked = savedEdit.reason; diag(savedEdit.reason); loadedKey = ''; return; }
+        const savedHeroInit = heroInitIntents.read(chatId);
+        if (!savedHeroInit.ok) { blocked = savedHeroInit.reason; diag(savedHeroInit.reason); loadedKey = ''; return; }
+        const savedGeneration = generationSave.pending();
+        if (!savedGeneration.ok) { blocked = savedGeneration.reason; generationSaveNotice(savedGeneration); loadedKey = ''; return; }
+        const recoveryRecords = savedEdit.intent ? ['intent', 'config', 'done']
+            .map(step => ({ kind: 'stats', record: currencyEditRecord(savedEdit.intent, step) })) : [];
+        recoveryRecords.push(...(savedGeneration.intent?.records || []).map(record => ({ kind: 'stats', record })));
+        const rows = t.read({ kinds: ['stats'], recoveryRecords });
         if (!rows || rows.ok !== true) { blocked = (rows && rows.reason) || 'stats-log-read-failed'; diag('stats-log-read-failed', { reason: blocked }); loadedKey = ''; return; }
+        if (savedGeneration.intent) generationSaveNotice({ ok: false, reason: 'stats-generation-save-pending' });
         loadedKey = cacheKey(t);
         const c = ctx();
         if (Array.isArray(rows.stats)) {
@@ -901,6 +1234,7 @@ export function createStatsRuntime({
         if (!explicit && !settings().enabled) { if (loadedChat !== chatId) { resetLoaded(); loadedKey = ''; loadedChat = chatId; } return; }
         if (loadedKey && loadedKey === cacheKey(tables())) return;
         load();
+        if (ledger && chatEnabled) refreshOnboarding();
     }
 
     // 旧存档导入（v0.39 Ls）：先转成记录，建表后追加，读回逐条校验；成功后重新加载。失败只记一次，本聊天不再重试。
@@ -954,32 +1288,151 @@ export function createStatsRuntime({
 
     // 持久化（v0.39 ms）：算聊天级差分、附上楼层记录，一次追加；追加串行排队。
     function persist(extra = [], options = {}) {
-        if (!ledger || blocked || unavailable) return null;
+        if (!ledger || blocked || unavailable) return options.generation
+            ? Promise.resolve({ ok: false, reason: blocked || unavailable || 'stats-no-ledger' }) : null;
+        const held = generationSave.pending();
+        if (!held.ok || (held.intent && options.generation)) return Promise.resolve(held.ok
+            ? { ok: false, reason: 'stats-generation-save-pending' } : held);
         const t = tables();
-        if (!t.ok) { writeFailed({ reason: t.reason }); return null; }
-        const next = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, currency, currencyEdit });
+        if (!t.ok) {
+            if (options.generation) return Promise.resolve({ ok: false, reason: t.reason });
+            writeFailed({ reason: t.reason }); return null;
+        }
+        const next = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit });
         writeSeq += 1;
-        const records = [...extra, ...diffChatRecords(baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
+        const records = [...extra, ...diffChatRecords(options.generation?.beforeEntries || baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
+        if (options.generation) {
+            const task = options.generation;
+            task.check();
+            if (!records.length) return Promise.resolve({ ...options.result, ok: true });
+            const prepared = records.length ? generationSave.prepare(task.key, records, options.result || { ok: true }, task.alive, task.beforeRows) : { ok: true };
+            if (!prepared.ok) return Promise.resolve(prepared);
+            return Promise.resolve().then(() => finishGenerationSave(task));
+        }
         baseline = next;
         if (!records.length) return null;
         inflight += 1;
         inflightChat = chatIdOf(ctx());
         const chatId = inflightChat;
+        const ownerAlive = generationTasks.lease();
         let started;
-        const shouldStart = () => chatIdOf(ctx()) === chatId && (!options.shouldStart || options.shouldStart() === true);
+        const shouldStart = () => ownerAlive() && (!options.shouldStart || options.shouldStart() === true);
         try { started = t.append(records, { ...options, shouldStart }); } catch (error) { started = Promise.reject(error); }
-        const job = Promise.resolve(started).then((r) => { if (chatIdOf(ctx()) === chatId && (!r || r.ok !== true)) writeFailed(r); return r; }, () => {
-            const r = { ok: false, reason: 'stats-log-write-threw' };
-            if (chatIdOf(ctx()) === chatId) writeFailed(r);
+        const job = Promise.resolve(started).then((r) => {
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            if (!r || r.ok !== true) writeFailed(r);
             return r;
+        }, () => {
+            const r = { ok: false, reason: 'stats-log-write-threw' };
+            if (shouldStart()) writeFailed(r);
+            return shouldStart() ? r : { ok: false, reason: 'request-stale' };
         }).finally(() => {
             inflight -= 1;
             writes += 1;
             // 自己的写入完成后，缓存键跟着更新：内存状态已是最新，不必再整表读一遍。
-            if (inflight === 0 && loadedChat === chatId && chatIdOf(ctx()) === chatId) loadedKey = cacheKey(tables());
+            if (inflight === 0 && loadedChat === chatId && shouldStart()) loadedKey = cacheKey(tables());
         });
         tail = Promise.all([tail, job]).then(() => {});
         return job;
+    }
+
+    function refreshAttributeRecovery(failure = '') {
+        if (!attributeAccess || !settings().enabled) return;
+        const held = attributeAccess().status();
+        if (held.reason === 'stats-attribute-save-pending') {
+            const owner = generationIdentity();
+            setNotice('attribute-save', { kind: 'recovery', chatId: chatIdOf(ctx()), generation: owner?.generation,
+                text: failure ? `属性尚未恢复：${failure}` : '上次属性修改尚未确认。',
+                actions: [['retry', '核对并恢复原修改']], operation: held.operation });
+        } else if (notices.has('attribute-save')) setNotice('attribute-save', null);
+    }
+
+    function generationSaveNotice(result) {
+        if (result?.reason === 'request-stale') return;
+        const conflict = ['stats-generation-conflict', 'stats-generation-log-conflict', 'stats-generation-record-conflict'].includes(result?.reason);
+        const held = generationSave.pending();
+        const retained = held.ok && Boolean(held.intent);
+        setNotice('generation-save', result?.ok ? null : { kind: 'info',
+            text: result?.stage === 'read' ? `数值日志读取失败，已停止本次操作：${result.reason}`
+                : conflict ? `生成结果与当前档案冲突，已停止写入${retained ? '并保留原结果' : ''}：${result.reason}`
+                : `生成结果保存未完成：${result?.reason || 'stats-generation-save-unverified'}`,
+            actions: retained ? [['retry', conflict ? '重新核对原结果' : '重试保存']]
+                : [['dismiss', '知道了']] });
+    }
+    function stageGeneration(task, apply) {
+        checkGeneration(task);
+        const previous = { catalog, ledger, learned };
+        const effects = { notices: [], codex: false, push: false };
+        task.beforeEntries = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit });
+        let saved;
+        try {
+            catalog = structuredClone(catalog);
+            ledger = structuredClone(ledger);
+            learned = structuredClone(learned);
+            generationStage = effects;
+            const { extra = [], result = { ok: true } } = apply();
+            saved = persist(extra, { generation: task, result: { ...result, effects } });
+        } finally {
+            generationStage = null;
+            ({ catalog, ledger, learned } = previous);
+        }
+        return Promise.resolve(saved).then(result => {
+            task.check();
+            if (result?.ok && !result.recovered) publishGeneration(task, result);
+            if (!result?.ok) generationSaveNotice(result);
+            return result;
+        });
+    }
+    function publishGeneration(task, result) {
+        task.check();
+        const effects = result.effects || {};
+        if (effects.heroAssigned) heroAsked.add(chatIdOf(ctx()));
+        for (const [id, notice] of effects.notices || []) { task.check(); setNotice(id, notice); }
+        task.check();
+        if (effects.events) pendingEvents = { bond: [...pendingEvents.bond, ...effects.events.bond], review: [...pendingEvents.review, ...effects.events.review] };
+        if (effects.codex && ledger) { task.check(); lightGlobalCodex(currentStatsState(ledger)); }
+        if (effects.push) { task.check(); push(task.alive); }
+        task.check();
+        if (ledger) onChange(currentStatsState(ledger), null);
+    }
+    async function finishGenerationSave(task) {
+        task.check();
+        task.stage = 'save';
+        const revision = task.sourceRevision ?? generationRevision();
+        const alive = () => task.alive() && generationRevision() === revision;
+        inflight += 1;
+        inflightChat = chatIdOf(ctx());
+        const run = async () => {
+            try {
+                let result = await generationSave.recover(alive);
+                task.check();
+                if (generationRevision() !== revision) result = { ok: false, reason: 'stats-generation-conflict' };
+                if (result.ok && result.rows) {
+                    const merged = mergeStatLog(result.rows, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
+                    task.check();
+                    adopt(merged);
+                    loadedKey = cacheKey(tables());
+                    publishGeneration(task, result);
+                }
+                generationSaveNotice(result);
+                const { rows, ...outcome } = result;
+                return outcome;
+            } finally { inflight -= 1; writes += 1; }
+        };
+        const job = run();
+        tail = Promise.all([tail, job]).then(() => {}, () => {});
+        return job;
+    }
+    function retryGenerationSave() {
+        return generationTasks.start('generation-save', async task => {
+            const result = await finishGenerationSave(task);
+            task.check();
+            return result;
+        });
+    }
+    function pendingGenerationSave() {
+        const held = generationSave.pending();
+        return !held.ok ? Promise.resolve(held) : held.intent ? retryGenerationSave() : null;
     }
 
     // 才艺技能表里的技能名：旧六维名换成现行名，别名换成注册表里的正式名。
@@ -1007,7 +1460,7 @@ export function createStatsRuntime({
         const engine = memoEngineOf();
         const out = {};
         const hero = {};
-        const source = life();
+        const source = attributes();
         if (source && source.ready === true) {
             for (const name of BASE_ATTRIBUTES) hero[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
         }
@@ -1029,7 +1482,7 @@ export function createStatsRuntime({
         for (const [name, sheet] of Object.entries(catalog.sheets || {})) {
             if (!state.characters[name]) continue;
             const row = {};
-            if (sheetAbilityScores(sheet)) for (const attr of BASE_ATTRIBUTES) row[attr] = Math.round(Number(profileOf(engine, state, name, attr).value) || 0);
+            if (attributeAccess ? engine.readAbilities(name)?.initialized : sheetAbilityScores(sheet)) for (const attr of BASE_ATTRIBUTES) row[attr] = Math.round(Number(profileOf(engine, state, name, attr).value) || 0);
             for (const skill of Object.keys(sheet.skills || {})) {
                 const value = Math.round(Number(profileOf(engine, state, name, skill).value) || 0);
                 if (value > 0) row[skill] = value;
@@ -1093,19 +1546,25 @@ export function createStatsRuntime({
         catalog = sanitizeCatalog({ ...catalog, sheets: { ...catalog.sheets, [name]: { ...cur, skills: { ...(cur.skills || {}), [skill]: base }, provisional } } });
     }
 
-    // 推送给表格的基础属性：战斗六维 ÷5（战斗源就绪时才有，否则不推）。
+    // 基础属性列只推永久分值；装备与随身加成只出现在生效值列。
     function baseAttributesOf(state) {
-        const source = life();
+        const source = attributes();
         if (!source || source.ready !== true) return null;
+        if (attributeAccess) {
+            const scores = source.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() })?.permanentScores;
+            return scores ? Object.fromEntries(Object.entries(scores).map(([key, value]) => [ABILITY_LABELS[key], value])) : null;
+        }
         const engine = memoEngineOf();
         return Object.fromEntries(BASE_ATTRIBUTES.map((name) => [name, Math.round((Number(profileOf(engine, state, PROTAGONIST, name).value) || 50) / 5)]));
     }
 
     // 单向推送到表格（§8A）：子开关关或没装表格插件时什么都不做；失败只记诊断，不影响结算。
     // 同一时间只跑一次推送，后到的请求排在当前这次之后。
-    function push() {
+    function push(ownerAlive = null) {
+        if (generationStage) { generationStage.push = true; return Promise.resolve({ ok: true, staged: true }); }
         if (!active() || !pushOn()) return Promise.resolve({ ok: true, skipped: true });
-        const alive = currencyLease();
+        const current = currencyLease();
+        const alive = () => current() && (!ownerAlive || ownerAlive());
         let client = null;
         try { client = getPushClient(); } catch (error) { client = null; }
         if (!client) return Promise.resolve({ ok: false, reason: 'stats-push-no-client' });
@@ -1205,6 +1664,8 @@ export function createStatsRuntime({
     // 回放需要的取数回调。D&D 与 CoC 共用同一份 profile，百分制 = 六维分数 × 5。
     // 战斗源未就绪时 D&D 回放没有六维可用，返回 { ok:false }（CoC 直接走引擎 profile，不依赖战斗源）。
     function replaySources(engine, state) {
+        const source = attributes();
+        if (attributeAccess && !source?.ready) return { ok: false, reason: source?.reason || 'stats-attribute-read-failed' };
         const coc = IS_COC(engine);
         const resolveName = (raw) => engine.registry.resolve(raw) || String(raw || '').trim();
         const modsFor = (skill, ability) => modifiersOf(engine, state, { actor: PROTAGONIST, skill: skill ? resolveName(skill) : ABILITY_LABELS[ability] });
@@ -1216,13 +1677,12 @@ export function createStatsRuntime({
                 shiftOf: (actor, tag) => (isHero(actor) ? modsFor(tag.skill, tag.ability).shift : 0),
             };
         }
-        const source = life();
         if (!source || source.ready !== true || typeof source.readAbilities !== 'function') return { ok: false, reason: (source && source.reason) || 'stats-life-source-missing' };
         return {
             ok: true,
             readAbilities: (actor) => {
                 if (isHero(actor)) return engine.readAbilities(userName() || PROTAGONIST);
-                return npcAbilities(actor) || engine.readAbilities(actor);
+                return attributeAccess ? engine.readAbilities(actor) : npcAbilities(actor) || engine.readAbilities(actor);
             },
             resolveSkill: (actor, skill) => {
                 const p = profileOf(engine, state, isHero(actor) ? PROTAGONIST : actor, resolveName(skill));
@@ -1283,6 +1743,7 @@ export function createStatsRuntime({
     // D&D：actors 是各人六维加值；CoC：actors 是百分制属性与高技能。
     function checkPromptInput(type = null) {
         if (!active() || settings().storyCheck !== 'preroll' || SKIP_TYPES.has(type)) return null;
+        if (attributeAccess && !attributes().ready) return null;
         const c = ctx();
         const list = messages(c);
         const ordinal = upcomingCheckOrdinal(list, type);
@@ -1306,10 +1767,9 @@ export function createStatsRuntime({
                 actors.push({ name: name === PROTAGONIST ? hero : name, attrs, skills });
             }
         } else {
-            const src = life();
+            const src = attributes();
             if (src && src.ready === true) {
-                const read = (name) => { try { return isHero(name) ? engine.readAbilities(hero) : (npcAbilities(name) || engine.readAbilities(name)); } catch (error) { return null; } };
-                const heroAbilities = read(hero);
+                const heroAbilities = engine.readAbilities(hero);
                 if (heroAbilities) actors.push({ name: hero, attr: heroAbilities });
             } else diag('stats-check-sources-unavailable', { reason: (src && src.reason) || 'stats-life-source-missing' });
         }
@@ -1469,6 +1929,7 @@ export function createStatsRuntime({
         return texts;
     }
     function lightGlobalCodex(state) {
+        if (generationStage) { generationStage.codex = true; return; }
         if (!traitCodexStore) return;
         try {
             const next = lightCodex(traitCodexStore.get(), catalog, state, { cardName: cardOf(ctx()), nsfwOn: isNsfw() });
@@ -1529,9 +1990,7 @@ export function createStatsRuntime({
         if (kept.length) diag('stats-trait-review-skipped', { items: kept.map((s) => `${s.charName}:${s.id}:${s.why}`) });
     };
     // 初始特质：主角与已建档角色各评一次（每人最多 3 项，src=auto），按 SHEET_BATCH_MAX 人一批依次发给备用模型。
-    // 只有拿到回复的批次才记为已评；失败的 10 分钟内不重发。
-    let initialJob = null;
-    let initialRetryAt = 0;
+    // 失败保留待评名单，仅手动操作可重试。
     // manual：设置页「补全角色特质」，已评过但仍没有任何特质的角色也再评一次。
     const pendingInitial = (manual = false) => {
         if (!ledger) return [];
@@ -1541,24 +2000,31 @@ export function createStatsRuntime({
         return [PROTAGONIST, ...npcs].filter((n) => !done.has(n) || (manual && bare(n)));
     };
     function runInitialTraits({ manual = false } = {}) {
-        if (initialJob) return initialJob;
+        const pending = generationTasks.get('initial-traits');
+        if (pending) return pending.promise;
+        const recovery = manual ? pendingGenerationSave() : null;
+        if (recovery) return recovery;
         if (!active() || !ledger) return Promise.resolve({ ok: false, reason: ledger ? 'stats-inactive' : 'stats-no-ledger' });
-        if (!manual && Date.now() < initialRetryAt) return Promise.resolve({ ok: false });
+        const failureKey = generationFailureKey('initial-traits');
+        if (!manual && generationFailures.has(failureKey)) return Promise.resolve({ ok: false, reason: 'stats-trait-retry-required' });
         if (manual && generating) return Promise.resolve({ ok: false, reason: 'stats-generating' });
         if (reviewing) return Promise.resolve({ ok: false, reason: 'stats-trait-busy' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
-        const chatId = chatIdOf(ctx());
         const filled = [];
-        const run = async () => {
+        return generationTasks.start('initial-traits', async job => {
+            reviewing = job;
+            try {
             let total = 0;
             const names = pendingInitial(manual);
             if (!names.length) return { ok: true, applied: 0, filled, asked: 0 };
             for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
-                if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+                job.check();
+                job.revision = JSON.stringify(catalog);
                 const batch = names.slice(i, i + SHEET_BATCH_MAX);
                 let people;
                 try { people = await describeWithHero(batch); } catch (error) { people = batch.map((name) => ({ name, summary: '' })); }
+                checkGeneration(job);
                 const persona = new Map((Array.isArray(people) ? people : []).filter(Boolean).map((p) => [p.name, String(p.summary || '')]));
                 for (const p of Array.isArray(people) ? people : []) {
                     if (!p) continue;
@@ -1590,73 +2056,74 @@ export function createStatsRuntime({
                 const prompt = { system: '你是角色设定评定助手，只依据人设与正文作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'initial', [], null, WORLD_GENRES) };
                 let text;
                 try {
-                    const reply = await ask(request, prompt);
+                    const reply = await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job);
                     text = reply && typeof reply === 'object' ? reply.text : reply;
                 } catch (error) {
+                    job.check();
+                    if (error?.stage) throw error;
                     diag('stats-trait-initial-failed');
-                    initialRetryAt = Date.now() + 10 * 60 * 1000;
+                    generationFailures.add(failureKey);
                     return { ok: false, reason: 'stats-trait-initial-failed', applied: total, filled };
                 }
-                if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
-                const now = currentStatsState(ledger);
-                const prevCatalog = catalog;
+                checkGeneration(job);
                 const dropped = [];
                 const tags = {};
                 const results = parseReviewReply(text, defs, { chars: batch, dropped, tags }).filter((r) => r.on);
-                storeWorlds(parseReviewWorlds(text, WORLD_GENRES));
                 logReviewParse(dropped, tags);
-                const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'initial' });
-                logReviewSkipped(applied.skipped);
-                // 人设为空且本批没有结果的角色不记已评，下次自动重评。
-                const judged = judgedNames(batch, persona, results);
-                applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...judged])] });
-                if (applied.applied.length) {
-                    total += applied.applied.length;
-                    for (const r of applied.applied) if (!filled.includes(r.charName)) filled.push(r.charName);
-                    const texts = refreshAllCombos(now, prevCatalog, now);
-                    announceTraits(applied.notices, texts);
-                    lightGlobalCodex(now);
-                }
-                persist();
-                push();
+                const saved = await stageGeneration(job, () => {
+                    const now = currentStatsState(ledger);
+                    const prevCatalog = catalog;
+                    storeWorlds(parseReviewWorlds(text, WORLD_GENRES));
+                    const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'initial' });
+                    logReviewSkipped(applied.skipped);
+                    const judged = judgedNames(batch, persona, results);
+                    applyCatalog({ ...applied.catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...judged])] });
+                    if (applied.applied.length) {
+                        const texts = refreshAllCombos(now, prevCatalog, now);
+                        announceTraits(applied.notices, texts);
+                        lightGlobalCodex(now);
+                    }
+                    push();
+                    return { result: { ok: true, applied: applied.applied.length,
+                        filled: [...new Set(applied.applied.map(r => r.charName))] } };
+                });
+                job.check();
+                if (!saved?.ok) return saved;
+                total += saved.applied || 0;
+                for (const name of saved.filled || []) if (!filled.includes(name)) filled.push(name);
             }
-            if (manual) onChange(currentStatsState(ledger), null);
+            generationFailures.delete(failureKey);
             return { ok: true, applied: total, filled, asked: names.length };
-        };
-        reviewing = true;
-        initialJob = run().catch(() => { diag('stats-trait-initial-failed'); return { ok: false }; })
-            .finally(() => { reviewing = false; initialJob = null; });
-        return initialJob;
+            } finally { if (reviewing === job) reviewing = false; }
+        });
     }
     // 复核：6 楼正文 + 纪要表 + 恋爱日记表 + 当前特质 → 副模型（现有后台请求通道）→ 解析 → applyTraitChange，并记下识别出的事件。
     // 人多时按 SHEET_BATCH_MAX 人一批依次发送，避免一次请求过长被截断或超时。
     function runTraitReview(names, messageId) {
         const all = [...new Set(names)];
-        if (all.length <= SHEET_BATCH_MAX) return runTraitReviewBatch(all, messageId);
-        const bond = [];
-        const review = [];
-        let applied = 0;
-        let ok = false;
-        let chain = Promise.resolve();
-        for (let i = 0; i < all.length; i += SHEET_BATCH_MAX) {
-            const batch = all.slice(i, i + SHEET_BATCH_MAX);
-            chain = chain.then(() => runTraitReviewBatch(batch, messageId)).then((r) => {
-                if (r && r.ok) { ok = true; applied += r.applied || 0; }
-                bond.push(...pendingEvents.bond);
-                review.push(...pendingEvents.review);
-                pendingEvents = { bond: [], review: [] };
-            });
-        }
-        return chain.then(() => {
-            pendingEvents = { bond, review };
-            return { ok, applied, events: bond.length + review.length };
+        return generationTasks.start('trait-review', async job => {
+            let applied = 0;
+            let events = 0;
+            let ok = false;
+            reviewing = job;
+            try {
+            for (let i = 0; i < all.length; i += SHEET_BATCH_MAX) {
+                job.check();
+                const r = await runTraitReviewBatch(all.slice(i, i + SHEET_BATCH_MAX), messageId, job);
+                job.check();
+                if (!r?.ok) return r;
+                ok = true; applied += r.applied || 0;
+                events += r.events || 0;
+            }
+            return { ok, applied, events };
+            } finally { if (reviewing === job) reviewing = false; }
         });
     }
-    function runTraitReviewBatch(names, messageId) {
+    function runTraitReviewBatch(names, messageId, job) {
         const request = requester();
         if (!request || !ledger) return Promise.resolve({ ok: false });
         const c = ctx();
-        const chatId = chatIdOf(c);
+        job.revision = JSON.stringify(catalog);
         const state = currentStatsState(ledger);
         const nsfw = isNsfw();
         const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
@@ -1680,9 +2147,8 @@ export function createStatsRuntime({
         if (!chars.length) return Promise.resolve({ ok: false });
         const payload = buildReviewPayload({ floors, tables: client ? () => client.readTables() : null, chars, catalog, defs, N: settings().traitReviewN, nsfw });
         const prompt = { system: '你是剧情评定助手，只依据正文与资料作答，只输出指定的 JSON。', user: buildReviewPrompt(payload, defs, 'story', TRAIT_REVIEW_PROMPT_EVENTS, STATUS_DEFS.filter((d) => subInWorlds(d.sub, worldsNow())), WORLD_GENRES) };
-        reviewing = true;
-        return ask(request, prompt).then((reply) => {
-            if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false };
+        return ask(request, prompt, BACKGROUND_TIMEOUT_MS, job).then((reply) => {
+            checkGeneration(job);
             const text = reply && typeof reply === 'object' ? reply.text : reply;
             const only = chars.map((x) => x.name);
             const dropped = [];
@@ -1690,26 +2156,32 @@ export function createStatsRuntime({
             const results = parseReviewReply(text, defs, { chars: only, dropped, tags });
             logReviewParse(dropped, tags);
             const events = parseReviewEvents(text, { bondTypes: BOND_EVENT_TYPES, chars: only });
-            storeWorlds(parseReviewWorlds(text, WORLD_GENRES));
-            const now = currentStatsState(ledger);
-            const prevCatalog = catalog;
-            const memory = reviewMemoryOf(catalog.counters, results, [...new Set(results.map((r) => r.charName))], TRAIT_IDS, now.clock.day);
-            const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: memory.changeLog, recent: memory.recent });
-            logReviewSkipped(applied.skipped);
-            // 状态补漏：副模型给出的状态挂摘，来源只升不降。
-            const statusRes = applyReviewStatuses(parseReviewStatuses(text, STATUS_DEFS, { chars: only }), { statuses: catalog.statuses }, applyStatusChange, { day: now.clock.day });
-            if (statusRes.applied.length) { catalog = sanitizeCatalog({ ...catalog, statuses: statusRes.catalog.statuses }); persist(); push(); }
-            pendingEvents = { bond: events.bond, review: events.review };
-            if (applied.applied.length) {
-                applyCatalog({ ...applied.catalog, counters: reviewMemoryWrite(applied.catalog.counters, applied.applied, TRAIT_IDS, now.clock.day) });
-                const texts = refreshAllCombos(now, prevCatalog, now);
-                announceTraits(applied.notices, texts);
-                lightGlobalCodex(now);
-                persist();
-                push();
-            }
-            return { ok: true, applied: applied.applied.length, events: events.bond.length + events.review.length };
-        }).catch(() => { diag('stats-trait-review-failed'); return { ok: false }; }).finally(() => { reviewing = false; });
+            return stageGeneration(job, () => {
+                storeWorlds(parseReviewWorlds(text, WORLD_GENRES));
+                const now = currentStatsState(ledger);
+                const prevCatalog = catalog;
+                const memory = reviewMemoryOf(catalog.counters, results, [...new Set(results.map(r => r.charName))], TRAIT_IDS, now.clock.day);
+                const applied = applyReview(results, catalog, applyTraitChange, { state: now, mode: 'story', day: now.clock.day, changeLog: memory.changeLog, recent: memory.recent });
+                logReviewSkipped(applied.skipped);
+                if (applied.applied.length) {
+                    applyCatalog({ ...applied.catalog, counters: reviewMemoryWrite(applied.catalog.counters, applied.applied, TRAIT_IDS, now.clock.day) });
+                }
+                const statusRes = applyReviewStatuses(parseReviewStatuses(text, STATUS_DEFS, { chars: only }), { statuses: catalog.statuses }, applyStatusChange, { day: now.clock.day });
+                if (statusRes.applied.length) catalog = sanitizeCatalog({ ...catalog, statuses: statusRes.catalog.statuses });
+                if (applied.applied.length) {
+                    announceTraits(applied.notices, refreshAllCombos(now, prevCatalog, now));
+                    lightGlobalCodex(now);
+                }
+                if (statusRes.applied.length || applied.applied.length) push();
+                generationStage.events = events;
+                return { result: { ok: true, applied: applied.applied.length, events: events.bond.length + events.review.length } };
+            });
+        }).catch(error => {
+            job.check();
+            if (error?.stage) throw error;
+            diag('stats-trait-review-failed');
+            return { ok: false, reason: error?.reason || 'stats-trait-review-failed' };
+        });
     }
 
     function settleAt(messageId, options = {}) {
@@ -1977,6 +2449,7 @@ export function createStatsRuntime({
     }
 
     function onChatChanged() {
+        invalidateGenerations();
         invalidateCurrencyJob();
         currencyAsked.delete(chatIdOf(ctx()));
         managedCache = null;
@@ -1992,6 +2465,7 @@ export function createStatsRuntime({
     }
 
     function detach() {
+        invalidateGenerations();
         invalidateCurrencyJob();
         for (const off of offs) { try { off(); } catch (error) { /* */ } }
         offs = [];
@@ -2085,35 +2559,58 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // 自动启用：战斗开启时一律启用；否则只对从未启用也未拒绝的聊天按「自动快速开始」生效，暂停过的聊天不自动开（v2 §9.5）。
+    // 自动启用：数值总开关开启后本聊天直接开始启用并初始化主角；历史未启用/旧 declined 不阻断自动启动。
+    // 已有账本且显式暂停过的聊天保持暂停；战斗开启时一律确保启用。
     function autoEnable() {
         const s = settings();
         if (!s.enabled || unavailable || blocked || !chatIdOf(ctx())) return;
-        const mode = modePending && modeChat === chatIdOf(ctx()) ? modeDefault : s.newChat === 'auto' ? 'auto' : null;
-        if (combatOn()) { if (!ledger || !chatEnabled) Promise.resolve(enableForChat({ buildMode: mode })).catch(() => {}); return; }
-        if (s.newChat !== 'auto' || ledger || declined) return;
-        Promise.resolve(enableForChat({ buildMode: mode })).catch(() => {});
+        if (combatOn()) { if (!ledger || !chatEnabled) Promise.resolve(enableForChat()).catch(() => {}); return; }
+        if (ledger) return;
+        Promise.resolve(enableForChat()).catch(() => {});
     }
 
-    const MODE_TEXT = Object.freeze({ auto: '自动生成', manual: '手动建档', relative: '相对数值' });
-
-    // 引导提示：未启用时问是否启用并选建档方式；已启用但没选建档方式时单独问一次。
+    // 主角基础初始化确认后再展示技能选择与 NPC 策略/首次询问；已退役旧 onboarding（快速/稍后）和 build-mode（自动/手动）主角门禁。
     function refreshOnboarding() {
-        const s = settings();
         const chatId = chatIdOf(ctx()) || null;
         if (chatId !== modeChat) { modeChat = chatId; modeDefault = 'auto'; modePending = false; askedFill.clear(); }
-        const ready = s.enabled && !unavailable && !blocked && Boolean(chatId);
-        const ask = ready && !combatOn() && s.newChat === 'ask' && !ledger && !declined;
-        setNotice('onboarding', ask ? {
-            kind: 'onboarding', text: '数值系统：本聊天是否启用？',
-            actions: [...BUILD_MODES.map((mode) => [`mode:${mode}`, MODE_TEXT[mode], mode === modeDefault]), ['quick', '快速开始'], ['build', '建卡'], ['decline', '本聊天不用']],
-        } : null);
-        setNotice('build-mode', ready && Boolean(ledger) && chatEnabled && !buildMode ? {
-            kind: 'onboarding', text: '本聊天的建档方式', actions: BUILD_MODES.map((mode) => [`pick:${mode}`, MODE_TEXT[mode]]),
-        } : null);
+        if (notices.has('onboarding')) setNotice('onboarding', null);
+        if (notices.has('build-mode')) setNotice('build-mode', null);
         refreshBuildAsk();
+        refreshNpcPolicy();
+        refreshNpcAsk();
         refreshHeroOffer();
         refreshHeroPick();
+    }
+
+    function refreshNpcPolicy() {
+        const offer = heroBasicReady() && settings().sheetGen !== 'off' && !npcPolicy;
+        setNotice('npc-policy', offer ? {
+            kind: 'onboarding',
+            text: 'NPC 建档策略：新角色出场时如何处理？',
+            actions: [['auto', '自动生成'], ['per-npc', '逐个询问']],
+        } : null);
+    }
+
+    function pendingNpcAskName() {
+        if (!heroBasicReady() || settings().sheetGen === 'off' || npcPolicy !== 'per-npc') return null;
+        const state = currentStatsState(ledger);
+        for (const rawName of Object.keys(state.characters || {})) {
+            const name = canonPersonName(catalog.renames, rawName);
+            if (!name || isHero(name)) continue;
+            if (catalog.sheets[name] || Object.hasOwn(npcChoices, name)) continue;
+            return name;
+        }
+        return null;
+    }
+
+    function refreshNpcAsk() {
+        const name = pendingNpcAskName();
+        setNotice('npc-ask', name ? {
+            kind: 'onboarding',
+            name,
+            text: `新角色「${name}」：是否现在生成数值档案？`,
+            actions: [['generate', '现在生成'], ['defer', '暂不建档']],
+        } : null);
     }
 
     // 主角还没有任何内置技能、也没选过时，需要选擅长技能。剧情技能、世界观技能不算（补全出来的不顶替这一步）。
@@ -2126,7 +2623,7 @@ export function createStatsRuntime({
 
     function refreshHeroPick() {
         const chatId = chatIdOf(ctx());
-        const offer = Boolean(chatId) && active() && !heroPickAsked.has(chatId) && needsHeroPick();
+        const offer = Boolean(chatId) && heroBasicReady() && !heroPickAsked.has(chatId) && needsHeroPick();
         setNotice('hero-pick', offer ? { kind: 'onboarding', text: '主角技能：请选3项擅长、5项比较擅长', actions: [['open', '去选择'], ['later', '稍后']] } : null);
     }
 
@@ -2166,24 +2663,24 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // CoC 且主角还没分配过技能时，每个聊天提示一次。
+    // CoC 且主角还没分配过技能时，在主角基础确认后每个聊天提示一次。
     function refreshHeroOffer() {
         const chatId = chatIdOf(ctx());
-        const offer = Boolean(chatId) && active() && !heroAsked.has(chatId) && !catalog.heroAssigned && IS_COC(engineOf()) && Boolean(requester());
+        const offer = Boolean(chatId) && heroBasicReady() && !heroAsked.has(chatId) && !catalog.heroAssigned && IS_COC(engineOf()) && Boolean(requester());
         if (!offer && notices.has('hero-skills') && notices.get('hero-skills').kind === 'busy') return;
         setNotice('hero-skills', offer ? { kind: 'onboarding', text: '主角技能：按人设分配一次？', actions: [['assign', '分配'], ['later', '稍后']] } : null);
     }
 
-    // 手动建档模式下，还没有六维初始档案的角色（主角优先）逐个询问：填写 / 自动 / 跳过。
+    // 手动建档模式下，仅对非主角角色逐个询问（主角统一走自动初始化，不再走旧手动建档门禁）。
     function pendingBuildName() {
-        if (!active() || buildMode !== 'manual') return null;
-        const source = life();
+        if (!heroBasicReady() || buildMode !== 'manual') return null;
+        const source = attributes();
         if (!source || source.ready !== true || typeof source.readAbilities !== 'function') return null;
         const state = currentStatsState(ledger);
         let known = [];
         try { known = typeof source.names === 'function' ? source.names() || [] : []; } catch (error) { known = []; }
-        for (const name of [...new Set([userName() || PROTAGONIST, ...known, ...Object.keys(state.characters || {})])]) {
-            if (!name || askedFill.has(name) || Object.hasOwn(buildChoices, name)) continue;
+        for (const name of [...new Set([...known, ...Object.keys(state.characters || {})])]) {
+            if (!name || isHero(name) || askedFill.has(name) || Object.hasOwn(buildChoices, name)) continue;
             let abilities = null;
             try { abilities = source.readAbilities(name, { heroPrefs: heroPrefs() }); } catch (error) { abilities = null; }
             if (abilities && abilities.initialized === false) return name;
@@ -2199,57 +2696,102 @@ export function createStatsRuntime({
     // 角色卡入库前过一遍 sanitizeCatalog 的同一套规整（旧格式属性迁成六维分数），内存与存档保持一致。
     const tidySheet = (sheet) => sanitizeCatalog({ sheets: { x: sheet } }).sheets.x || sheet;
 
-    // ---- 新角色与角色卡（v2 §6.4） ----
+    // ---- 新角色与角色卡（v2 §6.4 / P5）：主角基础确认后按本聊天 NPC 策略运行；停止跨聊天 NPC 缓存读取 ----
     function detectNewCharacters() {
-        if (!active()) return;
+        if (!heroBasicReady()) return;
         const s = settings();
         if (s.sheetGen === 'off') return;
         const state = currentStatsState(ledger);
-        // 主角（含别名同组、设为User立绘的角色卡）不生成 NPC 角色卡。
-        const fresh = Object.keys(state.characters).filter((n) => !catalog.sheets[n] && !catalog.notified.includes(n) && !isHero(n));
-        if (!fresh.length) return;
-        const card = cardOf(ctx());
-        const carried = [];
-        const sheets = { ...catalog.sheets };
-        for (const name of fresh) {
-            const kept = sheetStore && card ? sheetStore.get(card, name) : null;
-            if (kept) { sheets[name] = tidySheet({ ...kept, source: 'carried', provisional: {} }); carried.push(name); }
+        const candidates = [...new Set(Object.keys(state.characters || {}).map((n) => canonPersonName(catalog.renames, n)))]
+            .filter((n) => n && !isHero(n) && !catalog.sheets[n] && npcChoices[n] !== 'defer');
+        if (!candidates.length) { refreshNpcAsk(); return; }
+        if (!npcPolicy) {
+            refreshNpcPolicy();
+            return;
         }
-        catalog = { ...catalog, sheets, notified: [...catalog.notified, ...fresh] };
-        persist();
-        if (carried.length) setNotice('carried', { kind: 'info', text: `沿用已有角色卡：${carried.join('、')}`, ttl: true });
-        const rest = fresh.filter((n) => !carried.includes(n));
-        if (!rest.length) return;
-        catalog = { ...catalog, queue: { ...catalog.queue, people: [...new Set([...catalog.queue.people, ...rest])] } };
-        persist();
-        if (s.sheetGen === 'auto') { generateSheets(); return; }
-        const pending = catalog.queue.people;
-        setNotice('sheets', {
-            kind: 'sheets', text: pending.length > 1 ? `新角色 ${pending.length} 位` : `新角色：${pending[0]}`,
-            actions: [['generate', '生成数值'], ['dismiss', '稍后']],
-        });
+        if (npcPolicy === 'auto') {
+            const fresh = candidates.filter((n) => !catalog.notified.includes(n));
+            if (!fresh.length) return;
+            catalog = {
+                ...catalog,
+                notified: [...catalog.notified, ...fresh],
+                queue: { ...catalog.queue, people: [...new Set([...catalog.queue.people, ...fresh])] },
+            };
+            persist();
+            generateSheets(fresh);
+            return;
+        }
+        // per-npc：只对无正式档案且无已记录决定者进入首次询问；未建档角色自动由相对算法提供带来源标记的派生值。
+        refreshNpcAsk();
     }
 
     function requester() {
+        const route = generationRoute();
         let request = null;
         try { request = getBackgroundRequest(); } catch (error) { request = null; }
-        return typeof request === 'function' ? request : null;
+        if (typeof request !== 'function') return null;
+        return (prompt, task = {}) => {
+            const current = () => generationRoute() === route;
+            task.guard?.(current);
+            if (!current() || task.signal?.aborted || task.shouldStart?.() === false)
+                throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
+            return request(prompt, task);
+        };
     }
 
-    async function ask(request, prompt, ms = BACKGROUND_TIMEOUT_MS) {
-        let timer = null;
-        const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), ms); });
-        try {
-            const reply = await Promise.race([Promise.resolve().then(() => request(prompt)), timeout]);
-            if (reply && reply.timedOut) throw new Error('timeout');
-            return reply;
-        } finally { clearTimeout(timer); }
+    async function ask(request, prompt, ms = BACKGROUND_TIMEOUT_MS, job) {
+        if (job) {
+            const route = generationRoute();
+            job.guard(() => generationRoute() === route);
+            const held = generationSave.pending();
+            const source = !held.ok || held.intent
+                ? { ok: false, reason: held.reason || 'stats-generation-save-pending', stage: 'save' }
+                : generationSave.read(null, job.alive);
+            if (!source.ok) {
+                job.check();
+                generationFailures.add(generationFailureKey(job.key));
+                diag(source.reason);
+                setNotice(job.key, null);
+                generationSaveNotice(source);
+                throw Object.assign(new Error(source.reason), { reason: source.reason, stage: source.stage });
+            }
+            job.beforeRows = source.rows;
+            job.sourceRevision = generationRevision();
+            return job.request(request, prompt, ms);
+        }
+        return generationTasks.start('supplement', async task => {
+            const route = generationRoute();
+            task.guard(() => generationRoute() === route);
+            return { reply: await task.request(request, prompt, ms) };
+        })
+            .then(result => {
+                if (result?.reason === 'request-stale') throw Object.assign(new Error('request-stale'), { reason: 'request-stale' });
+                return result.reply;
+            });
     }
 
-    // 生成角色卡：生成进行中时排到结束后（N1）；失败最多自动重试 1 次（N13），整份失败不写半份（N3）。
+    // 生成角色卡：单次动作只请求一次，失败保留旧卡；慢请求继续等待原回包。
     // 角色卡含六维属性档、资历与技能；专属宿主入口装配历史、角色卡及原生触发世界书。
-    function generateSheets(names = null) {
-        if (sheetJob) return sheetJob;
+    // 本聊天已确认的 NPC 手改底数 ID（{ 名 → ID }）。读不到属性档时报原因，不当作没有手改。
+    function manualBaseIds(names) {
+        if (!attributeAccess) return { ok: true, ids: {} };
+        const source = attributes();
+        if (!source?.ready) return source?.reason === 'combat-attribute-table-missing'
+            ? { ok: true, ids: {} } : { ok: false, reason: source?.reason || 'stats-attribute-read-failed' };
+        const ids = {};
+        for (const name of names) {
+            const id = source.readAbilities(name)?.baseId;
+            if (id) ids[name] = id;
+        }
+        return { ok: true, ids };
+    }
+
+    function generateSheets(names = null, { supersede = false } = {}) {
+        const pending = generationTasks.get('sheets');
+        if (pending) return !supersede || (pending.supersede || []).includes(names?.[0])
+            ? pending.promise : Promise.resolve({ ok: false, reason: 'stats-sheet-busy' });
+        const recovery = pendingGenerationSave();
+        if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         const request = requester();
         if (!request) {
@@ -2264,7 +2806,14 @@ export function createStatsRuntime({
         if (!targets.length) return Promise.resolve({ ok: true, skipped: true });
         setNotice('sheets', { kind: 'busy', text: `正在生成数值：${targets.join('、')}` });
         const chatSeed = chatIdOf(ctx());
-        const run = async () => {
+        const started = generationTasks.start('sheets', async job => {
+            job.revision = JSON.stringify(catalog);
+            // 重新生成只取代发起时已确认的手改；之后保存的手改 ID 不同，不会被迟到结果撤掉。
+            const replaced = supersede ? manualBaseIds(targets) : { ok: true, ids: {} };
+            if (!replaced.ok) {
+                setNotice('sheets', { kind: 'sheets', text: '属性档读取失败，未发送请求，可重试', actions: [['generate', '重试'], ['dismiss', '稍后']] });
+                return replaced;
+            }
             const protagonists = targets.filter(isHero);
             let context = {
                 people: targets.map((name) => ({ name, summary: '' })), protagonists,
@@ -2281,6 +2830,7 @@ export function createStatsRuntime({
                 let resolved;
                 try { resolved = await readSheetContext({ names: targets, protagonists, protagonistCards }); }
                 catch (error) { resolved = { ok: false, reason: 'stats-sheet-context-failed' }; }
+                checkGeneration(job);
                 if (!resolved || resolved.ok === false) {
                     const reason = resolved?.reason || 'stats-sheet-context-failed';
                     diag(reason);
@@ -2293,47 +2843,54 @@ export function createStatsRuntime({
             const skills = engine.registry.entries().filter(([, e]) => e.kind === 'skill' && (e.origin !== 'world')).map(([n, e]) => [n, e.attribute]);
             const prompt = buildSheetRequest(context.people, { ...context, worldview: worldviewOf(), skills, prompt: settings().prompts.sheetGen });
             let parsed = null;
-            for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
-                try { parsed = parseSheetReply(await ask(request, prompt), { names: targets, registry: engine.registry }); }
-                catch (error) { parsed = { ok: false, reason: 'stats-sheet-request-failed' }; }
-            }
+            try { parsed = parseSheetReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job), { names: targets, registry: engine.registry }); }
+            catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-sheet-request-failed' }; }
+            checkGeneration(job);
             if (!parsed || !parsed.ok) {
                 diag(parsed ? parsed.reason : 'stats-sheet-request-failed');
                 setNotice('sheets', { kind: 'sheets', text: '生成数值失败，可重试', actions: [['generate', '重试'], ['dismiss', '稍后']] });
                 return { ok: false, reason: parsed ? parsed.reason : 'stats-sheet-request-failed' };
             }
             (parsed.diagnostics || []).forEach((d) => diag(d.code, d));
-            const sheets = { ...catalog.sheets };
-            const card = cardOf(ctx());
-            for (const [name, tiers] of Object.entries(parsed.sheets)) {
-                for (const sig of tiers.signature) commitSkill(sig.name, { attribute: sig.attribute });
-                sheets[name] = tidySheet(sheetFromTiers(name, tiers, { chatSeed, heroSkill: heroSkillValue }));
-                if (sheetStore && card) sheetStore.put(card, name, sheets[name]);
-            }
             const done = Object.keys(parsed.sheets);
-            catalog = { ...catalog, sheets, queue: { ...catalog.queue, people: catalog.queue.people.filter((n) => !done.includes(n)) } };
-            persist();
-            setNotice('sheets', catalog.queue.people.length
-                ? { kind: 'sheets', text: `还有 ${catalog.queue.people.length} 位角色没有数值`, actions: [['generate', '生成数值'], ['dismiss', '稍后']] }
-                : { kind: 'info', text: `已生成数值：${done.join('、')}`, ttl: true });
-            onChange(currentStatsState(ledger), null);
-            // 新角色卡生成后接着评初始特质（与角色卡分开请求，失败不影响角色卡）。
-            setTimeout(() => { if (!generating && !reviewing && pendingInitial().length) runInitialTraits(); }, 0);
-            return { ok: true, names: done };
-        };
-        sheetJob = run().finally(() => { sheetJob = null; });
-        return sheetJob;
+            return stageGeneration(job, () => {
+                const sheets = { ...catalog.sheets };
+                const sheetDrops = { ...catalog.sheetDrops };
+                for (const [name, tiers] of Object.entries(parsed.sheets)) {
+                    for (const sig of tiers.signature) commitSkill(sig.name, { attribute: sig.attribute });
+                    sheets[name] = tidySheet(sheetFromTiers(name, tiers, { chatSeed, heroSkill: heroSkillValue }));
+                    if (replaced.ids[name]) sheetDrops[name] = replaced.ids[name];
+                }
+                catalog = { ...catalog, sheets, sheetDrops, queue: { ...catalog.queue, people: catalog.queue.people.filter((n) => !done.includes(n)) } };
+                generationStage.sheetWrites = { card: cardOf(ctx()), names: done };
+                setNotice('sheets', catalog.queue.people.length
+                    ? { kind: 'sheets', text: `还有 ${catalog.queue.people.length} 位角色没有数值`, actions: [['generate', '生成数值'], ['dismiss', '稍后']] }
+                    : { kind: 'info', text: `已生成数值：${done.join('、')}`, ttl: true });
+                return { result: { ok: true, names: done } };
+            });
+        });
+        const job = generationTasks.get('sheets');
+        if (job) job.supersede = supersede ? targets : [];
+        return started;
     }
 
     // ---- 批量补全（v2 §6.2 第二、三层） ----
     function scheduleBackfill() {
-        if (settings().backfill !== 'auto' || !catalog.queue.skills.length || backfillJob || !requester()) return;
-        setTimeout(() => { if (!generating) runBackfill(); }, 0);
+        if (settings().backfill !== 'auto' || !catalog.queue.skills.length || generationTasks.get('backfill') || !requester()
+            || generationFailures.has(generationFailureKey('backfill'))) return;
+        const owner = generationIdentity();
+        const id = chatIdOf(ctx());
+        setTimeout(() => { if (!generating && chatIdOf(ctx()) === id && generationIdentity() === owner) runBackfill({ manual: false }); }, 0);
     }
 
-    function runBackfill() {
-        if (backfillJob) return backfillJob;
+    function runBackfill({ manual = true } = {}) {
+        const pending = generationTasks.get('backfill');
+        if (pending) return pending.promise;
+        const recovery = manual ? pendingGenerationSave() : null;
+        if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
+        const failureKey = generationFailureKey('backfill');
+        if (!manual && generationFailures.has(failureKey)) return Promise.resolve({ ok: false, reason: 'stats-backfill-retry-required' });
         const request = requester();
         if (!request) return Promise.resolve({ ok: false, reason: 'stats-no-model' });
         // 队列空时（手动点「补全角色数值」）改补主角还没有数值的剧情技能；自动补全只在队列非空时触发，不会走到这里。
@@ -2345,49 +2902,54 @@ export function createStatsRuntime({
         if (!skills.length) return Promise.resolve({ ok: true, skipped: true });
         const npcs = Object.keys(catalog.sheets).filter((n) => !isHero(n)).slice(0, SHEET_BATCH_MAX - 1);
         const chatSeed = chatIdOf(ctx());
-        const run = async () => {
+        return generationTasks.start('backfill', async job => {
+            job.revision = JSON.stringify(catalog);
             let people;
             try { people = typeof describePeople === 'function' ? await describeWithHero([...npcs, PROTAGONIST]) : [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             catch (error) { people = [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
+            checkGeneration(job);
             const prompt = buildBackfillRequest(people, skills, { prompt: settings().prompts.backfill });
             let parsed = null;
-            for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
-                try { parsed = parseBackfillReply(await ask(request, prompt), { names: [...npcs, PROTAGONIST], skills }); }
-                catch (error) { parsed = { ok: false, reason: 'stats-backfill-request-failed' }; }
+            try { parsed = parseBackfillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job), { names: [...npcs, PROTAGONIST], skills }); }
+            catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-backfill-request-failed' }; }
+            checkGeneration(job);
+            if (!parsed || !parsed.ok) {
+                generationFailures.add(failureKey);
+                diag(parsed?.reason || 'stats-backfill-request-failed');
+                return { ok: false, reason: parsed?.reason || 'stats-backfill-request-failed' };
             }
-            // 失败也出队，避免每楼反复请求；面板里可手动再补。
-            catalog = { ...catalog, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => !skills.includes(s)) } };
-            if (!parsed || !parsed.ok) { diag(parsed ? parsed.reason : 'stats-backfill-request-failed'); persist(); return { ok: false }; }
-            const sheets = { ...catalog.sheets };
-            for (const name of npcs) if (parsed.fills[name]) sheets[name] = applyBackfillToSheet(sheets[name], parsed.fills[name], { name, chatSeed, heroSkill: heroSkillValue });
-            const base = { ...catalog.protagonistBase };
-            const own = currentStatsState(ledger).protagonist.skills;
-            const filled = [];
-            for (const [skill, tier] of Object.entries(parsed.fills[PROTAGONIST] || {})) {
-                const capped = capSkillTier(tier, PROTAGONIST_BACKFILL_MAX);
-                if (own[skill] || base[skill] || !SKILL_TIERS[capped]) continue;
-                base[skill] = bandValue(SKILL_TIERS[capped], `${chatSeed}|${PROTAGONIST}|${skill}`);
-                filled.push(`${skill} ${capped}`);
-            }
-            catalog = { ...catalog, sheets, protagonistBase: base };
-            persist();
-            if (filled.length) setNotice('backfill', { kind: 'info', text: `按人设补全：${filled.join('、')}`, ttl: true });
-            return { ok: true };
-        };
-        backfillJob = run().finally(() => { backfillJob = null; });
-        return backfillJob;
+            generationFailures.delete(failureKey);
+            return stageGeneration(job, () => {
+                catalog = { ...catalog, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => !skills.includes(s)) } };
+                const sheets = { ...catalog.sheets };
+                for (const name of npcs) if (parsed.fills[name]) sheets[name] = applyBackfillToSheet(sheets[name], parsed.fills[name], { name, chatSeed, heroSkill: heroSkillValue });
+                const base = { ...catalog.protagonistBase };
+                const own = currentStatsState(ledger).protagonist.skills;
+                const filled = [];
+                for (const [skill, tier] of Object.entries(parsed.fills[PROTAGONIST] || {})) {
+                    const capped = capSkillTier(tier, PROTAGONIST_BACKFILL_MAX);
+                    if (own[skill] || base[skill] || catalog.protagonistEdit[skill] || !SKILL_TIERS[capped]) continue;
+                    base[skill] = bandValue(SKILL_TIERS[capped], `${chatSeed}|${PROTAGONIST}|${skill}`);
+                    filled.push(`${skill} ${capped}`);
+                }
+                catalog = { ...catalog, sheets, protagonistBase: base };
+                if (filled.length) setNotice('backfill', { kind: 'info', text: `按人设补全：${filled.join('、')}`, ttl: true });
+                return { result: { ok: true, filled } };
+            });
+        });
     }
 
     // ---- 主角技能（CoC）：按人设一次分配 + 玩家手改 ----
     // 可分配技能：核心（含默认特有）与当前世界观的附加技能；不含六维与理智、剧情技能。
     // 「修改属性」预填：主角六维底数（剧情、升级加点之前，3–18）。战斗属性表没就绪时为 null，不显示按钮。
     function heroAttrs() {
-        const source = life();
+        const source = attributes();
         if (!source || source.ready !== true || typeof source.readAbilities !== 'function') return null;
         let view = null;
         try { view = source.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }); } catch (error) { view = null; }
         if (!view || !view.base || view.table !== 'ok') return null;
-        return { base: { ...view.base }, className: view.className || '', role: view.role || '' };
+        return { base: { ...view.base }, className: view.className || '', role: view.role || '', hasCombatInit: Boolean(view.className), source: view.source || 'default', revision: view.revision,
+            chatId: chatIdOf(ctx()), ownerGeneration: generationIdentity()?.generation };
     }
 
     function heroSkillNames() {
@@ -2400,7 +2962,10 @@ export function createStatsRuntime({
     // 只在 CoC 下提供。已分配过且未传 overwrite 时返回 needs-confirm，由设置页确认后再带 overwrite 调用。
     // 账本里已有的技能（建卡与成长）以账本为准，不参与分配；重新分配会清掉本次名单内的旧底数与手改。
     function assignHeroSkills({ overwrite = false } = {}) {
-        if (heroJob) return heroJob.chatId === chatIdOf(ctx()) ? heroJob.promise : Promise.resolve({ ok: false, reason: 'stats-hero-skills-busy' });
+        const pending = generationTasks.get('hero-skills');
+        if (pending) return pending.promise;
+        const recovery = pendingGenerationSave();
+        if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         if (!IS_COC(engineOf())) return Promise.resolve({ ok: false, reason: 'stats-hero-skills-coc-only' });
         if (catalog.heroAssigned && !overwrite) return Promise.resolve({ ok: false, reason: 'needs-confirm' });
@@ -2418,40 +2983,37 @@ export function createStatsRuntime({
             return Promise.resolve({ ok: true, skipped: true });
         }
         setNotice('hero-skills', { kind: 'busy', text: '正在按人设分配主角技能' });
-        const run = async () => {
+        return generationTasks.start('hero-skills', async job => {
+            job.revision = JSON.stringify(catalog);
             let people;
             try { people = typeof describePeople === 'function' ? await describeWithHero([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
             catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
+            checkGeneration(job);
             const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills });
             let parsed = null;
-            for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
-                try { parsed = parseHeroSkillReply(await ask(request, prompt), { skills }); }
-                catch (error) { parsed = { ok: false, reason: 'stats-hero-skills-request-failed' }; }
-            }
-            if (!ledger || chatIdOf(ctx()) !== chatId) { setNotice('hero-skills', null); return { ok: false, reason: 'stats-chat-changed' }; }
+            try { parsed = parseHeroSkillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job), { skills }); }
+            catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-hero-skills-request-failed' }; }
+            checkGeneration(job);
             if (!parsed || !parsed.ok) {
                 diag(parsed ? parsed.reason : 'stats-hero-skills-request-failed');
                 setNotice('hero-skills', { kind: 'onboarding', text: '主角技能分配失败', actions: [['assign', '重试'], ['later', '稍后']] });
                 return { ok: false, reason: parsed ? parsed.reason : 'stats-hero-skills-request-failed' };
             }
-            const base = { ...catalog.protagonistBase };
-            const edit = { ...catalog.protagonistEdit };
-            for (const name of skills) { delete base[name]; delete edit[name]; }
-            const done = [];
-            for (const [skill, tier] of Object.entries(parsed.tiers)) {
-                base[skill] = bandValue(SKILL_TIERS[tier], `${chatId}|${PROTAGONIST}|${skill}`);
-                done.push(`${skill} ${tier}`);
-            }
-            catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true });
-            heroAsked.add(chatId);
-            persist();
-            setNotice('hero-skills', { kind: 'info', text: `已分配主角技能：${done.join('、')}`, ttl: true });
-            onChange(currentStatsState(ledger), null);
-            return { ok: true, assigned: done };
-        };
-        const promise = run().finally(() => { heroJob = null; });
-        heroJob = { chatId, promise };
-        return promise;
+            return stageGeneration(job, () => {
+                const base = { ...catalog.protagonistBase };
+                const edit = { ...catalog.protagonistEdit };
+                for (const name of skills) { delete base[name]; delete edit[name]; }
+                const done = [];
+                for (const [skill, tier] of Object.entries(parsed.tiers)) {
+                    base[skill] = bandValue(SKILL_TIERS[tier], `${chatId}|${PROTAGONIST}|${skill}`);
+                    done.push(`${skill} ${tier}`);
+                }
+                catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true });
+                generationStage.heroAssigned = true;
+                setNotice('hero-skills', { kind: 'info', text: `已分配主角技能：${done.join('、')}`, ttl: true });
+                return { result: { ok: true, assigned: done } };
+            });
+        });
     }
 
     // 玩家手改一项技能值（1–99；空值清除手改）。覆盖层规则见 stat-engine.js 的 heroSkillLevel：
@@ -2657,30 +3219,26 @@ export function createStatsRuntime({
 
     // ---- 阅读器提示条的按钮（v2 §9.5、§6.4） ----
     function noticeAction(id, action) {
+        if (disposed) return { ok: false, reason: 'request-stale' };
         const n = notices.get(id);
         if (!n) return { ok: false, reason: 'stats-notice-gone' };
-        if (id === 'onboarding') {
-            if (action.startsWith('mode:')) {
-                const mode = normalizeBuildMode(action.slice(5));
-                if (!mode) return { ok: false, reason: 'stats-build-mode-invalid' };
-                modeDefault = mode;
-                modePending = true;
-                refreshOnboarding();
-                return { ok: true };
-            }
-            if (action === 'quick') return enableForChat({ buildMode: modeDefault });
-            if (action === 'decline') { declined = true; store.setDeclined(true); setNotice('onboarding', null); return { ok: true }; }
-            if (action === 'build') { setNotice('onboarding', null); return { ok: true, openSettings: 'stats' }; }
+        if (id === 'attribute-save' && action === 'retry') {
+            const owner = generationIdentity(), access = attributeAccess(), epoch = currencyEpoch;
+            const alive = () => !disposed && settings().enabled && epoch === currencyEpoch && n.chatId === chatIdOf(ctx()) && n.generation === owner?.generation && owner === generationIdentity();
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            return access.recover({ operation: n.operation, shouldStart: alive }).then(result => {
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (result.ok) { gateMemo = null; ensureLoaded(true); }
+                refreshAttributeRecovery(result.ok ? '' : result.reason);
+               return result;
+            });
         }
-        if (id === 'build-mode' && action.startsWith('pick:')) {
-            const mode = normalizeBuildMode(action.slice(5));
-            if (!mode) return { ok: false, reason: 'stats-build-mode-invalid' };
-            if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
-            buildMode = mode;
-            persist();
-            refreshOnboarding();
-            onBuildPolicyChange();
-            return { ok: true, buildMode: mode };
+        if (id === 'generation-save' && action === 'retry') return retryGenerationSave();
+        if (id === 'npc-policy' && (action === 'auto' || action === 'per-npc')) return setNpcPolicy(action);
+        if (id === 'npc-ask' && (action === 'generate' || action === 'defer')) {
+            const name = String(n.name || '');
+            if (!name || !ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+            return setNpcChoice(name, action);
         }
         if (id === 'build-ask' && (action === 'fill' || action === 'auto' || action === 'skip')) {
             const name = String(n.name || '');
@@ -2704,7 +3262,7 @@ export function createStatsRuntime({
         }
         if (id === 'sheets' && action === 'generate') { setNotice('sheets', null); return generateSheets(); }
         if (id === 'roll' && action === 'roll') return manualRoll();
-        if (id === 'currency' && action === 'retry') return ensureCurrency({ force: true });
+        if ((id === 'currency' || id === 'hero-init') && action === 'retry') return ensureHeroInit({ force: true });
         setNotice(id, null);
         return { ok: true };
     }
@@ -3030,7 +3588,7 @@ export function createStatsRuntime({
     function storeWorlds(list) {
         if (!Array.isArray(list) || !list.length || JSON.stringify(list) === JSON.stringify(catalog.worlds)) return;
         catalog = sanitizeCatalog({ ...catalog, worlds: list });
-        persist();
+        if (!generationStage) persist();
     }
     function readCurrencyConfig() {
         ensureLoaded(true);
@@ -3181,14 +3739,19 @@ export function createStatsRuntime({
         if (!text) return { ok: false, reason: 'stats-fame-sentence' };
         const request = requester();
         if (!request) return { ok: false, reason: 'stats-no-model' };
+        return generationTasks.start('fame-fill', async job => {
+        job.revision = JSON.stringify(catalog);
         let people = [];
         try { people = typeof describePeople === 'function' ? await describePeople([text]) : []; } catch (error) { people = []; }
+        checkGeneration(job);
         try {
-            const reply = await ask(request, buildFameFillPrompt(text, { worldview: worldviewOf(), people }));
+            const reply = await ask(request, buildFameFillPrompt(text, { worldview: worldviewOf(), people }), BACKGROUND_TIMEOUT_MS, job);
+            checkGeneration(job);
             const parsed = parseFameFill(reply && typeof reply === 'object' ? reply.text : reply);
             if (!parsed.ok) return { ok: false, reason: 'stats-fame-fill-bad', field: parsed.field };
             return { ok: true, draft: fameDraftText(parsed.bar) };
-        } catch (error) { return { ok: false, reason: 'stats-fame-fill-failed' }; }
+        } catch (error) { job.check(); if (error?.stage) throw error; return { ok: false, reason: error?.reason || 'stats-fame-fill-failed' }; }
+        });
     }
 
     function removeFameBar(name) {
@@ -3249,7 +3812,11 @@ export function createStatsRuntime({
     // 按人设补填起始关系：只处理好感、信任、了解都还在 ±START_FILL_SPAN 以内的已登记角色（视为没定过初值）。
     // 辅助模型只给关系档，初值查 START_DIMS 后叠加到当前值上，开局以来的小幅涨跌保留；判为「陌生」的不改。
     function fillStartRelations() {
-        if (startJob) return startJob;
+        const running = generationTasks.get('start-relations');
+        if (running) return running.promise;
+        const recovery = pendingGenerationSave();
+        if (recovery) return recovery;
+        if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
         if (generating) return Promise.resolve({ ok: false, reason: 'stats-generating' });
         // 表格里有、账本还没有的人物先登记，补填时一并算上。
         importTablePeople();
@@ -3277,7 +3844,7 @@ export function createStatsRuntime({
         const ordered = [...pending.filter((n) => !startAsked.names.has(n)), ...pending.filter((n) => startAsked.names.has(n))];
         const names = ordered.slice(0, SHEET_BATCH_MAX);
         const left = pending.filter((n) => !startAsked.names.has(n) && !names.includes(n)).length;
-        const run = async () => {
+        const run = async job => {
             const relations = {};
             const mods = {};
             let failDetail = '';
@@ -3285,6 +3852,7 @@ export function createStatsRuntime({
             let hero = '';
             try { if (typeof describePeople === 'function') { const h = (await describeWithHero([PROTAGONIST]))[0] || {}; hero = String((h.own ?? h.summary) || ''); } }
             catch (error) { hero = ''; }
+            job.check();
             let plot = '';
             try { plot = String(plotSetting() || ''); } catch (error) { plot = ''; }
             for (let i = 0; i < names.length; i += SHEET_BATCH_MAX) {
@@ -3292,20 +3860,20 @@ export function createStatsRuntime({
                 let people;
                 try { people = typeof describePeople === 'function' ? await describePeople(batch) : batch.map((n) => ({ name: n, summary: '' })); }
                 catch (error) { people = batch.map((n) => ({ name: n, summary: '' })); }
+                job.check();
                 const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations, hero, plot });
                 let parsed = null;
-                for (let attempt = 0; attempt < 2 && !(parsed && parsed.ok); attempt += 1) {
-                    try { parsed = parseStartRelationReply(await ask(request, prompt, START_TIMEOUT_MS), { names: batch }); }
-                    catch (error) { parsed = { ok: false, reason: 'stats-start-request-failed', detail: error && error.message === 'timeout' ? `等待超过 ${START_TIMEOUT_MS / 1000} 秒未收到回复` : String((error && error.message) || error).slice(0, 120) }; }
-                    if (parsed && parsed.reason === 'stats-start-empty') parsed.detail = `模型回复的角色：${(parsed.keys || []).join('、') || '无'}；本批角色：${batch.join('、')}`;
-                }
+                try { parsed = parseStartRelationReply(await ask(request, prompt, START_TIMEOUT_MS, job), { names: batch }); }
+                catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: 'stats-start-request-failed', detail: String(error?.message || error).slice(0, 120) }; }
+                job.check();
+                if (parsed?.reason === 'stats-start-empty') parsed.detail = `模型回复的角色：${(parsed.keys || []).join('、') || '无'}；本批角色：${batch.join('、')}`;
                 if (parsed && parsed.ok) {
                     Object.assign(relations, parsed.relations);
                     Object.assign(mods, parsed.mods || {});
                     for (const n of batch) startAsked.names.add(n);
                 } else { diag(parsed ? parsed.reason : 'stats-start-request-failed', parsed && parsed.detail ? { detail: parsed.detail } : { names: batch.join('、') }); failDetail = (parsed && parsed.detail) || failDetail; }
             }
-            if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
+            job.check();
             if (generating) return { ok: false, reason: 'stats-generating' };
             if (!Object.keys(relations).length) return { ok: false, reason: 'stats-start-failed', detail: failDetail };
             // 等回复期间可能又结算了新楼，按最新一楼重新取当前值。
@@ -3326,20 +3894,28 @@ export function createStatsRuntime({
             const label = (name) => [relations[name], ...(mods[name] || [])].join('+');
             const filled = Object.keys(manual).map((name) => `${name} ${label(name)}`);
             if (!filled.length) return { ok: true, filled: [], relations, left };
-            const result = latest ? commitManualRelations(latest, manual, (name) => `起始关系·${label(name)}`) : commitInitialRelations(manual);
+            const result = await (latest ? commitManualRelations(latest, manual, (name) => `起始关系·${label(name)}`, job)
+                : commitInitialRelations(manual, job));
             return result.ok ? { ok: true, filled, relations, left } : result;
         };
         setNotice('start-relations', { kind: 'busy', text: `正在按人设计算初始关系：${names.join('、')}` });
-        startJob = run().then((result) => {
+        return generationTasks.start('start-relations', async job => {
+            const result = await run(job);
+            job.check();
             const more = result && result.ok && result.left ? `；还有 ${result.left} 个角色，再点一次继续` : '';
             setNotice('start-relations', result && result.ok && (result.filled.length || more) ? { kind: 'info', text: `${result.filled.length ? `已补填初始关系：${result.filled.join('、')}` : '本批没有需要改动的角色'}${more}`, ttl: true } : null);
             return result;
-        }, (error) => { setNotice('start-relations', null); throw error; }).finally(() => { startJob = null; });
-        return startJob;
+        });
     }
 
     // 把 manual（{ 角色: { 好感, 信任, 了解 } }）写进该楼结算结果并记到 meta.manual，重算或重 roll 这一楼仍保留。
-    function commitManualRelations(entry, manual, noteOf = null) {
+    function commitManualRelations(entry, manual, noteOf = null, task = null) {
+        if (task) return stageGeneration(task, () => {
+            const stagedEntry = ledger.entries.get(ledgerKey(ledger, entry.messageId, entry.swipeId));
+            if (!stagedEntry || stagedEntry.recordId !== entry.recordId) throw Object.assign(new Error('stats-generation-conflict'), { reason: 'stats-generation-conflict' });
+            const result = commitManualRelations(stagedEntry, manual, noteOf);
+            return { extra: generationStage.extra || [], result };
+        });
         const changes = [];
         const after = applyManualRelations(entry.after, manual, changes, { nsfw: isNsfw() });
         if (after === entry.after) return { ok: true };
@@ -3360,6 +3936,7 @@ export function createStatsRuntime({
         const key = ledgerKey(ledger, entry.messageId, entry.swipeId);
         ledger.entries.set(key, { ...entry, after, meta, changes: all, recordId: record.id });
         ledger.log = ledger.log.concat(changes.map((row) => ({ floor: key, ...row }))).slice(-STATS_LOG_MAX);
+        if (generationStage) { generationStage.extra = [record]; push(); return { ok: true }; }
         persist([record]);
         onChange(currentStatsState(ledger), null);
         push();
@@ -3367,23 +3944,61 @@ export function createStatsRuntime({
     }
 
     // 还没有结算楼层时，改动写进初始状态并重存 init 记录，之后各楼都从这里往下结算。
-    function commitInitialRelations(manual) {
+    function commitInitialRelations(manual, task = null) {
+        if (task) return stageGeneration(task, () => {
+            const result = commitInitialRelations(manual);
+            return { extra: generationStage.extra || [], result };
+        });
         const next = applyManualRelations(ledger.initial, manual, [], { nsfw: isNsfw() });
         if (next === ledger.initial) return { ok: true };
         ledger.initial = next;
+        if (generationStage) { generationStage.extra = [initRecord(next, { createdAt: Date.now() })]; push(); return { ok: true }; }
         persist([initRecord(next, { createdAt: Date.now() })]);
         onChange(currentStatsState(ledger), null);
         push();
         return { ok: true };
     }
 
+    // 删除角色卡：卡与它取代的手改底数在同一次数值日志提交里，读回确认后才发布；中断后由原保存意图恢复同一批记录。
+    function removeSheet(name) {
+        ensureLoaded(true);
+        if (unavailable || blocked) return Promise.resolve({ ok: false, reason: unavailable || blocked });
+        const held = generationSave.pending();
+        if (!held.ok || held.intent) return Promise.resolve(held.ok ? { ok: false, reason: 'stats-generation-save-pending' } : held);
+        if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
+        return generationTasks.start(`sheet-remove:${name}`, async job => {
+            checkGeneration(job);
+            const replaced = manualBaseIds([name]);
+            if (!replaced.ok) return replaced;
+            const source = generationSave.read(null, job.alive);
+            if (!source.ok) { generationSaveNotice(source); return source; }
+            job.beforeRows = source.rows;
+            job.sourceRevision = generationRevision();
+            return stageGeneration(job, () => {
+                const sheets = { ...catalog.sheets };
+                delete sheets[name];
+                const sheetDrops = { ...catalog.sheetDrops };
+                if (replaced.ids[name]) sheetDrops[name] = replaced.ids[name];
+                catalog = { ...catalog, sheets, sheetDrops, notified: catalog.notified.filter((n) => n !== name) };
+                return { result: { ok: true, removed: name } };
+            });
+        });
+    }
+
     function sheetOp(op, name, payload = {}) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
+        const owner = generationIdentity(), id = chatIdOf(ctx());
+        if (op === 'draft') {
+            const source = attributes();
+            const view = source?.readAbilities?.(name);
+            return { ok: true, chatId: id, ownerGeneration: owner?.generation, expectedRevision: view?.revision, reason: source?.reason };
+        }
+        if (op === 'edit' && payload.chatId !== undefined && (id !== payload.chatId || owner?.generation !== payload.ownerGeneration || payload.signal?.aborted)) return { ok: false, reason: 'request-stale' };
         const sheets = { ...catalog.sheets };
-        if (op === 'remove') { delete sheets[name]; catalog = { ...catalog, sheets, notified: catalog.notified.filter((n) => n !== name) }; }
-        // 重新生成不先删旧卡：成功后整张覆盖，失败时旧卡保留。
-        else if (op === 'regen') return generateSheets([name]);
-        else if (op === 'edit') {
+        if (op === 'remove') return removeSheet(name);
+        // 重新生成不先删旧卡：成功后整张覆盖并取代发起时已确认的手改，失败时旧卡与手改都保留。
+        if (op === 'regen') { ensureLoaded(true); return generateSheets([name], { supersede: true }); }
+        if (op === 'edit') {
             const cur = sheets[name] || { rank: '普通人', attributes: {}, skills: {}, signature: [], provisional: {} };
             // 「理智」在注册表里会被映射成智力，属性档要先按原名认。
             const typed = String(payload.skill || '').trim();
@@ -3394,6 +4009,21 @@ export function createStatsRuntime({
                 // 属性：六维收档位词或 1–30 整数，理智收档位词或 1–99 整数；认不出时不改。
                 const value = sheetAttributeInput(skill, tier, seed);
                 if (value === null) return { ok: false, reason: 'stats-sheet-edit-invalid' };
+                if (attributeAccess && skill !== SAN_ATTRIBUTE) {
+                    if (isHero(name) || payload.chatId !== id || owner?.generation !== payload.ownerGeneration) return { ok: false, reason: 'request-stale' };
+                    const access = attributeAccess(), source = access.source();
+                    if (!source.ready) return { ok: false, reason: source.reason };
+                    const view = source.readAbilities(name);
+                    if (!view || typeof payload.expectedRevision !== 'string' || view.revision !== payload.expectedRevision) return { ok: false, reason: 'stats-attribute-conflict' };
+                    const alive = () => loadedChat === id && chatIdOf(ctx()) === id && generationIdentity() === owner && !payload.signal?.aborted;
+                    return access.editNpc(name, { ...view.initialScores, [abilityKeyOf(skill)]: value }, {
+                        expectedRevision: view.revision, signal: payload.signal, shouldStart: alive,
+                    }).then(result => {
+                        if (!alive()) return { ok: false, reason: 'request-stale' };
+                        if (result.ok) { gateMemo = null; onChange(currentStatsState(ledger), null); }
+                        return result;
+                    });
+                }
                 sheets[name] = skill === SAN_ATTRIBUTE
                     ? { ...cur, san: value, source: 'user' }
                     : { ...cur, attributes: { ...cur.attributes, [skill]: value }, scale: 'score', source: 'user' };
@@ -3417,16 +4047,18 @@ export function createStatsRuntime({
         const request = requester();
         if (!request) return { ok: false, reason: 'stats-no-model' };
         if (generating) return { ok: false, reason: 'stats-generating' };
-        const chatId = chatIdOf(ctx());
         const state = currentStatsState(ledger);
         const engine = engineOf();
         const rows = (catalog.story || []).map((s) => ({ name: s.name, attribute: s.attribute, value: Math.round(Number(profileOf(engine, state, PROTAGONIST, s.name).value) || 0) }));
         if (rows.length < 2) return { ok: true, items: [] };
+        return generationTasks.start('tidy', async job => {
+        job.revision = JSON.stringify(catalog);
         let reply;
-        try { reply = await ask(request, buildTidyPrompt(rows)); }
-        catch (error) { diag('stats-tidy-request-failed'); return { ok: false, reason: 'stats-tidy-failed' }; }
-        if (!ledger || chatIdOf(ctx()) !== chatId) return { ok: false, reason: 'stats-chat-changed' };
+        try { reply = await ask(request, buildTidyPrompt(rows), BACKGROUND_TIMEOUT_MS, job); }
+        catch (error) { job.check(); if (error?.stage) throw error; diag('stats-tidy-request-failed'); return { ok: false, reason: 'stats-tidy-failed' }; }
+        checkGeneration(job);
         return { ok: true, items: parseTidyReply(reply, catalog) };
+        });
     }
 
     function skillOp(op, name, payload = {}) {
@@ -3470,10 +4102,84 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // NPC 属性档 → 战斗六维 { scores: { str..cha } }。只有新格式（scale:'score'）且六维齐全才有，否则 null；
-    // 战斗侧 lifeSource().readAbilities 应先问这里，再回落到战斗账本与推导（规格 §2）。
     function npcAbilities(name) {
+        if (attributeAccess) return readers.readAbilities(name);
         return sheetAbilityScores(catalog.sheets[String(name || '').trim()]);
+    }
+
+    async function verifyNpcPolicyWrite(expectedPolicy, expectedChoices, alive) {
+        await tail;
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        const t = tables();
+        if (!t.ok) return { ok: false, reason: t.reason || 'stats-log-read-failed' };
+        t.invalidate?.();
+        const rows = t.read({ kinds: ['stats'] });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        if (!rows?.ok || !Array.isArray(rows.stats)) return { ok: false, reason: rows?.reason || 'stats-log-read-failed' };
+        const restored = mergeStatLog(rows.stats, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
+        const policyOk = restored.npcPolicy === expectedPolicy;
+        const choicesOk = JSON.stringify(restored.npcChoices) === JSON.stringify(expectedChoices);
+        return policyOk && choicesOk ? { ok: true } : { ok: false, reason: 'stats-npc-policy-save-unverified' };
+    }
+
+    // NPC 策略设置（自动 / 逐个）：写当前聊天 DB 并读回确认，失败回滚不假报成功；变更绝不覆盖已有角色卡。
+    async function setNpcPolicy(policy) {
+        ensureLoaded(true);
+        if (unavailable) return { ok: false, reason: unavailable };
+        if (blocked) return { ok: false, reason: blocked };
+        const normalized = normalizeNpcPolicy(policy);
+        if (!normalized) return { ok: false, reason: 'stats-npc-policy-invalid' };
+        if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+        const owner = generationIdentity(), chatId = chatIdOf(ctx());
+        const alive = () => !disposed && loadedChat === chatId && chatIdOf(ctx()) === chatId && generationIdentity() === owner;
+        const prevPolicy = npcPolicy;
+        const prevBaseline = new Map(baseline);
+        npcPolicy = normalized;
+        persist([], { shouldStart: alive });
+        const verified = await verifyNpcPolicyWrite(npcPolicy, npcChoices, alive);
+        if (!verified.ok) {
+            if (alive()) { npcPolicy = prevPolicy; baseline = prevBaseline; }
+            return verified;
+        }
+        refreshOnboarding();
+        detectNewCharacters();
+        onBuildPolicyChange();
+        onChange(currentStatsState(ledger), null);
+        return { ok: true, npcPolicy };
+    }
+
+    // 逐角色决定（generate / defer / null）：按本聊天规范角色键写入 DB 并读回确认，失败回滚；generate 触发单角色生成。
+    async function setNpcChoice(name, choice) {
+        ensureLoaded(true);
+        if (unavailable) return { ok: false, reason: unavailable };
+        if (blocked) return { ok: false, reason: blocked };
+        if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
+        const key = canonPersonName(catalog.renames, String(name || '').trim());
+        if (!key || key.length > 40 || isHero(key)) return { ok: false, reason: 'stats-npc-choice-invalid' };
+        const normalized = choice === null ? null : normalizeNpcChoice(choice);
+        if (choice !== null && !normalized) return { ok: false, reason: 'stats-npc-choice-invalid' };
+        const owner = generationIdentity(), chatId = chatIdOf(ctx());
+        const alive = () => !disposed && loadedChat === chatId && chatIdOf(ctx()) === chatId && generationIdentity() === owner;
+        const prevChoices = npcChoices;
+        const prevBaseline = new Map(baseline);
+        const next = { ...npcChoices };
+        if (normalized === null) delete next[key];
+        else next[key] = normalized;
+        npcChoices = next;
+        persist([], { shouldStart: alive });
+        const verified = await verifyNpcPolicyWrite(npcPolicy, npcChoices, alive);
+        if (!verified.ok) {
+            if (alive()) { npcChoices = prevChoices; baseline = prevBaseline; }
+            return verified;
+        }
+        refreshOnboarding();
+        onBuildPolicyChange();
+        onChange(currentStatsState(ledger), null);
+        if (normalized === 'generate' && !catalog.sheets[key]) {
+            const generated = await generateSheets([key]);
+            return { ok: true, choice: normalized, name: key, generation: generated };
+        }
+        return { ok: true, choice: normalized, name: key };
     }
 
     function setBuildMode(mode) {
@@ -3482,7 +4188,7 @@ export function createStatsRuntime({
         if (blocked) return { ok: false, reason: blocked };
         const picked = normalizeBuildMode(mode);
         if (!picked) return { ok: false, reason: 'stats-build-mode-invalid' };
-        if (ledger) { buildMode = picked; persist(); refreshOnboarding(); onBuildPolicyChange(); return { ok: true }; }
+        if (ledger) { buildMode = picked; npcPolicy = normalizeNpcPolicy(picked); persist(); refreshOnboarding(); onBuildPolicyChange(); return { ok: true }; }
         if (!chatIdOf(ctx())) return { ok: false, reason: 'stats-no-chat' };
         refreshOnboarding();
         modeDefault = picked;
@@ -3495,13 +4201,16 @@ export function createStatsRuntime({
         ensureLoaded(true);
         if (unavailable) return { ok: false, reason: unavailable };
         if (blocked) return { ok: false, reason: blocked };
-        const key = String(name || '').trim();
+        const key = canonPersonName(catalog.renames, String(name || '').trim());
         if (!key || key.length > 40) return { ok: false, reason: 'stats-build-choice-invalid' };
         if (choice !== null && !BUILD_CHOICES.includes(choice)) return { ok: false, reason: 'stats-build-choice-invalid' };
         if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
         const next = { ...buildChoices };
-        if (choice === null) delete next[key]; else next[key] = choice;
+        const nextNpc = { ...npcChoices };
+        if (choice === null) { delete next[key]; delete nextNpc[key]; }
+        else { next[key] = choice; nextNpc[key] = normalizeNpcChoice(choice); }
         buildChoices = next;
+        npcChoices = nextNpc;
         persist();
         onBuildPolicyChange();
         return { ok: true };
@@ -3511,13 +4220,22 @@ export function createStatsRuntime({
     function archiveModel() {
         ensureLoaded();
         const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot(), isHero, heroName: userName() }) : null;
-        return model ? { ...model, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+        const npcRelative = {};
+        if (model) {
+            const attrSrc = attributes();
+            for (const c of model.characters || []) {
+                if (catalog.sheets[c.name]) continue;
+                const ab = attrSrc?.ready ? attrSrc.readAbilities(c.name, { heroPrefs: heroPrefs() }) : null;
+                if (ab && !ab.initialized) npcRelative[c.name] = { source: ab.source || 'relative', initialized: false, scores: { ...ab.scores }, tier: ab.tier };
+            }
+        }
+        return model ? { ...model, npcPolicy, npcChoices: { ...npcChoices }, npcRelative, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
     }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;
     return {
         sync: ev(sync),
-        destroy: detach,
+        destroy: () => { disposed = true; detach(); },
         isActive: ev(active),
         refreshBuildAsk,
         getState: () => (ledger ? currentStatsState(ledger) : null),
@@ -3568,6 +4286,10 @@ export function createStatsRuntime({
         getBuildChoices: () => ({ ...buildChoices }),
         setBuildMode: ev(setBuildMode),
         setBuildChoice: ev(setBuildChoice),
+        getNpcPolicy: () => npcPolicy,
+        getNpcChoices: () => ({ ...npcChoices }),
+        setNpcPolicy: ev(setNpcPolicy),
+        setNpcChoice: ev(setNpcChoice),
         pushNow: ev(push),
         resolveDice: ev(resolveDice),
         diceChance: ev(diceChance),
@@ -3576,6 +4298,7 @@ export function createStatsRuntime({
         checkReplayFor: ev(checkReplayFor),
         promptActive: ev((type = null) => Boolean(active() && !SKIP_TYPES.has(type) && !background())),
         npcAbilities,
+        refreshAttributeRecovery,
         notices: () => [...notices.values()],
         noticeAction: ev(noticeAction),
         generateSheets: ev(generateSheets),
@@ -3584,7 +4307,9 @@ export function createStatsRuntime({
         diagnose: ev(diagnose),
         sheetOp: ev(sheetOp),
         relationOp: ev(relationOp),
-        retryCurrency: ev(() => { ensureLoaded(true); return ensureCurrency({ force: true }) || Promise.resolve({ ok: false, reason: 'stats-chat-not-enabled' }); }),
+        retryCurrency: ev(() => { ensureLoaded(true); return ensureHeroInit({ force: true }) || Promise.resolve({ ok: false, reason: 'stats-chat-not-enabled' }); }),
+        ensureHeroInit: ev((opts) => { ensureLoaded(true); return ensureHeroInit(opts); }),
+        heroBasicReady: ev(heroBasicReady),
         exchangeInfo: ev(exchangeInfo),
         quoteExchange: ev(quoteExchange),
         exchangePoints: ev(exchangePoints),
@@ -3701,6 +4426,7 @@ export function createStatsRuntime({
             if (unavailable) return { ok: false, reason: unavailable };
             if (blocked) return { ok: false, reason: blocked };
             chatEnabled = false;
+            invalidateGenerations();
             invalidateCurrencyJob();
             clearPrompt();
             persist();

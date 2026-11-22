@@ -41,6 +41,8 @@ const REASON_TEXT = Object.freeze({
     'no-task': '该任务已不存在。',
     'empty-pool': '奖池为空。',
     busy: '上一项请求仍在处理，请稍后再试。',
+    'origin-generation-failed': '生成失败，提问已保存，可重试回复。',
+    'origin-chat-retry-unavailable': '原提问已不存在或已有回复。',
     paused: '系统已暂停。',
     disabled: '随身系统未开启。',
     'no-result': '没有生成出结果，请重试或手动添加。',
@@ -253,6 +255,7 @@ export async function runOriginAction(name, el, ctx) {
         ctx.clearChatInput();
         return report(await engine.sysChat(text));
     }
+    case 'chat-retry': return report(await engine.retrySysChat(id));
     case 'chat-call': {
         const text = trim(ctx.readChatInput());
         if (!text) return { ok: true, cancelled: true };

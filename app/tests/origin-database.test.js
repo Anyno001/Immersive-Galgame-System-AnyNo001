@@ -423,3 +423,125 @@ test('保存失败的原意图和等待楼层保留，读取与通知不补交�
     assert.equal(game.notes.filter(note => note.kind === 'gacha').length, 1);
     assert.equal(game.engine.recoveryStatus().canRetrySave, false);
 });
+
+test('生成结果保存失败后停止和重载：显式恢复原结果，不重新请求模型', async t => {
+    const h = await setup({ supportCallbacks: true });
+    const game = createHarness({}, { database: () => h.store, wallet: () => 500 });
+    t.after(() => { game.engine.stop(); h.tables.client.dispose(); });
+    await game.engine.whenSaved();
+    let requests = 0;
+    game.generateImpl = async () => { requests += 1; return '新任务|类型:主线|标题:找猫|描述:d|条件:c|奖励:积分20|惩罚:|时限:|对象:宿主'; };
+    const insert = h.host.api.insertRow;
+    h.host.api.insertRow = () => false;
+    assert.equal((await game.engine.genTask()).ok, false);
+    assert.equal(game.state().tasks.length, 0);
+    game.engine.stop();
+    game.engine.start();
+    assert.equal((await game.engine.reload()).reason, 'origin-save-pending');
+    h.host.api.insertRow = insert;
+    const writes = h.host.calls.insertRow;
+    h.host.fireTableUpdated();
+    await game.engine.whenSaved();
+    assert.equal(h.host.calls.insertRow, writes);
+    const retry = game.engine.retrySave();
+    assert.equal(game.engine.retrySave(), retry);
+    assert.equal((await retry).ok, true);
+    assert.equal(requests, 1);
+    assert.equal(game.state().tasks.filter(task => task.title === '找猫').length, 1);
+    assert.equal(game.engine.recoveryStatus().canRetrySave, false);
+});
+
+test('保存失败后聊天往返：保留原聊天意图，新聊天零补交，返回后显式恢复', async t => {
+    const a = await setup(), b = await setup();
+    let active = a.store;
+    const game = createHarness({}, { database: () => active, wallet: () => 500 });
+    t.after(() => { game.engine.stop(); a.tables.client.dispose(); b.tables.client.dispose(); });
+    await game.engine.whenSaved();
+    const original = { chatId: game.ctx.chatId, chat: game.ctx.chat, chatMetadata: game.ctx.chatMetadata };
+    const insert = a.host.api.insertRow;
+    a.host.api.insertRow = () => false;
+    assert.equal((await game.engine.dispatch({ type: 'addItem', name: '原结果', count: 1 })).ok, false);
+    a.host.api.insertRow = insert;
+    const writes = a.host.calls.insertRow;
+    active = b.store;
+    Object.assign(game.ctx, { chatId: 'chat-b', chat: [], chatMetadata: {} });
+    game.emit('chat_changed');
+    await game.engine.whenSaved();
+    assert.equal(game.bag().原结果, undefined);
+    assert.equal(game.engine.recoveryStatus().canRetrySave, false);
+    assert.equal(a.host.calls.insertRow, writes);
+    active = a.store;
+    Object.assign(game.ctx, original);
+    game.emit('chat_changed');
+    await game.engine.whenSaved();
+    assert.equal(a.host.calls.insertRow, writes);
+    assert.equal(game.engine.recoveryStatus().canRetrySave, true);
+    assert.equal((await game.engine.retrySave()).ok, true);
+    assert.equal(game.bag().原结果, 1);
+    assert.equal(b.store.read().raw.ops.length, 0);
+});
+
+test('P7 v2 独立表：数值与战斗关闭时 Origin 独立恢复和保存，不建战斗/数值表，未接入共享积分前拒收经济操作', async t => {
+    const { createIgsChatStore } = await import('../src/data/shujuku/igs-chat-store.js');
+    const { IGS_TABLE_SPECS } = await import('../src/data/shujuku/igs-table-specs.js');
+    const { COMBAT_TABLE_SPECS } = await import('../src/data/shujuku/combat-tables.js');
+    const { readIgsChatEvidence } = await import('../src/storage/igs-chat-evidence.js');
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
+    const host = createLedgerMockHost({ supportCallbacks: true });
+    host.sheets.sheet_userbag = userInventorySheet();
+    const storage = createMemoryStorage();
+    const game = createHarness({ enabled: false });
+    game.engine.stop();
+    let currentApi = host.api;
+    const chatStore = createIgsChatStore({
+        api: () => currentApi,
+        chatId: () => game.ctx.chatId,
+        chat: () => game.ctx.chat,
+        storage,
+        evidence: chatId => readIgsChatEvidence({ context: game.ctx, chatId, storage }),
+    });
+    const runtime = createOriginRuntime({
+        getContext: () => game.ctx,
+        readSettings: () => ({ enabled: true, achieveOn: false }),
+        readLlm: () => ({}),
+        chatStore,
+        notice: (kind, text) => game.notes.push({ kind, text }),
+    });
+    t.after(() => { runtime.destroy(); chatStore.dispose(); });
+    runtime.sync();
+    await settleOrigin(runtime.engine);
+    assert.equal(runtime.engine.isBlocked(), null);
+    assert.equal(chatStore.get().layout().layout, 'v2');
+    assert.ok(host.sheets[IGS_TABLE_SPECS.origin.uid], 'v2 Origin 独立表应已建立');
+    assert.equal(host.sheets[COMBAT_TABLE_SPECS.profile.uid], undefined, '不得建立战斗档案表');
+    assert.equal(host.sheets[COMBAT_TABLE_SPECS.ledger.uid], undefined, '不得建立战斗日志表');
+    assert.equal(host.sheets[IGS_TABLE_SPECS.stats.uid], undefined, '不得建立数值日志表');
+    // 非经济操作独立读写
+    assert.equal((await runtime.engine.dispatch({ type: 'setWorld', value: 'v2独立世界' })).ok, true);
+    assert.equal((await runtime.engine.dispatch({ type: 'addItem', name: '独立手札', count: 2 })).ok, true);
+    assert.equal(runtime.engine.getState().world, 'v2独立世界');
+    assert.equal(runtime.engine.getState().bag.find(i => i.name === '独立手札')?.count, 2);
+    // 未接入共享积分前，v2 经济操作明确返回未就绪，不降级覆盖旧余额也不阻塞引擎
+    assert.equal((await runtime.engine.dispatch({ type: 'draw' })).reason, 'igs-points-not-integrated');
+    assert.equal((await runtime.engine.dispatch({ type: 'buy', name: '凝神丹' })).reason, 'igs-points-not-integrated');
+    assert.equal(runtime.engine.isBlocked(), null);
+    assert.equal(runtime.engine.getState().points, 0);
+    // 冷重建与 API 替换：销毁重建后仍从 v2 独立表冷读回
+    runtime.destroy();
+    const replacedHost = createLedgerMockHost({ supportCallbacks: true });
+    Object.assign(replacedHost.sheets, JSON.parse(JSON.stringify(host.sheets)));
+    currentApi = replacedHost.api;
+    const runtime2 = createOriginRuntime({
+        getContext: () => game.ctx,
+        readSettings: () => ({ enabled: true, achieveOn: false }),
+        readLlm: () => ({}),
+        chatStore,
+        notice: (kind, text) => game.notes.push({ kind, text }),
+    });
+    t.after(() => runtime2.destroy());
+    runtime2.sync();
+    await settleOrigin(runtime2.engine);
+    assert.equal(runtime2.engine.isBlocked(), null);
+    assert.equal(runtime2.engine.getState().world, 'v2独立世界');
+    assert.equal(runtime2.engine.getState().bag.find(i => i.name === '独立手札')?.count, 2);
+});

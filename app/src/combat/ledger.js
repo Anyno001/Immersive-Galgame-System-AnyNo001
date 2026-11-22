@@ -12,9 +12,10 @@
 import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardAt, signatureUnlockLevel, validateDeck } from './rules.js';
 import { hash32, hashString, randomInt } from './random.js';
 import {
-    ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, asiCountAt, defaultPrefs, deriveAbilities,
-    isAsiLevel, levelCap, normalizePrefs, parseCombatInit, relLevel, relOffset,
+    ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, isAsiLevel, parseCombatInit, relOffset,
 } from './abilities.js';
+import { computeAttributes, foldAttributes, INIT_EDIT_CHANGE } from '../scene/stats/attribute-profile.js';
+import { readAttributeRows } from '../scene/stats/attribute-store.js';
 import {
     BATTLE_GROWTH_MAX, GEAR_SLOTS, INIT_GEAR_TAG_HASH, buildCardCatalog, effectsDamage, gearIdFor, itemIdFor, ledgerEntryId, normalizeAttributeRecord, normalizeLedgerEntry,
     normalizeProfile, validateStarterDeck,
@@ -153,17 +154,11 @@ export function normalizeSnapshot(read) {
         if (!ids.has(parsed.value.id)) { ids.add(parsed.value.id); entries.push(parsed.value); }
     }
     // 属性：表缺失（optional）时标 missing，不影响其余部分
-    const attributes = [];
-    const attributeIds = new Set();
     const attributeTable = Array.isArray(read.attribute) ? 'ok' : 'missing';
-    for (const row of attributeTable === 'ok' ? read.attribute : []) {
-        const parsed = normalizeAttributeRecord(row);
-        if (!parsed.ok) {
-            diagnostics.push({ code: 'combat-attribute-invalid', id: row?.id ?? null, errors: parsed.errors.slice(0, 5) });
-            continue;
-        }
-        if (!attributeIds.has(parsed.value.id)) { attributeIds.add(parsed.value.id); attributes.push(parsed.value); }
-    }
+    const checked = attributeTable === 'ok' ? readAttributeRows(read) : { ok: true, rows: [] };
+    if (!checked.ok) return checked;
+    const attributes = checked.rows;
+    const attributeIds = new Set(attributes.map(row => row.id));
     // 日志里的 profile 记录只在档案表没有该角色时兜底
     for (const entry of entries) {
         if (entry.type === 'profile' && !profiles.has(entry.character)) {
@@ -176,7 +171,7 @@ export function normalizeSnapshot(read) {
     const points = diagnostics.some(item => item.kind === 'ledger' && String(item.key || '').startsWith('pt|'))
         ? { ok: false, reason: 'points-log-incomplete' }
         : { ok: true, rows: (read.ledger || []).filter(isPointsRecord) };
-    return { ok: true, profiles, entries, ids, attributes, attributeIds, attributeTable, diagnostics, origin, points };
+    return { ok: true, profiles, entries, ids, attributes, attributeIds, attributeTable, diagnostics, origin, points, sheetBases: read.sheetBases, baseDrops: read.baseDrops };
 }
 
 // ---------------------------------------------------------------------------
@@ -1482,97 +1477,22 @@ export function signaturePending(effective) {
 // ---------------------------------------------------------------------------
 // 属性系统：初始化(init)、关系档位(rel)、剧情加点(story)、奖励加点(reward)、主角手动分配(alloc)。
 // ---------------------------------------------------------------------------
-const ARCHETYPES = Object.keys(COMBAT_RULES.archetypes);
-const ATTRIBUTE_ORDER = Object.freeze({ rel: 0, story: 1, reward: 2, alloc: 3 });
-const compareAttributes = (a, b) => a.anchor.messageId - b.anchor.messageId
-    || ATTRIBUTE_ORDER[a.type] - ATTRIBUTE_ORDER[b.type]
-    || a.anchor.occurrence - b.anchor.occurrence
-    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const clampInt = (value, min, max) => Math.min(max, Math.max(min, Math.floor(Number(value) || 0)));
-const emptyAttributeBucket = () => ({ init: null, rel: [], story: [], reward: [], alloc: [] });
 const isProtagonistName = (name, userName) => {
     const text = String(name || '').trim();
     return PROTAGONIST_ALIASES.includes(text) || (!!userName && text === userName);
 };
 
-// 属性记录是否仍然有效（alloc 不挂正文标签，只看楼层和 swipe）。
-function attributeInactiveReason(record, scanFloor) {
-    const { anchor } = record;
-    const floor = scanFloor(anchor.messageId);
-    if (!floor) return 'message-missing';
-    if (floor.swipeId !== anchor.swipeId) return 'swipe-changed';
-    if (record.type !== 'alloc' && !floor.keys.has(`${anchor.tagHash}#${anchor.occurrence}`)) return 'tag-missing';
-    return null;
-}
-
-// 把属性记录按角色分桶：init 取最早一条，其余按类型归桶，失效的记入 inactive。
-function foldAttributes(records, index, scanFloor, diagnostics) {
-    const fold = new Map();
-    const inactive = [];
-    const bucketOf = (characterId) => {
-        const key = canonicalCharacterId(index, characterId) ?? characterId;
-        if (!fold.has(key)) fold.set(key, emptyAttributeBucket());
-        return fold.get(key);
-    };
-    const inits = records.filter((record) => record.type === 'init').sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
-    for (const record of inits) {
-        const bucket = bucketOf(record.character);
-        // 设置页「修改属性」写的记录（change 为「手改」）按时间顺序覆盖之前的初始化。
-        if (bucket.init && record.change !== INIT_EDIT_CHANGE) diagnostics.push({ code: 'combat-attribute-init-duplicate', id: record.id, character: record.character });
-        else bucket.init = record.payload;
-    }
-    for (const record of records.filter((item) => item.type !== 'init').sort(compareAttributes)) {
-        const reason = attributeInactiveReason(record, scanFloor);
-        if (reason) inactive.push({ id: record.id, reason });
-        else bucketOf(record.character)[record.type].push(record);
-    }
-    return { fold, inactive };
-}
-
-// 没写初始化的角色，按名字哈希在各原型里挑一个，职业带原型时优先职业的。
-const defaultRole = (name, archetype) => (ARCHETYPES.includes(archetype) ? archetype : ARCHETYPES[hash32(`role:${name}`) % ARCHETYPES.length]);
-const abilityAdjustments = (records) => records.filter((record) => record.payload.ability !== 'free').map((record) => record.payload);
-const freePoints = (records) => records.reduce((sum, record) => sum + (record.payload.ability === 'free' ? record.payload.amount : 0), 0);
-const INIT_EDIT_CHANGE = '手改';
 const EMPTY_ATTRIBUTE_CONTEXT = Object.freeze({ fold: new Map(), heroLevel: 1, table: 'missing' });
-
-// 计算一个角色的六维属性视图。
-// 主角等级取自经验，其他角色等级由「关系档位锚定的主角等级 + 偏移」给出。
-function computeAttributes({ key, name, protagonist, exp = 0, archetype, className = '', gearBonuses = [], fallbackPrefs = null }, context) {
-    const bucket = context.fold.get(key) || emptyAttributeBucket();
-    const init = bucket.init;
-    const role = init?.role ?? defaultRole(name, archetype);
-    const prefs = init ? { major: init.major, minor: init.minor, weak: init.weak } : normalizePrefs(fallbackPrefs) || defaultPrefs(role);
-    const latestRel = protagonist ? null : bucket.rel[bucket.rel.length - 1]?.payload ?? null;
-    const tier = protagonist ? null : latestRel?.tier ?? DEFAULT_REL_TIER;
-    const level = protagonist
-        ? expProgress(exp).level
-        : latestRel ? clampInt(latestRel.anchorLevel + latestRel.offset, 1, levelCap(false)) : relLevel({ name, tier: DEFAULT_REL_TIER, anchorLevel: context.heroLevel });
-    const picks = bucket.alloc.flatMap((record) => record.payload.picks || [record.payload]);
-    const adjustments = [...abilityAdjustments(bucket.story), ...abilityAdjustments(bucket.reward), ...picks, ...gearBonuses];
-    const derived = deriveAbilities({
-        prefs, name, level, protagonist: !!protagonist, tier: tier ?? DEFAULT_REL_TIER, adjustments,
-        ...(init?.scores ? { base: init.scores } : {}),
-    });
-    const spent = picks.reduce((sum, pick) => sum + pick.amount, 0);
-    // 主角可手动分配的点数 = 升级赠送的 + 剧情/奖励给的自由点 - 已分配的
-    const balance = protagonist ? Math.max(0, asiCountAt(level, true) * ASI_POINTS + freePoints(bucket.story) + freePoints(bucket.reward) - spent) : 0;
-    return {
-        // 当前职业来自已重放的档案；初始化名称只用于还没有职业档案的角色。
-        className: className || init?.className || '', role, prefs, initialized: !!init, protagonist: !!protagonist, tier,
-        relTagged: !!latestRel, level, ...derived, balance, table: context.table,
-    };
-}
 
 // 按名字取属性视图（给没有档案的角色用）。
 export function attributeViewFor(state, name, { archetype, protagonist = false, prefs = null } = {}) {
     if (!state || state.ok !== true || !state.attributes) return null;
     const trimmedName = String(name || '').trim();
-    const { fold, heroLevel, table } = state.attributes;
     const exp = protagonist && state.unassignedExp?.get(nameKey(trimmedName)) || 0;
     return computeAttributes({
         key: nameKey(trimmedName), name: trimmedName, protagonist, exp, archetype, fallbackPrefs: protagonist ? prefs : null,
-    }, { fold, heroLevel, table });
+    }, state.attributes);
 }
 
 // 把文本里的 <user> 换成用户名。
@@ -1625,7 +1545,7 @@ function growthRecord(entry, state, levelBefore, index, heroId = null) {
     };
 }
 
-export function computeEffectiveState(snapshot, chat, options = {}) {
+export function replayCharacterState(snapshot, chat, options = {}) {
     if (!snapshot || snapshot.ok !== true) return snapshot?.ok === false ? snapshot : { ok: false, reason: 'combat-ledger-read-failed' };
     const diagnostics = [...snapshot.diagnostics];
     const index = indexProfiles(snapshot.profiles, diagnostics);
@@ -1688,23 +1608,32 @@ export function computeEffectiveState(snapshot, chat, options = {}) {
             if (!lastParty.ids.includes(characterId)) lastParty.ids.push(characterId);
         }
     }
-    const folded = foldAttributes(snapshot.attributes || [], index, scanFloor, diagnostics);
+    const attributeRows = snapshot.attributes || [];
+    const folded = foldAttributes(attributeRows, id => canonicalCharacterId(index, id), scanFloor, diagnostics);
     const heroState = heroId ? states.get(heroId) : null;
-    const attributeContext = { fold: folded.fold, heroLevel: heroState ? expProgress(heroState.exp).level : 1, table: snapshot.attributeTable || 'missing' };
+    const attributeContext = { fold: folded.fold, heroLevel: heroState ? expProgress(heroState.exp).level : 1, table: snapshot.attributeTable || 'missing',
+        sheetBases: snapshot.sheetBases, baseDrops: snapshot.baseDrops };
     const characters = new Map([...states].map(([id, state]) => [id, presentCharacter(state, {
         heroId, attributeContext, ...(heroStock ? { heroInventory: options.heroInventory } : {}),
     })]));
-    const attributes = { table: attributeContext.table, heroId, heroLevel: attributeContext.heroLevel, fold: folded.fold, inactive: folded.inactive };
+    const attributes = {
+        ...attributeContext, heroId, inactive: folded.inactive,
+        revision: `${attributeRows.length}:${attributeRows[attributeRows.length - 1]?.id || ''}`,
+    };
+    return { ok: true, characters, classes: index.classes, enemies: index.enemies,
+        profileMeta: new Map([...snapshot.profiles].map(([id, meta]) => [id, { version: meta.version, createdAt: meta.createdAt }])),
+        unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals };
+}
+
+export function computeEffectiveState(snapshot, chat, options = {}) {
+    const state = replayCharacterState(snapshot, chat, options);
+    if (!state.ok) return state;
     const origin = originPointsOf(snapshot.origin || { ok: true, raw: null }, chat);
     if (!origin.ok) return origin;
     if (snapshot.points?.ok === false) return snapshot.points;
     const points = foldPointsRecords(snapshot.points?.rows || [], chat, options.chatId || '');
     if (!points.ok) return points;
-    return {
-        ok: true, characters, classes: index.classes, enemies: index.enemies, originPoints: origin.balance, gamePoints: points.balance,
-        profileMeta: new Map([...snapshot.profiles].map(([id, meta]) => [id, { version: meta.version, createdAt: meta.createdAt }])),
-        unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals,
-    };
+    return { ...state, originPoints: origin.balance, gamePoints: points.balance };
 }
 
 // ---------------------------------------------------------------------------
@@ -1759,7 +1688,7 @@ function collectAttributeDirective(directive, anchor, messageId, scan) {
         scan.attributes.push({
             id: ledgerEntryId('story', key, anchor), type: 'story', character: key, anchor,
             payload: { ability: directive.ability, amount: directive.amount, reason: directive.reason || '' },
-            createdAt: now, change: `${label}+${directive.amount}`,
+            createdAt: messageId, change: `${label}+${directive.amount}`,
         });
         return;
     }
@@ -1775,7 +1704,7 @@ function collectAttributeDirective(directive, anchor, messageId, scan) {
     const offset = relOffset(displayName, directive.tier);
     scan.attributes.push({
         id: ledgerEntryId('rel', key, anchor), type: 'rel', character: key, anchor,
-        payload: { tier: directive.tier, anchorLevel, offset }, createdAt: now, change: `档位：${REL_TIERS[directive.tier]?.label ?? directive.tier}`,
+        payload: { tier: directive.tier, anchorLevel, offset }, createdAt: messageId, change: `档位：${REL_TIERS[directive.tier]?.label ?? directive.tier}`,
     });
     if (!ctx.rels.has(canonicalId)) ctx.rels.set(canonicalId, []);
     ctx.rels.get(canonicalId).push({ messageId, tier: directive.tier });
@@ -2180,9 +2109,10 @@ export function buildInitialGearEntries(chat, characterId, items, now = 0, ancho
 
 // profile-gear 生成结果落账：按名字解析角色 ID 后经 ledger.grantInitialGear 写入；返回是否尝试过写入（调用方据此重读状态）。
 // 找不到角色或写失败只记诊断，不阻断。
-export async function grantGeneratedGear(ledgerImpl, generation, ownerOf, { anchor = null, diagnostics = [] } = {}) {
+export async function grantGeneratedGear(ledgerImpl, generation, ownerOf, { anchor = null, diagnostics = [], ...writeOptions } = {}) {
     let wrote = false;
     for (const item of generation?.accepted || []) {
+        if (!writeActive(writeOptions)) break;
         if (item.kind !== 'profile-gear' || !item.gear?.items?.length) continue;
         const owner = typeof ownerOf === 'function' ? ownerOf(item.gear.name) : null;
         if (!owner) {
@@ -2192,7 +2122,7 @@ export async function grantGeneratedGear(ledgerImpl, generation, ownerOf, { anch
         let result;
         try {
             result = typeof ledgerImpl?.grantInitialGear === 'function'
-                ? await ledgerImpl.grantInitialGear(owner, item.gear.items, { anchor })
+                ? await ledgerImpl.grantInitialGear(owner, item.gear.items, { anchor, ...writeOptions })
                 : { ok: false, reason: 'combat-gear-unavailable' };
         } catch {
             result = null;
@@ -2202,6 +2132,13 @@ export async function grantGeneratedGear(ledgerImpl, generation, ownerOf, { anch
     }
     return wrote;
 }
+
+function writeActive({ signal, shouldStart } = {}) {
+    try { return !signal?.aborted && (!shouldStart || shouldStart() === true); }
+    catch { return false; }
+}
+const staleWrite = () => ({ ok: false, reason: 'request-stale', written: [], present: [], rejected: [], pending: [] });
+
 
 // 出售装备或纪念品换点数，只有主角能卖。target 为字符串时当作 lootId。
 // 主角库存由背包表管理时，记录里写 itemId + rarity；否则写 lootId。
@@ -2278,7 +2215,7 @@ export function buildHeroPanelEntry(snapshot, chat, effective, characterId, acti
 
 // 楼层集合签名：会影响重放结果的只有楼层数、每层的正文、swipe_id、是否用户楼。
 // 正文直接存字符串引用比较（引用相同时 === 是 O(1)，不同时多数在首个字符就分出结果）。
-function floorSignature(floors) {
+export function floorSignature(floors) {
     const texts = new Array(floors.length);
     const pointsIds = new Array(floors.length);
     const swipes = new Array(floors.length);
@@ -2294,7 +2231,7 @@ function floorSignature(floors) {
     return { texts, swipes, kinds, pointsIds };
 }
 
-function sameSignature(a, b) {
+export function sameSignature(a, b) {
     if (a.texts.length !== b.texts.length) return false;
     for (let at = 0; at < a.texts.length; at += 1) {
         if (a.kinds[at] !== b.kinds[at] || a.swipes[at] !== b.swipes[at] || a.texts[at] !== b.texts[at]) return false;
@@ -2330,7 +2267,7 @@ const LEDGER_KINDS = Object.freeze(['profile', 'ledger', 'attribute']);
 //   - 快照读取：同一表戳只读一次，并发调用共用同一个 Promise；
 //   - 有效状态：同一快照 + 楼层集合签名 + 用户名 + 来源过滤 + 背包表戳 + 难度只重放一次。
 // read()/effectiveState() 返回的对象在调用方之间共享，必须视为只读，不要原地修改。
-export function createCombatLedger({ tables, chat, chatId = '', userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null, wallet = 0, spendingGate } = {}) {
+export function createCombatLedger({ tables, attributeStore, sharedPoints = null, chat, chatId = '', userName = '', sourceFilter, difficulty, now = () => Date.now(), inventory = null, wallet = 0, spendingGate } = {}) {
     const getChat = () => (typeof chat === 'function' ? chat() : chat) || [];
     const getChatId = () => String((typeof chatId === 'function' ? chatId() : chatId) || '');
     const getUserName = () => (typeof userName === 'function' ? userName() : userName);
@@ -2368,6 +2305,8 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
 
     let snapshotMemo = null; // { stamp, promise }
     function readSnapshot() {
+        const status = attributeStore?.status();
+        if (status && !status.ok) return Promise.resolve(status);
         const stamp = tableStamp(tables?.client);
         if (stamp && snapshotMemo && sameStamp(snapshotMemo.stamp, stamp)) {
             stats.snapshotHits += 1;
@@ -2416,6 +2355,36 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         return readSnapshot();
     }
 
+    async function readOfferCommit(offer, writeOptions) {
+        if (!writeActive(writeOptions)) return staleWrite();
+        const normalized = normalizeLedgerEntry(offer);
+        const record = normalized.value;
+        if (!normalized.ok || record.type !== 'offer' || record.id !== ledgerEntryId('offer', record.character, record.anchor)) {
+            return { ok: false, reason: 'combat-offer-intent-invalid' };
+        }
+        const conflict = { ok: false, reason: 'combat-offer-save-conflict' };
+        try {
+            tables.client?.invalidate?.();
+            const state = await tables.read({ kinds: ['ledger'], recoveryRecords: [{ kind: 'ledger', record }] });
+            if (!writeActive(writeOptions)) return staleWrite();
+            if (!state?.ok || !Array.isArray(state.ledger)) return { ok: false, reason: state?.reason || 'combat-ledger-read-failed' };
+            for (const issue of state.diagnostics || []) {
+                if (issue.kind !== 'ledger' || (issue.key && issue.key !== record.id)) continue;
+                if (issue.key !== record.id || issue.code !== 'combat-row-segment-incomplete'
+                    || tables.matchesIncomplete?.('ledger', record) !== true) return conflict;
+            }
+            const rows = state.ledger.filter(row => row.id === record.id
+                || (row.type === 'offer' && row.payload?.combatId === record.payload.combatId));
+            if (!rows.length) return { ok: true, present: false };
+            if (rows.length !== 1) return conflict;
+            const { id, type, character, anchor, payload, createdAt } = rows[0];
+            const actual = normalizeLedgerEntry({ id, type, character, anchor, payload, createdAt }, { stored: true });
+            return actual.ok && JSON.stringify(actual.value) === JSON.stringify(record) ? { ok: true, present: true } : conflict;
+        } catch {
+            return writeActive(writeOptions) ? { ok: false, reason: 'combat-ledger-read-failed' } : staleWrite();
+        }
+    }
+
     // 只供 Origin 在校验自身写入意图后读取其他份额，不是可消费的共享余额。
     async function externalPoints() {
         const snapshot = await readSnapshot();
@@ -2426,18 +2395,30 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
     }
 
-    // 主角的 points 并入数值侧金钱（合并余额）；换新对象不改共享的记忆化状态，同一状态与同一金额返回同一对象。
+    // 主角的 points：v2 直接取共享积分表确认余额，不再叠旧数值钱包或旧战斗/Origin 分量；legacy 照旧合成。
     const walletViews = new WeakMap();
     function withWallet(state) {
-        const extra = getWallet() + (state?.originPoints || 0) + (state?.gamePoints || 0);
-        if (!extra || !state || state.ok !== true) return state;
+        if (!state || state.ok !== true) return state;
         const heroId = state.attributes && state.attributes.heroId;
         const hero = heroId ? state.characters.get(heroId) : null;
         if (!hero) return state;
+        if (sharedPoints?.isV2?.()) {
+            const shared = sharedPoints.readBalanceSync?.();
+            if (!shared?.ok) return state;
+            const target = shared.balance;
+            if ((hero.points || 0) === target) return state;
+            const cached = walletViews.get(state);
+            if (cached && cached.mode === 'shared' && cached.balance === target) return cached.view;
+            const view = { ...state, characters: new Map(state.characters).set(heroId, { ...hero, points: target }) };
+            walletViews.set(state, { mode: 'shared', balance: target, view });
+            return view;
+        }
+        const extra = getWallet() + (state?.originPoints || 0) + (state?.gamePoints || 0);
+        if (!extra) return state;
         const cached = walletViews.get(state);
-        if (cached && cached.extra === extra) return cached.view;
+        if (cached && cached.mode === 'legacy' && cached.extra === extra) return cached.view;
         const view = { ...state, characters: new Map(state.characters).set(heroId, { ...hero, points: (hero.points || 0) + extra }) };
-        walletViews.set(state, { extra, view });
+        walletViews.set(state, { mode: 'legacy', extra, view });
         return view;
     }
 
@@ -2462,7 +2443,8 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     const readStats = () => ({ ...stats });
 
     // ---- 写入 ----
-    async function append(input) {
+    async function append(input, writeOptions = {}) {
+        if (!writeActive(writeOptions)) return staleWrite();
         const accepted = [];
         const rejected = [];
         for (const raw of Array.isArray(input) ? input : [input]) {
@@ -2475,8 +2457,8 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         // 库存类记录（装备/物品/战利品/出售…）要同步改背包表，单独走库存串行队列
         const stockEntries = inventory ? accepted.filter((entry) => STOCK_TYPES.includes(entry.type)) : [];
         const plainEntries = accepted.filter((entry) => !stockEntries.includes(entry));
-        let result = plainEntries.length ? await tables.append('ledger', plainEntries) : { ok: true, written: [], present: [], rejected: [], pending: [] };
-        if (stockEntries.length) result = mergeResults(result, await appendStockEntries(stockEntries));
+        let result = plainEntries.length ? await tables.append('ledger', plainEntries, writeOptions) : { ok: true, written: [], present: [], rejected: [], pending: [] };
+        if (stockEntries.length) result = mergeResults(result, await appendStockEntries(stockEntries, writeOptions));
         return rejected.length ? { ...result, ok: false, rejected: [...(result.rejected || []), ...rejected] } : result;
     }
 
@@ -2495,10 +2477,14 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     let stockTail = Promise.resolve();
-    function appendStockEntries(entries) {
+    function appendStockEntries(entries, writeOptions = {}) {
         const run = stockTail.then(async () => {
             let merged = { ok: true, written: [], present: [], rejected: [], pending: [], stock: [] };
-            for (const entry of entries) merged = mergeResults(merged, await appendStockEntry(entry));
+            for (const entry of entries) {
+                if (!writeActive(writeOptions)) return mergeResults(merged, staleWrite());
+                merged = mergeResults(merged, await appendStockEntry(entry, writeOptions));
+                if (!writeActive(writeOptions)) return mergeResults(merged, staleWrite());
+            }
             return merged;
         });
         stockTail = run.catch(() => {});
@@ -2512,14 +2498,18 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
 
     // 一条库存类记录：先写账本，再改背包表；背包表写失败就撤销账本记录。
     // 不是主角的记录、或不需要改背包的记录，直接按普通记录写入。
-    async function appendStockEntry(entry) {
+    async function appendStockEntry(entry, writeOptions = {}) {
+        const alive = () => writeActive(writeOptions);
+        if (!alive()) return staleWrite();
         const snapshot = await readSnapshot();
+        if (!alive()) return staleWrite();
         if (!snapshot.ok) return failedStock(entry, snapshot.reason || 'combat-ledger-read-failed');
         const index = indexProfiles(snapshot.profiles, []);
         const name = getUserName();
         const heroId = name ? resolveCharacterId(index, name, name) : null;
-        if (!heroId || canonicalCharacterId(index, entry.character) !== heroId) return tables.append('ledger', [entry]);
-        const ensureFailure = await ensureInventory();
+        if (!heroId || canonicalCharacterId(index, entry.character) !== heroId) return tables.append('ledger', [entry], writeOptions);
+        const ensureFailure = await ensureInventory({ shouldStart: alive });
+        if (!alive()) return staleWrite();
         if (ensureFailure) return failedStock(entry, ensureFailure);
         const floors = getChat();
         const { state, options } = resolveState(snapshot, floors, true);
@@ -2531,7 +2521,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         if (slot.error) return failedStock(entry, slot.error);
         const stockEntry = slot.id === entry.id ? entry : { ...entry, id: slot.id };
         const plan = stockPlan(stockEntry, hero, { panelTag: GEAR_TAG_HASH });
-        if (plan === null) return tables.append('ledger', [stockEntry]);
+        if (plan === null) return tables.append('ledger', [stockEntry], writeOptions);
         const refuse = (reason) => stockEntry.type === 'sell' ? failedStock(stockEntry, reason) : skippedStock(stockEntry, reason);
         if (!plan.ok) return refuse(plan.reason);
         // 试算：把这条记录加进去重放，看它会不会被判为失效或产生诊断
@@ -2546,27 +2536,33 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
             catch { return failedStock(stockEntry, 'inventory-table-read-failed'); }
             if (saleBefore?.ok !== true) return failedStock(stockEntry, saleBefore?.reason || 'inventory-table-read-failed');
         }
+        const leased = Boolean(writeOptions.signal || writeOptions.shouldStart);
+        const write = leased ? { ...writeOptions, retainOnFailure: false } : writeOptions;
         let written;
         try {
-            written = await tables.append('ledger', [stockEntry]);
+            written = await tables.append('ledger', [stockEntry], write);
         } catch {
             written = { ok: false, reason: 'combat-ledger-insert-failed' };
         }
+        if (!alive()) return { ...written, ok: false, reason: 'request-stale' };
         if ((written.present || []).includes(stockEntry.id)) return { ...written, stock: [] };
         if (!(written.written || []).includes(stockEntry.id)) {
             const reason = written.reason || 'combat-ledger-insert-failed';
-            const revoked = await revokeEntry(stockEntry, reason);
+            if (leased) return { ...written, ok: false, reason, stock: [{ id: stockEntry.id, ok: false, reason }] };
+            const revoked = await revokeEntry(stockEntry, reason, write);
             return { ...written, ok: false, reason, stock: [{ id: stockEntry.id, ok: false, reason, revoked }] };
         }
         let stockFailure;
         try {
-            stockFailure = await applyStockPlan(plan, { requireCleanup: stockEntry.type === 'sell' });
+            stockFailure = await applyStockPlan(plan, { requireCleanup: stockEntry.type === 'sell', shouldStart: alive });
         } catch {
             stockFailure = 'inventory-write-failed';
         }
+        if (!alive()) return { ...written, ok: false, reason: 'request-stale' };
         if (stockFailure) {
-            const restored = saleBefore ? await restoreSellStock(plan, saleBefore) : undefined;
-            const revoked = await revokeEntry(stockEntry, stockFailure);
+            const restored = saleBefore ? await restoreSellStock(plan, saleBefore, write) : undefined;
+            const revoked = await revokeEntry(stockEntry, stockFailure, write);
+            if (!alive()) return { ...written, ok: false, reason: 'request-stale' };
             const reason = !revoked ? 'combat-stock-revoke-failed' : restored === false ? 'combat-sell-rollback-failed' : stockFailure;
             return failedStock(stockEntry, reason, { detail: stockFailure, revoked, ...(saleBefore ? { restored } : {}) });
         }
@@ -2574,11 +2570,11 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     // 确保背包表与装备表存在（缺表缺列时补建）。成功返回 null，失败返回原因。
-    async function ensureInventory() {
+    async function ensureInventory(writeOptions) {
         if (typeof inventory?.ensure !== 'function') return 'inventory-ensure-unavailable';
         let result;
         try {
-            result = await inventory.ensure();
+            result = await inventory.ensure(writeOptions);
         } catch {
             result = { ok: false, reason: 'inventory-ensure-failed' };
         }
@@ -2589,18 +2585,21 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     const stockStepOk = (result) => result?.ok === true || result?.reason === 'inventory-refresh-failed';
 
     // 执行库存计划：先写装备定义行，再改数量，最后清理。成功返回 null，失败返回原因。
-    async function applyStockPlan(plan, { requireCleanup = false } = {}) {
+    async function applyStockPlan(plan, { requireCleanup = false, shouldStart = () => true } = {}) {
         for (const row of plan.rows) {
-            const result = await inventory.setGearRow(row.name, row.record);
+            if (!writeActive({ shouldStart })) return 'request-stale';
+            const result = await inventory.setGearRow(row.name, row.record, { shouldStart });
             if (!stockStepOk(result)) return result?.reason || 'gear-write-failed';
         }
         if (plan.changes.length) {
-            const result = await inventory.changeQuantities(plan.changes);
+            if (!writeActive({ shouldStart })) return 'request-stale';
+            const result = await inventory.changeQuantities(plan.changes, { shouldStart });
             if (!stockStepOk(result) && (result?.applied?.length || 0) < plan.changes.length) return result?.reason || 'inventory-write-failed';
         }
         for (const row of plan.after) {
+            if (!writeActive({ shouldStart })) return 'request-stale';
             try {
-                const result = await inventory.setGearRow(row.name, row.record);
+                const result = await inventory.setGearRow(row.name, row.record, { shouldStart });
                 if (requireCleanup && !stockStepOk(result)) return result?.reason || 'gear-write-failed';
             } catch {
                 if (requireCleanup) return 'gear-write-failed';
@@ -2610,9 +2609,10 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     // 回收不是跨表事务：失败时只恢复本次目标，遇到非预期数量则停止补偿并交回诊断。
-    async function restoreSellStock(plan, before) {
+    async function restoreSellStock(plan, before, writeOptions) {
         try {
             for (const change of plan.changes) {
+                if (!writeActive(writeOptions)) return false;
                 const original = before.inventory.items.find((item) => item.name === change.name);
                 const current = inventory.read();
                 if (!original || original.lost || current?.ok !== true) return false;
@@ -2631,15 +2631,15 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
                         category: cell('类别'), rarity: cell('稀有度'), slot: cell('部位'),
                         bonusText: cell('六维加成'), passiveText: cell('被动'), effectText: cell('效果'),
                         equipped: definition.equipped, definition: definition.definition,
-                    });
-                    if (!stockStepOk(result)) return false;
+                    }, { shouldStart: () => writeActive(writeOptions) });
+                    if (!writeActive(writeOptions) || !stockStepOk(result)) return false;
                 }
                 if (quantity !== original.quantity) {
                     const result = await inventory.changeQuantities({
                         name: original.name, delta: original.quantity - quantity,
                         description: original.description, category: original.category,
-                    });
-                    if (!stockStepOk(result)) return false;
+                    }, { shouldStart: () => writeActive(writeOptions) });
+                    if (!writeActive(writeOptions) || !stockStepOk(result)) return false;
                 }
                 const verified = inventory.read();
                 const restored = verified?.ok === true && verified.inventory.items.find((item) => item.name === change.name);
@@ -2653,15 +2653,16 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     // 撤销一条已写入的账本记录（写一条 revoke 记录指向它）。成功返回 true。
-    async function revokeEntry(entry, reason) {
+    async function revokeEntry(entry, reason, writeOptions) {
+        if (!writeActive(writeOptions)) return false;
         const normalized = normalizeLedgerEntry({
             id: `revoke|${entry.id}`, type: 'revoke', character: entry.character, anchor: null,
             payload: { targetEntryId: entry.id, reason: String(reason || '').slice(0, 80) }, createdAt: now(),
         });
         if (!normalized.ok) return false;
         try {
-            const result = await tables.append('ledger', [normalized.value]);
-            return (result.written || []).includes(normalized.value.id) || (result.present || []).includes(normalized.value.id);
+            const result = await tables.append('ledger', [normalized.value], writeOptions);
+            return writeActive(writeOptions) && ((result.written || []).includes(normalized.value.id) || (result.present || []).includes(normalized.value.id));
         } catch {
             return false;
         }
@@ -2670,6 +2671,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     // ---- 扫描 ----
     // 属性记录写入属性表。属性表缺失时由调用方决定是否跳过。
     async function appendAttributes(input, options) {
+        if (attributeStore) return attributeStore.append(input, options);
         const accepted = [];
         const rejected = [];
         for (const raw of Array.isArray(input) ? input : [input]) {
@@ -2682,8 +2684,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         return rejected.length ? { ...result, ok: false, rejected: [...(result.rejected || []), ...rejected] } : result;
     }
 
-    // 属性表缺失只算「跳过」，不算写入失败。
-    const attributeWriteOk = (write) => write === null || write.ok === true || write.reason === 'combat-attribute-table-missing';
+    const attributeWriteOk = (write) => write === null || write.ok === true;
     const writeAttributesIfAny = (snapshot, attributes) => {
         if (!attributes.length) return null;
         return snapshot.attributeTable === 'ok'
@@ -2719,14 +2720,14 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         const attributeScan = scanGrowthTags(snapshot, floors, {
             userName: getUserName(), sourceFilter: getSourceFilter(), messageIds, now: now(), attributesOnly: true, effectiveState,
         });
-        const attributeWrite = attributeScan.ok ? await writeAttributesIfAny(snapshot, attributeScan.attributes) : null;
+        const attributeWrite = attributeScan.ok ? await writeAttributesIfAny(snapshot, attributeScan.attributes) : attributeScan;
         const ok = (write === null || write.ok === true) && attributeWriteOk(attributeWrite);
         return { ...life, ok, write, attributeWrite };
     }
 
     // ---- 面板操作 ----
     // 写入前读最新快照、写入后返回新记录；成功路径统一为 { ...写入结果, entry }。
-    const withEntry = async (built, extra = {}) => ({ ...await append([built.entry]), entry: built.entry, ...extra });
+    const withEntry = async (built, extra = {}, writeOptions) => ({ ...await append([built.entry], writeOptions), entry: built.entry, ...extra });
 
     async function saveDeck(characterId, cards) {
         const snapshot = await readSnapshot();
@@ -2743,7 +2744,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
 
     // 属性分配：串行排队，开始前和读表后各检查一次聊天是否还是当初那一楼。
     let allocateTail = Promise.resolve();
-    function allocate(characterId, picks, { shouldStart } = {}) {
+    function allocate(characterId, picks, { shouldStart, expectedRevision } = {}) {
         const floors = getChat();
         const lastFloor = floors.at(-1);
         const swipeAtStart = swipeOf(lastFloor);
@@ -2755,8 +2756,11 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
             if (!stillCurrent()) return { ok: false, reason: 'request-stale' };
             if (!snapshot.ok) return snapshot;
             const effective = resolveState(snapshot, floors, true).state;
+            if (!effective.ok) return effective;
+            if (expectedRevision !== undefined && expectedRevision !== effective.characters.get(characterId)?.attributes?.revision)
+                return { ok: false, reason: 'stats-attribute-conflict' };
             const built = buildAllocEntries(snapshot, floors, effective, characterId, copiedPicks, now());
-            return built.ok ? { ...await appendAttributes(built.entries, { shouldStart: stillCurrent }), entries: built.entries } : built;
+            return built.ok ? { ...await appendAttributes(built.entries, { shouldStart: stillCurrent, expectedRows: snapshot.attributes }), entries: built.entries } : built;
         });
         allocateTail = run.catch(() => {});
         return run;
@@ -2770,7 +2774,7 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         return run;
     }
     // replace 为真（须同时 manual）：已初始化的角色也写一条「手改」记录覆盖原初始化，剧情与升级加点照常叠加。
-    async function writeInitNow(name, init, { signal, shouldStart, manual = false, replace = false } = {}) {
+    async function writeInitNow(name, init, { signal, shouldStart, manual = false, replace = false, expectedRevision } = {}) {
         const alive = () => !signal?.aborted && (!shouldStart || shouldStart() === true);
         const stale = () => ({ ok: false, reason: 'request-stale' });
         if (!alive()) return stale();
@@ -2786,17 +2790,19 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         const user = getUserName();
         const state = resolveState(snapshot, getChat(), false).state;
         if (!state.ok) return state;
-        const edit = manual && replace === true && Boolean(abilitiesForName(state, characterName, user)?.initialized);
-        if (!edit && abilitiesForName(state, characterName, user)?.initialized) return { ok: true, unchanged: true };
+        const view = abilitiesForName(state, characterName, user);
+        if (expectedRevision !== undefined && view?.revision !== expectedRevision) return { ok: false, reason: 'stats-attribute-conflict' };
+        const edit = manual && replace === true && Boolean(view?.initialized);
+        if (!edit && view?.initialized) return { ok: true, unchanged: true };
         const key = characterKeyFor(indexProfiles(snapshot.profiles, []), characterName, user);
-        const at = now();
+        const at = Math.max(now(), (state.attributes.fold.get(key)?.initTime ?? -1) + 1);
         const record = edit
             ? { id: `${ledgerEntryId('init', key)}|edit|${at}`, type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: at, change: INIT_EDIT_CHANGE }
             : { id: ledgerEntryId('init', key), type: 'init', character: key, anchor: null, payload: parsed.value, createdAt: at, change: '初始化' };
         if (!alive()) return stale();
         let written;
         try {
-            written = await appendAttributes([record], { signal, shouldStart: alive });
+            written = await appendAttributes([record], { signal, shouldStart: alive, expectedRows: snapshot.attributes });
         } catch {
             return { ok: false, reason: 'combat-init-write-failed' };
         }
@@ -2824,12 +2830,13 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     // 初始装备落账（profile-gear）：items 为组装好的 equip 载荷；anchor 缺省取最新楼层。没有装备时不写。
-    function grantInitialGear(characterId, items, { anchor = null } = {}) {
+    function grantInitialGear(characterId, items, { anchor = null, ...writeOptions } = {}) {
         return queueAction(async () => {
+            if (!writeActive(writeOptions)) return staleWrite();
             const built = buildInitialGearEntries(getChat(), characterId, items, now(), anchor);
             if (!built.ok) return built;
             if (!built.entries.length) return { ok: true, written: [], present: [], rejected: [], pending: [], entries: [] };
-            const written = await append(built.entries);
+            const written = await append(built.entries, writeOptions);
             return { ...written, entries: built.entries };
         });
     }
@@ -2841,7 +2848,14 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
             const floors = getChat();
             const effective = resolveState(snapshot, floors, true).state;
             const built = buildSellEntry(snapshot, floors, effective, target, now());
-            return built.ok ? withEntry(built, { price: built.price }) : built;
+            if (!built.ok) return built;
+            const written = await withEntry(built, { price: built.price });
+            if (!written.ok || !sharedPoints?.isV2?.() || !(built.price > 0)) return written;
+            const credited = await sharedPoints.credit({
+                sourceId: `combat-sell:${built.entry.id}`, domain: 'combat', amount: built.price,
+                meta: { entryId: built.entry.id },
+            });
+            return credited?.ok ? written : { ...written, ok: false, reason: credited?.reason || 'points-write-failed', stage: 'points' };
         });
     }
     const sellKeepsake = (lootId, count = 1) => sell({ lootId, count });
@@ -2899,32 +2913,53 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
     }
 
     // 主角面板操作：先算出记录，再把它加进去试重放，没有被判失效或产生诊断才写入。
-    function heroPanelAction(characterId, action, payload, { expectedDraws } = {}) {
+    function heroPanelAction(characterId, action, payload, { expectedDraws, ...writeOptions } = {}) {
         return queueAction(async () => {
+            if (!writeActive(writeOptions)) return staleWrite();
             if (payload?.cost > 0 && typeof spendingGate === 'function') {
                 const allowed = await spendingGate();
+                if (!writeActive(writeOptions)) return staleWrite();
                 if (!allowed?.ok) return allowed || { ok: false, reason: 'points-settlement-pending' };
             }
             const snapshot = await readSnapshot();
+            if (!writeActive(writeOptions)) return staleWrite();
             if (!snapshot.ok) return snapshot;
             const floors = getChat();
             const { state, options } = resolveState(snapshot, floors, true);
             if (action === 'trait' && expectedDraws !== undefined && state.characters.get(characterId)?.traitDraws !== expectedDraws) return { ok: false, reason: 'combat-trait-stale' };
-            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), getWallet() + (state.originPoints || 0) + (state.gamePoints || 0));
+            const isV2 = sharedPoints?.isV2?.() === true;
+            let extraPoints = getWallet() + (state.originPoints || 0) + (state.gamePoints || 0);
+            if (isV2) {
+                const shared = await sharedPoints.balance();
+                if (!writeActive(writeOptions)) return staleWrite();
+                if (!shared?.ok) return shared || { ok: false, reason: 'points-read-failed' };
+                extraPoints = shared.balance - (state.characters.get(characterId)?.points || 0);
+            }
+            const built = buildHeroPanelEntry(snapshot, floors, state, characterId, action, payload, now(), extraPoints);
             if (!built.ok) return built;
             const trial = computeEffectiveState({ ...snapshot, entries: [...snapshot.entries, built.entry] }, floors, options);
             const trialDiagnostic = trial.ok ? trial.diagnostics.find((item) => item.id === built.entry.id) : null;
             if (!trial.ok || trialDiagnostic) return { ok: false, reason: trialDiagnostic?.code || trial.reason || `combat-${action}-invalid` };
-            return withEntry(built, built.entry.payload.cost === undefined ? {} : { cost: built.entry.payload.cost });
+            const cost = built.entry.payload.cost || 0;
+            if (isV2 && cost > 0) {
+                const spent = await sharedPoints.spend({
+                    sourceId: `combat:${built.entry.id}`, domain: 'combat', cost, action,
+                    meta: { entryId: built.entry.id, characterId },
+                    apply: () => withEntry(built, { cost }, writeOptions),
+                    shouldStart: () => writeActive(writeOptions),
+                });
+                return spent.ok ? (spent.applied || { ok: true, entry: built.entry, cost }) : spent;
+            }
+            return withEntry(built, built.entry.payload.cost === undefined ? {} : { cost: built.entry.payload.cost }, writeOptions);
         });
     }
 
-    const rebuildDeck = (characterId, plan) => heroPanelAction(characterId, 'rebuild', { personalPool: plan?.personalPool, starterDeck: plan?.starterDeck, cost: REBUILD_COST });
-    const respecClass = (characterId, classRef) => heroPanelAction(characterId, 'respec', { classRef, cost: RESPEC_COST });
-    function ascendClass(characterId, { classRef, tier, tierName, cards } = {}) {
+    const rebuildDeck = (characterId, plan, writeOptions) => heroPanelAction(characterId, 'rebuild', { personalPool: plan?.personalPool, starterDeck: plan?.starterDeck, cost: REBUILD_COST }, writeOptions);
+    const respecClass = (characterId, classRef, writeOptions) => heroPanelAction(characterId, 'respec', { classRef, cost: RESPEC_COST }, writeOptions);
+    function ascendClass(characterId, { classRef, tier, tierName, cards } = {}, writeOptions) {
         const rule = ASCEND_TIERS[tier];
         return rule
-            ? heroPanelAction(characterId, 'ascend', { classRef, tier, tierName, cards, cost: rule.cost })
+            ? heroPanelAction(characterId, 'ascend', { classRef, tier, tierName, cards, cost: rule.cost }, writeOptions)
             : Promise.resolve({ ok: false, reason: 'combat-ascend-tier-invalid' });
     }
     function drawTrait(characterId, trait = {}, options = {}) {
@@ -2943,15 +2978,16 @@ export function createCombatLedger({ tables, chat, chatId = '', userName = '', s
         const cost = TRAIT_SLOT_COSTS[slot];
         return cost ? heroPanelAction(characterId, 'trait-slot', { slot, cost }) : Promise.resolve({ ok: false, reason: 'combat-trait-slot-invalid' });
     }
-    const drawCard = (characterId, { drawId, choices, free } = {}) => heroPanelAction(characterId, 'card-draw', {
+    const drawCard = (characterId, { drawId, choices, free } = {}, writeOptions) => heroPanelAction(characterId, 'card-draw', {
         drawId, choices, cost: free === undefined ? CARD_DRAW_COST : 0, ...(free === undefined ? {} : { free }),
-    });
+    }, writeOptions);
     const upgradeCard = (characterId, { level, copyId, cardId } = {}) => heroPanelAction(characterId, 'card-upgrade', { level, copyId, cardId });
     const flipCard = (characterId, drawId, position) => heroPanelAction(characterId, 'card-flip', { drawId, position });
     const pickCard = (characterId, drawId, pick) => heroPanelAction(characterId, 'card-pick', { drawId, pick, ...(COMBAT_RULES.version >= 6 && pick !== 'skip' ? { added: true } : {}) });
 
     return {
-        read, effectiveState, externalPoints, append, appendAttributes, scan, scanLife, saveDeck, setGear, grantInitialGear, allocate, writeInit,
+        read, readOfferCommit, effectiveState, externalPoints, append, appendAttributes, scan, scanLife, saveDeck, setGear, grantInitialGear, allocate, writeInit,
+        recoverAttributes: options => attributeStore?.recover(options) ?? { ok: false, reason: 'stats-attribute-recovery-unavailable' },
         sellKeepsake, sellGear, useItem, rebuildDeck, respecClass, ascendClass, drawTrait, pickTrait, unlockTraitSlot, inscribeRelic, drawCard, flipCard, pickCard, upgradeCard,
         stats: readStats, withPointsLock: queueAction,
     };

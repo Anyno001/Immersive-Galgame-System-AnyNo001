@@ -5540,7 +5540,7 @@ ${row.key}`;
             inscribeRelic: typeof options.inscribeCombatRelic === 'function' ? (opts) => options.inscribeCombatRelic(opts) : null,
             setGear: typeof options.setCombatGear === 'function' ? (id, gearId, equip, slotIndex) => options.setCombatGear(id, gearId, equip, slotIndex) : null,
             // 手动建档（P8c）：本聊天建档方式为「手动」时，加点页给尚无建档记录的角色逐项加点，确认后写属性表 init。
-            writeManualInit: typeof options.writeCombatManualInit === 'function' ? (name, raw) => options.writeCombatManualInit(name, raw) : null,
+            writeManualInit: typeof options.writeCombatManualInit === 'function' ? (name, raw, guard) => options.writeCombatManualInit(name, raw, guard) : null,
             buildMode: () => (typeof options.statsBuildMode === 'function' ? options.statsBuildMode() : null),
             // 待建档名单与只开数值系统时的入口（P8c）。
             buildEntry: () => (typeof options.statsBuildEntry === 'function' ? options.statsBuildEntry() === true : false),

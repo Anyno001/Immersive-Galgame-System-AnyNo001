@@ -1641,7 +1641,7 @@ export function createCombatPanelController(doc, options = {}) {
         return ms;
     }
 
-    async function prepare() {
+    async function prepare({ recoverReward = false } = {}) {
         const s = session();
         if (!s || messageId === null || pending) return { ok: false, reason: pending ? 'combat-busy' : 'combat-session-unavailable' };
         const my = token;
@@ -1650,10 +1650,11 @@ export function createCombatPanelController(doc, options = {}) {
         notice = '';
         render();
         let r;
-        try { r = await s.prepare(messageId, { signal: abort?.signal }); } catch (error) { r = { ok: false, reason: 'combat-action-threw' }; }
+        try { r = await s.prepare(messageId, { signal: abort?.signal, recoverReward }); } catch (error) { r = { ok: false, reason: 'combat-action-threw' }; }
         if (my !== token) return r;
         pending = '';
         abort = null;
+        if (r?.reason === 'request-stale') { render(); return r; }
         say(r);
         if (r.session?.lobby) controlledId = r.session.lobby.heroId ?? 'hero';
         render();
@@ -1698,14 +1699,16 @@ export function createCombatPanelController(doc, options = {}) {
     async function runAsync(kind, fn) {
         if (pending) return { ok: false, reason: 'combat-busy' };
         const my = token;
+        if (kind === 'reward') abort = new AbortController();
         pending = kind;
         notice = '';
         render();
         let r;
-        try { r = await fn(); } catch (error) { r = { ok: false, reason: 'combat-action-threw' }; }
+        try { r = await fn(abort?.signal); } catch (error) { r = { ok: false, reason: 'combat-action-threw' }; }
         if (my !== token) return r;
+        if (kind === 'reward') abort = null;
         pending = '';
-        say(r);
+        if (r?.reason !== 'request-stale') say(r);
         render();
 
         return r;
@@ -1978,7 +1981,7 @@ export function createCombatPanelController(doc, options = {}) {
             await runAsync('tables', () => options.ensureTables());
             if (my !== token || !root) return { ok: false, reason: 'request-stale' };
         }
-        return prepare();
+        return prepare({ recoverReward: true });
     }
 
     // 待选阶段不派发的回合操作：点了只给出「先选完牌」。
@@ -2082,7 +2085,7 @@ export function createCombatPanelController(doc, options = {}) {
                 upgradeOpen = true; upgradeFocus = ''; purgeOpen = false; purgeFocus = ''; render(); return { ok: true };
             case 'upgrade-close': upgradeOpen = false; upgradeFocus = ''; render(); return { ok: true };
             case 'reroll': return runAsync('flip', () => s.reroll());
-            case 'retry-reward': return runAsync('reward', () => s.retryReward());
+            case 'retry-reward': return runAsync('reward', signal => s.retryReward({ signal }));
             case 'skip': return runAsync('skip', () => s.skip());
             case 'auto': return runAsync('auto', () => s.autoPlay());
             case 'ally': return toggleAlly(id);

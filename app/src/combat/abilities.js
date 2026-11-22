@@ -2,9 +2,9 @@
 // 纯函数，随机性只来自 hash32，同名同输入结果恒定。
 import { hash32 } from './random.js';
 import { COMBAT_RULES } from './rules.js';
+import { ABILITY_KEYS, normalizeHeroScores, normalizeNpcScores } from '../scene/stats/ability-fields.js';
+export { ABILITY_KEYS, ABILITY_LABELS } from '../scene/stats/ability-fields.js';
 
-export const ABILITY_KEYS = Object.freeze(['str', 'dex', 'con', 'int', 'wis', 'cha']);
-export const ABILITY_LABELS = Object.freeze({ str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' });
 // 各能力的可接受写法（小写比较）。
 const ABILITY_ALIASES = Object.freeze({
     str: ['str', '力量', '力'],
@@ -151,11 +151,12 @@ export function autoAllocate(scores, prefs, asiCount, cap) {
     return result;
 }
 
-// 推导完整能力：scores、修正、熟练加值、上限。base 为手动六维时优先于偏好。
-export function deriveAbilities({ prefs, name, level = 1, protagonist = false, tier = DEFAULT_REL_TIER, adjustments = [], base = null } = {}) {
+// 推导完整能力：scores、修正、熟练加值、上限。heroBase（纯六维主角建档/手改）与 base（旧手动六维）均优先于偏好。
+export function deriveAbilities({ prefs, name, level = 1, protagonist = false, tier = DEFAULT_REL_TIER, adjustments = [], base = null, heroBase = null, npcBase = null } = {}) {
     const cap = abilityCap(protagonist);
     const manual = base ? normalizeManualScores(base) : null;
-    let scores = manual ? { ...manual } : baseScores(prefs, name);
+    let scores = (protagonist && normalizeHeroScores(heroBase)) || (!protagonist && normalizeNpcScores(npcBase)) || manual || baseScores(prefs, name);
+    const initialScores = { ...scores };
     if (!protagonist) {
         const tierMod = (REL_TIERS[tier] || REL_TIERS[DEFAULT_REL_TIER]).mod;
         scores = Object.fromEntries(ABILITY_KEYS.map((key) => [key, clamp(scores[key] + tierMod, ABILITY_MIN, cap)]));
@@ -169,7 +170,7 @@ export function deriveAbilities({ prefs, name, level = 1, protagonist = false, t
         if (key && amount) scores[key] = clamp(scores[key] + amount, ABILITY_MIN, cap);
     }
     const mods = Object.fromEntries(ABILITY_KEYS.map((key) => [key, abilityMod(scores[key])]));
-    return { scores, base: unadjusted, mods, proficiency: proficiencyBonus(level), cap };
+    return { scores, base: unadjusted, initialScores, mods, proficiency: proficiencyBonus(level), cap };
 }
 
 // 尚未花掉的升级加点数。

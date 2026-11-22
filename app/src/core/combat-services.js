@@ -14,6 +14,7 @@ import { createPointsEngine } from '../scene/points/points-engine.js';
 import { createGamePointsRound } from '../scene/points/game-points-round.js';
 import { createMahjongPointsRound } from '../scene/points/mahjong-points-round.js';
 import { createPointsIntents } from '../storage/points-intents.js';
+import { createCombatContentIntents } from '../storage/combat-content-intents.js';
 import { createCombatMaterialContext } from './combat-material-context.js';
 import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, upgradableRows, vitalsForName } from '../combat/ledger.js';
@@ -25,7 +26,7 @@ import {
 } from '../scene/check-rolls.js';
 import {
     classTierEntity, deckProfileEntities, drawCardEntity, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
-    withCharacterLore, withCombatInitialization, withStoryContext,
+    withCharacterLore, withStoryContext,
 } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
 import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
@@ -47,6 +48,9 @@ import { INTIMATE_FOUGHT_KEY, fallbackMechanic, getIntimateGate, intimateOn, rea
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
 import { createCombatTraitSeed } from '../host/combat-trait-seed.js';
+import { createModelRouteIdentity } from '../host/model-route-identity.js';
+import { hash32 } from '../combat/random.js';
+import { createGenerationTasks } from '../host/generation-tasks.js';
 
 // 建表失败里「表还没就绪/读失败」属于暂时性原因，不记成该聊天的建表失败
 const TRANSIENT_TABLE_REASONS = new Set(['combat-table-not-ready', 'combat-table-read-failed']);
@@ -134,6 +138,7 @@ export function createCombatServices(options = {}) {
     const materialContext = createCombatMaterialContext({ read: options.readGenerationMaterials, getChatId, getUserName });
     const readStoryContext = typeof options.readStoryContext === 'function' ? options.readStoryContext : undefined;
     const retryDelays = Array.isArray(options.retryDelays) ? options.retryDelays : undefined;
+    const generationMaxRounds = Number.isInteger(options.generationMaxRounds) && options.generationMaxRounds >= 0 ? options.generationMaxRounds : undefined;
     const getBuildMode = () => {
         try {
             return (typeof options.buildMode === 'function' && options.buildMode()) || null;
@@ -176,6 +181,41 @@ export function createCombatServices(options = {}) {
     let growthSnapshot = null; // 最近一次成长刷新的 { key, at, scan, state }，供自动成长复用
     const growthListeners = new Map(); // 监听者 -> 它最近收到的状态签名
     const diagnostics = [];
+    const modelRoute = createModelRouteIdentity({
+        getContext: () => getSillyTavernContext(global),
+        readConfig: () => ({ llm: getLlm(), combat: settings() }),
+        owner: () => global.AutoCardUpdaterAPI || null,
+    });
+    function captureGenerationLease({ signal, shouldStart, requireApi = true } = {}) {
+        getTables();
+        const owner = bundle, epoch = chatEpoch, chatId = getChatId(), route = modelRoute.get();
+        const floors = getChat();
+        const prefix = floors.map(message => [message, message?.mes, message?.swipe_id]);
+        let active = !!chatId && (!requireApi || !!owner?.api) && !!route;
+        return () => {
+            try {
+                active = active && !disposed && !signal?.aborted && settings().enabled && epoch === chatEpoch
+                    && getChatId() === chatId && bundle === owner && owner.api === (global.AutoCardUpdaterAPI || null)
+                    && (!options.chatStore || options.chatStore.get() === owner.shared) && modelRoute.get() === route
+                    && getChat() === floors && prefix.every(([message, text, swipe], index) =>
+                        floors[index] === message && message?.mes === text && message?.swipe_id === swipe)
+                    && (!shouldStart || shouldStart() === true);
+            } catch { active = false; }
+            return active;
+        };
+    }
+    const generationTasks = createGenerationTasks({ capture: () => captureGenerationLease() });
+    function runGeneration(key, args, run) {
+        if (disposed) return Promise.resolve({ ok: false, reason: 'request-stale' });
+        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        return generationTasks.start(key, job => {
+            job.guard(() => !args.signal?.aborted && (!args.shouldStart || args.shouldStart() === true));
+            const abort = () => job.controller.abort();
+            args.signal?.addEventListener?.('abort', abort, { once: true });
+            job.onFinish(() => args.signal?.removeEventListener?.('abort', abort));
+            return run({ ...args, signal: job.signal, shouldStart: job.alive });
+        });
+    }
     const pushDiagnostic = (code, extra = {}) => {
         diagnostics.push({ code, at: Date.now(), ...extra });
         if (diagnostics.length > DIAGNOSTICS_MAX) diagnostics.shift();
@@ -211,9 +251,10 @@ export function createCombatServices(options = {}) {
     // 包一层：读到缺表时先补建再重读
     function wrapTables(raw) {
         const wrapped = { ...raw, read: readWithEnsure };
-        async function readWithEnsure() {
+        async function readWithEnsure(readOptions) {
+            if (readOptions?.recoveryRecords?.length) return raw.read(readOptions);
             const read = await raw.read();
-            if (read?.ok !== true || !(read.missing?.length || read.optionalMissing?.length)) return read;
+            if (read?.ok !== true || !(read.layoutPending || read.missing?.length || read.optionalMissing?.length)) return read;
             const chatKey = getChatId();
             if (!chatKey) return read;
             if (ensureFailure && ensureFailure.key === chatKey) return withMissing(read, ensureFailure.reason);
@@ -227,29 +268,59 @@ export function createCombatServices(options = {}) {
     function retireBundle(old) {
         if (!old) return;
         stopProtagonistTableWatch(old);
-        old.readiness?.dispose();
         counters.retiredExports += old.client.stats.exports;
-        try { old.client.dispose(); } catch { /* */ }
+        if (!old.shared) {
+            old.readiness?.dispose();
+            try { old.client.dispose(); } catch { /* */ }
+        }
     }
+
+    const sharedPoints = {
+        isV2: () => bundle?.shared?.layout?.()?.layout === 'v2',
+        readBalanceSync: () => {
+            if (!bundle?.shared) return null;
+            const layout = bundle.shared.layout();
+            if (!layout?.ok) return { ok: false, reason: layout?.reason || 'points-read-failed' };
+            if (layout.layout !== 'v2') return null;
+            const held = points().pending();
+            if (!held.ok) return held;
+            const read = bundle.points.read();
+            if (!read.ok) {
+                if (read.reason === 'points-table-missing') return { ok: true, balance: 0, mode: 'shared' };
+                return read;
+            }
+            return { ok: true, balance: read.balance, mode: 'shared' };
+        },
+        balance: () => readSharedPoints(),
+        ensure: () => points().ensure(),
+        credit: (args) => points().credit(args),
+        spend: (args) => points().spend(args),
+        recoverOperation: (sourceId, opts) => points().recoverOperation(sourceId, opts),
+    };
 
     // 取战斗表实现；宿主 api 变了就整套重建（共用同一个缓存客户端）
     function getTables() {
         const api = global.AutoCardUpdaterAPI || null;
-        if (!bundle || bundle.api !== api) {
+        const shared = options.chatStore?.get();
+        if (!bundle || bundle.api !== api || bundle.shared !== shared) {
             retireBundle(bundle);
-            const client = createCachedTableClient({ api });
-            const raw = createCombatTables({ api, client });
-            const inventory = createInventoryTables({ api, client, serial: raw.serial });
+            const client = shared?.client || createCachedTableClient({ api });
+            const raw = shared?.raw || createCombatTables({ api, client });
+            const inventory = shared?.inventory || createInventoryTables({ api, client, serial: raw.serial });
             bundleGeneration += 1;
-            bundle = { api, client, raw, impl: wrapTables(raw), inventory, origin: createOriginStore({ tables: raw }),
-                points: createPointsStore({ tables: raw, chat: getChat, chatId: getChatId }), generation: bundleGeneration };
+            bundle = { api, client, raw, impl: wrapTables(raw), inventory, shared,
+                origin: shared?.origin || createOriginStore({ tables: raw }),
+                points: shared?.points || createPointsStore({ tables: raw, chat: getChat, chatId: getChatId }), generation: bundleGeneration };
             ledger = createCombatLedger({
                 tables: bundle.impl, chat: getChat, chatId: getChatId, userName: getUserName, sourceFilter: getSourceFilter,
+                attributeStore: shared?.attributeStore,
+                sharedPoints,
                 difficulty: () => settings().difficulty, inventory,
                 spendingGate: () => points().spendingGate(),
                 // 旧 bars.money 是只读积分份额，剧情货币不进入此处。
                 wallet: () => (typeof options.getWallet === 'function' ? options.getWallet() : 0),
             });
+            if (shared) { retireSession(); session = null; sessionChatId = null; }
             ensureFailure = null;
             growthSnapshot = null;
         }
@@ -289,7 +360,10 @@ export function createCombatServices(options = {}) {
                 // 敌人模板 M7 盗金：开战时剧情货币余额快照（只读，不并入积分钱包）。
                 purse: () => (typeof options.getCurrency === 'function' ? options.getCurrency() : null),
                 pointsRecover: () => (points().pending().record ? points().retry() : null),
-                buildMode: getBuildMode, difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays,
+                sharedPoints,
+                requireProtagonistAttributes: () => options.requireProtagonistAttributes !== false,
+                difficulty: () => settings().difficulty, reportDetail: () => settings().reportDetail, retryDelays, generationMaxRounds,
+                captureGenerationLease,
                 awaitProtagonist: () => (protagonistTask && protagonistTask.key === protagonistKey() ? protagonistTask.promise : null),
                 kinds,
                 // 数值特质名单：主角与同场同伴（福星）；数值系统未启用时 traitsOf 返回 null，奖励照旧。
@@ -532,11 +606,9 @@ export function createCombatServices(options = {}) {
         return {
             ready: !!state,
             reason: state ? '' : lifeCache && lifeCache.chatId === chatId ? lifeCache.state?.reason || 'combat-ledger-read-failed' : 'combat-life-cache-missing',
-            // NPC 属性档（数值系统）优先，没有再走账本与推导。
             readAbilities: (name, extra) => {
-                let sheet = null;
-                try { sheet = typeof options.npcAbilities === 'function' ? options.npcAbilities(name) : null; } catch { sheet = null; }
-                return sheet || (state ? abilitiesForName(state, name, getUserName(), extra) : null);
+                if (options.chatStore) return options.chatStore.get().attributeAccess.source().readAbilities(name, extra);
+                return state ? abilitiesForName(state, name, getUserName(), extra) : null;
             },
             readVitals: (name, extra) => (state ? vitalsForName(state, name, getUserName(), extra) : null),
             // 净流水不含旧 bars.money；共享积分不受战斗界面开关影响。
@@ -575,26 +647,29 @@ export function createCombatServices(options = {}) {
 
     // 手动写入初始化（设置页）：写完刷新生命与成长
     // replace：已初始化的角色也覆盖（设置页「修改属性」）。
-    async function writeManualInit(name, value, { signal, replace = false } = {}) {
+    async function writeManualInit(name, value, { signal, replace = false, expectedRevision, shouldStart } = {}) {
         const chatId = getChatId();
         if (!chatId) return { ok: false, reason: 'combat-generate-unavailable' };
         getTables();
         const ledgerImpl = ledger;
-        const stillValid = () => getChatId() === chatId && ledger === ledgerImpl && !signal?.aborted;
+        const epoch = chatEpoch, owner = bundle;
+        const stillValid = () => !disposed && chatEpoch === epoch && bundle === owner && owner.api === (global.AutoCardUpdaterAPI || null)
+            && getChatId() === chatId && ledger === ledgerImpl && !signal?.aborted && (!shouldStart || shouldStart());
+        if (!stillValid()) return { ok: false, reason: 'request-stale' };
         let written;
         try {
-            written = await ledgerImpl.writeInit(name, value, { signal, shouldStart: stillValid, manual: true, replace });
+            written = await ledgerImpl.writeInit(name, value, { signal, shouldStart: stillValid, manual: true, replace, expectedRevision });
         } catch {
             written = { ok: false, reason: 'combat-init-write-failed' };
         }
         if (written?.ok === true && stillValid()) {
             await refreshLife();
-            if (settings().enabled) await refreshGrowth();
-            if (stillValid() && settings().enabled) {
-                void prepareProtagonist();
+            if (stillValid() && settings().enabled) await refreshGrowth();
+            if (stillValid() && settings().enabled && protagonistState.status === 'waiting-attributes') {
+                await prepareProtagonist();
             }
         }
-        return written;
+        return stillValid() ? written : { ok: false, reason: 'request-stale' };
     }
 
     // 初始化候选：账本里尚未初始化的角色（主角只取一个）
@@ -635,6 +710,7 @@ export function createCombatServices(options = {}) {
 
     // 属性表对外入口（统计面板用）
     function statsTables() {
+        if (options.chatStore) return options.chatStore.get().statsAccess;
         getTables();
         const { raw, client, generation } = bundle;
         const probe = raw.probe();
@@ -664,6 +740,7 @@ export function createCombatServices(options = {}) {
     }
 
     function databaseReadiness() {
+        if (options.chatStore) return options.chatStore.get().readiness;
         getTables();
         const owner = bundle;
         const chatId = getChatId();
@@ -750,11 +827,34 @@ export function createCombatServices(options = {}) {
         };
     }
     const pointsSpendingGate = () => points().spendingGate();
+    function readV2PointsBalance(owner, chatId, { fresh = true } = {}) {
+        const held = points().pending();
+        if (!held.ok) { pointsCache = null; return held; }
+        const read = owner.points.read({ fresh });
+        if (!read.ok) {
+            if (read.reason === 'points-table-missing') {
+                const zero = { ok: true, mode: 'shared', balance: 0, combat: 0, origin: 0, games: 0, wallet: 0, flow: 0 };
+                pointsCache = { chatId, owner, key: cacheKey(), value: zero };
+                return zero;
+            }
+            pointsCache = null;
+            return read;
+        }
+        if (!Number.isSafeInteger(read.balance)) { pointsCache = null; return { ok: false, reason: 'origin-points-invalid' }; }
+        const value = { ok: true, mode: 'shared', balance: read.balance, combat: 0, origin: 0, games: read.balance, wallet: 0, flow: read.balance };
+        pointsCache = { chatId, owner, key: cacheKey(), value };
+        return value;
+    }
     async function readSharedPoints() {
         getTables();
         const owner = bundle;
         const chatId = getChatId();
         if (!chatId) return { ok: false, reason: 'origin-no-chat' };
+        if (owner.shared) {
+            const layout = owner.shared.layout();
+            if (!layout.ok) { pointsCache = null; return layout; }
+            if (layout.layout === 'v2') return readV2PointsBalance(owner, chatId, { fresh: true });
+        }
         const state = await ledger.effectiveState({ raw: true });
         if (bundle !== owner || getChatId() !== chatId) return { ok: false, reason: 'request-stale' };
         if (!state.ok) { pointsCache = null; return state; }
@@ -766,7 +866,7 @@ export function createCombatServices(options = {}) {
         const games = state.gamePoints || 0;
         const balance = wallet + combat + origin + games;
         if (!Number.isSafeInteger(balance)) return { ok: false, reason: 'origin-points-invalid' };
-        const value = { ok: true, balance, combat, origin, games, wallet, flow: combat + origin + games };
+        const value = { ok: true, mode: 'legacy', balance, combat, origin, games, wallet, flow: combat + origin + games };
         pointsCache = { chatId, owner, key: cacheKey(), value };
         return value;
     }
@@ -775,19 +875,36 @@ export function createCombatServices(options = {}) {
         const owner = bundle;
         const chatId = getChatId();
         if (!chatId || !intent?.ok) return { ok: false, reason: 'origin-wallet-unavailable' };
+        let isV2 = false;
+        if (owner.shared) {
+            const layout = owner.shared.layout();
+            if (!layout.ok) return layout;
+            isV2 = layout.layout === 'v2';
+        }
         owner.client.invalidate();
         const checked = owner.origin.read({ intent });
         if (!checked.ok) return checked;
         if (checked.revision !== intent.revision && checked.revision !== intent.record?.payload.parent) {
             return { ok: false, reason: 'origin-database-conflict' };
         }
+        if (isV2) return readV2PointsBalance(owner, chatId, { fresh: false });
         const external = await ledger.externalPoints();
         if (bundle !== owner || getChatId() !== chatId) return { ok: false, reason: 'request-stale' };
         if (!external.ok) return external;
         const balance = external.balance + (Number(typeof options.getWallet === 'function' ? options.getWallet() : 0) || 0);
-        return Number.isSafeInteger(balance) ? { ok: true, balance } : { ok: false, reason: 'origin-points-invalid' };
+        return Number.isSafeInteger(balance) ? { ok: true, mode: 'legacy', balance } : { ok: false, reason: 'origin-points-invalid' };
     }
     function pointsSnapshot() {
+        if (bundle?.shared) {
+            const layout = bundle.shared.layout();
+            if (!layout.ok) return layout;
+            if (layout.layout === 'v2') {
+                if (pointsCache?.owner === bundle && pointsCache.chatId === getChatId() && pointsCache.key === cacheKey()) {
+                    return { ...pointsCache.value };
+                }
+                return readV2PointsBalance(bundle, getChatId(), { fresh: false });
+            }
+        }
         if (pointsCache?.owner !== bundle || pointsCache.chatId !== getChatId() || pointsCache.key !== cacheKey()) {
             return { ok: false, reason: 'origin-wallet-unavailable' };
         }
@@ -799,7 +916,7 @@ export function createCombatServices(options = {}) {
     }
     function withPointsLock(task) {
         getTables();
-        return ledger.withPointsLock(task);
+        return bundle?.shared?.withPointsLock ? bundle.shared.withPointsLock(task) : ledger.withPointsLock(task);
     }
 
     async function ensureTables() {
@@ -1005,19 +1122,25 @@ export function createCombatServices(options = {}) {
 
     // ---- 成长生成 ----
     // 为待生成的成长条目请求 LLM 并写入账本。reuseSnapshot：自动成长刚刷新过，表与楼层没变时复用那次的扫描与状态
-    async function generateGrowth({ signal, messageIds = null, reuseSnapshot = false, includeEquipment = true } = {}) {
+    const generateGrowth = (args = {}) => runGeneration('growth', args, runGenerateGrowth);
+    async function runGenerateGrowth({ signal, shouldStart, messageIds = null, reuseSnapshot = false, includeEquipment = true } = {}) {
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
         const ledgerImpl = getLedger();
         if (!ledgerImpl) return { ok: false, reason: 'combat-generate-unavailable' };
+        const tables = getTables();
+        const alive = captureGenerationLease({ signal, shouldStart });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         let scan;
         let state;
         if (reuseSnapshot && growthSnapshot && growthSnapshot.key === cacheKey()) {
             ({ scan, state } = growthSnapshot);
         } else {
             scan = await ledgerImpl.scan();
+            if (!alive()) return { ok: false, reason: 'request-stale' };
             if (!scan.ok) return { ok: false, reason: scan.reason || 'combat-ledger-scan-failed' };
             state = await ledgerImpl.effectiveState();
         }
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!scan.ok) return { ok: false, reason: scan.reason || 'combat-ledger-scan-failed' };
         if (!state.ok) return { ok: false, reason: state.reason };
         const entities = [];
@@ -1041,9 +1164,9 @@ export function createCombatServices(options = {}) {
             if (typeof request !== 'function') return { ok: false, reason: 'combat-llm-unavailable' };
             const names = [getUserName(), ...entities.map((entity) => state.characters.get(entity.owner)?.name)].filter(Boolean);
             const context = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names, signal });
-            if (signal?.aborted) return { ok: false, reason: 'request-stale' };
-            const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context, retryDelays });
-            if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+            const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context, retryDelays, maxRounds: generationMaxRounds });
+            if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
             if (generated.reason) return { ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}) };
             const writes = generationWrites(generated, { createdAt: Date.now() });
             profiles = writes.profiles;
@@ -1051,16 +1174,19 @@ export function createCombatServices(options = {}) {
             rejected = generated.rejected;
             requestFailed = !!generated.requestFailure;
         }
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (profiles.length) {
-            const written = await getTables().append('profile', profiles);
+            const written = await tables.append('profile', profiles, { signal, shouldStart: alive });
+            if (!alive()) return { ok: false, reason: 'request-stale' };
             if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', write: written };
         }
         if (entries.length) {
-            const written = await ledgerImpl.append(entries);
+            const written = await ledgerImpl.append(entries, { signal, shouldStart: alive });
+            if (!alive()) return { ok: false, reason: 'request-stale' };
             if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed', write: written };
         }
         await refreshGrowth();
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         const complete = rejected.length === 0 && skipped === 0;
         return { ok: complete, written: entries.length, skipped, rejected, ...(complete ? {} : { reason: requestFailed ? 'combat-llm-request-failed' : 'combat-growth-incomplete' }) };
     }
@@ -1140,86 +1266,128 @@ export function createCombatServices(options = {}) {
     }
 
     // ---- 牌组档案 ----
-    // 生成一个角色的牌组档案（盟友或主角）
-    async function generateDeckProfileCore({ name, classRef = null, role = 'ally', signal, onStart, onRetry, generationHint, materialSelection, materialChatId, readState, shouldStart, prepareMissing = false } = {}) {
-        const actionChatId = getChatId();
-        const epoch = chatEpoch;
+    const combatContentIntents = createCombatContentIntents(storage);
+    // 生成一个角色的牌组档案（盟友或主角）：内容先行（职业、卡组、初始物品），不等待数值策略、不生成六维；支持分阶段断点恢复。
+    const generateDeckProfileCore = (args = {}) => runGeneration(`deck:${String(args.name || '').trim()}`, args, runGenerateDeckProfile);
+    async function runGenerateDeckProfile({ name, classRef = null, role = 'ally', signal, onStart, onRetry, generationHint, materialSelection, materialChatId, readState, shouldStart, prepareMissing = false } = {}) {
         if (!settings().enabled) return { ok: false, reason: 'combat-disabled' };
         const ledgerImpl = getLedger();
         const target = String(name || '').trim();
-        if (!ledgerImpl || !target) return { ok: false, reason: 'combat-generate-unavailable' };
-        if (typeof request !== 'function') return { ok: false, reason: 'combat-llm-unavailable' };
+        const chatId = getChatId();
+        if (!ledgerImpl || !target || !chatId) return { ok: false, reason: 'combat-generate-unavailable' };
         const characterId = profileIdFor('deck-character', target);
         const tables = getTables();
-        const alive = () => !disposed && chatEpoch === epoch && !signal?.aborted && getChatId() === actionChatId && ledgerImpl === ledger
-            && tables === bundle?.impl && bundle?.api === (global.AutoCardUpdaterAPI || null) && (!shouldStart || shouldStart());
+        const alive = captureGenerationLease({ signal, shouldStart });
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (typeof tables.pending === 'function' && tables.pending().some((item) => item.kind === 'profile' && String(item.key).startsWith(`${characterId}|`))) {
             const flushed = await tables.flush();
             if (flushed?.ok !== true) return { ok: false, reason: 'combat-profile-write-pending', write: flushed };
         }
+        const commitContentIntent = async (initialIntent) => {
+            let intent = initialIntent;
+            let profileFailure = '';
+            // 阶段 1：写入并读回确认职业与卡组档案
+            if (intent.stage === 'profile') {
+                const stateBefore = await (readState ? readState() : ledgerImpl.effectiveState());
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (!stateBefore.ok) return { ok: false, reason: stateBefore.reason };
+                if (!hasDeckCharacter(stateBefore, target)) {
+                    const written = await tables.append('profile', intent.profiles, { signal, shouldStart: alive });
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    if (written?.ok !== true) profileFailure = 'combat-profile-write-failed';
+                }
+                const after = await (readState ? readState() : ledgerImpl.effectiveState());
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (!after.ok) return { ok: false, reason: after.reason };
+                if (!hasDeckCharacter(after, target)) profileFailure ||= 'combat-profile-unverified';
+                if (profileFailure) return { ok: false, reason: profileFailure, id: characterId, contentStage: 'profile' };
+                const advanced = { ...intent, stage: 'gear' };
+                const saved = combatContentIntents.save(chatId, advanced, { allowUpdate: true });
+                if (!saved.ok) return { ok: false, reason: saved.reason, id: characterId, contentStage: 'gear' };
+                intent = advanced;
+            }
+            // 阶段 2：按固定锚点写入并确认初始装备（若失败则保留 gear 阶段意图，下次只补装备、不重调模型、不重写档案）
+            const gearDiagnostics = [];
+            if (intent.stage === 'gear' && intent.gearAccepted.length) {
+                await grantGeneratedGear(ledgerImpl, { accepted: intent.gearAccepted }, (owner) => (owner === target ? characterId : null), {
+                    anchor: intent.gearAnchor || null, diagnostics: gearDiagnostics, signal, shouldStart: alive,
+                });
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (gearDiagnostics.length) {
+                    const reason = gearDiagnostics[0]?.code || 'combat-gear-write-failed';
+                    return { ok: false, reason, id: characterId, contentStage: 'gear', profileSaved: true, gearDiagnostics };
+                }
+            }
+            const cleared = combatContentIntents.save(chatId, null);
+            if (!cleared.ok) return { ok: false, reason: cleared.reason, id: characterId, contentStage: 'gear' };
+            return { ok: true, id: characterId, contentReady: true };
+        };
+
+        // 先检查本聊天未完成的内容提交意图：有则直接恢复原结果，绝不重新请求模型！
+        const pendingIntent = prepareMissing ? combatContentIntents.read(chatId) : { ok: true, intent: null };
+        if (!pendingIntent.ok) return { ok: false, reason: pendingIntent.reason };
+        if (pendingIntent.intent && pendingIntent.intent.characterId === characterId) {
+            return commitContentIntent(pendingIntent.intent);
+        }
+
         const state = await (readState ? readState() : ledgerImpl.effectiveState());
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!state.ok) return { ok: false, reason: state.reason };
         const deckReady = prepareMissing ? hasDeckCharacter(state, target) : state.characters.get(characterId)?.kind === 'deck-character';
-        if (deckReady && !prepareMissing) return { ok: false, reason: 'combat-profile-exists', id: characterId };
-        const policy = prepareMissing ? protagonistBuildPolicy() : null;
-        if (prepareMissing && !policy.ready) return { ok: false, reason: policy.reason || 'stats-build-policy-waiting' };
-        const needInit = prepareMissing && !abilitiesForName(state, target, getUserName())?.initialized
-            && wantsAutoInit({ mode: policy.mode, choice: policy.choices?.[target], protagonist: true });
-        if (deckReady && !needInit) return { ok: true, id: characterId };
+        if (deckReady) return prepareMissing ? { ok: true, id: characterId, contentReady: true } : { ok: false, reason: 'combat-profile-exists', id: characterId };
+
+        if (typeof request !== 'function') return { ok: false, reason: 'combat-llm-unavailable' };
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return { ok: false, reason: llm.reason, ...(llm.missing ? { missing: llm.missing } : {}) };
         if (!alive()) return { ok: false, reason: 'request-stale' };
         const material = await materialContext.load({ name: target, signal, generationHint, materialSelection, materialChatId });
         if (!material.ok) return material;
         const usableClass = classRef && state.classes.has(classRef) ? classRef : null;
-        // 按剧情给初始装备：随卡组档案同批请求；可省略，失败不影响卡组档案。
-        // 主角的初始装备至少 1 件（v0.39.2），队友剧情没写到可为空。
-        const profileEntities = deckReady ? [] : [...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })];
-        const entities = await withCharacterLore(needInit ? withCombatInitialization(profileEntities, [target]) : profileEntities, readLore);
+        // 按剧情给初始装备：随卡组档案同批请求；新运行请求不再附带六维初始化（六维由数值系统统一提供）。
+        const profileEntities = [...deckProfileEntities({ name: target, id: characterId, role, classRef: usableClass, classes: state.classes }), profileGearEntity(target, { required: role === 'protagonist' })];
+        const entities = await withCharacterLore(profileEntities, readLore);
         if (!alive()) return { ok: false, reason: 'request-stale' };
         try { onStart?.(); } catch { /* */ }
         const context = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [target, getUserName()], signal, persona: target !== getUserName() });
         if (!alive()) return { ok: false, reason: 'request-stale' };
-        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context, retryDelays, onRetry });
+        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context, retryDelays, onRetry, maxRounds: generationMaxRounds });
         if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return { ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}), requested: true };
-        const writes = generationWrites(generated, { createdAt: Date.now() });
-        let profileFailure = '';
-        if (!deckReady) {
-            if (!writes.profiles.some((profile) => profile.id === characterId)) profileFailure = generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed';
-            else {
-                const written = await tables.append('profile', writes.profiles, { signal, shouldStart: alive });
-                if (!alive()) return { ok: false, reason: 'request-stale' };
-                if (written?.ok !== true) profileFailure = 'combat-profile-write-failed';
-            }
+        const createdAt = Date.now();
+        const writes = generationWrites(generated, { createdAt });
+        if (!writes.profiles.some((profile) => profile.id === characterId)) {
+            return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed', requested: true, id: characterId };
         }
-        let initFailure = '';
-        if (needInit) {
-            const currentPolicy = protagonistBuildPolicy();
-            const init = generated.accepted?.find((item) => item.init?.name === target)?.init;
-            if (!currentPolicy.ready) initFailure = currentPolicy.reason || 'stats-build-policy-waiting';
-            else if (wantsAutoInit({ mode: currentPolicy.mode, choice: currentPolicy.choices?.[target], protagonist: true })) {
-                if (!init) initFailure = generated.requestFailure ? 'combat-llm-request-failed' : 'combat-init-invalid';
-                else {
-                    let written;
-                    try { written = await ledgerImpl.writeInit(target, init.value, { signal, shouldStart: alive }); }
-                    catch { written = { ok: false, reason: 'combat-init-write-failed' }; }
-                    if (!alive()) return { ok: false, reason: 'request-stale' };
-                    if (written?.ok !== true) initFailure = written?.reason || 'combat-init-write-failed';
-                }
-            }
+        const gearAccepted = (generated.accepted || []).filter((item) => item.kind === 'profile-gear' && item.gear?.items?.length);
+        const floors = getChat();
+        const lastIdx = floors.length - 1;
+        const gearAnchor = lastIdx >= 0 ? { messageId: lastIdx, swipeId: Number.isInteger(floors[lastIdx]?.swipe_id) ? floors[lastIdx].swipe_id : 0 } : null;
+        if (prepareMissing) {
+            const opId = `cc-${hash32(JSON.stringify({ chatId, characterId, createdAt, ids: writes.profiles.map(p => p.id) })).toString(36)}`;
+            const intent = {
+                version: 1, chatId, characterId, name: target, operationId: opId, stage: 'profile',
+                profiles: writes.profiles, gearAccepted, gearAnchor, createdAt,
+            };
+            const savedIntent = combatContentIntents.save(chatId, intent);
+            if (!savedIntent.ok) return { ok: false, reason: savedIntent.reason, requested: true, id: characterId };
+            const committed = await commitContentIntent(intent);
+            return committed.ok ? { ...committed, reusedClass: !!usableClass } : { ...committed, requested: true };
         }
+        // 非主角助战单次生成：直接写入并确认
+        const written = await tables.append('profile', writes.profiles, { signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', requested: true, id: characterId };
         const after = await (readState ? readState() : ledgerImpl.effectiveState());
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!after.ok) return { ok: false, reason: after.reason, requested: true };
-        if (!hasDeckCharacter(after, target)) profileFailure ||= 'combat-profile-unverified';
-        if (needInit && !abilitiesForName(after, target, getUserName())?.initialized) initFailure ||= 'combat-init-unverified';
-        // 初始装备：档案读回确认后锚定最新楼层写 equip；写失败只记诊断，卡组档案照常生效。
+        if (!hasDeckCharacter(after, target)) return { ok: false, reason: 'combat-profile-unverified', requested: true, id: characterId };
         const gearDiagnostics = [];
-        if (!profileFailure && alive()) await grantGeneratedGear(ledgerImpl, generated, (owner) => (owner === target ? characterId : null), { diagnostics: gearDiagnostics });
-        if (profileFailure || initFailure) return { ok: false, reason: profileFailure || initFailure, requested: true, id: characterId };
+        if (gearAccepted.length && alive()) {
+            await grantGeneratedGear(ledgerImpl, { accepted: gearAccepted }, (owner) => (owner === target ? characterId : null), {
+                anchor: gearAnchor, diagnostics: gearDiagnostics, signal, shouldStart: alive,
+            });
+        }
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         return { ok: true, id: characterId, reusedClass: !!usableClass, ...(gearDiagnostics.length ? { gearDiagnostics } : {}) };
     }
 
@@ -1251,11 +1419,12 @@ export function createCombatServices(options = {}) {
     const llmFailure = (llm) => ({ ok: false, reason: llm.reason, ...(llm.missing ? { missing: llm.missing } : {}) });
     const generationFailure = (generated) => ({ ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}) });
 
-    async function regenerateDeck({ signal, generationHint, materialSelection, materialChatId } = {}) {
-        const actionChatId = getChatId();
+    const regenerateDeck = (args = {}) => runGeneration('rebuild', args, runRegenerateDeck);
+    async function runRegenerateDeck({ signal, shouldStart, generationHint, materialSelection, materialChatId } = {}) {
+        const alive = captureGenerationLease({ signal, shouldStart });
         const context = await heroActionContext('rebuildDeck', 'rebuild');
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!context.ok) return context;
-        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const { ledgerImpl, state, hero } = context;
         if ((hero.points || 0) < REBUILD_COST) return { ok: false, reason: 'combat-points-insufficient' };
         const llm = resolveCombatLlm(getLlm());
@@ -1263,11 +1432,11 @@ export function createCombatServices(options = {}) {
         const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
         if (!material.ok) return material;
         const entities = await withCharacterLore(deckProfileEntities({ name: hero.name, id: hero.id, role: 'protagonist', classRef: hero.classRef, classes: state.classes }), readLore);
-        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
-        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context: story, retryDelays, maxRounds: generationMaxRounds });
+        if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const profile = (generated.accepted || []).find((item) => item.profile?.id === hero.id)?.profile;
         if (!profile?.personalPool || !profile.starterDeck) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed' };
@@ -1275,22 +1444,25 @@ export function createCombatServices(options = {}) {
         const suffix = `r${Date.now().toString(36)}`;
         const idMap = new Map(profile.personalPool.map((card) => [card.id, `${card.id}-${suffix}`]));
         const rebuilt = { personalPool: profile.personalPool.map((card) => ({ ...card, id: idMap.get(card.id) })), starterDeck: profile.starterDeck.map((id) => idMap.get(id) || id) };
-        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
-        const written = await ledgerImpl.rebuildDeck(hero.id, rebuilt);
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        const written = await ledgerImpl.rebuildDeck(hero.id, rebuilt, { signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         return written?.ok !== true ? { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, cost: REBUILD_COST };
     }
 
-    async function respecClass({ classRef = null, signal, generationHint, materialSelection, materialChatId } = {}) {
-        const actionChatId = getChatId();
+    const respecClass = (args = {}) => runGeneration('respec', args, runRespecClass);
+    async function runRespecClass({ classRef = null, signal, shouldStart, generationHint, materialSelection, materialChatId } = {}) {
+        const alive = captureGenerationLease({ signal, shouldStart });
         const context = await heroActionContext('respecClass', 'respec', { needLlm: !classRef });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!context.ok) return context;
-        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const { ledgerImpl, state, hero } = context;
         if ((hero.points || 0) < RESPEC_COST) return { ok: false, reason: 'combat-points-insufficient' };
         if (classRef) {
             if (!state.classes.has(classRef)) return { ok: false, reason: 'combat-class-missing' };
             if (classRef === hero.classRef) return { ok: false, reason: 'combat-respec-same-class' };
-            const switched = await ledgerImpl.respecClass(hero.id, classRef);
+            const switched = await ledgerImpl.respecClass(hero.id, classRef, { signal, shouldStart: alive });
+            if (!alive()) return { ok: false, reason: 'request-stale' };
             return switched?.ok !== true ? { ok: false, reason: switched?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, classRef, cost: RESPEC_COST };
         }
         const llm = resolveCombatLlm(getLlm());
@@ -1298,26 +1470,28 @@ export function createCombatServices(options = {}) {
         const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
         if (!material.ok) return material;
         const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
-        const generated = await generateWithRetry([respecClassEntity({ id: hero.id, name: hero.name })], { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        const generated = await generateWithRetry([respecClassEntity({ id: hero.id, name: hero.name })], { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context: story, retryDelays, maxRounds: generationMaxRounds });
+        if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const profile = (generated.accepted || []).find((item) => item.profile?.kind === 'class')?.profile;
         if (!profile) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-class-generation-failed' };
-        const written = await getTables().append('profile', [profileRecord(profile, { createdAt: Date.now() })]);
+        const written = await getTables().append('profile', [profileRecord(profile, { createdAt: Date.now() })], { signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (written?.ok !== true) return { ok: false, reason: 'combat-profile-write-failed', write: written };
-        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
-        const switched = await ledgerImpl.respecClass(hero.id, profile.id);
+        const switched = await ledgerImpl.respecClass(hero.id, profile.id, { signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         return switched?.ok !== true
             ? { ok: false, reason: switched?.reason || 'combat-ledger-insert-failed', classRef: profile.id }
             : { ok: true, id: hero.id, classRef: profile.id, cost: RESPEC_COST, created: true };
     }
 
-    async function ascendClass({ signal, generationHint, materialSelection, materialChatId } = {}) {
-        const actionChatId = getChatId();
+    const ascendClass = (args = {}) => runGeneration('ascend', args, runAscendClass);
+    async function runAscendClass({ signal, shouldStart, generationHint, materialSelection, materialChatId } = {}) {
+        const alive = captureGenerationLease({ signal, shouldStart });
         const context = await heroActionContext('ascendClass', 'ascend');
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!context.ok) return context;
-        if (getChatId() !== actionChatId || signal?.aborted) return { ok: false, reason: 'request-stale' };
         const { ledgerImpl, state, hero } = context;
         const tier = (hero.classTier || 1) + 1;
         const tierRule = ASCEND_TIERS[tier];
@@ -1330,14 +1504,15 @@ export function createCombatServices(options = {}) {
         const material = await materialContext.load({ name: hero.name, generationHint, materialSelection, materialChatId, signal });
         if (!material.ok) return material;
         const story = await withStoryContext({ protagonist: getUserName(), ...material.context }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         const entity = classTierEntity({ character: hero, cls: hero.classProfile, tier, rarity: tierRule.rarity, tierName: hero.tierName, mark: Date.now().toString(36) });
-        const generated = await generateWithRetry([entity], { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted || getChatId() !== actionChatId) return { ok: false, reason: 'request-stale' };
+        const generated = await generateWithRetry([entity], { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context: story, retryDelays, maxRounds: generationMaxRounds });
+        if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const tierProfile = (generated.accepted || []).find((item) => item.kind === 'class-tier')?.tier;
         if (!tierProfile) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-ascend-generation-failed' };
-        const written = await ledgerImpl.ascendClass(hero.id, tierProfile);
+        const written = await ledgerImpl.ascendClass(hero.id, tierProfile, { signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         return written?.ok !== true ? { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' } : { ok: true, id: hero.id, tier, tierName: tierProfile.tierName, cost: tierRule.cost };
     }
 
@@ -1350,13 +1525,12 @@ export function createCombatServices(options = {}) {
         return runDrawTrait(options).finally(() => { if (traitDrawTask === task) traitDrawTask = null; });
     }
 
-    async function runDrawTrait({ signal, onPlan } = {}) {
-        const actionChatId = getChatId();
-        const actionEpoch = traitEpoch;
+    async function runDrawTrait({ signal, shouldStart, onPlan } = {}) {
+        const alive = captureGenerationLease({ signal, shouldStart });
         const context = await heroActionContext('drawTrait', 'trait');
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!context.ok) return context;
         const { ledgerImpl, state, hero } = context;
-        const alive = () => !signal?.aborted && actionEpoch === traitEpoch && getChatId() === actionChatId && settings().enabled && getLedger() === ledgerImpl;
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (hero.pendingTrait) return { ok: false, reason: 'combat-trait-pending' };
         if ((hero.points || 0) < TRAIT_DRAW_COST) return { ok: false, reason: 'combat-points-insufficient' };
@@ -1379,12 +1553,13 @@ export function createCombatServices(options = {}) {
         if (!alive()) return { ok: false, reason: 'request-stale' };
         const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
         if (!alive()) return { ok: false, reason: 'request-stale' };
-        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
+        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context: story, retryDelays, maxRounds: generationMaxRounds });
         if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const trait = (generated.accepted || []).find((item) => item.kind === 'trait')?.trait;
         if (!trait) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-trait-generation-failed' };
-        const written = await ledgerImpl.drawTrait(hero.id, trait, { expectedDraws: hero.traitDraws });
+        const written = await ledgerImpl.drawTrait(hero.id, trait, { expectedDraws: hero.traitDraws, signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
         const pending = trait.kind ? !traitFits(hero, trait.kind) : (hero.traits || []).length >= TRAIT_BASE_SLOTS;
         return { ok: true, id: hero.id, trait, pending, cost: TRAIT_DRAW_COST };
@@ -1428,8 +1603,11 @@ export function createCombatServices(options = {}) {
     }
 
     // 规则 v6 积分抽卡：程序按种子定候选（本职业固定 2 + 随机 1），副 LLM 只给随机卡起名选模板；生成成功后才写 card-draw 扣费，失败或取消不扣费。
-    async function drawCard({ signal, free } = {}) {
+    const drawCard = (args = {}) => runGeneration('card-draw', args, runDrawCard);
+    async function runDrawCard({ signal, shouldStart, free } = {}) {
+        const alive = captureGenerationLease({ signal, shouldStart });
         const context = await heroActionContext('drawCard', 'card-draw');
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (!context.ok) return context;
         const { ledgerImpl, state, hero } = context;
         if (hero.pendingDraw) return { ok: false, reason: 'combat-card-draw-pending' };
@@ -1444,17 +1622,18 @@ export function createCombatServices(options = {}) {
         const llm = resolveCombatLlm(getLlm());
         if (!llm.ok) return llmFailure(llm);
         const entities = await withCharacterLore([drawCardEntity({ character: hero, plan })], readLore);
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         const story = await withStoryContext({ protagonist: getUserName() }, readStoryContext, { names: [hero.name], signal });
-        if (signal?.aborted) return { ok: false, reason: 'request-stale' };
-        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, classes: state.classes, now: Date.now(), context: story, retryDelays });
-        if (generated.reason === 'request-stale' || signal?.aborted) return { ok: false, reason: 'request-stale' };
+        if (!alive()) return { ok: false, reason: 'request-stale' };
+        const generated = await generateWithRetry(entities, { request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context: story, retryDelays, maxRounds: generationMaxRounds });
+        if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
         if (generated.reason) return generationFailure(generated);
         const card = (generated.accepted || []).find((item) => item.card)?.card;
         if (!card) return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-card-draw-generation-failed' };
         const choices = plan.fixedIds.map((id) => JSON.parse(JSON.stringify(fixedCard(id))));
         choices.splice(plan.randomAt, 0, card);
-        const written = await ledgerImpl.drawCard(hero.id, { drawId: plan.drawId, choices, ...(freeDraw ? { free: freeDraw } : {}) });
+        const written = await ledgerImpl.drawCard(hero.id, { drawId: plan.drawId, choices, ...(freeDraw ? { free: freeDraw } : {}) }, { signal, shouldStart: alive });
+        if (!alive()) return { ok: false, reason: 'request-stale' };
         if (written?.ok !== true) return { ok: false, reason: written?.reason || 'combat-ledger-insert-failed' };
         return { ok: true, id: hero.id, drawId: plan.drawId, choices, cost: freeDraw ? 0 : CARD_DRAW_COST };
     }
@@ -1557,16 +1736,27 @@ export function createCombatServices(options = {}) {
         return chatId && userName ? JSON.stringify([chatId, userName]) : '';
     };
 
+    const protagonistGenerating = (state) => state.status === 'generating' || state.status === 'retrying';
+    function currentProtagonistState() {
+        if (!protagonistGenerating(protagonistState)
+            || (protagonistTask?.state === protagonistState && protagonistTask.alive())) return protagonistState;
+        return { ...protagonistState, status: 'failed', reason: 'request-stale', attempt: 0, requested: true };
+    }
+
     function getProtagonist() {
         const key = protagonistKey();
-        return !settings().enabled || !key || protagonistState.key !== key ? null : {
-            name: getUserName().trim(), status: protagonistState.status, reason: protagonistState.reason, attempt: protagonistState.attempt,
-            attributesReady: protagonistState.attributesReady === true, deckReady: protagonistState.deckReady === true,
+        if (disposed || !settings().enabled || !key || protagonistState.key !== key) return null;
+        const current = currentProtagonistState();
+        return {
+            name: getUserName().trim(), status: current.status, reason: current.reason, attempt: current.attempt,
+            attributesReady: current.attributesReady === true, deckReady: current.deckReady === true,
+            contentReady: current.contentReady === true,
         };
     }
 
     function setProtagonistState(patch) {
         protagonistState = { ...protagonistState, ...patch };
+        if (protagonistTask && protagonistGenerating(protagonistState)) protagonistTask.state = protagonistState;
         const view = getProtagonist();
         for (const listener of protagonistListeners) {
             try { listener(view); } catch { /* */ }
@@ -1579,13 +1769,13 @@ export function createCombatServices(options = {}) {
         return () => protagonistListeners.delete(listener);
     }
 
-    function cancelProtagonist() {
+    function cancelProtagonist({ resetState = true } = {}) {
         const task = protagonistTask;
         protagonistTask = null;
         if (task) {
             try { task.controller?.abort(); } catch { /* */ }
         }
-        if (protagonistState.status === 'generating' || protagonistState.status === 'retrying') setProtagonistState({ status: 'idle', reason: '', attempt: 0 });
+        if (resetState && protagonistGenerating(protagonistState)) setProtagonistState({ status: 'idle', reason: '', attempt: 0 });
     }
 
     // 账本里是否已有该名字（或别名）的牌组角色
@@ -1630,13 +1820,11 @@ export function createCombatServices(options = {}) {
         }
         const key = protagonistKey();
         if (!key) return Promise.resolve({ ok: false, reason: 'combat-generate-unavailable' });
-        if (protagonistTask) {
-            if (protagonistTask.key === key) return protagonistTask.promise;
-            cancelProtagonist();
-        }
+        if (protagonistTask?.key === key && protagonistTask.alive()) return protagonistTask.promise;
+        if (protagonistTask) cancelProtagonist({ resetState: false });
         const ledgerImpl = getLedger();
         watchProtagonistTables(bundle);
-        const previous = protagonistState.key === key ? protagonistState : null;
+        const previous = protagonistState.key === key ? currentProtagonistState() : null;
         let preparing = false;
         try {
             preparing = !!(session && sessionChatId === getChatId() && session.state().status === 'preparing');
@@ -1648,12 +1836,11 @@ export function createCombatServices(options = {}) {
         const skipRetry = !manual && previous?.status === 'failed' && previous.requested === true;
         const task = { key, ledgerImpl, owner: bundle, controller: typeof AbortController === 'function' ? new AbortController() : null, promise: null };
         protagonistTask = task;
-        if (!previous || previous.status === 'idle') {
-            setProtagonistState({ key, status: 'waiting', reason: 'combat-table-not-ready', attempt: 0, requested: false, attributesReady: false, deckReady: false });
-        }
-        const alive = () => !disposed && !task.controller?.signal.aborted && protagonistTask === task && protagonistKey() === key && settings().enabled
-            && bundle === task.owner && task.owner.api === (global.AutoCardUpdaterAPI || null);
-        task.promise = (async () => {
+        const alive = task.alive = captureGenerationLease({
+            signal: task.controller?.signal, requireApi: false,
+            shouldStart: () => protagonistTask === task && protagonistKey() === key,
+        });
+        task.promise = Promise.resolve().then(async () => {
             try {
                 const readState = () => readProtagonistState(task, alive);
                 const state = await readState();
@@ -1664,7 +1851,18 @@ export function createCombatServices(options = {}) {
                     return { ok: false, reason };
                 }
                 const name = getUserName().trim();
-                const facts = { attributesReady: abilitiesForName(state, name, getUserName())?.initialized === true, deckReady: hasDeckCharacter(state, name) };
+                const chatId = getChatId();
+                const pendingContent = combatContentIntents.read(chatId);
+                if (!pendingContent.ok) {
+                    setProtagonistState({ key, status: 'failed', reason: pendingContent.reason, attempt: 0, requested: false, attributesReady: false, deckReady: false, contentReady: false });
+                    return { ok: false, status: 'failed', reason: pendingContent.reason };
+                }
+                const hasPendingContent = Boolean(pendingContent.intent);
+                const facts = {
+                    attributesReady: abilitiesForName(state, name, getUserName())?.initialized === true,
+                    deckReady: hasDeckCharacter(state, name),
+                    contentReady: hasDeckCharacter(state, name) && !hasPendingContent,
+                };
                 const publishReady = async () => {
                     lifeStamp = null;
                     const life = await refreshLife();
@@ -1675,52 +1873,58 @@ export function createCombatServices(options = {}) {
                     const confirmed = {
                         attributesReady: cached?.ok === true && abilitiesForName(cached, name, getUserName())?.initialized === true,
                         deckReady: cached?.ok === true && hasDeckCharacter(cached, name),
+                        contentReady: cached?.ok === true && hasDeckCharacter(cached, name) && !combatContentIntents.read(chatId).intent,
                     };
-                    if (life?.ok !== true || growth?.ok !== true || !confirmed.attributesReady || !confirmed.deckReady) {
-                        const reason = life?.reason || growth?.reason || 'combat-init-unverified';
-                        setProtagonistState({ key, status: 'failed', reason, attempt: 0, requested: previous?.requested === true, ...confirmed });
-                        return { ok: false, status: 'failed', reason };
+                    if (life?.ok !== true || growth?.ok !== true || !confirmed.attributesReady || !confirmed.contentReady) {
+                        const reason = life?.reason || growth?.reason || (!confirmed.attributesReady ? 'combat-attributes-waiting' : 'combat-init-unverified');
+                        const status = confirmed.contentReady && !confirmed.attributesReady ? 'waiting-attributes' : 'failed';
+                        setProtagonistState({ key, status, reason, attempt: 0, requested: status === 'failed' && previous?.requested === true, ...confirmed });
+                        return { ok: false, status, reason };
                     }
-                    setProtagonistState({ key, status: 'ready', reason: '', attempt: 0, requested: false, attributesReady: true, deckReady: true });
+                    setProtagonistState({ key, status: 'ready', reason: '', attempt: 0, requested: false, attributesReady: true, deckReady: true, contentReady: true });
                     return { ok: true, status: 'ready' };
                 };
-                if (facts.attributesReady && facts.deckReady) return await publishReady();
-                const policy = protagonistBuildPolicy();
-                if (!policy.ready) {
-                    setProtagonistState({ key, status: 'waiting', reason: policy.reason, attempt: 0, requested: false, ...facts });
-                    return { ok: false, status: 'waiting', reason: policy.reason };
+                if (facts.contentReady && facts.attributesReady) return await publishReady();
+                // 战斗内容先行：先独立准备职业、卡组与初始装备，不调用数值 build policy 阻断，不等待主角六维。
+                if (facts.contentReady && !facts.attributesReady) {
+                    setProtagonistState({ key, status: 'waiting-attributes', reason: 'combat-attributes-waiting', attempt: 0, requested: false, ...facts });
+                    return { ok: false, status: 'waiting-attributes', reason: 'combat-attributes-waiting', contentReady: true, attributesReady: false };
                 }
-                if (!facts.attributesReady && !wantsAutoInit({ mode: policy.mode, choice: policy.choices?.[name], protagonist: true })) {
-                    setProtagonistState({ key, status: 'manual', reason: 'combat-init-manual', attempt: 0, requested: false, ...facts });
-                    return { ok: false, status: 'manual', reason: 'combat-init-manual' };
-                }
-                if (skipRetry) return { ok: false, reason: previous.reason, status: 'failed' };
+                if (skipRetry && !hasPendingContent) return { ok: false, reason: previous.reason, status: 'failed' };
                 const generated = await generateDeckProfileCore({
                     readState, shouldStart: alive, prepareMissing: true,
                     name: getUserName().trim(), role: 'protagonist', signal: task.controller?.signal, generationHint, materialSelection, materialChatId,
                     onStart: () => { if (alive()) setProtagonistState({ key, status: 'generating', reason: '', attempt: 0, requested: false }); },
                     onRetry: ({ attempt }) => { if (alive()) setProtagonistState({ key, status: 'retrying', attempt }); },
                 });
-                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
                 const after = await readState();
                 if (!alive()) return { ok: false, reason: 'request-stale' };
-                const confirmed = { attributesReady: after?.ok === true && abilitiesForName(after, name, getUserName())?.initialized === true, deckReady: after?.ok === true && hasDeckCharacter(after, name) };
-                if (confirmed.attributesReady && confirmed.deckReady) return await publishReady();
-                const currentPolicy = protagonistBuildPolicy();
-                if (after?.ok && !confirmed.attributesReady && currentPolicy.ready && !wantsAutoInit({ mode: currentPolicy.mode, choice: currentPolicy.choices?.[name], protagonist: true })) {
-                    setProtagonistState({ key, status: 'manual', reason: 'combat-init-manual', attempt: 0, requested: false, ...confirmed });
-                    return { ok: false, status: 'manual', reason: 'combat-init-manual' };
+                const stillPending = Boolean(combatContentIntents.read(chatId).intent);
+                const confirmed = {
+                    attributesReady: after?.ok === true && abilitiesForName(after, name, getUserName())?.initialized === true,
+                    deckReady: after?.ok === true && hasDeckCharacter(after, name),
+                    contentReady: after?.ok === true && hasDeckCharacter(after, name) && !stillPending,
+                };
+                if (confirmed.contentReady && confirmed.attributesReady) return await publishReady();
+                if (confirmed.contentReady && !confirmed.attributesReady) {
+                    setProtagonistState({ key, status: 'waiting-attributes', reason: 'combat-attributes-waiting', attempt: 0, requested: false, ...confirmed });
+                    return { ok: false, status: 'waiting-attributes', reason: 'combat-attributes-waiting', contentReady: true, attributesReady: false };
                 }
                 const reason = generated.reason || after?.reason || 'combat-init-unverified';
                 setProtagonistState({ key, status: 'failed', reason, attempt: 0, requested: generated.requested === true, ...confirmed });
                 return { ok: false, reason, status: 'failed' };
             } catch {
-                if (alive()) setProtagonistState({ key, status: 'failed', reason: 'combat-action-threw', attempt: 0, requested: true });
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                setProtagonistState({ key, status: 'failed', reason: 'combat-action-threw', attempt: 0, requested: true });
                 return { ok: false, reason: 'combat-action-threw' };
             } finally {
                 if (protagonistTask === task) protagonistTask = null;
             }
-        })();
+        });
+        if (alive() && (!previous || previous.status === 'idle')) {
+            setProtagonistState({ key, status: 'waiting', reason: 'combat-table-not-ready', attempt: 0, requested: false, attributesReady: false, deckReady: false });
+        }
         return task.promise;
     }
 
@@ -1811,7 +2015,8 @@ export function createCombatServices(options = {}) {
     const INVENTORY_TRANSIENT = new Set(['inventory-table-not-ready', 'inventory-table-read-failed', 'inventory-runtime-not-ready']);
     let inventoryTakeover = null; // { key, promise }
     function takeoverInventory({ attempts = 4, delayMs = 1500 } = {}) {
-        if (!combatBattleOn(settings())) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        // combat / daily / both 三模式均接管物品表；普通战斗遭遇门禁另由 combatBattleOn 控制。
+        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
         const chatId = getChatId();
         if (!chatId) return Promise.resolve({ ok: false, reason: 'combat-session-unavailable' });
         if (inventoryTakeover?.key === chatId) return inventoryTakeover.promise;
@@ -1843,6 +2048,8 @@ export function createCombatServices(options = {}) {
     // 切换聊天：丢弃会话与缓存，取消进行中的后台任务，让表客户端缓存失效
     function resetChat() {
         chatEpoch += 1;
+        generationTasks.invalidate();
+        options.chatStore?.reset();
         ensureTask = null;
         stopProtagonistTableWatch();
         bundle?.readiness?.dispose();
@@ -1868,6 +2075,7 @@ export function createCombatServices(options = {}) {
         disposed = true;
         resetChat();
         retireBundle(bundle);
+        modelRoute.dispose();
         protagonistListeners.clear();
     }
 

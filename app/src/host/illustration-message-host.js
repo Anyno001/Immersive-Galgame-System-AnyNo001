@@ -261,14 +261,55 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
         return off;
     }
 
-    // 渲染可能发生在流式正文尚未落定时；主生成结束后补发本轮实际 AI 楼。
-    // 只跟随正常主生成，不把后台 quiet 写词结束当成新的生图请求。
+    function hashFloorText(text) {
+        let h = 2166136261;
+        const s = String(text || '');
+        for (let i = 0; i < s.length; i += 1) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        return `${s.length}:${(h >>> 0).toString(36)}`;
+    }
+
+    // 正文最终落地派发：GENERATION_ENDED 不直接假定流式最终正文已落库，结合消息更新/渲染确认最终正文；
+    // 按 (chatId, messageId, swipeId, 内容修订) 去重合并 ENDED/RENDERED/UPDATED，支持编辑/继续生成/新 swipe 重算，
+    // 跳过后台静默生成事件防止递归。
     function onImageFloorReady(handler) {
-        let active = false, blocked = false, turnChat = '', epoch = 0, ignoredDepth = 0, pending = new Set(), alive = true;
-        const deliver = (id, eventKey = 'CHARACTER_MESSAGE_RENDERED') => {
-            const floor = readFloor(id);
-            if (alive && !blocked && floor?.isAi && floor.isLatest && floor.chatId === turnChat)
-                invokeListener(eventKey, handler, [Number(id)]);
+        let active = false, blocked = false, turnChat = '', epoch = 0, ignoredDepth = 0, alive = true;
+        const pending = new Set();
+        const awaitingFinal = new Set();
+        const delivered = new Map(); // `${chatId}:${messageId}` -> `${swipeId}:${hash}`
+        const validId = (id) => {
+            const number = Number(id);
+            return id != null && Number.isSafeInteger(number) && number >= 0 ? number : -1;
+        };
+        const deliver = (id, eventKey = 'CHARACTER_MESSAGE_RENDERED', { requireChat = '' } = {}) => {
+            if (!alive || blocked) return false;
+            const number = validId(id);
+            if (number < 0) return false;
+            const floor = readFloor(number);
+            if (!floor?.isAi || !floor.isLatest) return false;
+            if (requireChat && floor.chatId !== requireChat) return false;
+            if (!String(floor.text || '').trim()) return false;
+            const floorKey = `${floor.chatId}:${floor.messageId}`;
+            const revision = `${floor.swipeId}:${hashFloorText(floor.text)}`;
+            if (delivered.get(floorKey) === revision) return false;
+            delivered.set(floorKey, revision);
+            awaitingFinal.delete(number);
+            invokeListener(eventKey, handler, [number, { ...floor, revision, eventKey }]);
+            return true;
+        };
+        const onFloorEvent = (eventKey) => (id) => {
+            if (!alive || blocked || ignoredDepth || isBackgroundGenerationActive()) return;
+            const number = validId(id);
+            if (number < 0) return;
+            if (active) {
+                pending.add(number);
+                return;
+            }
+            const expectedChat = awaitingFinal.has(number) ? turnChat : getChatId();
+            if (!expectedChat) return;
+            deliver(number, eventKey, { requireChat: expectedChat });
         };
         const offs = [
             on('GENERATION_STARTED', (type, params, dryRun) => {
@@ -278,35 +319,45 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
                     return;
                 }
                 epoch++; blocked = false;
-                active = true; turnChat = getChatId(); pending.clear();
+                active = true; turnChat = getChatId(); pending.clear(); awaitingFinal.clear();
             }),
-            on('CHARACTER_MESSAGE_RENDERED', id => {
-                const number = Number(id);
-                if (id == null || blocked || ignoredDepth || !Number.isSafeInteger(number) || number < 0) return;
-                if (active) pending.add(number);
-                else { turnChat = getChatId(); deliver(number); }
-            }),
+            on('MESSAGE_RECEIVED', onFloorEvent('MESSAGE_RECEIVED')),
+            on('CHARACTER_MESSAGE_RENDERED', onFloorEvent('CHARACTER_MESSAGE_RENDERED')),
+            on('MESSAGE_UPDATED', onFloorEvent('MESSAGE_UPDATED')),
+            on('MESSAGE_EDITED', onFloorEvent('MESSAGE_EDITED')),
+            on('MESSAGE_SWIPED', onFloorEvent('MESSAGE_SWIPED')),
             on('GENERATION_ENDED', id => {
                 if (ignoredDepth) { ignoredDepth--; return; }
                 if (!active) return;
                 active = false;
-                if (getChatId() !== turnChat) { pending.clear(); return; }
-                const number = Number(id);
-                if (id != null && Number.isSafeInteger(number) && number >= 0) pending.add(number);
-                const chat = context()?.chat || [];
-                for (let i = chat.length - 1; i >= 0; i--) {
-                    if (chat[i]?.is_user) break;
-                    if (chat[i] && !chat[i].is_system) { pending.add(i); break; }
+                if (getChatId() !== turnChat) { pending.clear(); awaitingFinal.clear(); return; }
+                const number = validId(id);
+                if (number >= 0) pending.add(number);
+                // 仅当本轮尚未收到任何带 messageId 的事件时，才从当前聊天末尾定位本轮 AI 楼并仍校验非空正文。
+                if (!pending.size) {
+                    const chat = context()?.chat || [];
+                    for (let i = chat.length - 1; i >= 0; i--) {
+                        if (chat[i]?.is_user) break;
+                        if (chat[i] && !chat[i].is_system) { pending.add(i); break; }
+                    }
                 }
-                const ready = [...pending]; pending.clear();
+                const candidates = [...pending];
+                pending.clear();
                 const endedEpoch = epoch;
-                queueMicrotask(() => { if (alive && !active && epoch === endedEpoch)
-                    ready.forEach(id => deliver(id, 'GENERATION_ENDED')); });
+                const endedChat = turnChat;
+                for (const candidate of candidates) awaitingFinal.add(candidate);
+                queueMicrotask(() => {
+                    if (!alive || active || blocked || epoch !== endedEpoch || getChatId() !== endedChat) return;
+                    for (const candidate of candidates) {
+                        if (!awaitingFinal.has(candidate)) continue;
+                        deliver(candidate, 'GENERATION_ENDED', { requireChat: endedChat });
+                    }
+                });
             }),
-            on('GENERATION_STOPPED', () => { epoch++; active = false; blocked = true; ignoredDepth = 0; pending.clear(); }),
-            on('CHAT_CHANGED', () => { epoch++; active = false; blocked = true; ignoredDepth = 0; pending.clear(); turnChat = ''; }),
+            on('GENERATION_STOPPED', () => { epoch++; active = false; blocked = true; ignoredDepth = 0; pending.clear(); awaitingFinal.clear(); }),
+            on('CHAT_CHANGED', () => { epoch++; active = false; blocked = false; ignoredDepth = 0; pending.clear(); awaitingFinal.clear(); delivered.clear(); turnChat = getChatId(); }),
         ];
-        return () => { alive = false; pending.clear(); offs.forEach(off => off()); };
+        return () => { alive = false; pending.clear(); awaitingFinal.clear(); delivered.clear(); offs.forEach(off => off()); };
     }
 
     function attachPromptStrip() {
