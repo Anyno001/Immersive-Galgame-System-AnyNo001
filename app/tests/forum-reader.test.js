@@ -5,12 +5,12 @@ import { normalizeFxReaderSettings } from '../src/visual/igs-ui/fx-settings.js';
 import { normalizeSettingsValue } from '../src/visual/igs-ui/settings-normalize.js';
 import { logRowsOf } from '../src/visual/igs-ui/log-reader-model.js';
 import {
-    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumAnkeLockKey, forumAnkeOf, forumClock, forumFixedOf, forumMinutesAfter, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
+    FORUM_USER_KEY, applyFloorTags, emptyForum, ensureAliases, forumWithTail, floorMarks, forumChainTail, forumAnkeLockKey, forumAnkeOf, forumClock, forumHash, forumFixedOf, forumMinutesAfter, forumNo, forumPairOf, forumPasserId, forumPlan, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumRowsOf, forumTagsOf, forumTailCount, forumTailOf,
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
 import { FORUM_KAOMOJI } from '../src/visual/igs-ui/forum-reader-lines.js';
-import { ankeCheckPlay, ankeFillLine, ankeVisibleVotes, ankeVoteOf, ankeVotePlay } from '../src/visual/igs-ui/forum-anke-play.js';
+import { ankeCheckPlay, ankeCocPlay, ankeOutcomeOf, ankeFillLine, ankeVisibleVotes, ankeVoteOf, ankeVotePlay } from '../src/visual/igs-ui/forum-anke-play.js';
 import { ANKE_REACT_POOLS, ANKE_REACT_STICKERS, ankeReactions, ankeSituation } from '../src/visual/igs-ui/forum-anke-react.js';
 import { ankeQuotedFloors, createAnkeStore } from '../src/visual/igs-ui/forum-anke-store.js';
 import { stickerNames } from '../src/stickers/sticker-catalog.js';
@@ -514,6 +514,29 @@ test('安科标签：四种形式与旧格式、判定的成功线 / 对象 / �
     const loose = forumAnkeOf('[igs-anke:判定|逃跑|楼主|乱写|0|120]');
     assert.deepEqual([loose.actor, loose.ability, loose.line], ['楼主', null, 50]);
     assert.notEqual(forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:多数决|去哪|甲|乙]')), forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:多数决|去哪|甲|丙]')));
+});
+
+test('CoC 检定安科：解析技能值 / 难度 / 编号，旧几种的锁键不受影响', () => {
+    assert.deepEqual(forumAnkeOf('[igs-anke:检定|要不要拉开浴帘|{{user}}|侦查|60|困难|F_box]'), { kind: 'coc', question: '要不要拉开浴帘', options: [], actor: '{{user}}', skill: '侦查', value: 60, level: '困难', code: 'F_box' });
+    const loose = forumAnkeOf('[igs-anke:检定|听|楼主|聆听|50|乱写]');
+    assert.deepEqual([loose.level, loose.code], ['普通', '']);
+    assert.equal(forumAnkeOf('[igs-anke:检定|听|楼主|聆听|没写]'), null);
+    const pick = forumAnkeOf('[igs-anke:判定|偷看|阿吒|敏捷|60]');
+    assert.equal(forumAnkeLockKey('c', 1, pick), `c:1:${forumHash(JSON.stringify([pick.kind, pick.question, pick.options, pick.actor, pick.ability, pick.line]))}`);
+    assert.notEqual(forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:检定|听|楼主|聆听|50|普通|F1]')), forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:检定|听|楼主|聆听|50|普通|F2]')));
+});
+
+test('CoC 检定结算与填入行：难度线、大成功大失败、编号带回', () => {
+    assert.deepEqual(ankeCocPlay({ die: 23, value: 60, level: '困难' }), { tier: '困难成功', ok: true, need: 30 });
+    assert.deepEqual(ankeCocPlay({ die: 40, value: 60, level: '困难' }), { tier: '成功', ok: false, need: 30 });
+    assert.equal(ankeCocPlay({ die: 97, value: 40 }).tier, '大失败');
+    assert.equal(ankeCocPlay({ die: 97, value: 60 }).tier, '失败');
+    assert.equal(ankeCocPlay({ die: 1, value: 5, level: '极难' }).ok, true);
+    const coc = { kind: 'coc', actor: '{{user}}', actorLabel: '我', skill: '侦查', value: 60, level: '困难', code: 'F_box' };
+    assert.equal(ankeFillLine(coc, { pick: -1, die: 23 }), '【检定】我 侦查：1D100=23，困难线30，困难成功 #F_box');
+    assert.equal(ankeFillLine(coc, { pick: -1, die: 40 }), '【检定】我 侦查：1D100=40，困难线30，成功（没达到难度） #F_box');
+    assert.equal(ankeFillLine({ ...coc, level: '普通', code: '' }, { pick: -1, die: 70 }), '【检定】我 侦查：1D100=70，技能60，失败');
+    assert.deepEqual(ankeOutcomeOf(coc, { die: 40 }), { tier: '失败', diff: -10 });
 });
 
 test('楼层计划预留安科楼与候选楼：号码排在最后一个主楼之后、AI 回帖之前，时间每楼推后 1 分钟', () => {

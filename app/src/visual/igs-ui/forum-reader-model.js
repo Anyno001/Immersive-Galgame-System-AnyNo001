@@ -246,11 +246,13 @@ export function forumRepliesOf(source) {
     return out;
 }
 
-const ANKE_KINDS = { 多数决: 'vote', 投票: 'vote', 安价: 'anchor', 征集: 'collect', 判定: 'check' };
+const ANKE_KINDS = { 多数决: 'vote', 投票: 'vote', 安价: 'anchor', 征集: 'collect', 判定: 'check', 检定: 'coc' };
+const COC_LEVELS = ['普通', '困难', '极难'];
 const ANKE_CHECK_LINE = 50;
 
 // 安科标签 [igs-anke:形式|问题|…]：取本楼最后一条。形式 多数决（投票）/ 安价 / 征集 / 判定；第一格不是形式名按旧格式 [igs-anke:问题|选项…]（kind='pick'）。
 // 选项 2–8 个；判定 [igs-anke:判定|问题|对象|属性|成功线]：1–99 的数字是成功线，第一个非数字是对象，第二个非数字解析成属性键。
+// 检定（CoC，剧情注入器跑团模式写）[igs-anke:检定|问题|对象|技能|技能值|难度|编号]：1D100 ≤ 技能值（困难 1/2、极难 1/5）为过；编号原样带回结果行。
 export function forumAnkeOf(source) {
     let found = null;
     for (const m of String(source || '').matchAll(new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*anke\\s*[:：](${REPLY_BODY_SOURCE})[\\]】］]`, 'gi'))) {
@@ -263,6 +265,13 @@ export function forumAnkeOf(source) {
         }
         const rest = fields.slice(1);
         if (!rest.length) continue;
+        if (kind === 'coc') {
+            const [actor, skill, value, level, code] = rest.slice(1);
+            const v = Number(value);
+            if (!skill || !(v >= 1 && v <= 99)) continue;
+            found = { kind, question: rest[0].slice(0, 80), options: [], actor: (actor || '楼主').slice(0, 20), skill: skill.slice(0, 12), value: Math.round(v), level: COC_LEVELS.includes(level) ? level : '普通', code: /^#?[A-Za-z][\w-]{0,40}$/.test(code || '') ? code.replace(/^#/, '') : '' };
+            continue;
+        }
         if (kind === 'check') {
             const extra = rest.slice(1);
             const num = extra.find((f) => /^\d{1,2}$/.test(f) && Number(f) >= 1);
@@ -278,7 +287,8 @@ export function forumAnkeOf(source) {
 
 // 一个安科的锁键：同一楼里内容不同（swipe 重写）就是新安科。
 export function forumAnkeLockKey(chatId, messageId, anke) {
-    return `${chatId}:${messageId}:${forumHash(JSON.stringify([anke.kind, anke.question, anke.options, anke.actor, anke.ability, anke.line]))}`;
+    const base = [anke.kind, anke.question, anke.options, anke.actor, anke.ability, anke.line];
+    return `${chatId}:${messageId}:${forumHash(JSON.stringify(anke.kind === 'coc' ? [...base, anke.skill, anke.value, anke.level, anke.code] : base))}`;
 }
 
 export function forumMinutesAfter(time, minutes) {
