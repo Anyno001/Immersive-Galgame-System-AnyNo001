@@ -78,6 +78,8 @@ import { normalizeAutoIllustrationSettings } from '../generated-images/illustrat
 import { createCharacterReferenceRecovery } from './character-reference-recovery.js';
 import { wakeRecoveringOperations } from '../storage/automatic-recovery.js';
 import { IMAGE_ACTIVITY_EVENT, trackImageActivity } from '../generated-images/generation-activity.js';
+import { blockImageBackend, forumBlocksImages, withImagesBlocked } from '../generated-images/image-block.js';
+import { applyForumFxBlock } from '../visual/igs-ui/forum-fx-block.js';
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
 import { createImageJobLog } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
@@ -111,7 +113,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.10';
+const IGS_VERSION = '0.41.11';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -227,9 +229,13 @@ export function bootstrapIGS(options = {}) {
     const naiOfficialClient = options.naiOfficialClient || createNaiOfficialClient({ fetch: options.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : undefined) });
     // 只读一两个字段的地方用浅合并，不为一个开关整份深拷贝配置（素材库大时每条生图日志、每次取阅读模式都很贵）。
     const peekBridge = () => ({ ...(state.legacyIgs && state.legacyIgs.bridge || {}), ...(state.config || {}) });
+    // 论坛体勾了「屏蔽生图」：生图服务读到的自动开关一律为关，后端出图入口直接拒绝（见 image-block.js）。
+    const imagesBlocked = () => forumBlocksImages((getUnifiedSettingsSnapshot() || {}).readerSettings);
     const readImageBridge = () => {
-        const bridge = (getUnifiedSettingsSnapshot() || {}).bridge || {};
-        return { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
+        const snapshot = getUnifiedSettingsSnapshot() || {};
+        const bridge = snapshot.bridge || {};
+        const merged = { ...bridge, autoIllustration: mergeLegacyNaiSettings(bridge.autoIllustration, bridge.imageApi) };
+        return forumBlocksImages(snapshot.readerSettings) ? withImagesBlocked(merged) : merged;
     };
     // 自动抠图总开关：对所有图像来源生效；关闭时立绘、表情差分、物品图保留原图。未用暗号解锁时强制关闭。
     const alphaMatte = options.alphaMatte || createAlphaMatte(globalObject);
@@ -252,7 +258,7 @@ export function bootstrapIGS(options = {}) {
         () => (app.igsUi && typeof app.igsUi.showImageNotice === 'function' ? app.igsUi.showImageNotice.bind(app.igsUi) : null),
     );
     // 所有出图（手动 / 自动，CG / 立绘 / 背景 / 物品）都经过这一层，开始和结束各发一次活动事件给阅读器的生成细线。
-    const imageBackend = trackImageActivity(options.imageBackend || createImageBackend({
+    const imageBackend = blockImageBackend(trackImageActivity(options.imageBackend || createImageBackend({
         nai: naiOfficialClient,
         getBridge: readImageBridge,
         global: globalObject,
@@ -262,7 +268,7 @@ export function bootstrapIGS(options = {}) {
         report: (level, message) => {
             if (imageJobLog && typeof imageJobLog.add === 'function') imageJobLog.add(level, message);
         },
-    }), (event) => events.emit(IMAGE_ACTIVITY_EVENT, event));
+    }), (event) => events.emit(IMAGE_ACTIVITY_EVENT, event)), imagesBlocked);
     // CG 库与自动插图共用同一个插图存储实例；写入 / 删除槽位时顺手更新 CG 库目录。
     const cgIndexStore = options.cgIndexStore || createIndexedDbCgIndexStore(globalObject);
     const illustrationStore = options.illustrationStore || withCgIndexSync(withTavernIllustrationFiles(createIndexedDbIllustrationStore(globalObject), globalObject), cgIndexStore, globalObject);
@@ -1518,7 +1524,8 @@ export function bootstrapIGS(options = {}) {
         // 随身带着现代手机：提示句追加在时代规则后面（开关关或世界观为现代时为空）。
         const carryPhoneRule = resolveCarryPhonePrompt(worldview, sceneAssets);
         const eraRule = [resolveWorldviewPromptRule(worldview, sceneAssets), carryPhoneRule].filter(Boolean).join('\n');
-        const worldviewSettings = applyFxWorldview(unified.readerSettings, worldview, { carryPhone: Boolean(carryPhoneRule) });
+        // 论坛体勾了「屏蔽演出」：没保留的演出不发写法（见 forum-fx-block.js）。
+        const worldviewSettings = applyForumFxBlock(applyFxWorldview(unified.readerSettings, worldview, { carryPhone: Boolean(carryPhoneRule) }));
         // 手机社区按世界观换平台：把世界观写进传给提示词的快照（新对象，不改原设置）。
         // 数值系统接管检定与队伍状态时，战斗规则只留装备与道具两类标签（combatMerged）。
         const combatPrompt = resolveCombatPromptSegments(worldviewSettings, generationType);

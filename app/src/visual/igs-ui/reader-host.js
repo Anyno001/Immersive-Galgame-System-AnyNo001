@@ -179,6 +179,8 @@ import { createForumRegistry } from './forum-reader-registry.js';
 import { createAnkeStore } from './forum-anke-store.js';
 import { ankeVisibleVotes, ankeVoteOf } from './forum-anke-play.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { forumBlocksImages } from '../../generated-images/image-block.js';
+import { applyForumFxBlock } from './forum-fx-block.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
@@ -6720,6 +6722,12 @@ ${row.key}`;
         const overlay = current && current.dom && current.dom.overlay;
         const service = options.generatedAssets;
         if (!service) return;
+        // 论坛体屏蔽生图：不入库剧情衣装，也不弹待确认素材（留着的项取消屏蔽后照常问）。
+        if (forumBlocksImages(snapshot && snapshot.readerSettings)) {
+            const hidden = current && current.dom && current.dom.overlay && current.dom.overlay.querySelector && current.dom.overlay.querySelector('#igs-asset-review');
+            if (hidden) hidden.setAttribute('hidden', '');
+            return;
+        }
         const context = storyOutfitContext();
         if (current.streamPhase !== 'streaming' && storyOutfits && context && snapshot.readerSettings?._sceneAssets?.enabled) {
             const assets = effectiveSceneAssets(context.root, context.scopeKey);
@@ -7118,7 +7126,7 @@ ${row.key}`;
         const worldview = resolveWorldview(sceneAssets);
         setCharacterNameFallback(!sceneAssets || sceneAssets.nameFallback !== false);
         readerSettings.dialogSkin = effectiveDialogSkin(readerSettings.dialogSkin, sceneAssets);
-        Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview, { carryPhone: Boolean(sceneAssets && sceneAssets.carryPhone === true) }));
+        Object.assign(readerSettings, applyForumFxBlock(applyFxWorldview(readerSettings, worldview, { carryPhone: Boolean(sceneAssets && sceneAssets.carryPhone === true) })));
         // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
         readerSettings._ancientEra = worldview === 'ancient';
         // 随身手机：线上聊天换回手机样式（chat-layer 读这个标记）。

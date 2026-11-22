@@ -54,6 +54,8 @@ export function createStoryOutfitRuntime(deps) {
         async processMessage(messageId) {
             const floor = deps.messageHost.readFloor(Number(messageId));
             if (disposed || !floor?.isAi || !floor.isLatest) return [];
+            // 论坛体屏蔽生图时剧情衣装也不入库。
+            if (deps.readBridge().imagesBlocked === true) return [];
             const context = getContext(floor);
             if (!context || !effectiveSceneAssets(context.root, context.scopeKey).enabled) return [];
             const assets = effectiveSceneAssets(context.root, context.scopeKey);

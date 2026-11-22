@@ -14,6 +14,7 @@ import { forumAnkePromptText, forumDefaultPromptText } from './forum-reader-line
 import { FORUM_PALETTES } from './forum-reader-palettes.js';
 import { FORUM_PER_POST_MAX, FORUM_PER_POST_MIN } from './forum-reader-settings.js';
 import { renderForumRegistryFields } from './forum-reader-fields.js';
+import { FORUM_FX_GROUPS } from './forum-fx-block.js';
 
 // 纵向阅读模式的头像样式：按钮图标画出底框外形；破框的头从底框里伸出来（底框淡色、头实色）。
 const AVATAR_ICON = (plate) => `<svg viewBox="0 0 24 24" focusable="false">${plate}</svg>`;
@@ -179,6 +180,9 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.othersThoughts`, '其他人的心里话', segmentedInput(`${p}.forumReader.othersThoughts`, fr.othersThoughts, [['hide', '不显示'], ['show', '照常显示']], '其他人的心里话'))
         + checkbox(`${p}.forumReader.chainTail`, fr.chainTail, '新楼开头接上楼末尾回帖')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
+        + checkbox(`${p}.forumReader.noImages`, fr.noImages, '屏蔽生图与素材入库')
+        + checkbox(`${p}.forumReader.noFx`, fr.noFx, '屏蔽演出')
+        + collapsible('forum-fx-keep', '屏蔽演出时保留', FORUM_FX_GROUPS.map((g) => checkbox(`${p}.forumReader.keepFx.${g.id}`, fr.keepFx[g.id], g.label)).join(''))
         + perfSubhead('外观')
         + field(`${p}.forumReader.palette`, '配色', selectInput(`${p}.forumReader.palette`, fr.palette, FORUM_PALETTES.map((x) => [x.id, x.name])))
         + field(`${p}.forumReader.perPost`, '一楼最多行数', selectInput(`${p}.forumReader.perPost`, fr.perPost, Array.from({ length: FORUM_PER_POST_MAX - FORUM_PER_POST_MIN + 1 }, (_, i) => [FORUM_PER_POST_MIN + i, `${FORUM_PER_POST_MIN + i}行`])))
