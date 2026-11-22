@@ -1,6 +1,7 @@
 import { GORE_REGISTRY_VALUES } from './dialog-theme-horror-blood.js';
 import { MONITOR_LOG_PARTS } from './dialog-theme-horror-monitor.js';
 import { WARD_LOG_READER_PART } from './dialog-theme-horror-ward.js';
+import { YK_STAR_PATH } from './dialog-theme-yume-kawaii.js';
 
 // 窄屏阅读模式逐皮肤部件：头像框、姓名牌、行间与换场景分割线、情绪胶囊。全部实色，图形为内联 SVG data URL。
 // 选择器带皮肤 id，排在 getLogFrameStyleText 之后覆盖；破框头像不画角饰。数值集中在 SPECS 规格表。
@@ -233,6 +234,15 @@ Object.assign(SPECS, {
         scene: { line: 'dash', c: '#4a4a4c', w: 44 },
         chip: { r: 2, bg: '#38383a', ink: '#e3ae2f' },
     },
+    // 可盐可甜：白边头像外一圈冰蓝，行间与换场景用冰蓝圆点线，中间缀一颗五角星。
+    // 圆点线用 dotsfit：只画在星两侧给定的宽度内，星与圆点之间留出空隙（普通 dots 会铺满整行、从星底下穿过去）。
+    'yume-kawaii': {
+        ring: 'inset 0 0 0 1.5px #c3d1e4, 0 0 0 2px #ffffff, 0 0 0 3.5px #d4dfec',
+        r: 14,
+        row: { line: 'dotsfit', c: '#c9d6e8', m: { svg: sq(`<path d='${YK_STAR_PATH}' fill='#9db4d6'/>`), w: 10, h: 10 }, gap: 9 },
+        scene: { line: 'dotsfit', c: '#c9d6e8', w: 40, gap: 8, m: { svg: sq(`<path d='${YK_STAR_PATH}' fill='#e9a6c0'/>`), w: 11, h: 11 } },
+        chip: { r: 99, bg: '#dfe8f4', ink: '#6f88ad' },
+    },
 });
 
 
@@ -247,6 +257,8 @@ function lineLayers(kind, c, side, w = '100%') {
     case 'solid': return { h: 1, list: [`linear-gradient(${c},${c}) ${x} 50%/${w} 1px no-repeat`] };
     case 'double': return { h: 5, list: [`linear-gradient(${c},${c}) ${x} 0/${w} 1px no-repeat`, `linear-gradient(${c},${c}) ${x} 4px/${w} 1px no-repeat`] };
     case 'dots': return { h: 3, list: [`radial-gradient(circle,${c} 1px,transparent 1.4px) 0 50%/7px 3px repeat-x`] };
+    // 同样的圆点，但只铺在 side / w 给定的那一段里（SVG 图案平铺在背景框内），中间图形两侧能留出空隙。
+    case 'dotsfit': return { h: 3, list: [`${asUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='3'><defs><pattern id='d' width='7' height='3' patternUnits='userSpaceOnUse'><circle cx='3.5' cy='1.5' r='1.1' fill='${c}'/></pattern></defs><rect width='100%' height='3' fill='url(#d)'/></svg>`)} ${x} 50%/${w} 3px no-repeat`] };
     case 'dash': return { h: 1, list: [`repeating-linear-gradient(90deg,${c} 0 5px,transparent 5px 9px) ${x} 50%/${w} 1px no-repeat`] };
     case 'stitch': return { h: 1, list: [`repeating-linear-gradient(90deg,${c} 0 3px,transparent 3px 7px) ${x} 50%/${w} 1px no-repeat`] };
     default: return { h: 1, list: [`linear-gradient(90deg,${side === 'l' ? `transparent,${c}` : `${c},transparent`}) ${x} 50%/${w} 1px no-repeat`] };
@@ -277,7 +289,7 @@ function sceneCss(S, s) {
         return `${sel}before,${sel}after{border-top:0;width:${s.w || 46}px;height:${L.h}px;}\n${sel}before{background:${L.list.join(',')};}\n${sel}after{background:${R.list.join(',')};}`;
     }
     const wd = s.span || 46 + s.m.w;
-    const lw = `calc(100% - ${s.m.w + 5}px)`;
+    const lw = `calc(100% - ${s.m.w + (s.gap ?? 5)}px)`;
     if (s.tint) {
         const m = asUrl(s.m.svg);
         const mask = (side, at) => [`${m} ${at} 50%/${s.m.w}px ${s.m.h}px no-repeat`, ...lineLayers('fade', '#000', side, lw).list].join(',');

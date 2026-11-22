@@ -1,5 +1,6 @@
 import { isSystemRole } from './system-role.js';
 import { normalizeChatSfxPreset } from './chat-sfx.js';
+import { logNameHue } from './log-reader-model.js';
 
 export const CHAT_SHOW_FRAMES = Object.freeze(['phone', 'none']);
 export const CHAT_SHOW_REVEAL_MODES = Object.freeze(['click', 'auto']);
@@ -8,7 +9,6 @@ export const CHAT_SHOW_SPEEDS = Object.freeze({ fast: 0.6, medium: 1, slow: 1.5 
 export const CHAT_SHOW_SIDES = Object.freeze(['auto', 'left', 'right']);
 export const CHAT_SHOW_DIM_LEVELS = Object.freeze([0, 0.2, 0.35, 0.45, 0.6, 0.8]);
 export const CHAT_SHOW_AVATAR_PALETTE = Object.freeze(['#f38ba8', '#74aef0', '#7cc98f', '#f2b35f', '#a98ef0', '#5cc4c4', '#ef8a7d']);
-export const CHAT_SHOW_LEFT_PALETTE = Object.freeze(['#ffffff', '#ffe1ec', '#e0efff', '#e5f6df', '#fff1d0', '#ece3ff', '#dcf4f3']);
 export const CHAT_SHOW_DEFAULTS = Object.freeze({
     enabled: false,
     frame: 'phone',
@@ -273,10 +273,11 @@ export function buildChatPageModel(chat, settings, ctx = {}) {
         if (!m.color) {
             m.color = m.side === 'right'
                 ? defaults.right
-                : leftKeys.length > 1 ? CHAT_SHOW_LEFT_PALETTE[hashIndex(m.key, CHAT_SHOW_LEFT_PALETTE.length)] : defaults.left;
+                : defaults.left;
         }
         m.textColor = readableTextColor(m.color);
         m.showName = group && m.side === 'left';
+        if (m.showName) m.nameDot = (typeof ctx.nameColorOf === 'function' && ctx.nameColorOf(m.key)) || logNameHue(m.key);
     }
     // 已读不回：最后一条已读的我方消息之后没有对方回复，则在末尾补一句时间流逝（数字按本条后剩余页数推算）。
     const lastReadAt = messages.map((m) => m.read === true).lastIndexOf(true);

@@ -333,7 +333,7 @@ const READER_UI_OPTION_TEMPLATE = `
 
 const READER_UI_BAR_TEMPLATE = `
 <div class="igs-settings-grid" data-reader-pane="interface" data-ui-sub="bar">
-  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}{{inputPlacementField}}{{toolbarSplitField}}{{toolbarPlateField}}{{dialogBarAlignField}}</div>{{pinnedButtonsField}}</div>
+  <div class="igs-source-filter"><div class="igs-source-filter-title">工具栏{{resetReaderInterfaceToolbar}}</div><div class="igs-source-filter-grid">{{toolbarScaleField}}{{toolbarDockField}}{{inputPlacementField}}{{toolbarSplitField}}{{toolbarPlateField}}{{dialogBarAlignField}}</div>{{pinnedButtonsField}}<div class="igs-source-filter-grid">{{toolbarColorField}}{{dialogBarColorField}}</div></div>
 </div>
 `.trim();
 
@@ -602,7 +602,7 @@ const ORIGIN_TEMPLATE = `
       <div class="igs-source-filter-grid">{{originEconStyleField}}</div>
       <div class="igs-settings-full">{{originEconTextField}}</div>
       <div class="igs-settings-section">{{originChatToStoryField}}</div>
-      <div class="igs-source-filter-note">绑定对象填「宿主」时系统为用户派发任务；填角色名时系统归该角色，用户旁观，对话页改为角色与系统的私聊。</div>
+      <div class="igs-source-filter-note">绑定对象填「宿主」时系统为User派发任务；填角色名时系统归该角色，User旁观，对话页改为角色与系统的私聊。</div>
     </div>
     <div class="igs-source-filter">
       <div class="igs-source-filter-title">模型</div>

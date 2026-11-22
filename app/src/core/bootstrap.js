@@ -95,6 +95,7 @@ import { isGeneratedAssetUrl, generatedAssetIdOf } from '../scene/asset-match.js
 import { createAlphaMatte } from '../media/alpha-matte.js';
 import { firstMoodWord, resolvePromptRuleContent, scenePromptRuleEnabled } from '../scene/prompt-rule-content.js';
 import { buildTagGrammar, DEPTH0_REMINDER, GRAMMAR_HEADER, normalizePromptPlacement } from '../visual/igs-ui/tag-grammar.js';
+import { forumPrevRepliesOf, normalizeForum } from '../visual/igs-ui/forum-reader-model.js';
 import { resolvePromptTriggers, setLastPromptReport } from '../scene/prompt-triggers.js';
 import { collectPromptContext } from '../host/prompt-context.js';
 import { createCombatServices } from './combat-services.js';
@@ -109,7 +110,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.40.68';
+const IGS_VERSION = '0.41.8';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -538,6 +539,7 @@ export function bootstrapIGS(options = {}) {
         global: globalObject,
         // statsRuntime 在阅读器之后创建，这里按需读取。
         statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
+        traitNamesOf: (name) => (app.statsRuntime && typeof app.statsRuntime.traitNamesOf === 'function' ? app.statsRuntime.traitNamesOf(name) : null),
         statsFavorOverview: () => (app.statsRuntime && typeof app.statsRuntime.favorOverview === 'function' ? app.statsRuntime.favorOverview() : null),
         statsProtagonistLookup: () => (app.statsRuntime && typeof app.statsRuntime.protagonistLookup === 'function' ? app.statsRuntime.protagonistLookup() : null),
         statsChat: () => (app.statsRuntime ? app.statsRuntime.chatStatus() : null),
@@ -1518,8 +1520,15 @@ export function bootstrapIGS(options = {}) {
         // 手机社区按世界观换平台：把世界观写进传给提示词的快照（新对象，不改原设置）。
         // 数值系统接管检定与队伍状态时，战斗规则只留装备与道具两类标签（combatMerged）。
         const combatPrompt = resolveCombatPromptSegments(worldviewSettings, generationType);
+        const forumOn = Boolean(worldviewSettings && worldviewSettings.forumReader && worldviewSettings.forumReader.on === true);
+        const forumMeta = forumOn ? resolveTavernContext()?.chatMetadata?.igs_forum : null;
+        // 上一轮 AI 回帖：交给提示词，让本轮路人能用 >上N 接话。
+        const forumChat = forumOn ? resolveTavernContext()?.chat : null;
+        // 重写/续写时最后一楼就是本轮自己，从它前面找。
+        const forumRedo = ['swipe', 'regenerate', 'continue'].includes(generationType) && Array.isArray(forumChat) && forumChat.length && !forumChat[forumChat.length - 1]?.is_user;
+        const forumPrev = Array.isArray(forumChat) ? forumPrevRepliesOf(forumChat, forumChat.length - (forumRedo ? 1 : 0)) : [];
         const readerSettings = worldviewSettings && typeof worldviewSettings === 'object'
-            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview }, ...(combatPrompt.statsOwns ? { combatMerged: true } : {}), ...combatPrompt.extras }
+            ? { ...worldviewSettings, feedFx: { ...(worldviewSettings.feedFx || {}), worldview }, ...(combatPrompt.statsOwns ? { combatMerged: true } : {}), ...combatPrompt.extras, ...(forumMeta ? { _forum: normalizeForum(forumMeta) } : {}), ...(forumPrev.length ? { _forumPrev: forumPrev } : {}) }
             : worldviewSettings;
         const placement = normalizePromptPlacement(sceneAssets && sceneAssets.promptPlacement);
         // 交互摘要：只在有待送出的事件时注入，生成结束后清空（见 attachMetaDigestSync）。

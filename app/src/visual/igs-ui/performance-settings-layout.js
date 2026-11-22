@@ -64,6 +64,8 @@ function extraSwitches(reader, extras) {
             ['漫画演出模式', on('comicMode')],
             ['双语台词', on('bilingual')],
             ['纵向阅读模式', on('logReader')],
+            ['线上聊天模式', on('chatReader')],
+            ['论坛体模式', on('forumReader')],
             extras.sentencePaging ? ['旁白按句号分页', extras.sentencePagingOn === true] : null,
             extras.dialogueSentencePaging ? ['对白／心理话也按句分页', extras.dialogueSentencePagingOn === true] : null,
         ],
@@ -127,14 +129,14 @@ function buildPerformanceBodies(src, extras, isOpen) {
         const [head, detail] = Array.isArray(value) ? value : [value || '', ''];
         return head ? perfItem(more, key, head, { hint, detail }) : '';
     };
-    const fx = renderFxFeatureFields(src, more, extras.fontOptions);
+    const fx = renderFxFeatureFields(src, more, extras.fontOptions, extras.forumRegistry || null);
     const stage = renderStageDirectionFields(src, more, { worldview: extras.worldviewId });
     const danmaku = renderDanmakuFields(src, more, { liveBlocked: extras.liveBlocked === true });
     return {
         more,
         fx,
         bodies: {
-            get text() { return [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, fx.logReader, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)]; },
+            get text() { return [host('playback-speed', extras.playbackSpeed), host('typewriter', extras.typewriter, '逐字显示'), stage.waitStage, stage.clickWaitMark, stage.textFx, stage.bilingual, fx.logReader, fx.chatReader, fx.forumReader, host('sentence-paging', extras.sentencePaging), host('dialogue-sentence-paging', extras.dialogueSentencePaging)]; },
             get stage() { return [
                 section('镜头与环境', [stage.transition, stage.cgEntrance, stage.tint, stage.camera, host('weather', extras.weatherFx, '雨雪雾粒子'), fx.crowd, host('stage-shake', extras.stageShake, '冲击时晃屏'), renderPackFields(src, more, { ids: ['camera'] }), renderPackFields(src, more, { ids: ['places'] }), host('cinema-bars', extras.cinemaBars, '只盖背景，CG时收起'), fx.comic, renderPanelSkinField(src, more)]),
                 section('立绘', [stage.motion, stage.actions, stage.turn, stage.cast, renderPackFields(src, more, { ids: ['transform'] }), fx.innerDemon, host('narration-filter', extras.narrationFilter)]),

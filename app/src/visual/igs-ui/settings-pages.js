@@ -37,6 +37,7 @@ export const SETTINGS_PAGES = Object.freeze([
     Object.freeze(['perf-story', '情绪与提示', 'perf']),
     Object.freeze(['perf-special', '题材', 'perf']),
     Object.freeze(['perf-rhythm', '节奏', 'perf']),
+    Object.freeze(['stickers', '表情包', 'perf']),
     Object.freeze(['sound', '声音', 'sound']),
     Object.freeze(['chars', '角色', 'chars']),
     Object.freeze(['wardrobe', '衣柜与情绪', 'chars']),

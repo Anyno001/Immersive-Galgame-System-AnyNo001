@@ -81,7 +81,14 @@ const CHECK_INLINE_RE = /\[igs-check:[^\]}\n]*(?:[\]}]|$)/gm;
 const DREAD_INLINE_RE = /\[igs-dread:[^\]\n]*\]/g;
 // 数值标签 [igs-stat:…] 只给脚本结算用，任何出口都不显示；容错写法与 scene/stats/stat-directives.js 一致（全角括号、全角冒号、字段可换行）。
 const STAT_INLINE_RE = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]/gi;
-const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
+// 论坛体登记标签 [igs-forum:…] 只给论坛模式登记用，任何出口都不显示。
+// 回帖内容里允许嵌一层 [igs-sticker:…]（先试表情包标签，再按普通字符走），内嵌的 "]" 不会提前收口。
+// 内容里成对的非 igs 括号（如【丙】）整对吃下，不当作结尾。
+export const REPLY_BODY_SOURCE = '(?:[\\[【［]\\s*igs\\s*-?\\s*sticker[^\\]】］\\n]*[\\]】］]|[\\[【［](?!\\s*igs)[^\\[【［\\]】］\\n]*[\\]】］]|[^\\]】］\\n])*';
+const FORUM_INLINE_RE = new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*(?:forum|reply|anke)\\s*[:：]${REPLY_BODY_SOURCE}(?:[\\]】］]|$)`, 'gim');
+// 内置表情包标签 [igs-sticker:情绪名]：只有线上聊天与论坛三处显示，由分页层先提取成 page.stickers，其余出口一律剥离（不进 IGS_INLINE_DIRECTIVE_NAMES）。
+export const STICKER_INLINE_RE = /[\[【［]\s*igs\s*-?\s*sticker\s*[:：][^\]】］\n]*(?:[\]】］]|$)/gim;
+const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:|forum:|reply:|anke:|sticker:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));
@@ -96,11 +103,35 @@ const LOOSE_DIRECTIVE_RE = new RegExp(
     'gi',
 );
 
+// 半角 "[" 开头却用「】」收口（[igs-char:名|表情|台词】）：没有 "]" 时，取第一个不成对的「】/］」当结尾，台词里成对的【门】照旧保留。
+function unpairedWideCloseAt(body) {
+    let depth = 0;
+    for (let i = 0; i < body.length; i++) {
+        const ch = body[i];
+        if (ch === '【' || ch === '［') depth++;
+        else if (ch === '】' || ch === '］') {
+            if (!depth) return i;
+            depth--;
+        }
+    }
+    return -1;
+}
+
 export function canonicalizeIgsDirectives(text) {
     return normalizeClosedIgsDialogueLines(text).replace(LOOSE_DIRECTIVE_RE, (all, name, body, close, wideName, wideBody, wideClose) => {
-        const inner = String(name ? body : wideBody);
+        let inner = String(name ? body : wideBody);
+        let closed = name ? close : wideClose;
+        let tail = '';
+        if (name && !closed) {
+            const at = unpairedWideCloseAt(inner);
+            if (at >= 0) {
+                tail = canonicalizeIgsDirectives(inner.slice(at + 1));
+                inner = inner.slice(0, at);
+                closed = ']';
+            }
+        }
         const fields = (inner.includes('|') ? inner : inner.replace(/｜/g, '|')).split('|').map((field) => field.trim());
-        return `[igs-${String(name || wideName).toLowerCase()}:${fields.join('|')}${(name ? close : wideClose) ? ']' : ''}`;
+        return `[igs-${String(name || wideName).toLowerCase()}:${fields.join('|')}${closed ? ']' : ''}${tail}`;
     });
 }
 
@@ -109,8 +140,50 @@ export function canonicalizeIgsDirectives(text) {
 // fx / img 是给前面这句加的效果，留在原句后面不挪。
 const BREAK_BEFORE_DIRECTIVE_RE = /(\S)[ \t]*(?=\[igs-(?:char|thought|scene):)/g;
 
+// AI 把表情包写进台词里（[igs-char:名|表情|台词 [igs-sticker:开心]]）时，内嵌的 "]" 会提前收口指令；
+// 先把标签挪到指令后面（同一行），台词与归属都不受影响。
+const STICKER_INSIDE_RE = /(\[\s*igs\s*-?\s*(?:char|thought)\s*[:：])((?:[^\[\]\n]|[\[【［]\s*igs\s*-?\s*sticker[^\]】］\n]*[\]】］])*)\]/gi;
+const STICKER_ONE_RE = /[ \t]*[\[【［]\s*igs\s*-?\s*sticker\s*[:：][^\]】］\n]*[\]】］]/gi;
+function hoistInlineStickers(text) {
+    return String(text || '').replace(STICKER_INSIDE_RE, (all, head, body) => {
+        const moved = body.match(STICKER_ONE_RE);
+        if (!moved) return all;
+        const rest = body.replace(STICKER_ONE_RE, '');
+        const fields = rest.split('|');
+        // 台词体去掉表情后为空：不留空台词页。char 指令删掉，标签改写成带说话人的 [igs-sticker:情绪|说话人]；心里话直接丢弃。
+        if (fields.length >= 2 && !fields[fields.length - 1].trim()) {
+            if (/thought/i.test(head)) return '';
+            const speaker = fields[0].trim();
+            const names = moved.map((m) => m.replace(/^[^:：]*[:：]/, '').replace(/[\]】］]\s*$/, '').trim()).filter(Boolean);
+            return speaker ? names.map((n) => `[igs-sticker:${n}|${speaker}]`).join('') : '';
+        }
+        return `${head}${rest}]${moved.map((m) => m.trim()).join('')}`;
+    });
+}
+
+// 取出文本里的表情包标签：[{ name, offset, speaker }]，offset 是标签在文本中的位置。
+// speaker 非空表示这是只有表情没有文字的台词：写成 [igs-sticker:情绪|说话人]，或还没被改写、原样写在台词体里的 [igs-char:名|表情|[igs-sticker:x]]。
+const STICKER_ONLY_BEFORE_RE = /[\[【［]\s*igs\s*-?\s*char\s*[:：]\s*([^|\]】］\n]+)\|(?:[^|\[\]\n]*\|){1,2}(?:\s*[\[【［]\s*igs\s*-?\s*sticker[^\]】］\n]*[\]】］])*\s*$/i;
+const STICKER_ONLY_AFTER_RE = /^\s*(?:[\[【［]\s*igs\s*-?\s*sticker[^\]】］\n]*[\]】］]\s*)*[\]】］]/i;
+export function stickerTagsOf(text) {
+    const out = [];
+    const src = String(text || '');
+    for (const m of src.matchAll(/[\[【［]\s*igs\s*-?\s*sticker\s*[:：]([^\]】］\n]*)[\]】］]/gi)) {
+        const [name, ...by] = m[1].split('|').map((x) => x.trim());
+        if (!name) continue;
+        let speaker = by.join('|');
+        if (!speaker) {
+            const lineStart = src.lastIndexOf('\n', m.index) + 1;
+            const before = STICKER_ONLY_BEFORE_RE.exec(src.slice(lineStart, m.index));
+            if (before && STICKER_ONLY_AFTER_RE.test(src.slice(m.index + m[0].length))) speaker = before[1].trim();
+        }
+        out.push({ name, offset: m.index, speaker });
+    }
+    return out;
+}
+
 export function normalizeIgsDirectiveLayout(text) {
-    return canonicalizeIgsDirectives(text).replace(BREAK_BEFORE_DIRECTIVE_RE, '$1\n');
+    return canonicalizeIgsDirectives(hoistInlineStickers(text)).replace(BREAK_BEFORE_DIRECTIVE_RE, '$1\n');
 }
 
 // 只去掉战斗块的包裹标签（<igs-combat> / </igs-combat> 及流式残片），块内标签留给各自的解析与剥离。
@@ -119,7 +192,7 @@ export function stripCombatBlockTags(text) {
 }
 
 export function stripMarkerDirectives(text) {
-    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(COMBAT_BLOCK_TAG_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '').replace(STAT_INLINE_RE, '');
+    return String(text || '').replace(SCENE_INLINE_RE, '').replace(FX_INLINE_RE, '').replace(COMBAT_INLINE_RE, '').replace(COMBAT_BLOCK_TAG_RE, '').replace(CHECK_INLINE_RE, '').replace(DREAD_INLINE_RE, '').replace(STAT_INLINE_RE, '').replace(FORUM_INLINE_RE, '').replace(STICKER_INLINE_RE, '');
 }
 
 export function isMarkerDirectiveLine(line) {

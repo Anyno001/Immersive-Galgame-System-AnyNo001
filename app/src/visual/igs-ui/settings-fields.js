@@ -563,7 +563,7 @@ export function renderCharacterAssetList(characters, options = {}) {
         const live2dOn = Boolean(resolveCharacterLive2dBinding(options.live2dConfig, options.sceneAssets || { characters, characterAliases: aliasesByCharacter }, charName));
         const meta = [aliases.join('、'), live2dOn ? 'Live2D 已启用 · 静态差分暂停' : ''].filter(Boolean).join(' · ');
         const head = `<div class="igs-char-head"><button type="button" class="igs-char-avatar" data-action="status-avatar-pick:${encSeg(charName)}" title="上传状态栏头像">${avatarPreview}</button>`
-            + `<button type="button" class="igs-char-title" data-action="${toggle}" aria-expanded="${open}"><b class="igs-char-name">${esc(charName)}</b>${isUserChar ? '<span class="igs-char-user-tag" title="旁白里的「你」和酒馆用户名都用这个角色的立绘">User</span>' : ''}${renderCharacterCreatureTag(dna)}<span class="igs-char-aliases">${esc(meta)}</span></button>`
+            + `<button type="button" class="igs-char-title" data-action="${toggle}" aria-expanded="${open}"><b class="igs-char-name">${esc(charName)}</b>${isUserChar ? '<span class="igs-char-user-tag" title="旁白里的「你」和酒馆User名都用这个角色的立绘">User</span>' : ''}${renderCharacterCreatureTag(dna)}<span class="igs-char-aliases">${esc(meta)}</span></button>`
             + `${scopeTag(options, 'characters', charName)}`
             + renderRowMenu([
                 menuItem(`scene-toggle-dna:${encSeg(charName)}`, dnaOpen ? '收起角色设定' : `角色设定${characterDnaFilled(dna) ? '' : '（外貌未填）'}`),
@@ -793,7 +793,7 @@ function renderCharacterDnaFields(charName, dna, isOpen) {
 export const CHARACTER_ADD_MENU = `<details class="igs-add-menu" data-add-menu="characters"><summary class="igs-btn-mgr-icon" title="新增角色" aria-label="新增角色">+</summary>`
     + '<div class="igs-add-menu-list" role="menu"><button class="igs-add-menu-item" data-action="scene-add-char" type="button" role="menuitem">新增角色</button>'
     + '<button class="igs-add-menu-item" data-action="scene-add-dna-char" type="button" role="menuitem">新增只登记外貌的角色</button>'
-    + '<button class="igs-add-menu-item" data-action="scene-add-user-char" type="button" role="menuitem">用酒馆用户设定生成主角</button>'
+    + '<button class="igs-add-menu-item" data-action="scene-add-user-char" type="button" role="menuitem">用酒馆User设定生成主角</button>'
     + '<button class="igs-add-menu-item" data-action="live2d-open" type="button" role="menuitem">Live2D模型（高级）</button></div></details>';
 
 // 角色设定分「外貌 / 资料 / 声音」三页，一次只看一类；没有声音设置时不出声音页。

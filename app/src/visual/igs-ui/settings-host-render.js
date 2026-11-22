@@ -16,6 +16,7 @@ import { normalizeItemImageSettings } from '../../generated-images/illustration/
 import { createCgLibraryView } from './cg-library-view.js';
 import { countEnabledPerformance, performanceGroupCounts, renderPerformancePage, renderPerformancePresetBar } from './performance-settings-layout.js';
 import { renderWorldviewRow } from './worldview-fields.js';
+import { renderStickerBrowser } from '../../stickers/sticker-browser.js';
 import { renderQualityRow } from './render-quality-fields.js';
 import { isGeneratedAssetUrl, normalizeGeneratedLibrary } from '../../scene/asset-match.js';
 import { createOutfitResolver, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
@@ -101,7 +102,7 @@ const READER_SCOPE_CATEGORIES = new Set(['dash', 'style', 'text', 'ui', 'perf', 
 
 const ASSET_MOVE_ALL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
 
-export function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state }) {
+export function createSettingsRenderer({ normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state, forumRegistry = null }) {
     // 草稿可被原地修改，整理结果按「草稿引用 + 修订号」缓存；只有调用方声明草稿没动（reuseNormalized）时才复用，
     // 任何写草稿的入口都会递增 draftRevision，缓存因此不会让改过的设置显示旧值。
     function normalizeSettingsDraft(settingsState) {
@@ -970,6 +971,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             get resumePromptField() { return field('readerSettings.resumePrompt', '续读提示', selectInput('readerSettings.resumePrompt', reader.resumePrompt === 'simple' ? 'simple' : 'title', [['title', '主界面样式'], ['simple', '简易弹窗']])); },
             get toolbarSplitField() { return field('readerSettings.toolbarSplit', '按钮分布', selectInput('readerSettings.toolbarSplit', reader.toolbarSplit || 'split', [['split', '顶栏+对话框下'], ['top', '全在顶栏'], ['dialog', '全在对话框下']])); },
             get toolbarPlateField() { return field('readerSettings.toolbarPlate', '工具栏底板', selectInput('readerSettings.toolbarPlate', reader.toolbarPlate || 'off', [['blur', '模糊（毛玻璃）'], ['solid', '清晰（实色）'], ['off', '关闭（无底板）']])); },
+            get toolbarColorField() { const bc = reader.toolbarColor; return field('readerSettings.toolbarColor', '工具栏颜色', colorInput('readerSettings.toolbarColor', /^#[0-9a-fA-F]{6}$/.test(bc) ? bc : '#a9a3b2')); },
+            get dialogBarColorField() { const bc = reader.dialogBarColor; return reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarColor', '对话框下按钮颜色', colorInput('readerSettings.dialogBarColor', /^#[0-9a-fA-F]{6}$/.test(bc) ? bc : /^#[0-9a-fA-F]{6}$/.test(reader.toolbarColor) ? reader.toolbarColor : '#a9a3b2')); },
             get dialogBarAlignField() { return reader.toolbarSplit === 'top' ? '' : field('readerSettings.dialogBarAlign', '对话框下按钮位置', selectInput('readerSettings.dialogBarAlign', reader.dialogBarAlign || 'auto', [['auto', '自动'], ['left', '靠左'], ['center', '居中'], ['right', '靠右']])); },
             get imgModeField() { return field('readerSettings.imgMode', '图像显示模式', selectInput('readerSettings.imgMode', reader.imgMode, [['adaptive', '自适应'], ['contain', '完整']])); },
             get imgBrightnessField() { return field('readerSettings.imgBrightness', '图片亮度', selectInput('readerSettings.imgBrightness', reader.imgBrightness, [50, 60, 70, 80, 88, 90, 100].map((n) => [n, `${n}%`]))); },
@@ -1074,6 +1077,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         const perfExtras = () => {
             const readerValues = getReaderValues();
             return ({ worldviewId: resolveWorldview(worldviewAssets), fontOptions: readerValues.fontOptions,
+                forumRegistry: forumRegistry ? forumRegistry.read() : null,
                 // 直播间是现代专属：非现代世界观没开随身手机时整块被拨掉，行内提示一句。
                 liveBlocked: applyFxWorldview({ liveFx: { enabled: true } }, resolveWorldview(worldviewAssets), { carryPhone: Boolean(worldviewAssets && worldviewAssets.carryPhone === true) }).liveFx.enabled !== true,
                 canUndo: Boolean(asyncState.perfPresetUndo),
@@ -1123,6 +1127,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return renderPerformancePresetBar(reader, { compact: true, canUndo: Boolean(asyncState.perfPresetUndo) }) + pageTabs({}, performanceGroupCounts(reader, perfExtras())) + renderTemplate(getPageTemplate(page), { performanceSections: performanceSections(PAGE_PERFORMANCE_GROUPS[page]) });
         }
         switch (page) {
+        case 'stickers':
+            return pageTabs({}, performanceGroupCounts(reader, perfExtras())) + renderStickerBrowser(reader.stickers, { editing: (asyncState && asyncState.stickerEdit) || '' });
         case 'style':
         case 'text':
         case 'ui-reader':

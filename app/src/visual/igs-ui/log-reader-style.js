@@ -3,6 +3,8 @@ import { logThemeStyleText } from './log-reader-theme.js';
 import { LOG_AVATAR_BOX, LOG_PERCENTS } from './log-reader-model.js';
 import { getLogFrameStyleText } from './dialog-theme-item-frames.js';
 import { logPartsStyleText } from './log-reader-parts.js';
+import { WUXIA_LOG_READER_STYLE } from './dialog-theme-wuxia.js';
+import { YUME_KAWAII_LOG_READER_STYLE } from './dialog-theme-yume-kawaii.js';
 
 // 情绪胶囊的字色取漫画符号同一套色相（fx-style 里 .igs-fx-symbol[data-kind] 的 --igs-fx-hue），不另抄一份。
 const CHIP_HUES = [...FX_STYLE_TEXT.matchAll(/\.igs-fx-symbol\[data-kind="([a-z-]+)"\]\{--igs-fx-hue:(#[0-9a-fA-F]{3,8})/g)]
@@ -42,7 +44,7 @@ ${ON} #igs-dialog-layer .igs-dialog::before,${ON} #igs-dialog-layer .igs-dialog:
 ${ON} #igs-dialog-layer .igs-dialog>:not(.igs-controls):not(#igs-dialog-bar):not(#igs-gen-strip){display:none!important;}
 ${ON} #igs-gen-strip{top:-4px;color:var(--igs-log-sub);}
 ${ON} #igs-gen-strip .igs-gen-tip{background:var(--igs-log-plate);color:var(--igs-log-ink);}
-${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-log-sub);}
+${ON} #igs-dialog-layer .igs-dialog #igs-dialog-bar{color:var(--igs-dialog-bar-color,var(--igs-bar-color,var(--igs-log-sub)));}
 ${ON} #igs-dialog-layer .igs-dialog .igs-input{background:var(--igs-log-plate)!important;color:var(--igs-log-ink)!important;border:0!important;box-shadow:none!important;}
 ${ON} #igs-dialog-layer .igs-dialog .igs-input::placeholder{color:var(--igs-log-sub)!important;}
 ${ON} #igs-dialog-layer .igs-dialog .igs-send-btn{background:var(--igs-log-acc)!important;color:rgb(var(--igs-log-veil))!important;border:0!important;box-shadow:none!important;}
@@ -166,6 +168,8 @@ ${ON}.igs-options-visible #igs-log :is(.igs-log-scroll,.igs-log-veil){opacity:0;
 /* 位置：有头位时锚在头顶右侧（--igs-log-sym-x/y 由裁切算出），否则落在头像右上角。 */
 ${getLogFrameStyleText()}
 ${logPartsStyleText()}
+${WUXIA_LOG_READER_STYLE}
+${YUME_KAWAII_LOG_READER_STYLE}
 #igs-log{--igs-log-plate-h:${BREAK.plate}px;}
 /* 破框的皮肤框线跟着底框外形走：各皮肤自带的圆角（0 / 2 / 12 等）不再带进来，三种外形各一套。 */
 ${ON} #igs-log[data-shape="break"] .igs-log-av:not(.is-letter)::after{border-radius:${PLATE_R}px;}

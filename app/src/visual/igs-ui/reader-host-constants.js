@@ -1,4 +1,4 @@
-import { DIALOG_FONT_CAVEAT, DIALOG_FONT_CHILL_ROUND, DIALOG_FONT_CINZEL, DIALOG_FONT_CORMORANT, DIALOG_FONT_GREAT_VIBES, DIALOG_FONT_HUIWEN, DIALOG_FONT_IM_FELL, DIALOG_FONT_MASHANZHENG, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_PINYON_SCRIPT, DIALOG_FONT_QUICKSAND, DIALOG_FONT_ROUNDED, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_SOURCE_HAN_SANS, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_YUYANG, DIALOG_FONT_ZCOOL_KUAILE } from './dialog-theme-typography.js';
+import { DIALOG_FONT_MAOKEN_ZHUYUAN, DIALOG_FONT_CAVEAT, DIALOG_FONT_CHILL_ROUND, DIALOG_FONT_CINZEL, DIALOG_FONT_CORMORANT, DIALOG_FONT_GREAT_VIBES, DIALOG_FONT_HUIWEN, DIALOG_FONT_IM_FELL, DIALOG_FONT_MASHANZHENG, DIALOG_FONT_NEO_XIHEI, DIALOG_FONT_NEO_ZHISONG, DIALOG_FONT_PINYON_SCRIPT, DIALOG_FONT_QUICKSAND, DIALOG_FONT_ROUNDED, DIALOG_FONT_SERIF, DIALOG_FONT_SMILEY, DIALOG_FONT_SOURCE_HAN_SANS, DIALOG_FONT_WENKAI, DIALOG_FONT_WENKAI_LITE, DIALOG_FONT_YOZAI, DIALOG_FONT_YUYANG, DIALOG_FONT_ZCOOL_KUAILE } from './dialog-theme-typography.js';
 
 export const DEFAULT_IMAGE_API = Object.freeze({
     mode: 'extension',
@@ -99,6 +99,7 @@ export const DIALOG_FONT_OPTIONS = Object.freeze([
     [DIALOG_FONT_YUYANG, '仓耳渔阳体'],
     [DIALOG_FONT_SMILEY, '得意黑'],
     [DIALOG_FONT_ZCOOL_KUAILE, '站酷快乐体'],
+    [DIALOG_FONT_MAOKEN_ZHUYUAN, '猫啃珠圆体'],
     [DIALOG_FONT_YOZAI, '悠哉字体'],
     [DIALOG_FONT_CINZEL, 'Cinzel'],
     [DIALOG_FONT_CORMORANT, 'Cormorant Garamond'],
@@ -160,6 +161,8 @@ export const READER_REQUIRED_SETTINGS_PATHS = Object.freeze([
     'readerSettings.btnOrder',
     'readerSettings.toolbarSplit',
     'readerSettings.toolbarPlate',
+    'readerSettings.toolbarColor',
+    'readerSettings.dialogBarColor',
     'readerSettings.dialogBarAlign',
     'readerSettings.dialogBarBtns',
     'readerSettings.spriteLayouts',
@@ -251,6 +254,8 @@ export const SETTINGS_PANEL_TAB_CONTRACT = Object.freeze({
             'readerSettings.btnOrder',
             'readerSettings.toolbarSplit',
             'readerSettings.toolbarPlate',
+            'readerSettings.toolbarColor',
+            'readerSettings.dialogBarColor',
             'readerSettings.dialogBarAlign',
             'readerSettings.dialogBarBtns',
         ]),
@@ -451,6 +456,8 @@ export const TOOLBAR_ACTIONS = Object.freeze([
     ['save', '保存图片'],
     ['hide', '隐藏对话框'],
     ['log-mode', '纵向阅读模式开关'],
+    ['chat-mode', '线上聊天模式开关'],
+    ['forum-mode', '论坛体模式开关'],
     ['sprite-edit', '调整立绘'],
     ['live2d-settings', 'Live2D 角色绑定'],
     ['combat-status', '人物状态'],

@@ -150,14 +150,14 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
             return { ok: false, reason: domResult.reason || 'missing-input-api' };
         },
 
-        async fillEmptyInputText(text, { append = false } = {}) {
+        async fillEmptyInputText(text, { append = false, replace = '', focus = true } = {}) {
             // Do not invoke the unconditional setter until the actual draft is observable.
             const helper = getTavernHelper(globalObject);
             const input = getCandidateDocuments(globalObject)
                 .map(doc => safeQuery(doc, '#send_textarea')).find(Boolean);
             try {
                 if (input) {
-                    if (append) return setInputTextViaHostDom(globalObject, appendInputDraft(input.value, text));
+                    if (append) return setInputTextViaHostDom(globalObject, appendInputDraft(input.value, text, replace), false, focus);
                     if (String(input.value ?? '') !== '') return { ok: false, reason: 'draft-not-empty' };
                     // The DOM fallback checks again just before writing; helper reads may be stale.
                     return setInputTextViaHostDom(globalObject, text, true);
@@ -166,7 +166,7 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
                     const existing = await helper.getInputText();
                     if (existing == null) return { ok: false, reason: 'missing-readable-input' };
                     if (!append && String(existing) !== '') return { ok: false, reason: 'draft-not-empty' };
-                    const filled = await helper.setInputText(append ? appendInputDraft(existing, text) : String(text ?? ''));
+                    const filled = await helper.setInputText(append ? appendInputDraft(existing, text, replace) : String(text ?? ''));
                     if (filled === false) return { ok: false, reason: 'input-fill-failed' };
                     return { ok: true, reason: 'tavern-helper-fill' };
                 }
@@ -236,7 +236,7 @@ export function createTavernHelperAdapter(globalObject = globalThis.window || gl
     };
 }
 
-function setInputTextViaHostDom(globalObject, text, onlyIfEmpty = false) {
+function setInputTextViaHostDom(globalObject, text, onlyIfEmpty = false, focus = true) {
     const value = String(text == null ? '' : text);
     for (const doc of getCandidateDocuments(globalObject)) {
         const textarea = safeQuery(doc, '#send_textarea');
@@ -247,7 +247,7 @@ function setInputTextViaHostDom(globalObject, text, onlyIfEmpty = false) {
             if (setter) setter.call(textarea, value);
             else textarea.value = value;
             dispatchInputEvents(textarea, doc);
-            if (typeof textarea.focus === 'function') textarea.focus();
+            if (focus && typeof textarea.focus === 'function') textarea.focus();
             return { ok: true, reason: 'host-dom-fill', doc };
         } catch (error) {
             return { ok: false, reason: 'host-dom-fill-failed' };

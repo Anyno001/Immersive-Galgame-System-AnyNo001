@@ -1,0 +1,802 @@
+import { LOG_SPEEDS } from './log-reader-settings.js';
+import { FLOW_FADE_MS, FLOW_STEP_MS, PAUSE_CHARS, TYPE_PAUSE_MS, TYPE_STEP_MS, splitChars } from './log-reader-layer.js';
+import { VOICE_ICON } from './voice-icon.js';
+import { FORUM_PALETTE_KEYS, forumPaletteColors } from './forum-reader-palettes.js';
+import { FORUM_EDGE_PX, FORUM_QUOTE_MARKS } from './forum-reader-settings.js';
+import { buildChatShots } from './forum-reader-chat-shot.js';
+import { stripTextFxMarkup } from './text-fx.js';
+import { STICKER_TAG_G, installStickerFallback, stickerHtml, stickerOptsOf } from '../../stickers/sticker-render.js';
+import { stickerView } from '../../stickers/sticker-catalog.js';
+import { setStagePauseReason } from './stage-pause.js';
+
+// 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
+// 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
+const states = new WeakMap();
+const LIVE_PHONE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="18.2" r="1" fill="currentColor"/><path d="M10 7.2 15 10l-5 2.8z" fill="currentColor"/></svg>';
+const FADE_MS = 320;
+
+function stateOf(overlay) {
+    let s = states.get(overlay);
+    if (!s) states.set(overlay, (s = { sig: '', rendered: 0, reveal: null, view: null, sceneRow: -1 }));
+    return s;
+}
+
+function el(doc, tag, cls) {
+    const node = doc.createElement(tag);
+    if (cls) node.className = cls;
+    return node;
+}
+
+function esc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function winOf(node) {
+    return (node && node.ownerDocument && node.ownerDocument.defaultView) || globalThis;
+}
+
+function reducedMotion(overlay) {
+    const win = winOf(overlay);
+    return typeof win.matchMedia === 'function' && win.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function ensureRoot(overlay) {
+    const found = overlay.querySelector('#igs-forum-reader');
+    if (found) return found;
+    const layer = overlay.querySelector('#igs-dialog-layer');
+    if (!layer) return null;
+    const root = el(overlay.ownerDocument, 'div');
+    root.id = 'igs-forum-reader';
+    root.innerHTML = '<div class="igs-fm-bar"></div><div class="igs-fm-scroll"><div class="igs-fm-list"></div></div>';
+    layer.insertBefore(root, layer.firstChild);
+    bindRoot(overlay, root);
+    return root;
+}
+
+function bindRoot(overlay, root) {
+    const s = stateOf(overlay);
+    root.addEventListener('click', (event) => {
+        const target = event.target && event.target.closest ? event.target : null;
+        if (!target) return;
+        const open = target.closest('.igs-fm-open');
+        if (open) {
+            event.stopPropagation();
+            const solo = open.closest('.igs-fm-solo');
+            if (solo && s.view && s.view.onReplay) s.view.onReplay(Number(solo.dataset.index));
+            return;
+        }
+        const nav = target.closest('.igs-fm-viewer-nav');
+        if (nav) {
+            event.stopPropagation();
+            stepShotViewer(nav.closest('.igs-fm-viewer'), Number(nav.dataset.step));
+            return;
+        }
+        const play = target.closest('.igs-fm-play');
+        if (play) {
+            event.stopPropagation();
+            const line = play.closest('[data-index]');
+            if (line && s.view && s.view.onPlay) s.view.onPlay([Number(line.dataset.index)]);
+            return;
+        }
+        const viewer = target.closest('.igs-fm-viewer');
+        if (viewer) { event.stopPropagation(); viewer.remove(); return; }
+        const fold = target.closest('.igs-fm-fold');
+        if (fold) {
+            event.stopPropagation();
+            fold.closest('.igs-fm-img').removeAttribute('data-folded');
+            return;
+        }
+        const thumb = target.closest('.igs-fm-thumb');
+        if (thumb) {
+            event.stopPropagation();
+            openViewer(overlay, root, thumb.getAttribute('src'));
+            return;
+        }
+        const shot = target.closest('.igs-fm-shot-thumb');
+        if (shot) {
+            event.stopPropagation();
+            const thumbs = Array.from(shot.parentNode.children);
+            openShotViewer(overlay, root, thumbs.map((t) => t.firstElementChild), thumbs.indexOf(shot));
+            return;
+        }
+        if (target.closest('.igs-fm-live')) {
+            event.stopPropagation();
+            if (s.view && s.view.onLiveRoom) s.view.onLiveRoom();
+            return;
+        }
+        if (!target.closest('.igs-fm-scroll')) return;
+        if (s.view && s.view.onTap) s.view.onTap();
+    });
+    const scroll = root.querySelector('.igs-fm-scroll');
+    let frame = 0;
+    scroll.addEventListener('scroll', () => {
+        if (frame) return;
+        frame = winOf(overlay).requestAnimationFrame(() => { frame = 0; reportSceneRow(overlay, scroll); });
+    }, { passive: true });
+}
+
+function openViewer(overlay, root, src) {
+    if (!src) return;
+    root.querySelector('.igs-fm-viewer')?.remove();
+    const doc = overlay.ownerDocument;
+    const box = el(doc, 'div', 'igs-fm-viewer');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', '附图大图');
+    const img = el(doc, 'img');
+    img.setAttribute('src', src);
+    img.setAttribute('alt', '');
+    img.draggable = false;
+    box.append(img);
+    root.append(box);
+}
+
+// 聊天截图大图：原尺寸显示 DOM 节点，多张用两侧按钮切换。
+function openShotViewer(overlay, root, nodes, start) {
+    if (!nodes.length) return;
+    root.querySelector('.igs-fm-viewer')?.remove();
+    const doc = overlay.ownerDocument;
+    const box = el(doc, 'div', 'igs-fm-viewer');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', '聊天截图大图');
+    const full = el(doc, 'div', 'igs-fm-shot-full');
+    box.append(full);
+    if (nodes.length > 1) {
+        for (const step of [-1, 1]) {
+            const btn = el(doc, 'button', `igs-fm-viewer-nav is-${step < 0 ? 'prev' : 'next'}`, step < 0 ? '‹' : '›');
+            btn.type = 'button';
+            btn.dataset.step = String(step);
+            btn.setAttribute('aria-label', step < 0 ? '上一张' : '下一张');
+            box.append(btn);
+        }
+    }
+    shotViewers.set(box, { nodes, at: -1 });
+    showShot(box, start);
+    root.append(box);
+}
+
+const shotViewers = new WeakMap();
+
+function showShot(box, index) {
+    const info = shotViewers.get(box);
+    const at = Math.max(0, Math.min(info.nodes.length - 1, index));
+    info.at = at;
+    const full = box.querySelector('.igs-fm-shot-full');
+    full.textContent = '';
+    full.append(info.nodes[at].cloneNode(true));
+    const prev = box.querySelector('.is-prev');
+    const next = box.querySelector('.is-next');
+    if (prev) prev.hidden = at === 0;
+    if (next) next.hidden = at === info.nodes.length - 1;
+}
+
+function stepShotViewer(box, step) {
+    const info = box && shotViewers.get(box);
+    if (info) showShot(box, info.at + step);
+}
+
+// 附图：A 岛式左侧缩略图，上方一行文件名；NSFW 按设置先折叠，点开再显示。
+function imageNode(doc, image, fold) {
+    const node = el(doc, 'div', 'igs-fm-img');
+    if (fold && image.nsfw) node.setAttribute('data-folded', '');
+    const file = el(doc, 'div', 'igs-fm-file');
+    file.textContent = image.file;
+    const btn = el(doc, 'button', 'igs-fm-fold');
+    btn.type = 'button';
+    btn.textContent = '图片已折叠（可能引起不适）· 点击展开';
+    const img = el(doc, 'img', 'igs-fm-thumb');
+    img.setAttribute('src', image.url);
+    img.setAttribute('alt', image.kind === 'cg' ? 'CG' : '场景图');
+    img.setAttribute('loading', 'lazy');
+    img.draggable = false;
+    node.append(file, btn, img);
+    return node;
+}
+
+function reportSceneRow(overlay, scroll) {
+    const s = stateOf(overlay);
+    if (!s.view || !s.view.onSceneRow) return;
+    if (Date.now() < Number(scroll.dataset.autoUntil || 0)) return;
+    const rows = scroll.querySelectorAll('[data-index]');
+    if (!rows.length) return;
+    let index = Number(rows[rows.length - 1].dataset.index);
+    if (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 4) {
+        const box = scroll.getBoundingClientRect();
+        const mid = box.top + box.height / 2;
+        index = Number(rows[0].dataset.index);
+        for (const row of rows) {
+            if (row.getBoundingClientRect().top > mid) break;
+            index = Number(row.dataset.index);
+        }
+    }
+    if (index !== s.sceneRow) { s.sceneRow = index; s.view.onSceneRow(index); }
+}
+
+function scrollEnd(root, smooth) {
+    const scroll = root.querySelector('.igs-fm-scroll');
+    if (!scroll) return;
+    scroll.dataset.autoUntil = String(Date.now() + (smooth ? 800 : 50));
+    if (smooth && typeof scroll.scrollTo === 'function') scroll.scrollTo({ top: scroll.scrollHeight, behavior: 'smooth' });
+    else scroll.scrollTop = scroll.scrollHeight;
+}
+
+function syncLiveButton(overlay, root, view) {
+    let btn = root.querySelector('.igs-fm-live');
+    const room = view.liveRoom;
+    if (!room) { if (btn) btn.remove(); return; }
+    if (!btn) {
+        btn = el(overlay.ownerDocument, 'button', 'igs-fm-live');
+        btn.type = 'button';
+        btn.innerHTML = LIVE_PHONE_SVG;
+        root.appendChild(btn);
+    }
+    const label = `进入直播间${room.name ? `：${room.name}` : ''}`;
+    if (btn.getAttribute('aria-label') !== label) { btn.setAttribute('aria-label', label); btn.title = label; }
+}
+
+function headHtml({ id, no, time, po }) {
+    const badge = po ? '<span class="igs-fm-pobadge">Po</span>' : '';
+    return `${badge}<span class="igs-fm-nm">无名氏</span><span class="igs-fm-id">${esc(id)}</span>${time ? `<span class="igs-fm-time">${esc(time)}</span>` : ''}<span class="igs-fm-mno">No.${esc(no)}</span>`;
+}
+
+function playButton(doc) {
+    const play = el(doc, 'button', 'igs-fm-play');
+    play.type = 'button';
+    play.title = '重听';
+    play.setAttribute('aria-label', '重听');
+    play.innerHTML = VOICE_ICON;
+    return play;
+}
+
+function cardNode(doc, card, live) {
+    const node = el(doc, 'div', 'igs-fm-card' + (live ? '' : ' is-in'));
+    const head = el(doc, 'b');
+    head.textContent = card.head;
+    const name = el(doc, 'em');
+    name.textContent = card.name;
+    node.append(head, name);
+    if (card.note) {
+        const note = el(doc, 'span');
+        note.textContent = card.note;
+        node.append(note);
+    }
+    return node;
+}
+
+// 一个 PO 主楼：楼头 + 正文；首楼前加帖子头（板块、标题）。
+function ensurePost(overlay, list, plan, postIndex, view, live, fades) {
+    const doc = overlay.ownerDocument;
+    let node = list.querySelector(`.igs-fm-post[data-post="${postIndex}"]`);
+    if (node) return node;
+    if (postIndex === 0 && !view.head && Array.isArray(view.chainTail)) {
+        for (const reply of view.chainTail) {
+            const tail = replyNode(doc, reply, view, live);
+            list.append(tail);
+            fades.push(tail);
+        }
+    }
+    if (postIndex === 0 && view.head) {
+        const head = el(doc, 'div', 'igs-fm-thread' + (live ? '' : ' is-in'));
+        const title = el(doc, 'h1');
+        title.textContent = view.head.title;
+        head.append(title);
+        list.append(head);
+        fades.push(head);
+    } else if (postIndex === 0 && view.retitle) {
+        const note = el(doc, 'div', 'igs-fm-retitle' + (live ? '' : ' is-in'));
+        note.textContent = `PO主修改了标题：${view.retitle}`;
+        list.append(note);
+        fades.push(note);
+    }
+    const post = plan[postIndex];
+    node = el(doc, 'div', 'igs-fm-post' + (live ? '' : ' is-in'));
+    node.dataset.post = String(postIndex);
+    const meta = el(doc, 'div', 'igs-fm-meta');
+    meta.innerHTML = headHtml({ id: post.id, no: post.no, time: post.time, po: true });
+    const body = el(doc, 'div', 'igs-fm-body');
+    node.append(meta, body);
+    list.append(node);
+    fades.push(node);
+    return node;
+}
+
+// 设置里停用的表情包（宿主把规范化后的 stickers 放在 view.settings.stickers 上）。
+// 论坛按所选套组出表情：AC娘（nga）是行内小图，跟在文字里；呆猫八条另起一行。
+function stickerOf(view, speaker = '') {
+    const opts = stickerOptsOf(view.settings && view.settings.stickers, { forum: true, speaker });
+    return { opts, inline: stickerView(opts.set, opts.overrides).inline };
+}
+
+// 回帖正文：标签原位换成行内图，文字其余部分转义。
+function inlineReplyHtml(text, optsFor) {
+    let out = '';
+    let last = 0;
+    let n = 0;
+    for (const m of text.matchAll(STICKER_TAG_G)) {
+        out += esc(text.slice(last, m.index));
+        out += stickerHtml(m[1], optsFor(n));
+        n += 1;
+        last = m.index + m[0].length;
+    }
+    return out + esc(text.slice(last));
+}
+
+function replyNode(doc, reply, view, live) {
+    const node = el(doc, 'div', 'igs-fm-reply' + (live ? '' : ' is-in'));
+    const meta = el(doc, 'div', 'igs-fm-meta');
+    meta.innerHTML = headHtml({ id: reply.id, no: reply.no, time: reply.time, po: reply.po === true });
+    const body = el(doc, 'div', 'igs-fm-body');
+    let html = '';
+    if (reply.quote) html += `<div class="igs-fm-gt">&gt;${esc(reply.quote)}</div>`;
+    if (reply.ref) html += `<div class="igs-fm-ref">&gt;&gt;No.${esc(reply.ref)}</div>`;
+    // 回帖是纯文字：文字特效 {抖:…} 只留内容。
+    const text = stripTextFxMarkup(String(reply.text));
+    const sticker = stickerOf(view);
+    const optsFor = (n) => ({ ...sticker.opts, seed: `${reply.id}#${reply.no}:${n}`, cls: 'igs-fm-sticker' });
+    if (sticker.inline) {
+        // AC娘：行内小图，跟在文字里，没有对应图的情绪直接不显示。
+        const inner = inlineReplyHtml(text, optsFor).trim();
+        if (inner) html += `<div>${inner}</div>`;
+    } else {
+        // 文字在上，表情另起一行、左对齐，连续多个并排（与楼主正文一致）。
+        const names = [...text.matchAll(STICKER_TAG_G)].map((m) => m[1]);
+        const plainText = text.replace(STICKER_TAG_G, '').trim();
+        if (plainText || !names.length) html += `<div>${esc(plainText)}</div>`;
+        const stickers = names.map((name, n) => stickerHtml(name, optsFor(n))).join('');
+        if (stickers) html += `<div class="igs-fm-stickers is-in">${stickers}</div>`;
+    }
+    body.innerHTML = html;
+    node.append(meta, body);
+    return node;
+}
+
+// 安价楼：楼主发的最后一层。选项纯文本整行可点，选中项加左竖线；底部一行是三个入口：直接选择（提示）、随机 roll、自由安价。选定后把结果追加（或替换上一次填入的那一行）到输入框。
+const ANKE_ROLL_STEPS = 10;
+const ANKE_ROLL_FIRST_MS = 55;
+const ANKE_ROLL_GROWTH = 1.15;
+// 骰子面：1–6 画点，超过 6 在面上写数字。
+const ANKE_PIPS = { 1: [[8, 8]], 2: [[5, 5], [11, 11]], 3: [[4.6, 4.6], [8, 8], [11.4, 11.4]], 4: [[5, 5], [11, 5], [5, 11], [11, 11]], 5: [[4.6, 4.6], [11.4, 4.6], [8, 8], [4.6, 11.4], [11.4, 11.4]], 6: [[5, 4.4], [11, 4.4], [5, 8], [11, 8], [5, 11.6], [11, 11.6]] };
+function ankeDiceSvg(v) {
+    const pips = ANKE_PIPS[v];
+    const face = pips ? pips.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.25"/>`).join('') : `<text x="8" y="11.2" text-anchor="middle">${v}</text>`;
+    return `<svg class="igs-fm-anke-die" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.2" y="1.2" width="13.6" height="13.6" rx="3"/>${face}</svg>`;
+}
+const ANKE_TICK_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><path pathLength="1" d="M2.6 8.6C4 9.8 5.2 11 6.3 12.5C8.3 8.9 10.5 5.9 13.6 3.2"/></svg>';
+
+function ankeNode(doc, anke, picked, live) {
+    const n = anke.options.length;
+    const node = el(doc, 'div', 'igs-fm-post igs-fm-anke' + (live ? '' : ' is-in'));
+    node.dataset.anke = JSON.stringify([anke.key, anke.question, anke.options]);
+    const meta = el(doc, 'div', 'igs-fm-meta');
+    meta.innerHTML = headHtml({ id: anke.id, no: anke.no, time: anke.time, po: true });
+    const body = el(doc, 'div', 'igs-fm-body');
+    const q = el(doc, 'div', 'igs-fm-anke-q');
+    const tag = el(doc, 'b', 'igs-fm-anke-tag');
+    tag.textContent = '安价';
+    q.append(tag, doc.createTextNode(anke.question));
+    body.append(q);
+    anke.options.forEach((text, i) => {
+        const row = el(doc, 'div', 'igs-fm-anke-opt' + (picked === i ? ' is-pick is-tick is-still' : ''));
+        row.dataset.pick = String(i);
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        const no = el(doc, 'span', 'igs-fm-anke-no');
+        no.textContent = `${i + 1}`;
+        const label = el(doc, 'span', 'igs-fm-anke-text');
+        label.textContent = text;
+        const tick = el(doc, 'span', 'igs-fm-anke-tick');
+        tick.innerHTML = ANKE_TICK_SVG;
+        no.append(tick);
+        row.append(no, label);
+        body.append(row);
+    });
+    const ops = el(doc, 'div', 'igs-fm-anke-ops');
+    const hint = el(doc, 'span', 'igs-fm-anke-hint');
+    hint.textContent = '直接选择↑';
+    const link = (cls, text) => { const b = el(doc, 'button', `igs-fm-anke-link ${cls}`); b.type = 'button'; b.textContent = text; return b; };
+    const dice = el(doc, 'span', 'igs-fm-anke-dice');
+    dice.hidden = true;
+    ops.append(hint, link('is-roll', '不，我要随机ROLL点！'), link('is-free', '自由安价'), dice);
+    body.append(ops);
+    node.append(meta, body);
+    return node;
+}
+
+function ankeRoll(n) {
+    const buf = new Uint32Array(1);
+    const cap = Math.floor(0x100000000 / n) * n;
+    do { globalThis.crypto.getRandomValues(buf); } while (buf[0] >= cap);
+    return (buf[0] % n) + 1;
+}
+
+function bindAnke(overlay, node, view) {
+    const s = stateOf(overlay);
+    const win = winOf(node);
+    const anke = view.anke;
+    const n = anke.options.length;
+    const opts = [...node.querySelectorAll('.igs-fm-anke-opt')];
+    const dice = node.querySelector('.igs-fm-anke-dice');
+    // 定下来才打勾：去掉旧勾、强制回流后重挂 is-tick，同一项再选也会重画一遍。
+    const mark = (i) => {
+        opts.forEach((o, j) => { o.classList.toggle('is-pick', j === i); o.classList.remove('is-tick', 'is-still'); });
+        void opts[i].offsetWidth;
+        opts[i].classList.add('is-tick');
+        s.ankePick = { key: anke.key, index: i };
+    };
+    const unmark = () => opts.forEach((o) => o.classList.remove('is-pick', 'is-tick', 'is-still'));
+    const setDice = (v, text) => { dice.hidden = !text; const html = text ? ankeDiceSvg(v) + `<span>${esc(text)}</span>` : ''; if (dice.innerHTML !== html) dice.innerHTML = html; };
+    const stop = () => { if (s.ankeTimer) { win.clearTimeout(s.ankeTimer); s.ankeTimer = 0; } };
+    const fill = (text) => {
+        const prev = s.ankeLine && s.ankeLine[anke.key] || '';
+        const cb = (s.view || view).onAnke;
+        if (!cb) return;
+        Promise.resolve(cb(text, prev)).then((r) => { if (!r || r.ok !== false) { s.ankeLine = { ...s.ankeLine, [anke.key]: text }; } }).catch(() => {});
+    };
+    const line = (i, suffix = '') => `【安价】${i + 1}：${anke.options[i]}${suffix}`;
+    node.addEventListener('keydown', (event) => {
+        const row = event.target.closest && event.target.closest('.igs-fm-anke-opt');
+        if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.stopPropagation(); row.click(); }
+    });
+    node.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const t = event.target.closest ? event.target : null;
+        if (!t) return;
+        const row = t.closest('.igs-fm-anke-opt');
+        if (row) { stop(); setDice(0, ''); const i = Number(row.dataset.pick); mark(i); fill(line(i)); return; }
+        if (t.closest('.is-free')) { stop(); setDice(0, ''); unmark(); s.ankePick = null; fill('【安价】'); return; }
+        if (t.closest('.is-roll')) {
+            if (s.ankeTimer) return;
+            const result = ankeRoll(n);
+            const done = () => { s.ankeTimer = 0; mark(result - 1); setDice(result, `1D${n} = ${result}`); fill(line(result - 1, `（🎲1D${n}=${result}）`)); };
+            if (reducedMotion(overlay)) { done(); return; }
+            let step = 0;
+            const tick = () => {
+                if (step >= ANKE_ROLL_STEPS - 1) { done(); return; }
+                const at = (((result - 1 - (ANKE_ROLL_STEPS - 1 - step)) % n) + n) % n;
+                opts.forEach((o, j) => { o.classList.toggle('is-pick', j === at); o.classList.remove('is-tick', 'is-still'); });
+                setDice(at + 1, `1D${n} → ${at + 1}`);
+                s.ankeTimer = win.setTimeout(tick, ANKE_ROLL_FIRST_MS * ANKE_ROLL_GROWTH ** step);
+                step += 1;
+            };
+            tick();
+        }
+    });
+}
+
+// 全部行到齐后把安价楼接在列表最末；列表重建时按记下的选择恢复高亮。
+function syncAnke(overlay, list, view, revealing) {
+    const s = stateOf(overlay);
+    const existing = list.querySelector('.igs-fm-anke');
+    const anke = view.anke;
+    if (!anke) { if (existing) existing.remove(); return; }
+    if (existing) {
+        if (existing.dataset.anke === JSON.stringify([anke.key, anke.question, anke.options])) return;
+        existing.remove();
+    }
+    if (view.upto < view.rows.length - 1) return;
+    const picked = s.ankePick && s.ankePick.key === anke.key ? s.ankePick.index : -1;
+    const node = ankeNode(overlay.ownerDocument, anke, picked, Boolean(revealing));
+    list.append(node);
+    bindAnke(overlay, node, view);
+    if (revealing) {
+        const show = () => node.classList.add('is-in');
+        revealing.then(show, show);
+    }
+}
+
+// 建一行，挂进它所在的楼；该楼最后一行到齐后再接点缀回帖。
+function buildRow(overlay, list, i, view, live) {
+    const doc = overlay.ownerDocument;
+    const row = view.rows[i];
+    const fades = [];
+    if (row.hidden) return { fades, text: null };
+    const postIndex = view.plan.findIndex((p) => i >= p.start && i <= p.end);
+    if (postIndex < 0) return { fades, text: null };
+    const post = ensurePost(overlay, list, view.plan, postIndex, view, live, fades);
+    const body = post.querySelector('.igs-fm-body');
+    if (row.scene) {
+        const scene = el(doc, 'div', 'igs-fm-scene');
+        scene.dataset.index = String(row.index);
+        scene.textContent = row.scene;
+        body.append(scene);
+    }
+    const image = view.images && view.images.get(row.index);
+    if (image) body.append(imageNode(doc, image, view.settings.foldNsfw));
+    if (row.solo) {
+        const shot = view.shotOf ? view.shotOf(row) : null;
+        const node = el(doc, 'div', shot ? 'igs-fm-solo igs-fm-shots' : 'igs-fm-solo');
+        node.dataset.index = String(row.index);
+        if (shot) {
+            if (shot.groups.length > 1) node.dataset.multi = '';
+            for (const shotNode of buildChatShots(doc, shot)) {
+                const thumb = el(doc, 'div', 'igs-fm-shot-thumb');
+                thumb.append(shotNode);
+                node.append(thumb);
+            }
+        } else {
+            const btn = el(doc, 'button', 'igs-fm-open');
+            btn.type = 'button';
+            btn.textContent = '▶ 查看卡片';
+            node.append(btn);
+        }
+        body.append(node);
+        return { fades, text: null, post, postIndex };
+    }
+    const html = view.htmlOf ? view.htmlOf(row) : esc(row.text);
+    const line = el(doc, 'p', `igs-fm-line${row.kind === 'thought' ? ' is-thought' : ''}${row.kind === 'narr' ? ' is-narr' : ''}${row.kind === 'dialogue' || row.kind === 'thought' ? ' is-say' : ''}${(row.kind === 'dialogue' || row.kind === 'thought') && row.cont ? ' is-cont' : ''}`);
+    line.dataset.index = String(row.index);
+    let inner = html;
+    if (row.kind === 'dialogue') {
+        const [open, close] = FORUM_QUOTE_MARKS[view.settings.quote] || ['', ''];
+        inner = `<span class="igs-fm-who">${esc(row.who)}${row.moodTag ? `<span class="igs-fm-mood">（${esc(row.moodTag)}）</span>` : ''}：</span>${open}${html}${close}`;
+    }
+    else if (row.kind === 'thought') inner = `<span class="igs-fm-who">${esc(row.who)}</span>（${html}）`;
+    else if (row.label) inner = `<span class="igs-fm-who">${esc(row.label)}：</span>${html}`;
+    // 楼主正文里的表情包：AC娘跟在这一句末尾（行内小图），呆猫八条独占一行、左对齐，跟在这一句后面淡入。
+    const sticker = stickerOf(view, row.who || row.speaker);
+    const stickers = (Array.isArray(row.stickers) ? row.stickers : [])
+        .map((st, n) => stickerHtml(st.id || st.name, { ...sticker.opts, seed: `${row.who || row.speaker}#${view.floorKey}:${row.index}:${n}`, cls: `igs-fm-sticker${sticker.inline ? '' : ' is-po'}` })).join('');
+    if (stickers && sticker.inline) inner += stickers;
+    line.dataset.html = inner;
+    if (!live) line.innerHTML = inner;
+    if (view.canSpeak && view.canSpeak(row) && row.kind !== 'narr') line.append(playButton(doc));
+    body.append(line);
+    if (stickers && !sticker.inline) {
+        const strip = el(doc, 'div', 'igs-fm-stickers' + (live ? '' : ' is-in'));
+        strip.innerHTML = stickers;
+        body.append(strip);
+        fades.push(strip);
+    }
+    for (const card of (view.cardsOf ? view.cardsOf(row) : []) || []) body.append(cardNode(doc, card, !live));
+    return { fades, text: line, post, postIndex, row };
+}
+
+function appendReplies(overlay, list, postIndex, view, live) {
+    const plan = view.plan[postIndex];
+    const post = list.querySelector(`.igs-fm-post[data-post="${postIndex}"]`);
+    if (!plan || !post || post.dataset.replies === '1') return [];
+    post.dataset.replies = '1';
+    const out = [];
+    let anchor = post;
+    for (const reply of plan.replies) {
+        const node = replyNode(overlay.ownerDocument, reply, view, live);
+        anchor.after(node);
+        anchor = node;
+        out.push(node);
+    }
+    return out;
+}
+
+function reveal(overlay, built, view) {
+    const s = stateOf(overlay);
+    const win = winOf(overlay);
+    const doc = overlay.ownerDocument;
+    const fade = () => { for (const n of built.fades) n.classList.add('is-in'); };
+    const line = built.text;
+    const html = line ? line.dataset.html || '' : '';
+    const k = LOG_SPEEDS[view.settings.speed] || 1;
+    const calm = reducedMotion(overlay);
+    const mode = calm ? 'off' : view.settings.reveal;
+    const setHtml = () => {
+        const play = line.querySelector('.igs-fm-play');
+        line.innerHTML = html;
+        if (play) line.append(play);
+    };
+    // 文字先同步写进去，随后的滚到底才量得到这一句的高度；否则滚到空行处，文字补上后落在屏幕外。
+    if (line) setHtml();
+    // 直接显示：整句、新楼、回帖当场出现，不走淡入过渡。
+    if (mode === 'off') {
+        for (const n of built.fades) { n.style.transition = 'none'; n.classList.add('is-in'); }
+        return Promise.resolve();
+    }
+    // 打字机 / 流水展开：逐字出现；整句淡入：整行淡入。
+    let total = FADE_MS * k;
+    if (line && (mode === 'type' || mode === 'flow')) {
+        total = mode === 'type'
+            ? splitChars(doc, line, (ch) => (PAUSE_CHARS.test(ch) ? TYPE_PAUSE_MS : TYPE_STEP_MS) * k, 'igs-fm-fl')
+            : splitChars(doc, line, () => FLOW_STEP_MS * k, 'igs-fm-fl') + FLOW_FADE_MS;
+        if (mode === 'type') for (const span of line.querySelectorAll('.igs-fm-fl')) span.style.animationDuration = '1ms';
+    }
+    return new Promise((resolve) => {
+        let done = false;
+        let timer = null;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            if (s.reveal === job) s.reveal = null;
+            win.clearTimeout(timer);
+            if (line) { line.classList.remove('igs-fm-fade'); setHtml(); }
+            fade();
+            resolve();
+        };
+        const job = { finish };
+        s.reveal = job;
+        if (mode === 'type' || mode === 'flow') {
+            fade();
+        } else if (mode === 'fade') {
+            if (line) line.classList.add('igs-fm-fade');
+            win.requestAnimationFrame(() => { if (!done) fade(); });
+        }
+        timer = win.setTimeout(finish, total);
+    });
+}
+
+// 新角色代号小卡片：贴在列表上方，一个角色一行，输入代号后确定，或沿用自动代号。
+function syncAliasCard(overlay, root, view) {
+    const doc = overlay.ownerDocument;
+    const items = Array.isArray(view.pendingAlias) ? view.pendingAlias : [];
+    let card = root.querySelector('.igs-fm-alias');
+    const sig = JSON.stringify(items);
+    if (!items.length) { if (card) card.remove(); return; }
+    if (card && card.dataset.sig === sig) return;
+    if (!card) { card = el(doc, 'div', 'igs-fm-alias'); root.append(card); }
+    card.dataset.sig = sig;
+    card.textContent = '';
+    for (const item of items.slice(0, 3)) {
+        const row = el(doc, 'div', 'igs-fm-alias-row');
+        const label = el(doc, 'span', 'igs-fm-alias-name');
+        label.textContent = `${item.label} 首次出场，登记代号`;
+        const input = el(doc, 'input', 'igs-fm-alias-input');
+        input.type = 'text';
+        input.maxLength = 24;
+        input.value = item.code;
+        const ok = el(doc, 'button', 'igs-fm-alias-ok');
+        ok.type = 'button';
+        ok.textContent = '确定';
+        const submit = () => { const latest = stateOf(overlay).view; if (latest && latest.onAlias) latest.onAlias(item.key, input.value); };
+        ok.addEventListener('click', (event) => { event.stopPropagation(); submit(); });
+        input.addEventListener('keydown', (event) => { event.stopPropagation(); if (event.key === 'Enter') submit(); });
+        input.addEventListener('click', (event) => event.stopPropagation());
+        row.append(label, input, ok);
+        card.append(row);
+    }
+}
+
+// 入口坞（通知铃铛等）在论坛模式下横排进顶栏：顶栏文字从坞的右缘之后开始。坞的入口增减时跟着重量。
+const dockWatch = new WeakMap();
+function syncDockGap(overlay, root) {
+    const dock = overlay.querySelector('.igs-entry-dock');
+    const measure = () => {
+        const box = root.getBoundingClientRect();
+        const r = dock && dock.isConnected ? dock.getBoundingClientRect() : null;
+        const gap = r && r.width > 0 ? `${Math.ceil(r.right - box.left + 8)}px` : '';
+        if (gap) { if (root.style.getPropertyValue('--igs-fm-dock') !== gap) root.style.setProperty('--igs-fm-dock', gap); }
+        else root.style.removeProperty('--igs-fm-dock');
+    };
+    measure();
+    const win = winOf(overlay);
+    const prev = dockWatch.get(root);
+    if (prev && prev.dock === dock) return;
+    if (prev) prev.observer.disconnect();
+    if (!dock || typeof win.ResizeObserver !== 'function') { dockWatch.delete(root); return; }
+    const observer = new win.ResizeObserver(measure);
+    observer.observe(dock);
+    dockWatch.set(root, { dock, observer });
+}
+
+function applyAttrs(overlay, root, view) {
+    const set = (name, value, node = root) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
+    const st = view.settings;
+    overlay.removeAttribute('data-igs-log-skin');
+    if (view.hidden) set('data-hidden', ''); else root.removeAttribute('data-hidden');
+    root.style.setProperty('--igs-fm-fs', `${st.fontSize}px`);
+    root.style.setProperty('--igs-fm-lh', String(st.lineHeight / 100));
+    root.style.setProperty('--igs-fm-gap', `${st.paraGap}px`);
+    root.style.setProperty('--igs-fm-edge', `${FORUM_EDGE_PX[st.edge] || 12}px`);
+    if (st.sayInk === 'name') set('data-say-ink', 'name'); else root.removeAttribute('data-say-ink');
+    if (st.narrIndent) set('data-indent', ''); else root.removeAttribute('data-indent');
+    const systemDark = overlay.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches === true;
+    const colors = forumPaletteColors(st.palette, st.mode, systemDark);
+    // AC娘是黑线条透明图：深色下垫一小块实色浅底（圆角、紧贴图片），浅色下直接叠在配色底上不加底。
+    const acDark = st.mode === 'dark' || (st.mode === 'auto' && systemDark);
+    root.style.setProperty('--igs-fm-ac-bg', acDark ? '#e8e4da' : 'none');
+    root.style.setProperty('--igs-fm-ac-pad', acDark ? '2px' : '0px');
+    for (const key of FORUM_PALETTE_KEYS) root.style.setProperty('--igs-fm-' + key, colors[key]);
+    overlay.style.setProperty('--igs-fm-main-ink', colors.main);
+    overlay.style.setProperty('--igs-fm-card-ink', colors.card);
+    // 全屏输入框与发送键复用纵向模式的 --igs-log-* 变量，这里换成论坛配色。
+    const cardRgb = /^#([0-9a-f]{6})$/i.exec(colors.card);
+    if (cardRgb) overlay.style.setProperty('--igs-log-veil', [0, 2, 4].map((i) => parseInt(cardRgb[1].slice(i, i + 2), 16)).join(' '));
+    overlay.style.setProperty('--igs-log-plate', colors.card2);
+    overlay.style.setProperty('--igs-log-ink', colors.body);
+    overlay.style.setProperty('--igs-log-sub', colors.sub);
+    overlay.style.setProperty('--igs-log-line', colors.line);
+    overlay.style.setProperty('--igs-log-acc', colors.main);
+    const fonts = view.fonts || {};
+    if (fonts.text) root.style.setProperty('--igs-fm-font', fonts.text); else root.style.removeProperty('--igs-fm-font');
+    const bar = root.querySelector('.igs-fm-bar');
+    const barKey = `${view.threadNo || ''}|${view.board || ''}`;
+    if (bar && bar.dataset.key !== barKey) {
+        bar.dataset.key = barKey;
+        bar.innerHTML = (view.threadNo ? `<div class="igs-fm-bar-no">No.${esc(view.threadNo)}</div>` : '') + `<div class="igs-fm-bar-board">${esc(view.board || '')}</div>`;
+    }
+    syncDockGap(overlay, root);
+    const dialog = overlay.querySelector('#igs-dialog');
+    const foot = dialog && dialog.offsetHeight > 0 ? `${dialog.offsetHeight}px` : '';
+    if (foot) { root.style.setProperty('--igs-log-foot', foot); overlay.style.setProperty('--igs-log-foot', foot); }
+}
+
+// 论坛纸面不透明，盖住时舞台整体暂停；双击隐藏或选项弹出时纸面透明，要放开舞台。
+export function syncForumStagePause(overlay) {
+    if (!overlay || typeof overlay.getAttribute !== 'function') return;
+    const root = overlay.querySelector('#igs-forum-reader');
+    const covering = overlay.getAttribute('data-igs-forum-reader') === 'on'
+        && !(root && root.hasAttribute('data-hidden'))
+        && !overlay.classList.contains('igs-options-visible');
+    setStagePauseReason(overlay, 'forum-reader', covering);
+}
+
+// view：{ floorKey, rows（已改写代号）, plan（forumPlan 结果）, head（{ title } 或 null）, board, upto（含）, live, settings, fonts, hidden,
+//   htmlOf, canSpeak, cardsOf, onTap, onPlay, onReplay, onSceneRow, liveRoom, onLiveRoom, sig（改变即重建） }
+// 返回 { revealing }：live 行出现完成时 resolve。
+export function syncForumReader(overlay, view) {
+    if (!overlay) return { revealing: null };
+    if (!view) {
+        overlay.removeAttribute('data-igs-forum-reader');
+        overlay.removeAttribute('data-igs-log-reader');
+        overlay.style.removeProperty('--igs-fm-main-ink');
+        overlay.style.removeProperty('--igs-fm-card-ink');
+        for (const k of ['veil', 'plate', 'ink', 'sub', 'line', 'acc']) overlay.style.removeProperty('--igs-log-' + k);
+        const root = overlay.querySelector('#igs-forum-reader');
+        const watch = root && dockWatch.get(root);
+        if (watch) { watch.observer.disconnect(); dockWatch.delete(root); }
+        syncForumStagePause(overlay);
+        return { revealing: null };
+    }
+    const root = ensureRoot(overlay);
+    if (!root) return { revealing: null };
+    installStickerFallback(overlay.ownerDocument);
+    // 立绘隐藏、对话框收起、输入框换皮、页码进度条这些共用规则认纵向的开关属性：论坛同时挂上。调用方先收起未启用的那一个、再同步启用的。
+    if (overlay.getAttribute('data-igs-forum-reader') !== 'on') overlay.setAttribute('data-igs-forum-reader', 'on');
+    if (overlay.getAttribute('data-igs-log-reader') !== 'on') overlay.setAttribute('data-igs-log-reader', 'on');
+    const s = stateOf(overlay);
+    s.view = view;
+    applyAttrs(overlay, root, view);
+    syncForumStagePause(overlay);
+    syncLiveButton(overlay, root, view);
+    syncAliasCard(overlay, root, view);
+    const list = root.querySelector('.igs-fm-list');
+    const sig = JSON.stringify([view.floorKey, view.sig || '']);
+    const scrollBox = root.querySelector('.igs-fm-scroll');
+    let keepTop = -1;
+    if (sig !== s.sig || view.upto + 1 < s.rendered) {
+        if (s.reveal) s.reveal.finish();
+        if (s.rendered > 0 && s.floorKey === view.floorKey && scrollBox) keepTop = scrollBox.scrollTop;
+        s.floorKey = view.floorKey;
+        list.textContent = '';
+        s.rendered = 0;
+        s.sceneRow = -1;
+        s.sig = sig;
+    }
+    let revealing = null;
+    const before = s.rendered;
+    const showAll = Number(view.settings && view.settings.perTap) >= 1e6;
+    for (let i = s.rendered; i <= view.upto && i < view.rows.length; i++) {
+        const live = !showAll && i === view.live;
+        const built = buildRow(overlay, list, i, view, live);
+        const last = built.postIndex != null && i === view.plan[built.postIndex].end;
+        const extra = last ? appendReplies(overlay, list, built.postIndex, view, live) : [];
+        if (live && extra.length) built.fades.push(...extra);
+        if (live && built.post) revealing = reveal(overlay, built, view);
+        s.rendered = i + 1;
+    }
+    syncAnke(overlay, list, view, revealing);
+    if (s.rendered !== before) {
+        const fullText = before === 0 && showAll;
+        const scroll = fullText ? scrollBox : null;
+        if (keepTop >= 0) {
+            scrollBox.dataset.autoUntil = String(Date.now() + 50);
+            scrollBox.scrollTop = keepTop;
+        } else if (scroll) {
+            scroll.dataset.autoUntil = String(Date.now() + 50);
+            scroll.scrollTop = 0;
+        } else scrollEnd(root, Boolean(revealing));
+    }
+    return { revealing };
+}
+
+export function finishForumReveal(overlay) {
+    const s = overlay ? states.get(overlay) : null;
+    if (!s || !s.reveal) return false;
+    s.reveal.finish();
+    return true;
+}

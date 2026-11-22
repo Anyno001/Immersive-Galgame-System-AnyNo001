@@ -200,7 +200,7 @@ const WORLD_ATTR = 'data-igs-ts-world';
 // 主界面调性：先看对话框风格，没有专属调性再看世界观；DLC 皮肤按所借的内置皮肤算。
 const SKIN_TONES = Object.freeze({
     'scifi-holo': 'tech', 'wasteland-rust': 'tech',
-    'plant-coffee': 'soft', 'warm-picturebook': 'soft', 'fairy-tale': 'soft', 'cute-pink': 'soft', 'day-minimal': 'soft',
+    'plant-coffee': 'soft', 'warm-picturebook': 'soft', 'fairy-tale': 'soft', 'cute-pink': 'soft', 'yume-kawaii': 'soft', 'day-minimal': 'soft',
     'qinglv-shanshui': 'ink', 'xianxia-ink': 'ink', 'wuxia-ink': 'ink', 'retro-japanese': 'classic',
     'western-classic': 'mystic', 'elegant-european': 'mystic', 'magic-academy': 'mystic', 'mermaid-deep': 'mystic', 'adventure-journey': 'mystic',
     'horror-gore': 'dark', 'horror-monitor': MONITOR_TITLE_SCREEN_TONE, 'horror-ward': WARD_TITLE_SCREEN_TONE, 'horror-psych': 'dark',

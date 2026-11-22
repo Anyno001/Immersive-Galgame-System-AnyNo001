@@ -1,6 +1,12 @@
-export function appendInputDraft(existing, text) {
+export function appendInputDraft(existing, text, replace = '') {
     const current = String(existing ?? ''), command = String(text ?? '');
     if (!current) return command;
+    // replace：草稿里还留着上一次填入的那一行（整行精确匹配）时原地替换，找不到再追加。
+    if (replace) {
+        const lines = current.split('\n');
+        const at = lines.indexOf(String(replace));
+        if (at >= 0) { lines[at] = command; return lines.join('\n'); }
+    }
     if (current === command || current.endsWith(`\n${command}`)) return current;
     return `${current}${current.endsWith('\n') ? '' : '\n'}${command}`;
 }

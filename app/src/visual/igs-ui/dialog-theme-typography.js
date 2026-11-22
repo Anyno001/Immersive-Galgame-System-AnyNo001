@@ -16,6 +16,7 @@ export const DIALOG_FONT_HUIWEN = '"Huiwen Mincho","Source Han Serif CN",serif';
 export const DIALOG_FONT_YUYANG = '"Tsanger YuYang","LXGW WenKai",serif';
 export const DIALOG_FONT_SMILEY = '"Smiley Sans","Source Han Sans CN","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_ZCOOL_KUAILE = '"ZCOOL KuaiLe","Microsoft YaHei",sans-serif';
+export const DIALOG_FONT_MAOKEN_ZHUYUAN = '"MaokenZhuyuanTi","ChillRoundF","Microsoft YaHei",sans-serif';
 export const DIALOG_FONT_YOZAI = '"Yozai","LXGW WenKai",serif';
 export const DIALOG_FONT_CINZEL = '"Cinzel","LXGW Neo ZhiSong","Source Han Serif CN",serif';
 export const DIALOG_FONT_CORMORANT = '"Cormorant Garamond","LXGW Neo ZhiSong","Source Han Serif CN",serif';
@@ -240,6 +241,18 @@ const REFERENCE_DIALOG_TYPOGRAPHY = Object.freeze({
         textColor: '#ece3cf',
         thoughtColor: '#e3ae2f',
         narrationColor: '#b9ad94',
+    }),
+    // 可盐可甜：姓名用猫啃珠圆体，雾蓝；正文、心里话、旁白都用寒蝉全圆体，心里话转冰蓝、旁白压成灰蓝。
+    'yume-kawaii': Object.freeze({
+        nameAlign: 'center',
+        nameFont: DIALOG_FONT_MAOKEN_ZHUYUAN,
+        textFont: DIALOG_FONT_CHILL_ROUND,
+        thoughtFont: DIALOG_FONT_CHILL_ROUND,
+        narrationFont: DIALOG_FONT_CHILL_ROUND,
+        nameColor: '#6f88ad',
+        textColor: '#4e6489',
+        thoughtColor: '#6f88ad',
+        narrationColor: '#647a9c',
     }),
 });
 

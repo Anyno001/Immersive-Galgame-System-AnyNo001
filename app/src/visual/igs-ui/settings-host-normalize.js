@@ -318,6 +318,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
         btnOrder: TOOLBAR_ACTIONS.map(([id]) => id),
         toolbarSplit: 'split',
         toolbarPlate: 'off',
+        toolbarColor: '',
+        dialogBarColor: '',
         dialogBarAlign: 'auto',
         dialogBarBtns: normalizeDialogBarButtons(null),
         spriteLayouts: {},
@@ -400,6 +402,8 @@ export function normalizeReaderSettings(settings, legacyTheme) {
     normalized.btnOrder = normalizeBtnOrder(normalized.btnOrder);
     normalized.toolbarSplit = normalizeToolbarSplit(normalized.toolbarSplit);
     normalized.toolbarPlate = normalizeToolbarPlate(normalized.toolbarPlate);
+    normalized.toolbarColor = /^#[0-9a-fA-F]{6}$/.test(normalized.toolbarColor) ? normalized.toolbarColor.toLowerCase() : '';
+    normalized.dialogBarColor = /^#[0-9a-fA-F]{6}$/.test(normalized.dialogBarColor) ? normalized.dialogBarColor.toLowerCase() : '';
     normalized.dialogBarAlign = normalizeDialogBarAlign(normalized.dialogBarAlign);
     normalized.dialogBarBtns = normalizeDialogBarButtons(normalized.dialogBarBtns);
     normalized.spriteLayouts = normalizeSpriteLayouts(normalized.spriteLayouts);

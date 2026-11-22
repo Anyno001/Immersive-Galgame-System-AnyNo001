@@ -15,6 +15,8 @@ import { stripBilingualTranslation } from './bilingual-text.js';
 import { isSystemRole } from './system-role.js';
 import { characterDnaText, detectVoiceGender } from './voice-bark.js';
 import { prepareEventCgPages } from '../../scene/event-cg.js';
+import { stickerTagsOf } from '../../scene/directive-tags.js';
+import { matchSticker } from '../../stickers/sticker-catalog.js';
 import { normalizeItemName } from '../../data/shujuku/item-catalog.js';
 
 export function stripSegmentSpeaker(text) {
@@ -106,6 +108,34 @@ const MOOD_SUBJECT_TAIL = '(?:微微|轻轻|忍不住|不禁|顿时|立刻|突�
 
 const normalizeFingerprint = (s) => stripBilingualTranslation(s)
     .replace(/\*（[^）]*）\*/g, '').replace(/[\[\]\*（）]/g, '').replace(/\s+/g, '').trim();
+
+// 表情包归属（在标签被剥离之前，按原文位置提取）：标签落在哪页之后就算哪页的说话人发的；
+// 单独成行时往前找最近的说话页；落在心里话或前面没有说话人的，丢弃；情绪或描述对不上图的，渲染时静默丢弃。
+// 结果挂在 page.stickers = [{ id, name, at, by? }]，聊天与论坛只读这个字段；带 by 的是只有表情的台词。at 目前恒为 'end'（标签统一显示在该句之后）。
+export function attachStickers(pages, offsets, source) {
+    for (const tag of stickerTagsOf(source)) {
+        // 标签内容可以是情绪名，也可以是画面描述：这里只认得出内置情绪就记下 id，其余原样留着，渲染时按套组与用户修改再匹配（对不上就不显示）。
+        const given = String(tag.name || '').trim();
+        const hit = matchSticker(given);
+        if (!given || !pages.length) continue;
+        let at = -1;
+        for (let k = 0; k < pages.length; k++) if (offsets[k] >= 0 && offsets[k] <= tag.offset) at = k;
+        let i = at;
+        while (i >= 0 && !(pages[i].bubbleSpeaker && (pages[i].textType === 'dialogue' || pages[i].textType === 'thought'))) i--;
+        const entry = { id: hit ? hit.id : '', name: hit ? hit.name : given, at: 'end' };
+        if (tag.speaker) {
+            // 只有表情没有文字的台词：紧邻的说话页就是这个人，算他的；否则标上 by，由线上聊天另开一组，只放图片气泡（普通 VN 与论坛不读 by）。
+            if (i >= 0 && pages[i].textType === 'dialogue' && pages[i].bubbleSpeaker === tag.speaker) (pages[i].stickers || (pages[i].stickers = [])).push(entry);
+            else {
+                const host = pages[Math.max(0, at)];
+                (host.stickers || (host.stickers = [])).push({ ...entry, by: tag.speaker });
+            }
+            continue;
+        }
+        if (i < 0 || pages[i].textType !== 'dialogue') continue;
+        (pages[i].stickers || (pages[i].stickers = [])).push(entry);
+    }
+}
 
 // 只准备可复用的正文数据和资源身份；不在这里读取或永久保存 blob URL。
 export function prepareReaderFloor({ text, segments, extracted, payload, scene, readerSettings, userName = '' }) {
@@ -524,6 +554,7 @@ export function prepareReaderFloor({ text, segments, extracted, payload, scene, 
             narrationDropped, narrationDroppedKey, spriteLeft, currentOffset: offsets[normalizedIndex], sceneStateForBg,
             sceneDread: (lastBefore(dread, offsets[normalizedIndex] < 0 ? source.length : offsets[normalizedIndex], false)?.value) ?? payload.inheritedDread ?? null });
     }
+    attachStickers(pages, offsets, source);
     const flags = sceneStates.map(s => Boolean(s && s.nsfw));
     for (let start = 0; start < pages.length;) {
         if (!flags[start]) { start++; continue; }

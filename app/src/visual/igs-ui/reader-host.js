@@ -98,7 +98,7 @@ import { SETTINGS_CATEGORIES, categoryOfPage, currentSettingsPage, openSettingsP
 import { normalizeSettingsTheme } from './settings-theme.js';
 import { DEFAULT_IMAGE_API, DIALOG_FONT_OPTIONS, DEFAULT_PINNED_TOOLBAR_BUTTONS, DEFAULT_SCENE_PROMPT_RULE, normalizeScenePromptRule, PROMPT_RULE_OUTFIT_HINT, scenePromptRuleOutfitHint, READER_SETTINGS_SCHEMA_VERSION, SETTINGS_PANEL_REQUIRED_SELECTORS, SETTINGS_PANEL_TAB_CONTRACT, TOOLBAR_ACTIONS, VN_THEME_PRESETS } from './reader-host-constants.js';
 import { eventToShortcut, findShortcutAction, resolveShortcuts } from './reader-shortcuts.js';
-import { isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
+import { isDockReaderMode, isEmbeddedReaderMode } from '../../schemas/reader-mode.js';
 import { buildWaitStageModel, createWaitStageRuntime } from './wait-stage-runtime.js';
 import { getWaitStageGamePack, subscribeWaitStageGamePack } from './wait-stage-games-api.js';
 import { onDlcSkinsChange } from './dlc-skin-registry.js';
@@ -165,6 +165,18 @@ import { createLogHtml, logCardsOf, logFontsOf, logRenderSnapshot, logSettingsOf
 import { dialogTextEffectCss } from './dialog-text-effect.js';
 import { manualNameColor } from './character-name-color.js';
 import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './log-reader-layer.js';
+import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from './chat-reader-layer.js';
+import { chatSettingsOf, isChatCont } from './chat-reader-model.js';
+import { normalizeChatReaderSettings } from './chat-reader-settings.js';
+import { finishForumReveal, syncForumReader, syncForumStagePause } from './forum-reader-layer.js';
+import { normalizeStickerSettings } from '../../stickers/sticker-settings.js';
+import { personaOfTraits } from '../../stickers/sticker-persona.js';
+import { shotGroupsOf } from './forum-reader-chat-shot.js';
+import { storyClock } from './phone-sense.js';
+import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumNamePairs, replaceNames, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumAnkeOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { createForumRegistry } from './forum-reader-registry.js';
+import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
@@ -309,6 +321,8 @@ export function createIgsReaderHost(options = {}) {
     let turnIndexPanel = null;
     // 最近一次列出的楼（含隐藏楼）：回想里查某楼是否隐藏、往前追溯继承的 NSFW 场景用。
     let lastTurnList = [];
+    // 各楼末尾回帖（楼层计划算出来的）；下一楼开头要接，按聊天 + 楼号 + 正文长度 + 回帖设置存。
+    const forumTails = new Map();
     let generationStripRemount = false;
     // 对话框顶边的生成细线：手动 / 自动出图共用，代替原来常驻的「生图中」提示。
     const generationStrip = createGenerationStrip({
@@ -691,13 +705,18 @@ export function createIgsReaderHost(options = {}) {
         ? options.onImageActivity((event) => generationStrip.activity(event))
         : () => {};
 
+    const forumRegistry = createForumRegistry({
+        getContext: () => getSillyTavernContext(options.global || globalThis),
+        getChatId: currentChatIdText,
+    });
+
     const {
         settingsInteracting, openSettings, syncSettingsStagePause, rerenderSettings, closeSettings,
         persistSettingsDraft, reportSettingsFailure, renderImageJobLogList, withCharacterDnaDraftSync,
     } = createSettingsHost({
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
-        state, openLive2dManager,
+        state, openLive2dManager, forumRegistry,
         invalidateFloorAssetPlan() { floorAssetPlan.key = ''; },
         takeReaderStaleBehindSettings() {
             const stale = readerStaleBehindSettings;
@@ -904,7 +923,7 @@ export function createIgsReaderHost(options = {}) {
                 return {
                     closed: state.activeReader !== current,
                     page: `${current.snapshot.messageId}:${current.index}:${chat?.revealed || 0}`,
-                    blocked: current.hidden || current.streamPhase !== 'idle' || current.spriteEditMode || isLogEditing(overlay)
+                    blocked: current.hidden || current.streamPhase !== 'idle' || current.spriteEditMode || isLogEditing(overlay) || isChatEditing(overlay)
                         || Boolean(current.titleGate)
                         || Boolean(state.activeSettings) || isStagePaused(overlay)
                         || Boolean(overlay?.ownerDocument?.hidden)
@@ -965,7 +984,7 @@ export function createIgsReaderHost(options = {}) {
         const merged = applyReaderPayloadToState(current, mode, { payload, index: 0 });
         if (!merged.content.segments.length) return { ok: false, reason: 'no-readable-text' };
         current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
-        current.illustrationIdentity = readIllustrationIdentity(current.contentMessageId);
+        current.illustrationIdentity = readIllustrationIdentity(messageId);
         if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
         current.payload = payload;
         if (current.turnOffset === 0 || payload.messageId === current.mountMessageId) {
@@ -2298,6 +2317,7 @@ export function createIgsReaderHost(options = {}) {
         if (overlay && overlay.classList) {
             if (visible) overlay.classList.add('igs-options-visible');
             else overlay.classList.remove('igs-options-visible');
+            syncForumStagePause(overlay);
         }
         if (hud && hud.classList) {
             if (visible) hud.classList.add('igs-hud-suppressed');
@@ -2485,7 +2505,7 @@ export function createIgsReaderHost(options = {}) {
         hideOptionBubbles(container);
         const text = await resolveOptionSendText(rawText, check);
         if (cfg.clickAction === 'fill' || forceFill) {
-            if (state.activeReader && isEmbeddedReaderMode(state.activeReader.mode)) {
+            if (state.activeReader && (isEmbeddedReaderMode(state.activeReader.mode) || isDockReaderMode(state.activeReader.mode))) {
                 const fill = typeof options.setInputText === 'function'
                     ? options.setInputText
                     : async () => ({ ok: false, reason: 'missing-input-api' });
@@ -2626,7 +2646,10 @@ export function createIgsReaderHost(options = {}) {
             const optionBox = state.activeReader.logBase && state.activeReader.dom?.overlay?.querySelector?.('#igs-option-bubbles');
             if (optionBox && !optionBox.hasAttribute('hidden')) {
                 hideOptionBubbles(optionBox);
-                return { ok: true, moved: false, reason: 'option-bubbles-hidden', index: state.activeReader.index };
+                // 论坛体：收起选项就停在帖子底部，不再往回退一批。
+                if (state.activeReader.forumBase || state.activeReader.dom.overlay.getAttribute('data-igs-log-reader') !== 'on') {
+                    return { ok: true, moved: false, reason: 'option-bubbles-hidden', index: state.activeReader.index };
+                }
             }
             const batch = state.activeReader.logBase ? logPrev(state.activeReader) : null;
             return batch || moveReaderSegment(-1);
@@ -2706,11 +2729,32 @@ export function createIgsReaderHost(options = {}) {
         }
         if (normalizedAction === 'log-chain') {
             const rs = state.activeReader.snapshot.readerSettings || {};
-            return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), chain: !logSettingsOf(rs).chain } });
+            const kind = readerKindOf(state.activeReader);
+            if (kind === 'forum') return saveReaderSettingsPatch({ forumReader: { ...(rs.forumReader || {}), chain: !forumSettingsOf(rs).chain } });
+            return kind === 'chat'
+                ? saveReaderSettingsPatch({ chatReader: { ...(rs.chatReader || {}), chain: !chatSettingsOf(rs).chain } })
+                : saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), chain: !logSettingsOf(rs).chain } });
         }
         if (normalizedAction === 'log-mode') {
             const rs = state.activeReader.snapshot.readerSettings || {};
-            return saveReaderSettingsPatch({ logReader: { ...(rs.logReader || {}), on: !normalizeLogReaderSettings(rs.logReader).on } });
+            const turnOn = !normalizeLogReaderSettings(rs.logReader).on;
+            return saveReaderSettingsPatch(turnOn
+                ? { logReader: { ...(rs.logReader || {}), on: true }, chatReader: { ...(rs.chatReader || {}), on: false }, forumReader: { ...(rs.forumReader || {}), on: false } }
+                : { logReader: { ...(rs.logReader || {}), on: false } });
+        }
+        if (normalizedAction === 'chat-mode') {
+            const rs = state.activeReader.snapshot.readerSettings || {};
+            const turnOn = !normalizeChatReaderSettings(rs.chatReader).on;
+            return saveReaderSettingsPatch(turnOn
+                ? { chatReader: { ...(rs.chatReader || {}), on: true }, logReader: { ...(rs.logReader || {}), on: false }, forumReader: { ...(rs.forumReader || {}), on: false } }
+                : { chatReader: { ...(rs.chatReader || {}), on: false } });
+        }
+        if (normalizedAction === 'forum-mode') {
+            const rs = state.activeReader.snapshot.readerSettings || {};
+            const turnOn = !normalizeForumReaderSettings(rs.forumReader).on;
+            return saveReaderSettingsPatch(turnOn
+                ? { forumReader: { ...(rs.forumReader || {}), on: true }, logReader: { ...(rs.logReader || {}), on: false }, chatReader: { ...(rs.chatReader || {}), on: false } }
+                : { forumReader: { ...(rs.forumReader || {}), on: false } });
         }
         if (normalizedAction === 'tts-reroll') {
             return rerollTts();
@@ -2753,7 +2797,8 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'sprite-edit') {
             const overlay = state.activeReader.dom && state.activeReader.dom.overlay;
             // 窄屏阅读模式没有立绘：调整的是 log 头像的取景。
-            if (overlay && state.activeReader.logReaderActive && toggleLogEdit(overlay)) return { ok: true, log: true };
+            if (overlay && state.activeReader.logReaderActive && state.activeReader.forumBase) return { ok: true, log: true };
+            if (overlay && state.activeReader.logReaderActive && (state.activeReader.chatBase ? toggleChatEdit(overlay) : toggleLogEdit(overlay))) return { ok: true, log: true };
             if (overlay && !enterLivePortraitEdit(overlay, buildSpriteEditContext()) && !enterCgPortraitEdit(overlay, buildSpriteEditContext()) && !enterCastSlotEdit(overlay, state.activeReader, buildSpriteEditContext())) enterSpriteEditMode(overlay, state.activeReader, buildSpriteEditContext());
             return { ok: true };
         }
@@ -3200,6 +3245,8 @@ export function createIgsReaderHost(options = {}) {
 
     // 纵向模式里点了直播手机：这段直播按普通直播间看，直播收了（本页不再有直播）自动回到纵向列表。
     function logReaderBase(current, snapshot) {
+        current.chatBase = false;
+        current.forumBase = false;
         const overlay = current.dom && current.dom.overlay;
         if (!overlay || !snapshot || !snapshot.readerSettings) return false;
         if (current.logLiveOpen) {
@@ -3209,8 +3256,12 @@ export function createIgsReaderHost(options = {}) {
         const rect = overlay.getBoundingClientRect ? overlay.getBoundingClientRect() : { width: 0, height: 0 };
         const win = overlay.ownerDocument && overlay.ownerDocument.defaultView;
         const phone = Boolean(win && typeof win.matchMedia === 'function' && win.matchMedia(STATUS_HUD_PHONE_MEDIA).matches);
-        return isLogReaderActive({ settings: snapshot.readerSettings.logReader, mode: snapshot.mode, embedded: isEmbeddedReaderMode(snapshot.mode),
-            width: rect.width, height: rect.height, phone, comic: isComicModeActive(snapshot.readerSettings) });
+        const probe = { mode: snapshot.mode, embedded: isEmbeddedReaderMode(snapshot.mode), width: rect.width, height: rect.height, phone, comic: isComicModeActive(snapshot.readerSettings) };
+        // 线上聊天模式与纵向互斥；都开着（旧存档）时聊天优先。chatBase 只标明是哪一种，logBase 表示任一种阅读模式生效。
+        // 论坛体是第三种，同样互斥；旧存档多开时论坛 > 聊天 > 纵向。
+        current.forumBase = isLogReaderActive({ settings: snapshot.readerSettings.forumReader, ...probe });
+        current.chatBase = !current.forumBase && isLogReaderActive({ settings: snapshot.readerSettings.chatReader, ...probe });
+        return current.forumBase || current.chatBase || isLogReaderActive({ settings: snapshot.readerSettings.logReader, ...probe });
     }
 
     // 本楼的 log 行：按分页计划算一次，楼层原文变了（流式、重新生成）才重算。
@@ -3398,8 +3449,9 @@ ${row.key}`;
     async function runLogBatch(current, from) {
         const log = current.logReader;
         if (!log || log.running) return;
-        const per = logSettingsOf(current.snapshot.readerSettings).perTap;
-        const end = nextBatchEnd(log.rows, from, per);
+        const per = logBatchSize(current);
+        const unit = logUnitOf(current);
+        const end = nextBatchEnd(log.rows, from, per, unit);
         const key = log.key;
         log.running = true;
         log.skip = false;
@@ -3408,6 +3460,13 @@ ${row.key}`;
         log.batchStartFor = key;
         current.autoPlayer?.refresh();
         try {
+            if (per >= 1e6 && readerKindOf(current) === 'forum' && end - 1 > from) {
+                log.live = -1;
+                current.index = end - 1;
+                current.pageRenderAt = Date.now();
+                rerenderActiveReader();
+                return;
+            }
             for (let i = from; i < end; i++) {
                 if (state.activeReader !== current || log.key !== key) return;
                 if (log.skip) {
@@ -3416,7 +3475,10 @@ ${row.key}`;
                     rerenderActiveReader();
                     break;
                 }
+                let last = i;
+                if (unit && !log.rows[i].solo) while (last + 1 < end && unit(log.rows, last + 1)) last++;
                 log.live = log.rows[i].solo ? -1 : i;
+                log.liveEnd = last;
                 if (current.index !== i) {
                     current.index = i;
                     current.pageRenderAt = Date.now();
@@ -3424,19 +3486,50 @@ ${row.key}`;
                 } else syncLogLayer(current, current.snapshot);
                 if (log.revealing) await log.revealing;
                 log.live = -1;
-                if (log.rows[i].solo) break;
+                if (log.rows[i].solo) { log.liveEnd = -1; break; }
                 await waitLogTts(current, log.rows[i]);
+                // 组内后几行：逐行翻到该行（走页面自己的朗读与去重，每行只念一次），liveEnd 留着让 upto 不回缩。
+                for (let n = i + 1; n <= last && !log.skip; n++) {
+                    if (state.activeReader !== current || log.key !== key) return;
+                    current.index = n;
+                    current.pageRenderAt = Date.now();
+                    rerenderActiveReader();
+                    await waitLogTts(current, log.rows[n]);
+                }
+                log.liveEnd = -1;
+                current.index = last;
+                i = last;
                 if (i < end - 1 && !log.skip) await logWait(LOG_ROW_GAP_MS);
             }
         } finally {
             log.running = false;
             log.skip = false;
             log.live = -1;
+            log.liveEnd = -1;
             if (state.activeReader === current) {
                 syncLogLayer(current, current.snapshot);
                 current.autoPlayer?.refresh();
             }
         }
+    }
+
+    function readerKindOf(current) {
+        return current.forumBase ? 'forum' : current.chatBase ? 'chat' : 'log';
+    }
+    // 停在这一行时交回原渲染（播聊天演出 / 开卡片）。论坛体的聊天页画成帖内截图，留在列表里不交回。
+    function logHandoff(current, snapshot, row) {
+        if (!row || !row.solo) return false;
+        return !(readerKindOf(current) === 'forum' && snapshot[preparedFloorKey] && logChatOf(snapshot[preparedFloorKey], row.index));
+    }
+
+    // 气泡模式一批按「同侧一组」计数、整组一起出现；其余模式逐行。
+    function logUnitOf(current) {
+        return readerKindOf(current) === 'chat' ? isChatCont : null;
+    }
+    function logBatchSize(current) {
+        const rs = current.snapshot.readerSettings;
+        const settingsOf = { forum: forumSettingsOf, chat: chatSettingsOf, log: logSettingsOf }[readerKindOf(current)];
+        return settingsOf(rs).perTap;
     }
 
     // 下一批；批次中再点一下补完当前出字并跳到批末。返回 null 表示交回原翻页（楼尾进下一楼等）。
@@ -3445,7 +3538,7 @@ ${row.key}`;
         if (!log || !log.rows) return null;
         if (log.running) {
             log.skip = true;
-            finishLogReveal(current.dom && current.dom.overlay);
+            ({ forum: finishForumReveal, chat: finishChatReveal, log: finishLogReveal })[readerKindOf(current)](current.dom && current.dom.overlay);
             return { ok: true, moved: false, reason: 'log-batch-skipped', index: current.index };
         }
         const from = Number(current.index) + 1;
@@ -3460,8 +3553,8 @@ ${row.key}`;
         const log = current.logReader;
         if (!log || !log.rows) return null;
         if (log.running) return logNext(current);
-        const per = logSettingsOf(current.snapshot.readerSettings).perTap;
-        const starts = batchStartsUpTo(log.rows, Number(current.index) || 0, per);
+        const per = logBatchSize(current);
+        const starts = batchStartsUpTo(log.rows, Number(current.index) || 0, per, logUnitOf(current));
         if (starts.length < 2) return null;
         const target = starts[starts.length - 1] - 1;
         log.batchStart = starts[starts.length - 2];
@@ -3476,7 +3569,7 @@ ${row.key}`;
     // 页码进度条：窄屏阅读模式或漫画演出模式下、各自开关开着时显示；拖到哪页就跳到哪页。
     function syncScrubber(current, snapshot) {
         const rs = snapshot.readerSettings || {};
-        const on = current.logBase ? rs.logReader?.scrubber === true : isComicModeActive(rs) && rs.comicMode?.scrubber === true;
+        const on = current.logBase ? rs[{ forum: 'forumReader', chat: 'chatReader', log: 'logReader' }[readerKindOf(current)]]?.scrubber === true : isComicModeActive(rs) && rs.comicMode?.scrubber === true;
         const total = (snapshot.content && snapshot.content.segments || []).length;
         syncPageScrubber(current.dom.overlay, on && !current.hidden ? {
             index: current.index, total,
@@ -3488,30 +3581,47 @@ ${row.key}`;
     function syncLogLayer(current, snapshot) {
         const overlay = current.dom && current.dom.overlay;
         const log = current.logReader;
-        if (!overlay || !log || !log.rows || !current.logBase) { syncLogReader(overlay, null); return; }
+        const kind = readerKindOf(current);
+        const chat = kind === 'chat';
+        // 先收起没启用的那两种（收起会摘掉共用的开关属性），再同步启用的。
+        if (kind !== 'forum') syncForumReader(overlay, null);
+        if (kind !== 'chat') syncChatReader(overlay, null);
+        if (kind !== 'log') syncLogReader(overlay, null);
+        const sync = { forum: syncForumReader, chat: syncChatReader, log: syncLogReader }[kind];
+        if (!overlay || !log || !log.rows || !current.logBase) { sync(overlay, null); return; }
         const index = Math.max(0, Math.min(log.rows.length - 1, Number(current.index) || 0));
-        if (log.rows[index] && log.rows[index].solo) { syncLogReader(overlay, null); return; }
+        if (logHandoff(current, snapshot, log.rows[index])) { sync(overlay, null); return; }
         const rs = snapshot.readerSettings || {};
-        const settings = logSettingsOf(rs);
+        // personaOf：说话人 → 表情包性格标签，来自数值系统的特质（没启用时为空，挑图退回种子哈希）。
+        const stickers = { ...normalizeStickerSettings(rs.stickers), personaOf: (name) => { try { return personaOfTraits(typeof options.traitNamesOf === 'function' ? options.traitNamesOf(name) : null); } catch (error) { return []; } } };
+        const settings = kind === 'forum' ? { ...forumSettingsOf(rs), stickers } : chat ? { ...chatSettingsOf(rs), adjust: normalizeLogReaderSettings(rs.logReader).adjust, stickers } : logSettingsOf(rs);
         const manga = normalizeMangaFxSettings(rs.mangaFx);
         const anyManga = { ...manga, enabled: true };
-        const html = createLogHtml(snapshot);
+        // 论坛体是纯文字帖：文字特效 {抖:…} 只留内容，不做动效。
+        const html = createLogHtml(kind === 'forum' ? { ...snapshot, readerSettings: { ...rs, textFx: { ...rs.textFx, enabled: false } } } : snapshot);
         // 跳页（目录、续读、最后一页）后没有批次记录：按当前页推出所在那一批的起点。
-        const inBatch = log.batchStart <= index && index < nextBatchEnd(log.rows, log.batchStart, settings.perTap);
+        const inBatch = log.batchStart <= index && index < nextBatchEnd(log.rows, log.batchStart, settings.perTap, chat ? isChatCont : null);
         if (!inBatch || log.batchStartFor !== log.key) {
-            const starts = batchStartsUpTo(log.rows, index, settings.perTap);
+            const starts = batchStartsUpTo(log.rows, index, settings.perTap, chat ? isChatCont : null);
             log.batchStart = starts[starts.length - 1];
             log.batchStartFor = log.key;
         }
+        if (kind === 'forum') {
+            log.revealing = syncForumLayer(current, snapshot, { overlay, log, index, settings, html }).revealing;
+            return;
+        }
         const { skin, tone } = logSkinOf(rs);
-        const result = syncLogReader(overlay, {
+        const result = sync(overlay, {
+            theme: chat && settings.followTheme ? resolveChatTheme(rs.dialogSkin) : null,
             floorKey: log.key,
             rows: log.rows,
-            upto: log.fresh ? -1 : index,
+            upto: log.fresh ? -1 : Math.max(index, log.liveEnd >= 0 ? log.liveEnd : -1),
             batchStart: log.batchStart,
             live: log.live == null ? -1 : log.live,
+            liveEnd: log.liveEnd == null ? -1 : log.liveEnd,
             running: Boolean(log.running),
             more: index < log.rows.length - 1,
+            sound: chat ? normalizeChatShowSettings(rs.chatShow).sound : null,
             settings, skin, tone,
             fonts: logFontsOf(snapshot),
             textEffect: dialogTextEffectCss(rs),
@@ -3551,6 +3661,241 @@ ${row.key}`;
             },
         });
         log.revealing = result.revealing;
+    }
+
+    // 第一个 AI 楼：兜底帖子从这里起算。
+    function forumFirstFloor(messageId) {
+        try {
+            const chat = getSillyTavernContext(options.global || globalThis)?.chat;
+            if (!Array.isArray(chat)) return Number(messageId) || 0;
+            const first = chat.findIndex((m) => m && !m.is_user && !m.is_system);
+            return first < 0 ? Number(messageId) || 0 : Math.min(first, Number(messageId) || 0);
+        } catch (_) { return Number(messageId) || 0; }
+    }
+
+    // 论坛附图的来源：本页场景图（素材模式）与本页 CG（生成插图 / 绑定槽位 / CG 库）。图还没读回时 url 为空，不附。
+    function forumImagePick(current, floor, rs, i, messageId) {
+        const page = floor.pages[i] || {};
+        const st = page.sceneStateForBg || null;
+        const assets = rs._sceneAssets || {};
+        const out = {};
+        if (st && st.scene && assets.enabled && floor.assets) {
+            let url = '';
+            try { url = concreteReaderAssetUrl(floor.assets.background(st).url); } catch (_) { url = ''; }
+            out.scene = { key: `${st.scene}|${st.time || ''}`, url, nsfw: st.nsfw === true };
+        }
+        const hit = floor.illustrations && floor.illustrations[i];
+        if (hit) {
+            const identity = current.illustrationIdentity || readIllustrationIdentity(messageId);
+            let url = typeof options.getIllustrationUrl === 'function'
+                ? String(options.getIllustrationUrl({ chatId: identity && identity.chatId, messageId, swipeId: identity && identity.swipeId, slot: hit.slot }) || '')
+                : '';
+            if (!url) url = resolveBoundSlotImageUrl(normalizeSnapshotImageState(current.payload && current.payload.imageState, 0), hit.slot);
+            out.cg = { key: `slot:${hit.slot}`, url, nsfw: Boolean(st && st.nsfw) };
+        } else if (assets.enabled && assets.eventCgs && floor.eventCgs && floor.eventCgs[i]) {
+            const ev = floor.eventCgs[i];
+            out.cg = { key: `ev:${ev.name}`, url: concreteReaderAssetUrl(ev.url), nsfw: ev.nsfw === true || Boolean(st && st.nsfw) };
+        }
+        return out;
+    }
+
+    // 论坛体：登记（帖子、标题、楼主、代号）与楼层计划都在这里按需算出，渲染只认结果。
+    // 每楼只处理自己的标签，写在本楼 messageId 上；显示时按 messageId 查 timeline / titles。
+    function syncForumLayer(current, snapshot, { overlay, log, index, settings, html }) {
+        const rs = snapshot.readerSettings || {};
+        const floor = log.floor;
+        const ctx = getSillyTavernContext(options.global || globalThis) || {};
+        const messageId = Number(snapshot.messageId) || 0;
+        const assets = rs._sceneAssets || {};
+        const worldview = String(rs._worldview || '');
+        const rowKeys = new Set(log.rows.map((row) => row.key).filter(Boolean));
+        const known = (name) => resolveCharacterKey(assets.characters || {}, assets.characterAliases, name) || (rowKeys.has(name) ? name : '');
+        const userNames = [floor.userName, '{{user}}', ctx.name1].filter(Boolean);
+        const idle = current.streamPhase === 'idle';
+        const chatId = currentChatIdText();
+        const firstSpeaker = (log.rows.find((row) => row.key && row.key !== floor.userKey) || {}).key || '';
+        const defaultChar = ctx.name2 ? known(ctx.name2) : '';
+        const pair = forumPairOf(rs.forumReader, forumKeyResolver(known, userNames));
+        const fixed = forumFixedOf(rs.forumReader, forumKeyResolver(known, userNames));
+        const firstScene = String((log.rows.find((row) => row.scene) || {}).scene || '').split(' · ').pop();
+        let data = forumRegistry.read();
+        const fallbackPo = resolvePoster({ thread: null, settings: rs.forumReader, defaultChar, firstSpeaker, pair, fixed });
+        if (idle) {
+            data = applyFloorTags(data, messageId, forumTagsOf(floor.source), {
+                chatId, known, userNames, posterLock: settings.poster, pair, fixed, fallbackPo,
+                firstFloor: forumFirstFloor(messageId), fallbackTitle: forumFallbackTitle(fallbackPo, firstScene),
+            }).data;
+        }
+        const marks = floorMarks(data, messageId);
+        let thread = marks.thread;
+        const poster = resolvePoster({ thread, settings: rs.forumReader, defaultChar, firstSpeaker, pair, fixed });
+        const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
+        const nameMap = forumNameMap(thread);
+        const forumRowsIn = nameMap.size ? log.rows.map((row) => (nameMap.has(row.key) ? { ...row, key: nameMap.get(row.key) } : row)) : log.rows;
+        if (idle && thread) {
+            const order = [...new Set(forumRowsIn.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
+            const bodyText = forumRowsIn.map((row) => String(row.text || '')).join(' ');
+            for (const key of Object.keys(assets.characters || {})) {
+                if (key && !nameMap.has(key) && !order.includes(key) && [key, ...(assets.characterAliases && Array.isArray(assets.characterAliases[key]) ? assets.characterAliases[key] : []), ...((thread.names || {})[key] || [])].some((n) => n && bodyText.includes(n))) order.push(key);
+            }
+            const aliased = ensureAliases(thread, order, posterKey);
+            if (aliased.changed) { thread = aliased.thread; data = replaceForumThread(data, thread); }
+        }
+        if (idle) {
+            if (!data.board) data = { ...data, board: forumBoardOf(data, worldview) };
+            if (forumRegistry.stage(data)) forumRegistry.flush();
+        }
+        // 已登记为别人别名的名字不再单独占代号，免得和本名的代号抢同一个词。
+        const threadAlias = Object.fromEntries(Object.entries((thread && thread.alias) || {}).filter(([key]) => !nameMap.has(key)));
+        const threadManual = (thread && thread.manual) || { alias: {}, asked: {} };
+        // 新角色首次出场：已有（自动）代号但还没问过用户的，弹小卡片让他确认或改名；问过（改名或沿用）就记下不再问。按本帖问。
+        const askedKeys = threadManual.asked || {};
+        const pendingAlias = [];
+        for (const row of forumRowsIn.slice(0, log.fresh ? 0 : index + 1)) {
+            const key = row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key;
+            if (!key || key === posterKey || askedKeys[key] || !threadAlias[key] || pendingAlias.some((p) => p.key === key)) continue;
+            pendingAlias.push({ key, label: key === FORUM_USER_KEY ? 'User' : key, code: threadAlias[key] });
+        }
+        const threadId = thread ? thread.id : '';
+        const onAlias = (key, text) => {
+            const cur = forumRegistry.read();
+            const t = forumThreadById(cur, threadId);
+            if (!t) { if (state.activeReader) rerenderActiveReader(); return; }
+            const alias = { ...t.alias };
+            const manual = { ...t.manual, alias: { ...t.manual.alias }, asked: { ...t.manual.asked, [key]: true } };
+            const code = String(text || '').trim();
+            if (code && code !== alias[key]) { alias[key] = code; manual.alias[key] = true; }
+            forumRegistry.commit(replaceForumThread(cur, { ...t, alias, manual }));
+            if (state.activeReader) rerenderActiveReader();
+        };
+        const namesOf = (key) => (Array.isArray(assets.characterAliases && assets.characterAliases[key]) ? assets.characterAliases[key] : []);
+        const nameCtx = { poster, alias: threadAlias, userKey: floor.userKey, userNames, namesOf, extraNames: (thread && thread.names) || {}, settings: rs.forumReader };
+        const rows = forumRowsOf(forumRowsIn, nameCtx);
+        const namePairs = forumNamePairs(nameCtx);
+        const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
+        const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
+        const poId = (thread && thread.poId) || forumPoId(chatId, threadId);
+        const aiReplies = forumRepliesOf(floor.source);
+        const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
+        const prevReplies = aiReplies.some((r) => r.prev) ? forumPrevRepliesOf(ctx.chat, messageId) : [];
+        const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies });
+        const tailSig = (id) => `${(ctx.chat && ctx.chat[id] && String(ctx.chat[id].mes || '').length) || 0}:${settings.replies}:${settings.perPost}:${settings.posterText}`;
+        if (idle) {
+            const mine = { sig: tailSig(messageId), replies: forumTailOf(plan, 3) };
+            forumTails.set(`${chatId}:${messageId}`, mine);
+            const kept = data.tails && data.tails[messageId];
+            const items = mine.replies.map((r) => ({ k: r.k, no: r.no, id: r.id, po: r.po === true, time: r.time || '', text: r.text, quote: r.quote || '', ref: r.ref || 0 }));
+            if (items.length && !(kept && kept.sig === mine.sig && JSON.stringify(kept.items) === JSON.stringify(items))) {
+                data = forumWithTail(data, messageId, { sig: mine.sig, items });
+                if (forumRegistry.stage(data)) forumRegistry.flush();
+            }
+        }
+        const chainTail = settings.chainTail ? forumChainTail({
+            chat: ctx.chat, messageId, start: marks.start, count: forumTailCount(chatId, messageId),
+            sameThread: (id) => Boolean(thread) && (threadAt(data, id) || {}).id === thread.id,
+            lookup: (id) => {
+                const kept = data.tails && data.tails[id];
+                const hit = forumTails.get(`${chatId}:${id}`) || (kept && { sig: kept.sig, replies: kept.items });
+                return hit && hit.sig === tailSig(id) ? hit.replies : null;
+            },
+        }) : [];
+        // 聊天页在帖子里画成手机截图：名字换论坛代号，配色与手机壳跟聊天演出一致，顶栏时间取剧情时间。
+        const shotOf = (row) => {
+            const block = logChatOf(floor, row.index);
+            if (!block) return null;
+            const chatShow = normalizeChatShowSettings(rs.chatShow);
+            const model = buildChatPageModel(block, { ...chatShow, showAvatars: false }, {
+                userName: ctx.name1 ? String(ctx.name1) : '',
+                characterAliases: assets.characterAliases,
+                theme: resolveChatTheme(rs.dialogSkin),
+                systemRole: rs.systemRole,
+            });
+            const codeOf = (m) => {
+                const key = m.self ? FORUM_USER_KEY : nameMap.get(m.key) || known(m.key) || m.key;
+                return key === posterKey ? '我' : threadAlias[key] || m.displayName;
+            };
+            const lefts = [];
+            const messages = model.messages.map((m) => {
+                if (m.kind === 'msg') {
+                    const name = codeOf(m);
+                    if (!m.self && !lefts.includes(name)) lefts.push(name);
+                    const text = m.type !== 'sticker' ? replaceNames(m.text, namePairs.filter(([, to]) => to !== name)) : m.text;
+                    return { kind: 'msg', type: m.type, text, side: m.side, name, showName: m.showName, color: m.color, textColor: m.textColor };
+                }
+                if (m.kind === 'recall') return { kind: 'recall', text: `${m.self ? '你' : codeOf(m)}撤回了一条消息` };
+                return m;
+            });
+            const page = floor.pages[row.index];
+            const clock = storyClock(((page && page.sceneStateForBg) || floor.inheritedSceneState || {}).time);
+            const groups = shotGroupsOf(messages);
+            const caseColor = myPhoneOf(rs).caseColor;
+            return {
+                title: lefts.join('、'),
+                time: clock ? clock.time : '',
+                night: Boolean(clock && clock.night),
+                theme: model.theme || resolveChatTheme(''),
+                caseColor: caseColor === PHONE_CASE_DEFAULT ? '' : caseColor,
+                groups: groups.length ? groups : [[]],
+            };
+        };
+        // 安价楼：楼号接在本楼最后一条之后；安科关闭时不显示。
+        const anke = (() => {
+            const found = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
+            if (!found || !plan.length) return null;
+            const items = plan.flatMap((p) => [p, ...(p.replies || [])]);
+            const lastItem = items[items.length - 1];
+            const maxK = Math.max(...items.map((p) => p.k));
+            return { ...found, key: `${chatId}:${messageId}`, id: poId, no: forumNo(chatId, messageId, maxK + 1), time: lastItem.time || '' };
+        })();
+        const onAnke = async (text, replace) => {
+            if (state.activeReader !== current) return { ok: false, reason: 'reader-not-open' };
+            // 不聚焦输入框：手机上会弹键盘、视口变矮，论坛重排后跳回顶楼。
+            if (isEmbeddedReaderMode(current.mode) || isDockReaderMode(current.mode)) {
+                return typeof options.fillEmptyInputText === 'function'
+                    ? options.fillEmptyInputText(text, { append: true, replace, focus: false })
+                    : { ok: false, reason: 'missing-readable-input' };
+            }
+            const input = current.dom?.input;
+            if (!input) return { ok: false, reason: 'missing-reader-input' };
+            input.value = appendInputDraft(input.value, text, replace);
+            current.inputValue = input.value;
+            return { ok: true };
+        };
+        return syncForumReader(overlay, {
+            anke, onAnke,
+            floorKey: log.key,
+            sig: JSON.stringify([anke, rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,
+            board: forumBoardOf(data, worldview),
+            threadNo: (() => { const froms = thread ? (data.timeline || []).filter((e) => e.thread === thread.id).map((e) => Number(e.from)).filter(Number.isFinite) : []; return froms.length ? forumNo(chatId, Math.min(...froms), 0) : (plan[0] ? plan[0].no : ''); })(),
+            head: marks.start ? { title: titleAt(thread, messageId), poId, board: forumBoardOf(data, worldview) } : null,
+            retitle: marks.retitle,
+            upto: log.fresh ? -1 : index,
+            live: log.live == null ? -1 : log.live,
+            settings,
+            fonts: logFontsOf(snapshot),
+            hidden: Boolean(current.hidden),
+            htmlOf: html,
+            canSpeak: logCanSpeak,
+            cardsOf: (row) => logCardsOf(floor.pages[row.index], rs),
+            onTap: () => {
+                const live = state.activeReader;
+                if (live !== current || overlay.getAttribute('data-igs-cg-only') === '1') return;
+                if (current.hidden) { current.controller.toggleHidden(); return; }
+                if (state.activeSettings) { closeSettings(); return; }
+                if (handleOptionBubbleBlankClick(current, current.snapshot)) return;
+                void handleReaderAction('next');
+            },
+            liveRoom: liveOfPage(snapshot),
+            onLiveRoom: () => {
+                if (state.activeReader !== current) return;
+                current.logLiveOpen = true;
+                rerenderActiveReader();
+            },
+            onPlay: (i) => logSpeak(i),
+            onReplay: (i) => { if (state.activeReader === current) jumpReaderSegment(i); },
+            onSceneRow: (i) => logSceneRow(current, i),
+        });
     }
 
     function currentReadingPosition() {
@@ -4708,6 +5053,7 @@ ${row.key}`;
             characterAliases: sceneAssets && sceneAssets.characterAliases,
             theme: resolveChatTheme(readerSettings.dialogSkin),
             systemRole: readerSettings.systemRole,
+            nameColorOf: (key) => manualNameColor(sceneAssets, key),
             pagesAfter: segments.length - 1 - normalizedIndex,
             avatarFor: (key) => concreteReaderAssetUrl(resolveStatusAvatar(sceneAssets && sceneAssets.statusAvatars, key)),
         }) : null;
@@ -5425,17 +5771,17 @@ ${row.key}`;
         installReaderEscapeGuard(doc);
         const dbController = createDbPanelController(doc, options.global);
         // 「前往 / 使用」保留原草稿并追加命令，不发送消息。
-        const fillRecordDraft = async text => {
+        const fillRecordDraft = async (text, replace = '') => {
             const current = state.activeReader;
             if (!current) return { ok: false, reason: 'reader-not-open' };
-            if (isEmbeddedReaderMode(current.mode)) {
+            if (isEmbeddedReaderMode(current.mode) || isDockReaderMode(current.mode)) {
                 return typeof options.fillEmptyInputText === 'function'
-                    ? options.fillEmptyInputText(text, { append: true })
+                    ? options.fillEmptyInputText(text, { append: true, replace })
                     : { ok: false, reason: 'missing-readable-input' };
             }
             const input = current.dom?.input;
             if (!input) return { ok: false, reason: 'missing-reader-input' };
-            input.value = appendInputDraft(input.value, text);
+            input.value = appendInputDraft(input.value, text, replace);
             current.inputValue = input.value;
             input.focus?.();
             return { ok: true };
@@ -5879,11 +6225,24 @@ ${row.key}`;
         current.logBase = logReaderBase(current, snapshot);
         const logRows = current.logBase ? logRowsFor(current, snapshot) : null;
         const logPage = logRows && logRows.rows[Math.max(0, Number(current.index) || 0)];
-        current.logReaderActive = Boolean(logRows && logPage && !logPage.solo);
+        current.logReaderActive = Boolean(logRows && logPage && !logHandoff(current, snapshot, logPage));
         if (logRows && logRows.enteredKey !== logRows.key) {
             // 刚进这一楼、停在楼首且不在生成中：自动播第一批（第一行也走出字）。
             logRows.enteredKey = logRows.key;
             logRows.fresh = Number(current.index) === 0 && !logRows.running && !current.awaitingReply && current.streamPhase === 'idle';
+            const showAll = readerKindOf(current) === 'forum' && forumSettingsOf(snapshot.readerSettings || {}).perTap >= 1e6 && !logRows.running && !current.awaitingReply && current.streamPhase === 'idle';
+            if (showAll) {
+                logRows.fresh = false;
+                let last = logRows.rows.length - 1;
+                while (last > 0 && logRows.rows[last].solo) last -= 1;
+                if (last > Number(current.index || 0)) setTimeout(() => {
+                    if (state.activeReader !== current || current.logReader !== logRows || logRows.running) return;
+                    logRows.live = -1;
+                    current.index = last;
+                    current.pageRenderAt = Date.now();
+                    rerenderActiveReader();
+                }, 0);
+            }
             if (logRows.fresh) setTimeout(() => {
                 logRows.fresh = false;
                 if (state.activeReader === current && current.logReader === logRows) void runLogBatch(current, 0);

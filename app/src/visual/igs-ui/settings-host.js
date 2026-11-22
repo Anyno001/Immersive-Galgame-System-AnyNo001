@@ -1,3 +1,4 @@
+import { ensureAliases, forumPoFromText } from './forum-reader-model.js';
 import { clearNaiQuota, syncNaiQuota, querySettingsNaiQuota, renderNaiQuota } from './settings-nai-quota.js';
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
@@ -87,7 +88,7 @@ export function createSettingsHost(deps) {
     const {
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
-        state, takeReaderStaleBehindSettings, invalidateFloorAssetPlan, openLive2dManager,
+        state, takeReaderStaleBehindSettings, invalidateFloorAssetPlan, openLive2dManager, forumRegistry,
     } = deps;
     const settingsDialogs = createSettingsDialogs({
         getContainer: () => (state.activeSettings && state.activeSettings.dom ? state.activeSettings.dom.root : null),
@@ -99,7 +100,7 @@ export function createSettingsHost(deps) {
     // 手指按着或 ⋯ 菜单开着时不整页重绘：重绘会收掉菜单、换掉按下的按钮，点击落空。
     let settingsPointerDown = false;
     const { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, buildRegexPreview, settingsLowQuality } = createSettingsRenderer({
-        normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state,
+        normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state, forumRegistry,
     });
 
     function settingsInteracting() {
@@ -569,6 +570,60 @@ export function createSettingsHost(deps) {
             const nextMode = normalizeReaderMode(value, draft.bridge);
             setPath(draft, path, nextMode);
             return rerenderSettings();
+        }
+
+        // 论坛登记（标题、板块、代号）随聊天存在 chatMetadata，不进设置草稿：虚拟 path 直接写登记。
+        const forumField = /^forum\.(title|board|alias|names|add|po)(?:\.(t\d+))?(?:\.(.+))?$/.exec(path);
+        if (forumField && forumRegistry) {
+            const registry = forumRegistry;
+            const data = registry.read();
+            const text = String(value == null ? '' : value).trim();
+            if (forumField[1] === 'board') {
+                registry.commit({ ...data, board: text, manualBoard: Boolean(text) });
+                return { ok: true };
+            }
+            const thread = data.threads.find((t) => t.id === forumField[2]);
+            if (!thread) return { ok: true };
+            const manual = { ...thread.manual, alias: { ...thread.manual.alias } };
+            const next = { ...thread, manual };
+            if (forumField[1] === 'alias') {
+                const key = decodeURIComponent(forumField[3] || '');
+                next.alias = { ...thread.alias };
+                if (text) { next.alias[key] = text; manual.alias[key] = true; } else { delete next.alias[key]; delete manual.alias[key]; }
+            } else if (forumField[1] === 'po') {
+                const po = forumPoFromText(text);
+                if (!po) return { ok: true };
+                next.po = po;
+                registry.commit({ ...data, threads: data.threads.map((t) => (t.id === thread.id ? next : t)) });
+                return rerenderSettings();
+            } else if (forumField[1] === 'add') {
+                const name = text.slice(0, 24);
+                if (!name || next.alias[name]) return { ok: true };
+                const made = ensureAliases(next, [name]);
+                next.alias = made.thread.alias;
+                next.seq = made.thread.seq;
+                registry.commit({ ...data, threads: data.threads.map((t) => (t.id === thread.id ? next : t)) });
+                return rerenderSettings();
+            } else if (forumField[1] === 'names') {
+                const key = decodeURIComponent(forumField[3] || '');
+                const names = { ...thread.names };
+                const list = text.split(/[,，、;；\s]+/).filter(Boolean);
+                if (list.length) names[key] = list; else delete names[key];
+                next.names = names;
+            } else {
+                // 手动改的是当前生效的标题：覆盖最后一条（标记为非兜底）；留空则恢复自动。
+                manual.title = Boolean(text);
+                const titles = thread.titles.filter((t) => !text || t !== thread.titles[thread.titles.length - 1]);
+                if (text) titles.push({ from: (thread.titles[thread.titles.length - 1] || { from: 0 }).from, title: text });
+                next.titles = titles;
+            }
+            registry.commit({ ...data, threads: data.threads.map((t) => (t.id === thread.id ? next : t)) });
+            return { ok: true };
+        }
+        // 纵向阅读、线上聊天、论坛体三种模式并列互斥：打开一个，自动关掉另外两个。
+        const readerModePath = /^readerSettings\.(logReader|chatReader|forumReader)\.on$/.exec(path);
+        if (readerModePath && value === true) {
+            for (const name of ['logReader', 'chatReader', 'forumReader']) if (name !== readerModePath[1]) setPath(draft, `readerSettings.${name}.on`, false);
         }
 
         // 对话框高度下拉里的「自适应 / 固定」：写 dialogAutoHeight，不动高度比例；选具体比例时顺手关掉自适应。

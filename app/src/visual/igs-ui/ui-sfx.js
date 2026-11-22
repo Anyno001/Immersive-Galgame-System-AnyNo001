@@ -78,6 +78,7 @@ const SKIN_FAMILIES = Object.freeze({
     'plant-coffee': 'paper',
     'western-classic': 'paper',
     'cute-pink': 'soft',
+    'yume-kawaii': 'glass',
     'day-minimal': 'soft',
     'elegant-european': 'glass',
     'magic-academy': 'glass',
