@@ -1,4 +1,4 @@
-import { forumPromptText } from './forum-reader-lines.js';
+import { forumAnkePromptText, forumPromptText } from './forum-reader-lines.js';
 import { FORUM_MODES, FORUM_PALETTE_IDS } from './forum-reader-palettes.js';
 import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log-reader-settings.js';
 
@@ -72,8 +72,10 @@ export function normalizeForumReaderSettings(value) {
         sayInk: src.sayInk === 'name' ? 'name' : 'body',
         edge: FORUM_EDGES.includes(src.edge) ? src.edge : 'normal',
         promptRule: typeof src.promptRule === 'string' ? src.promptRule.trim().slice(0, 4000) : '',
+        ankePromptRule: typeof src.ankePromptRule === 'string' ? src.ankePromptRule.trim().slice(0, 4000) : '',
         reveal: LOG_REVEALS.includes(src.reveal) ? src.reveal : 'off',
     };
     if (out.promptRule && out.promptRule === forumPromptText({ ...out, promptRule: '' }, null).trim()) out.promptRule = '';
+    if (out.ankePromptRule && ['key', 'every'].some((mode) => out.ankePromptRule === forumAnkePromptText(mode).trim())) out.ankePromptRule = '';
     return out;
 }

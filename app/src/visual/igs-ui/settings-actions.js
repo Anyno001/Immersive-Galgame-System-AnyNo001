@@ -931,6 +931,7 @@ const RISKY_ACTIONS = [
     ['prompt-entry-reset:', () => '这条写法恢复默认？关键词、位置、深度和正文都会恢复默认。'],
     ['feed-storm-prompt-reset', () => '舆论风暴的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['forum-prompt-reset', () => '论坛提示词恢复默认？当前修改过的内容将被覆盖。'],
+    ['forum-anke-prompt-reset', () => '安科提示词恢复默认？当前修改过的内容将被覆盖。'],
     ['live-platform-prompt-reset', () => '直播平台栏的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
@@ -3033,9 +3034,10 @@ export async function handleSettingsAction(action, ctx) {
     }
 
     // 直播提示词里平台栏的写法恢复默认（自定义留空即用默认）。
-    if (normalizedAction === 'forum-prompt-reset') {
+    if (normalizedAction === 'forum-prompt-reset' || normalizedAction === 'forum-anke-prompt-reset') {
         const readerDraft = settingsState.draft.readerSettings = settingsState.draft.readerSettings || {};
-        readerDraft.forumReader = { ...(readerDraft.forumReader || {}), promptRule: '' };
+        const key = normalizedAction === 'forum-prompt-reset' ? 'promptRule' : 'ankePromptRule';
+        readerDraft.forumReader = { ...(readerDraft.forumReader || {}), [key]: '' };
         const persisted = persistSettingsDraft();
         if (persisted.ok === false) return persisted;
         return rerenderSettings();

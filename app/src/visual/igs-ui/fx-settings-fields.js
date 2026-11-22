@@ -10,7 +10,7 @@ import { MANGA_BACK_ALL_KINDS, MANGA_BACK_LABELS } from './manga-back.js';
 import { normalizeClashFxSettings } from '../../scene/clash-actions.js';
 import { LOG_PERCENTS } from './log-reader-settings.js';
 import { CHAT_READER_DIMS, CHAT_READER_RADII } from './chat-reader-settings.js';
-import { forumDefaultPromptText } from './forum-reader-lines.js';
+import { forumAnkePromptText, forumDefaultPromptText } from './forum-reader-lines.js';
 import { FORUM_PALETTES } from './forum-reader-palettes.js';
 import { FORUM_PER_POST_MAX, FORUM_PER_POST_MIN } from './forum-reader-settings.js';
 import { renderForumRegistryFields } from './forum-reader-fields.js';
@@ -198,7 +198,9 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + stickerRowsOf(true)
         + collapsible('forum-registry', '本聊天的帖子（标题、代号）', renderForumRegistryFields(forumRegistry))
         + collapsible('forum-prompt', '高级：论坛提示词', field(`${p}.forumReader.promptRule`, '论坛提示词', textareaInput(`${p}.forumReader.promptRule`, fr.promptRule || forumDefaultPromptText(fr)), '框里是当前生效的写法，可直接修改；改后整段替换内置写法（含标题、代号、回帖写法），改回与内置一致或清空即用内置')
-            + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`));
+            + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-prompt-reset"${fr.promptRule ? '' : ' disabled'}>恢复默认</button></div>`)
+        + collapsible('forum-anke-prompt', '高级：安科提示词', field(`${p}.forumReader.ankePromptRule`, '安科提示词', textareaInput(`${p}.forumReader.ankePromptRule`, fr.ankePromptRule || forumAnkePromptText(fr.anke === 'every' ? 'every' : 'key')), '框里是当前生效的写法，可直接修改；改后整段替换内置写法（含标签格式、选项要求与【安价】规则），改回与内置一致或清空即用内置。自定义后切换「关键节点／每层」不会改动框里的文字；安科模式为关时不注入')
+            + `<div class="igs-feed-card-foot"><button type="button" class="igs-settings-action" data-action="forum-anke-prompt-reset"${fr.ankePromptRule ? '' : ' disabled'}>恢复默认</button></div>`));
 
     const mangaBack = featureRow(more, 'manga-back', `${p}.mangaBack.enabled`, s.mangaBack.enabled, '漫画背景与特效', '花背景、气场、石化', MANGA_BACK_ALL_KINDS.map((kind) => renderWordListField(`mangaBack.words.${kind}`, MANGA_BACK_LABELS[kind], s.mangaBack.words[kind])).join(''));
     const crowd = featureRow(more, 'crowd-fx', `${p}.crowdFx.enabled`, s.crowdFx.enabled, '人群氛围', '人多的地点', checkbox(`${p}.crowdFx.react`, s.crowdFx.react, '正文写到鼓掌、欢呼时整群反应'));

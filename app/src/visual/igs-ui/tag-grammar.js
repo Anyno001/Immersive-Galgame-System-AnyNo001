@@ -86,7 +86,7 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
     }
     // 论坛体：开着且允许登记时每轮都发（登记前给完整写法，登记后只留事实）；_forum 是宿主从聊天元数据读来的登记。
     const forum = normalizeForumReaderSettings(rs.forumReader);
-    const ankeText = forum.on ? forumAnkePromptText(forum.anke) : '';
+    const ankeText = forum.on ? forumAnkePromptText(forum.anke, forum.ankePromptRule) : '';
     if (forum.on && forum.prompt) {
         const registered = forumRegistered(rs._forum);
         const prev = forum.promptRule ? '' : forumPrevPromptText(forum, rs._forumPrev);

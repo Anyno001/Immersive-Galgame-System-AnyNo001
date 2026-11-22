@@ -94,8 +94,9 @@ const REPLY_NOTE = '再在末尾另起几行写回帖，每行一条 [igs-reply:
 const replyLine = (settings) => (settings.replies === 'off' ? '' : REPLY_NOTE);
 
 // 安科（安价）：开启后给 AI 的写法与常驻规则。mode 为 key（关键节点）或 every（每层），off 返回空串。
-export function forumAnkePromptText(mode) {
+export function forumAnkePromptText(mode, rule = '') {
     if (mode !== 'key' && mode !== 'every') return '';
+    if (rule) return rule;
     const when = mode === 'every' ? '每一层' : '只在剧情走到关键节点、值得让网友替楼主拿主意的那一层（由你判断，不必每层都写）';
     return `【安价】${when}，在楼主回复 {{user}} 之后、整段正文的最末尾另起一行写 [igs-anke:问题|选项1|选项2|选项3]：问题是楼主向网友提的一句话；选项 3–5 个，每个都是楼主本人此刻能立刻做出的具体行动；方向必须真正分叉，不能是同一件事的不同程度；必须有一个离谱选项（出格、作死或荒唐，但在这个世界里做得到），不要标明是哪一个；不写「其他」。{{user}} 的消息里出现【安价】的，本楼必须照此推进，不许绕开或改写结果。`;
 }
