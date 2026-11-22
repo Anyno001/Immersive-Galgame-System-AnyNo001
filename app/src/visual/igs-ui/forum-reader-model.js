@@ -245,6 +245,17 @@ export function forumRepliesOf(source) {
     return out;
 }
 
+// 安价标签 [igs-anke:问题|选项1|选项2|…]：取本楼最后一条，至少 2 个选项，最多 8 个；返回 { question, options } 或 null。
+export function forumAnkeOf(source) {
+    let found = null;
+    for (const m of String(source || '').matchAll(new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*anke\\s*[:：](${REPLY_BODY_SOURCE})[\\]】］]`, 'gi'))) {
+        const fields = m[1].split(/[|｜]/).map((f) => f.trim()).filter(Boolean);
+        if (fields.length < 3) continue;
+        found = { question: fields[0].slice(0, 80), options: fields.slice(1, 9).map((o) => o.slice(0, 120)) };
+    }
+    return found;
+}
+
 // 上一轮 AI 回帖：从当前楼往前找最近一个有 [igs-reply] 的 AI 楼。chat 为酒馆聊天数组。
 export function forumPrevRepliesOf(chat, beforeId) {
     if (!Array.isArray(chat)) return [];

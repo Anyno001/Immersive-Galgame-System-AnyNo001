@@ -7,6 +7,7 @@ import { buildChatShots } from './forum-reader-chat-shot.js';
 import { stripTextFxMarkup } from './text-fx.js';
 import { STICKER_TAG_G, installStickerFallback, stickerHtml, stickerOptsOf } from '../../stickers/sticker-render.js';
 import { stickerView } from '../../stickers/sticker-catalog.js';
+import { setStagePauseReason } from './stage-pause.js';
 
 // 论坛体阅读模式的 DOM 层：在 #igs-dialog-layer 里挂 #igs-forum-reader，一个 PO 主楼一块，楼之间夹点缀回帖。
 // 取数、翻批、朗读由 reader-host 负责，这里只认传进来的 view。
@@ -348,6 +349,147 @@ function replyNode(doc, reply, view, live) {
     return node;
 }
 
+// 安价楼：楼主发的最后一层。选项纯文本整行可点；操作行是方括号文字链接。选定后把结果追加（或替换上一次填入的那一行）到输入框。
+const ANKE_ROLL_STEPS = 10;
+const ANKE_ROLL_FIRST_MS = 55;
+const ANKE_ROLL_GROWTH = 1.15;
+
+function ankeNode(doc, anke, picked, live) {
+    const n = anke.options.length;
+    const node = el(doc, 'div', 'igs-fm-post igs-fm-anke' + (live ? '' : ' is-in'));
+    node.dataset.anke = JSON.stringify([anke.key, anke.question, anke.options]);
+    const meta = el(doc, 'div', 'igs-fm-meta');
+    meta.innerHTML = headHtml({ id: anke.id, no: anke.no, time: anke.time, po: true });
+    const body = el(doc, 'div', 'igs-fm-body');
+    const q = el(doc, 'div', 'igs-fm-anke-q');
+    q.textContent = `安价：${anke.question}`;
+    body.append(q);
+    anke.options.forEach((text, i) => {
+        const row = el(doc, 'div', 'igs-fm-anke-opt' + (picked === i ? ' is-pick' : ''));
+        row.dataset.pick = String(i);
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        const mark = el(doc, 'span', 'igs-fm-anke-mark');
+        mark.textContent = '▶';
+        const no = el(doc, 'span', 'igs-fm-anke-no');
+        no.textContent = `${i + 1}.`;
+        const label = el(doc, 'span', 'igs-fm-anke-text');
+        label.textContent = text;
+        row.append(mark, no, label);
+        body.append(row);
+    });
+    const hint = el(doc, 'div', 'igs-fm-anke-hint');
+    hint.textContent = `>>点选或roll 1d${n}决定`;
+    const ops = el(doc, 'div', 'igs-fm-anke-ops');
+    const link = (cls, text) => { const b = el(doc, 'button', `igs-fm-anke-link ${cls}`); b.type = 'button'; b.textContent = text; return b; };
+    const free = link('is-free', '[自由安价]');
+    const roll = link('is-roll', `[roll 1d${n}]`);
+    const hand = el(doc, 'span', 'igs-fm-anke-hand');
+    const label = el(doc, 'span');
+    label.textContent = '点数 [';
+    const input = el(doc, 'input', 'igs-fm-anke-input');
+    input.type = 'text';
+    input.inputMode = 'numeric';
+    input.maxLength = String(n).length;
+    input.setAttribute('aria-label', `点数，1 到 ${n}`);
+    const close = el(doc, 'span');
+    close.textContent = ']';
+    const ok = link('is-ok', '[确定]');
+    ok.setAttribute('aria-disabled', 'true');
+    hand.append(label, input, close, ok);
+    ops.append(free, roll, hand);
+    body.append(hint, ops);
+    node.append(meta, body);
+    return node;
+}
+
+function ankeRoll(n) {
+    const buf = new Uint32Array(1);
+    const cap = Math.floor(0x100000000 / n) * n;
+    do { globalThis.crypto.getRandomValues(buf); } while (buf[0] >= cap);
+    return (buf[0] % n) + 1;
+}
+
+function bindAnke(overlay, node, view) {
+    const s = stateOf(overlay);
+    const win = winOf(node);
+    const anke = view.anke;
+    const n = anke.options.length;
+    const opts = [...node.querySelectorAll('.igs-fm-anke-opt')];
+    const rollBtn = node.querySelector('.is-roll');
+    const input = node.querySelector('.igs-fm-anke-input');
+    const ok = node.querySelector('.is-ok');
+    const rollText = `[roll 1d${n}]`;
+    const mark = (i) => { opts.forEach((o, j) => o.classList.toggle('is-pick', j === i)); s.ankePick = { key: anke.key, index: i }; };
+    const stop = () => { if (s.ankeTimer) { win.clearTimeout(s.ankeTimer); s.ankeTimer = 0; } };
+    const fill = (text) => {
+        const prev = s.ankeLine && s.ankeLine[anke.key] || '';
+        const cb = (s.view || view).onAnke;
+        if (!cb) return;
+        Promise.resolve(cb(text, prev)).then((r) => { if (!r || r.ok !== false) { s.ankeLine = { ...s.ankeLine, [anke.key]: text }; } }).catch(() => {});
+    };
+    const line = (i, suffix = '') => `【安价】${i + 1}：${anke.options[i]}${suffix}`;
+    const valid = () => { const v = input.value.trim(); return /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= n ? Number(v) : 0; };
+    const sync = () => { ok.setAttribute('aria-disabled', valid() ? 'false' : 'true'); };
+    input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, ''); sync(); });
+    input.addEventListener('keydown', (event) => { event.stopPropagation(); if (event.key === 'Enter') ok.click(); });
+    node.addEventListener('keydown', (event) => {
+        const row = event.target.closest && event.target.closest('.igs-fm-anke-opt');
+        if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.stopPropagation(); row.click(); }
+    });
+    node.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const t = event.target.closest ? event.target : null;
+        if (!t) return;
+        const row = t.closest('.igs-fm-anke-opt');
+        if (row) { stop(); rollBtn.textContent = rollText; const i = Number(row.dataset.pick); mark(i); fill(line(i)); return; }
+        if (t.closest('.is-free')) { stop(); rollBtn.textContent = rollText; opts.forEach((o) => o.classList.remove('is-pick')); s.ankePick = null; fill('【安价】'); return; }
+        if (t.closest('.is-ok')) {
+            const v = valid();
+            if (!v) return;
+            stop(); rollBtn.textContent = rollText; mark(v - 1); fill(line(v - 1, `（🎲1d${n}=${v}，手动）`));
+            return;
+        }
+        if (t.closest('.is-roll')) {
+            if (s.ankeTimer) return;
+            const result = ankeRoll(n);
+            const done = () => { s.ankeTimer = 0; mark(result - 1); rollBtn.textContent = `1d${n} → ${result}`; fill(line(result - 1, `（🎲1d${n}=${result}）`)); };
+            if (reducedMotion(overlay)) { done(); return; }
+            let step = 0;
+            const tick = () => {
+                if (step >= ANKE_ROLL_STEPS - 1) { done(); return; }
+                const at = (((result - 1 - (ANKE_ROLL_STEPS - 1 - step)) % n) + n) % n;
+                opts.forEach((o, j) => o.classList.toggle('is-pick', j === at));
+                rollBtn.textContent = `1d${n} → ${at + 1}`;
+                s.ankeTimer = win.setTimeout(tick, ANKE_ROLL_FIRST_MS * ANKE_ROLL_GROWTH ** step);
+                step += 1;
+            };
+            tick();
+        }
+    });
+}
+
+// 全部行到齐后把安价楼接在列表最末；列表重建时按记下的选择恢复高亮。
+function syncAnke(overlay, list, view, revealing) {
+    const s = stateOf(overlay);
+    const existing = list.querySelector('.igs-fm-anke');
+    const anke = view.anke;
+    if (!anke) { if (existing) existing.remove(); return; }
+    if (existing) {
+        if (existing.dataset.anke === JSON.stringify([anke.key, anke.question, anke.options])) return;
+        existing.remove();
+    }
+    if (view.upto < view.rows.length - 1) return;
+    const picked = s.ankePick && s.ankePick.key === anke.key ? s.ankePick.index : -1;
+    const node = ankeNode(overlay.ownerDocument, anke, picked, Boolean(revealing));
+    list.append(node);
+    bindAnke(overlay, node, view);
+    if (revealing) {
+        const show = () => node.classList.add('is-in');
+        revealing.then(show, show);
+    }
+}
+
 // 建一行，挂进它所在的楼；该楼最后一行到齐后再接点缀回帖。
 function buildRow(overlay, list, i, view, live) {
     const doc = overlay.ownerDocument;
@@ -580,6 +722,16 @@ function applyAttrs(overlay, root, view) {
     if (foot) { root.style.setProperty('--igs-log-foot', foot); overlay.style.setProperty('--igs-log-foot', foot); }
 }
 
+// 论坛纸面不透明，盖住时舞台整体暂停；双击隐藏或选项弹出时纸面透明，要放开舞台。
+export function syncForumStagePause(overlay) {
+    if (!overlay || typeof overlay.getAttribute !== 'function') return;
+    const root = overlay.querySelector('#igs-forum-reader');
+    const covering = overlay.getAttribute('data-igs-forum-reader') === 'on'
+        && !(root && root.hasAttribute('data-hidden'))
+        && !overlay.classList.contains('igs-options-visible');
+    setStagePauseReason(overlay, 'forum-reader', covering);
+}
+
 // view：{ floorKey, rows（已改写代号）, plan（forumPlan 结果）, head（{ title } 或 null）, board, upto（含）, live, settings, fonts, hidden,
 //   htmlOf, canSpeak, cardsOf, onTap, onPlay, onReplay, onSceneRow, liveRoom, onLiveRoom, sig（改变即重建） }
 // 返回 { revealing }：live 行出现完成时 resolve。
@@ -594,6 +746,7 @@ export function syncForumReader(overlay, view) {
         const root = overlay.querySelector('#igs-forum-reader');
         const watch = root && dockWatch.get(root);
         if (watch) { watch.observer.disconnect(); dockWatch.delete(root); }
+        syncForumStagePause(overlay);
         return { revealing: null };
     }
     const root = ensureRoot(overlay);
@@ -605,6 +758,7 @@ export function syncForumReader(overlay, view) {
     const s = stateOf(overlay);
     s.view = view;
     applyAttrs(overlay, root, view);
+    syncForumStagePause(overlay);
     syncLiveButton(overlay, root, view);
     syncAliasCard(overlay, root, view);
     const list = root.querySelector('.igs-fm-list');
@@ -628,6 +782,7 @@ export function syncForumReader(overlay, view) {
         if (live && built.post) revealing = reveal(overlay, built, view);
         s.rendered = i + 1;
     }
+    syncAnke(overlay, list, view, revealing);
     if (s.rendered !== before) {
         const fullText = before === 0 && showAll;
         const scroll = fullText ? root.querySelector('.igs-fm-scroll') : null;

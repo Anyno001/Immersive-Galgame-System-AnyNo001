@@ -168,13 +168,13 @@ import { finishLogReveal, isLogEditing, syncLogReader, toggleLogEdit } from './l
 import { finishChatReveal, isChatEditing, syncChatReader, toggleChatEdit } from './chat-reader-layer.js';
 import { chatSettingsOf, isChatCont } from './chat-reader-model.js';
 import { normalizeChatReaderSettings } from './chat-reader-settings.js';
-import { finishForumReveal, syncForumReader } from './forum-reader-layer.js';
+import { finishForumReveal, syncForumReader, syncForumStagePause } from './forum-reader-layer.js';
 import { normalizeStickerSettings } from '../../stickers/sticker-settings.js';
 import { personaOfTraits } from '../../stickers/sticker-persona.js';
 import { shotGroupsOf } from './forum-reader-chat-shot.js';
 import { storyClock } from './phone-sense.js';
 import { PHONE_CASE_DEFAULT, myPhoneOf } from './my-phone.js';
-import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
+import { FORUM_USER_KEY, applyFloorTags, ensureAliases, floorMarks, forumBoardOf, forumChainTail, forumTailCount, forumTailOf, forumWithTail, threadAt, forumFallbackTitle, forumKeyResolver, forumImagesOf, forumFixedOf, forumPairOf, forumPlan, forumNo, forumPoId, forumPrevRepliesOf, forumRepliesOf, forumAnkeOf, forumNameMap, forumRowsOf, forumSettingsOf, forumTagsOf, forumThreadById, replaceForumThread, resolvePoster, titleAt } from './forum-reader-model.js';
 import { createForumRegistry } from './forum-reader-registry.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
@@ -2273,6 +2273,7 @@ export function createIgsReaderHost(options = {}) {
         if (overlay && overlay.classList) {
             if (visible) overlay.classList.add('igs-options-visible');
             else overlay.classList.remove('igs-options-visible');
+            syncForumStagePause(overlay);
         }
         if (hud && hud.classList) {
             if (visible) hud.classList.add('igs-hud-suppressed');
@@ -3789,9 +3790,33 @@ ${row.key}`;
                 groups: groups.length ? groups : [[]],
             };
         };
+        // 安价楼：楼号接在本楼最后一条之后；安科关闭时不显示。
+        const anke = (() => {
+            const found = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
+            if (!found || !plan.length) return null;
+            const items = plan.flatMap((p) => [p, ...(p.replies || [])]);
+            const lastItem = items[items.length - 1];
+            const maxK = Math.max(...items.map((p) => p.k));
+            return { ...found, key: `${chatId}:${messageId}`, id: poId, no: forumNo(chatId, messageId, maxK + 1), time: lastItem.time || '' };
+        })();
+        const onAnke = async (text, replace) => {
+            if (state.activeReader !== current) return { ok: false, reason: 'reader-not-open' };
+            if (isEmbeddedReaderMode(current.mode)) {
+                return typeof options.fillEmptyInputText === 'function'
+                    ? options.fillEmptyInputText(text, { append: true, replace })
+                    : { ok: false, reason: 'missing-readable-input' };
+            }
+            const input = current.dom?.input;
+            if (!input) return { ok: false, reason: 'missing-reader-input' };
+            input.value = appendInputDraft(input.value, text, replace);
+            current.inputValue = input.value;
+            input.focus?.();
+            return { ok: true };
+        };
         return syncForumReader(overlay, {
+            anke, onAnke,
             floorKey: log.key,
-            sig: JSON.stringify([rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            sig: JSON.stringify([anke, rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
             rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,
             board: forumBoardOf(data, worldview),
             threadNo: (() => { const froms = thread ? (data.timeline || []).filter((e) => e.thread === thread.id).map((e) => Number(e.from)).filter(Number.isFinite) : []; return froms.length ? forumNo(chatId, Math.min(...froms), 0) : (plan[0] ? plan[0].no : ''); })(),
@@ -5698,17 +5723,17 @@ ${row.key}`;
         installReaderEscapeGuard(doc);
         const dbController = createDbPanelController(doc, options.global);
         // 「前往 / 使用」保留原草稿并追加命令，不发送消息。
-        const fillRecordDraft = async text => {
+        const fillRecordDraft = async (text, replace = '') => {
             const current = state.activeReader;
             if (!current) return { ok: false, reason: 'reader-not-open' };
             if (isEmbeddedReaderMode(current.mode)) {
                 return typeof options.fillEmptyInputText === 'function'
-                    ? options.fillEmptyInputText(text, { append: true })
+                    ? options.fillEmptyInputText(text, { append: true, replace })
                     : { ok: false, reason: 'missing-readable-input' };
             }
             const input = current.dom?.input;
             if (!input) return { ok: false, reason: 'missing-reader-input' };
-            input.value = appendInputDraft(input.value, text);
+            input.value = appendInputDraft(input.value, text, replace);
             current.inputValue = input.value;
             input.focus?.();
             return { ok: true };

@@ -6,6 +6,7 @@ import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log
 export const FORUM_POSTERS = Object.freeze(['auto', 'fixed', 'pair']);
 export const FORUM_THOUGHTS = Object.freeze(['show', 'hide']);
 export const FORUM_REPLIES = Object.freeze(['off', 'few', 'normal']);
+export const FORUM_ANKES = Object.freeze(['off', 'key', 'every']);
 export const FORUM_MOODS = Object.freeze(['off', 'all', 'random']);
 // 台词引号由插件补：原文包住整句的引号在取行时已剥掉，这里按设置统一加回。
 export const FORUM_QUOTE_MARKS = Object.freeze({ off: ['', ''], cn: ['“', '”'], jp: ['「', '」'] });
@@ -50,6 +51,7 @@ export function normalizeForumReaderSettings(value) {
         posterPair: posterList.length === 2 ? posterList : ['', ''],
         othersThoughts: FORUM_THOUGHTS.includes(src.othersThoughts) ? src.othersThoughts : 'hide',
         replies: FORUM_REPLIES.includes(src.replies) ? src.replies : 'normal',
+        anke: FORUM_ANKES.includes(src.anke) ? src.anke : 'off',
         perPost: clampInt(src.perPost, FORUM_PER_POST_MIN, FORUM_PER_POST_MAX, 8),
         fontSize: clampInt(src.fontSize, FORUM_FONT_MIN, FORUM_FONT_MAX, 14),
         lineHeight: clampInt(src.lineHeight, FORUM_LINE_MIN, FORUM_LINE_MAX, 175),

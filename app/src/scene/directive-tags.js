@@ -85,10 +85,10 @@ const STAT_INLINE_RE = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]/gi;
 // 回帖内容里允许嵌一层 [igs-sticker:…]（先试表情包标签，再按普通字符走），内嵌的 "]" 不会提前收口。
 // 内容里成对的非 igs 括号（如【丙】）整对吃下，不当作结尾。
 export const REPLY_BODY_SOURCE = '(?:[\\[【［]\\s*igs\\s*-?\\s*sticker[^\\]】］\\n]*[\\]】］]|[\\[【［](?!\\s*igs)[^\\[【［\\]】］\\n]*[\\]】］]|[^\\]】］\\n])*';
-const FORUM_INLINE_RE = new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*(?:forum|reply)\\s*[:：]${REPLY_BODY_SOURCE}(?:[\\]】］]|$)`, 'gim');
+const FORUM_INLINE_RE = new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*(?:forum|reply|anke)\\s*[:：]${REPLY_BODY_SOURCE}(?:[\\]】］]|$)`, 'gim');
 // 内置表情包标签 [igs-sticker:情绪名]：只有线上聊天与论坛三处显示，由分页层先提取成 page.stickers，其余出口一律剥离（不进 IGS_INLINE_DIRECTIVE_NAMES）。
 export const STICKER_INLINE_RE = /[\[【［]\s*igs\s*-?\s*sticker\s*[:：][^\]】］\n]*(?:[\]】］]|$)/gim;
-const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:|forum:|reply:|sticker:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
+const MARKER_LINE_RE = /^(?:\[igs-(?:scene:[^\]]*\]|fx:|combat:|challenge:|check:|dread:|forum:|reply:|anke:|sticker:)|[\[【]\s*igs\s*-?\s*stat\s*[:：]|<\/?\s*igs-combat\s*>)/i;
 
 export function hasIgsDirectiveTags(text) {
     return IGS_DIRECTIVE_START_RE.test(String(text || ''));

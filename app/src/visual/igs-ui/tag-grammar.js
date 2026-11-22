@@ -6,7 +6,7 @@ import { resolveTextFxPromptRule, textFxGrammarBlock } from './text-fx.js';
 import { bilingualGrammarBlock, normalizeBilingualSettings } from './bilingual-text.js';
 import { normalizeChatShowSettings, resolveChatShowGrammar, resolveChatShowPromptRule } from './chat-show-runtime.js';
 import { enabledFxTagKinds, FX_PROMPT_KEYS, normalizeFxPromptsSettings } from './fx-settings.js';
-import { forumPrevPromptText, forumPromptFor, forumRegistered } from './forum-reader-lines.js';
+import { forumAnkePromptText, forumPrevPromptText, forumPromptFor, forumRegistered } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
 import { stickerPromptBlock } from '../../stickers/sticker-prompt.js';
 import { enabledDailyFxKinds } from './fx-daily-model.js';
@@ -86,10 +86,13 @@ export function collectGrammarBlocks(readerSettings, { ancient: era = false } = 
     }
     // 论坛体：开着且允许登记时每轮都发（登记前给完整写法，登记后只留事实）；_forum 是宿主从聊天元数据读来的登记。
     const forum = normalizeForumReaderSettings(rs.forumReader);
+    const ankeText = forum.on ? forumAnkePromptText(forum.anke) : '';
     if (forum.on && forum.prompt) {
         const registered = forumRegistered(rs._forum);
         const prev = forum.promptRule ? '' : forumPrevPromptText(forum, rs._forumPrev);
-        blocks.push({ key: 'forum', full: [forumPromptFor(forum, rs._forum, registered), prev].filter(Boolean).join('\n'), index: '论坛体 igs-forum' });
+        blocks.push({ key: 'forum', full: [forumPromptFor(forum, rs._forum, registered), prev, ankeText].filter(Boolean).join('\n'), index: '论坛体 igs-forum' });
+    } else if (ankeText) {
+        blocks.push({ key: 'forum', full: ankeText, index: '论坛安价 igs-anke' });
     }
     // 内置表情包：线上聊天或论坛开着、且表情包开关开着才发（清单只写一次）。
     const stickerText = stickerPromptBlock(rs, { ancient });
