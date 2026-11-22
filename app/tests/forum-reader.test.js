@@ -14,7 +14,7 @@ import { createForumRegistry } from '../src/visual/igs-ui/forum-reader-registry.
 import { finishForumReveal, syncForumReader } from '../src/visual/igs-ui/forum-reader-layer.js';
 import { FORUM_READER_STYLE_TEXT } from '../src/visual/igs-ui/forum-reader-style.js';
 import { collectGrammarBlocks } from '../src/visual/igs-ui/tag-grammar.js';
-import { stripMarkerDirectives } from '../src/scene/directive-tags.js';
+import { canonicalizeIgsDirectives, stripMarkerDirectives } from '../src/scene/directive-tags.js';
 
 const page = (textType, segmentBody, extra = {}) => ({ textType, segmentBody, bubbleSpeaker: '', bubbleMood: '', sceneStateForBg: null, ...extra });
 
@@ -492,4 +492,10 @@ test('楼主文本框：留空自动、一人锁定、两人交替；旧按钮�
     assert.equal(threadAt(after, 5).po.key, '霜见');
     const block = collectGrammarBlocks({ forumReader: { on: true, posterText: '霜见' }, _forum: after }).find((b) => b.key === 'forum');
     assert.match(block.full, /楼主是霜见，不要改/);
+});
+
+test('半角 [ 开头、「】」收口的台词不漏出 】，台词里成对的【门】不截断', () => {
+    assert.equal(canonicalizeIgsDirectives('[igs-char:李哪吒|慌乱|白衬衫|……怎么里头这么怪……喂！】'), '[igs-char:李哪吒|慌乱|白衬衫|……怎么里头这么怪……喂！]');
+    assert.equal(canonicalizeIgsDirectives('[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！】'), '[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！]');
+    assert.equal(canonicalizeIgsDirectives('[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！]'), '[igs-char:李哪吒|慌乱|白衬衫|……怎么【门】里头这么怪……喂！]');
 });

@@ -103,11 +103,35 @@ const LOOSE_DIRECTIVE_RE = new RegExp(
     'gi',
 );
 
+// 半角 "[" 开头却用「】」收口（[igs-char:名|表情|台词】）：没有 "]" 时，取第一个不成对的「】/］」当结尾，台词里成对的【门】照旧保留。
+function unpairedWideCloseAt(body) {
+    let depth = 0;
+    for (let i = 0; i < body.length; i++) {
+        const ch = body[i];
+        if (ch === '【' || ch === '［') depth++;
+        else if (ch === '】' || ch === '］') {
+            if (!depth) return i;
+            depth--;
+        }
+    }
+    return -1;
+}
+
 export function canonicalizeIgsDirectives(text) {
     return normalizeClosedIgsDialogueLines(text).replace(LOOSE_DIRECTIVE_RE, (all, name, body, close, wideName, wideBody, wideClose) => {
-        const inner = String(name ? body : wideBody);
+        let inner = String(name ? body : wideBody);
+        let closed = name ? close : wideClose;
+        let tail = '';
+        if (name && !closed) {
+            const at = unpairedWideCloseAt(inner);
+            if (at >= 0) {
+                tail = canonicalizeIgsDirectives(inner.slice(at + 1));
+                inner = inner.slice(0, at);
+                closed = ']';
+            }
+        }
         const fields = (inner.includes('|') ? inner : inner.replace(/｜/g, '|')).split('|').map((field) => field.trim());
-        return `[igs-${String(name || wideName).toLowerCase()}:${fields.join('|')}${(name ? close : wideClose) ? ']' : ''}`;
+        return `[igs-${String(name || wideName).toLowerCase()}:${fields.join('|')}${closed ? ']' : ''}${tail}`;
     });
 }
 
