@@ -1,4 +1,5 @@
 import { storyClock } from './phone-sense.js';
+import { abilityKeyOf } from '../../combat/abilities.js';
 import { feedStableCount } from '../../scene/feed-platforms.js';
 import { FORUM_BOARDS, FORUM_BOARD_DEFAULT, FORUM_IMAGE_REF_LINES, FORUM_KAOMOJI, FORUM_KAOMOJI_ONLY_RATE, FORUM_KAOMOJI_TAIL_RATE, FORUM_LINES } from './forum-reader-lines.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
@@ -245,15 +246,46 @@ export function forumRepliesOf(source) {
     return out;
 }
 
-// 安价标签 [igs-anke:问题|选项1|选项2|…]：取本楼最后一条，至少 2 个选项，最多 8 个；返回 { question, options } 或 null。
+const ANKE_KINDS = { 多数决: 'vote', 投票: 'vote', 安价: 'anchor', 征集: 'collect', 判定: 'check' };
+const ANKE_CHECK_LINE = 50;
+
+// 安科标签 [igs-anke:形式|问题|…]：取本楼最后一条。形式 多数决（投票）/ 安价 / 征集 / 判定；第一格不是形式名按旧格式 [igs-anke:问题|选项…]（kind='pick'）。
+// 选项 2–8 个；判定 [igs-anke:判定|问题|对象|属性|成功线]：1–99 的数字是成功线，第一个非数字是对象，第二个非数字解析成属性键。
 export function forumAnkeOf(source) {
     let found = null;
     for (const m of String(source || '').matchAll(new RegExp(`[\\[【［]\\s*igs\\s*-?\\s*anke\\s*[:：](${REPLY_BODY_SOURCE})[\\]】］]`, 'gi'))) {
         const fields = m[1].split(/[|｜]/).map((f) => f.trim()).filter(Boolean);
-        if (fields.length < 3) continue;
-        found = { question: fields[0].slice(0, 80), options: fields.slice(1, 9).map((o) => o.slice(0, 120)) };
+        const kind = ANKE_KINDS[fields[0]];
+        if (!kind) {
+            if (fields.length < 3) continue;
+            found = { kind: 'pick', question: fields[0].slice(0, 80), options: fields.slice(1, 9).map((o) => o.slice(0, 120)) };
+            continue;
+        }
+        const rest = fields.slice(1);
+        if (!rest.length) continue;
+        if (kind === 'check') {
+            const extra = rest.slice(1);
+            const num = extra.find((f) => /^\d{1,2}$/.test(f) && Number(f) >= 1);
+            const words = extra.filter((f) => !/^\d+$/.test(f));
+            found = { kind, question: rest[0].slice(0, 80), options: [], actor: (words[0] || '楼主').slice(0, 20), ability: abilityKeyOf(words[1]) || null, line: num ? Number(num) : ANKE_CHECK_LINE };
+            continue;
+        }
+        if (rest.length < 3) continue;
+        found = { kind, question: rest[0].slice(0, 80), options: rest.slice(1, 9).map((o) => o.slice(0, 120)) };
     }
     return found;
+}
+
+// 一个安科的锁键：同一楼里内容不同（swipe 重写）就是新安科。
+export function forumAnkeLockKey(chatId, messageId, anke) {
+    return `${chatId}:${messageId}:${forumHash(JSON.stringify([anke.kind, anke.question, anke.options, anke.actor, anke.ability, anke.line]))}`;
+}
+
+export function forumMinutesAfter(time, minutes) {
+    const m = String(time || '').match(/^(\d{2}):(\d{2})$/);
+    if (!m) return '';
+    const total = (Number(m[1]) * 60 + Number(m[2]) + minutes) % (24 * 60);
+    return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
 }
 
 // 上一轮 AI 回帖：从当前楼往前找最近一个有 [igs-reply] 的 AI 楼。chat 为酒馆聊天数组。
@@ -578,7 +610,7 @@ export function forumFileName(seed) {
 // 楼层计划：把行分成若干 PO 主楼（超过 perPost 行或换场景另起一楼），每楼之后排 0–2 条点缀回帖。
 // 返回 posts[]：{ start, end, k, no, id, time, replies:[{ k, no, id, time, text, quote, ref }] }。纯函数，同输入同输出。
 export function forumPlan(rows, ctx) {
-    const { chatId = '', messageId = 0, settings, poId = '', threadId = '', sceneTime = '', sendDate = '', aiReplies = [], images = null, posterKind = '', threadStart = false, prevReplies = [] } = ctx;
+    const { chatId = '', messageId = 0, settings, poId = '', threadId = '', sceneTime = '', sendDate = '', aiReplies = [], images = null, posterKind = '', threadStart = false, prevReplies = [], reserve = 0 } = ctx;
     const st = normalizeForumReaderSettings(settings);
     const seedBase = `${chatId}:${messageId}`;
     const shown = rows.map((row, i) => ({ row, i })).filter(({ row }) => !row.hidden);
@@ -645,6 +677,13 @@ export function forumPlan(rows, ctx) {
         const text = rows.slice(post.start, post.end + 1).filter((r) => !r.hidden).map((r) => r.text).filter(Boolean);
         const tail = text.length ? text[text.length - 1] : '';
         const out = { start: post.start, end: post.end, k: own, no: forumNo(chatId, messageId, own), id: poId, time: clock(own), replies: [] };
+        // 安科楼与候选楼排在本楼最后一个主楼之后、AI 回帖之前：先把楼号占住，回帖的楼号顺延。
+        if (reserve > 0 && n === last) {
+            out.reserved = Array.from({ length: reserve }, (_, r) => ({
+                k: k + r, no: forumNo(chatId, messageId, k + r), id: r === 0 ? poId : forumPasserId(chatId, forumHash(`${seedBase}:p${k + r}`), threadId), time: forumMinutesAfter(out.time, r + 1),
+            }));
+            k += reserve;
+        }
         if (written.length) {
             for (const slot of slotsAt[n]) {
                 const no = forumNo(chatId, messageId, k);
@@ -663,7 +702,7 @@ export function forumPlan(rows, ctx) {
             return out;
         }
         const count = perGap[1] === 0 ? 0 : feedStableCount(`${seedBase}:r${n}`, perGap[0], perGap[1]);
-        for (let r = 0; r < count && k < BUILTIN_SLOTS; r++) {
+        for (let r = 0; r < count && k - reserve < BUILTIN_SLOTS; r++) {
             if (post.image) {
                 const own = posterKind === 'witness' ? FORUM_LINES.imageWitness : posterKind === 'char' ? FORUM_LINES.imageSelf : [];
                 const pool = [...FORUM_LINES.image, ...own].filter((line) => !used.has(line));
@@ -690,6 +729,7 @@ export function forumPlan(rows, ctx) {
         const target = item.to > 0 && item.to !== j + 1 ? made[item.to - 1] : null;
         if (target && made[j]) made[j].ref = target.no;
     });
+    if (result.length) result[result.length - 1].nextK = k;
     return result;
 }
 
