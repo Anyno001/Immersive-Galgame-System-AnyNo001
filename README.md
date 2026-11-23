@@ -410,14 +410,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ## 项目目标
 
-本项目目标是把原 Immersive Galgame System 脚本升级为一个可扩展的 Immersive Galgame System 运行时：
-
-- 继续保留 Immersive Galgame System 已有的阅读器、魔法棒入口、正文解析、图像 API、外部插图扩展适配和移动/桌面阅读模式。
-- 使用 GitHub 远程 bundle 发布主程序，酒馆内只导入小型自动更新 loader。
-- 建立能力分组导入系统，不提供独立总 Mod 管理页；生图插件、选项组件、UI 预设、背景/立绘资源、正文正则预设都在各自页面管理。
-- 建立 `Mod / Preset / Pack` 三层边界：Mod 扩展代码能力，Preset 切换配置，Pack 管理背景、立绘、头像和本地持久资源。
-- 提供 shujuku 表格可编辑前端，但不重复 shujuku 自带的模板导入能力。
-- 提供 AI 友好的模块契约、fixtures、模拟测试与工作流，方便后续由 AI 逐步实现。
+把原 Immersive Galgame System 脚本升级为可扩展的运行时：保留阅读器、正文解析、生图接入与各阅读模式；主程序以 GitHub 远程 bundle 发布，酒馆内只导入小型自动更新 loader；按 `Mod / Preset / Pack` 三层划分代码能力、配置与素材。
 
 ## 目录约定
 
@@ -487,23 +480,9 @@ projects/Immersive Galgame System/
 
 ## 修改流程
 
-本项目当前绕过奶龙工具箱发布项目结构，只保留已确认的 Immersive Galgame System 架构：
+修改前先读 `AGENTS.md`（协作与验证规则）和目标模块的 `CONTRACT.md`；涉及打包、发布、loader 时读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。项目变更只记在本 README 的更新日志里。
 
-1. 修改前先读 `AGENTS.md`、`docs/AI_WORKFLOW.md`、`功能总集表.md` 和目标模块的 `CONTRACT.md`。
-2. 需要版本策划书时放入 `plan/`，文件名使用 `v版本号-主题.md`；历史策划中的全量门禁命令不再是现行执行要求。
-3. 功能代码只进入 `app/src/<能力模块>/`。
-4. shujuku 数据读写进入 `app/src/data/shujuku/`，表格 UI 进入 `app/src/shujuku-panel/`。
-5. 通用图片池进入 `app/src/media/`，背景、立绘、生图业务分别进入 `backgrounds/`、`characters/`、`generated-images/`。
-6. 跨模块共享数据结构进入 `app/src/schemas/`；模型提示词和工作流 schema 继续放在 `app/src/prompts/schemas/`。
-7. 架构、API、预设、场景规则、样式系统、发布说明和 AI 协作说明只进入 `docs/`。
-8. 测试数据进入 `app/fixtures/`，模拟测试进入 `app/tests/`。
-9. 在 `app/` 使用 `node --test tests/<文件>.test.js` 执行与问题直接相关的已有行为回归；不维护结构、源码字面量和固定样式数值清单。
-10. `npm.cmd run build`、`build:fonts`、`build:loader`、`package:loader` 与 `preview:records` 保留，不串接全量检查。
-11. 模拟结果不能证明真实酒馆和手机已验收；只报告实际验证范围。
-12. 不要走奶龙工具箱流程校验：本项目不得运行奶龙工具箱 `pack-project`、`verify-project`、`validate`、`check-refs` 作为验收，除非用户明确要求重新接入工具箱流程。
-13. 项目级变更只记录在本 README，不写入工具箱 `CHANGELOG.md`。
-14. 涉及打包、发布、上传、loader、远程 bundle 或酒馆助手脚本 JSON 时，必须先读 `docs/PACKAGING_WORKFLOW.md` 与 `docs/RELEASE.md`。
-15. `loader/` 只放自动更新入口；阅读器、设置面板、shujuku、Provider、Mod、Preset、Pack 等业务逻辑必须留在 `app/src/`。
+## 更新日志
 
 ### v0.36.74 - 场景继承、等待过场与检查清单精简
 
