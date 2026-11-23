@@ -179,6 +179,8 @@ import { createForumRegistry } from './forum-reader-registry.js';
 import { createAnkeStore } from './forum-anke-store.js';
 import { ankeVisibleVotes, ankeVoteOf } from './forum-anke-play.js';
 import { normalizeForumReaderSettings } from './forum-reader-settings.js';
+import { forumBlocksImages } from '../../generated-images/image-block.js';
+import { applyForumFxBlock } from './forum-fx-block.js';
 import { normalizeMangaFxSettings, pickMangaSymbol } from './fx-settings.js';
 import { nextBilingualDisplay, normalizeBilingualSettings, resolveBilingualDisplay } from './bilingual-text.js';
 
@@ -3861,6 +3863,16 @@ ${row.key}`;
             const bonus = d20Bonus(abilities, key);
             return bonus === null ? null : Math.round(bonus) * 5;
         };
+        // 检定对象是主角/楼主(玩家)/{{user}} 且 coc7 有调查员档时，技能值取档里的生效值，否则沿用标签里的值。
+        const ankeCocValue = (actor, skill, fallback) => {
+            if (typeof options.statsCocSkill !== 'function') return fallback;
+            const text = String(actor || '').trim();
+            const isHero = text === '楼主' ? poster.kind === 'user' : (/^\{\{\s*user\s*\}\}$/i.test(text) || text === '我' || text === '主角' || ankeHeroNames.includes(text));
+            if (!isHero) return fallback;
+            let v = null;
+            try { v = options.statsCocSkill(skill); } catch (_) { v = null; }
+            return Number.isFinite(v) && v > 0 ? v : fallback;
+        };
         const anke = (() => {
             if (!ankeFound || !plan.length) return null;
             const key = forumAnkeLockKey(chatId, messageId, ankeFound);
@@ -3881,6 +3893,7 @@ ${row.key}`;
                 floors: slots.slice(1).map((r, i) => ({ no: r.no, id: r.id, time: r.time, text: ankeFound.options[i] })),
                 actorLabel: ankeFound.actor === '楼主' && poster.kind === 'char' ? poster.key : ankeFound.actor,
                 bonus: ankeFound.kind === 'check' ? ankeBonus(ankeFound.actor, ankeFound.ability) : null,
+                ...(ankeFound.kind === 'coc' ? { value: ankeCocValue(ankeFound.actor, ankeFound.skill, ankeFound.value) } : {}),
                 visible: ankeFound.kind === 'vote' ? ankeVisibleVotes(count, aiReplies2.map((p) => p.text)) : [],
                 voters: ankeFound.kind === 'vote' ? aiReplies2.map((p) => ({ id: p.id, n: ankeVoteOf(p.text, count) })).filter((v) => v.n) : [],
                 passers: passers.length ? passers : [0, 1, 2, 3, 4, 5].map((i) => forumPasserId(chatId, i, threadId)),
@@ -6720,6 +6733,12 @@ ${row.key}`;
         const overlay = current && current.dom && current.dom.overlay;
         const service = options.generatedAssets;
         if (!service) return;
+        // 论坛体屏蔽生图：不入库剧情衣装，也不弹待确认素材（留着的项取消屏蔽后照常问）。
+        if (forumBlocksImages(snapshot && snapshot.readerSettings)) {
+            const hidden = current && current.dom && current.dom.overlay && current.dom.overlay.querySelector && current.dom.overlay.querySelector('#igs-asset-review');
+            if (hidden) hidden.setAttribute('hidden', '');
+            return;
+        }
         const context = storyOutfitContext();
         if (current.streamPhase !== 'streaming' && storyOutfits && context && snapshot.readerSettings?._sceneAssets?.enabled) {
             const assets = effectiveSceneAssets(context.root, context.scopeKey);
@@ -7118,7 +7137,7 @@ ${row.key}`;
         const worldview = resolveWorldview(sceneAssets);
         setCharacterNameFallback(!sceneAssets || sceneAssets.nameFallback !== false);
         readerSettings.dialogSkin = effectiveDialogSkin(readerSettings.dialogSkin, sceneAssets);
-        Object.assign(readerSettings, applyFxWorldview(readerSettings, worldview, { carryPhone: Boolean(sceneAssets && sceneAssets.carryPhone === true) }));
+        Object.assign(readerSettings, applyForumFxBlock(applyFxWorldview(readerSettings, worldview, { carryPhone: Boolean(sceneAssets && sceneAssets.carryPhone === true) })));
         // 演出与聊天层据此换皮：_ancientEra 保留给既有古风分支，_worldview 供西幻 / 科幻 / 末日换皮。
         readerSettings._ancientEra = worldview === 'ancient';
         // 随身手机：线上聊天换回手机样式（chat-layer 读这个标记）。

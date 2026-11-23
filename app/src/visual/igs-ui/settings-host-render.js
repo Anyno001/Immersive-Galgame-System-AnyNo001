@@ -315,7 +315,10 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 try { return options.statsMappings(stats.push.mappings); } catch (error) { return { ok: false, reason: 'stats-push-read-failed', detail: String(error && error.message || error) }; }
             })();
             return buildStatsPageValues({
-                stats, chat, archive, archiveError, mappings, advancedOpen, noteDrafts: asyncState.statsNoteDrafts || null,
+                stats, chat, archive, archiveError, mappings, advancedOpen, coc: {
+                    sheet: (() => { try { return typeof options.statsCoc === 'function' && !idx ? options.statsCoc('sheet') : null; } catch (error) { return null; } })(),
+                    draft: asyncState.cocDraft || null, saving: Boolean(asyncState.cocSaving), error: asyncState.cocError || '',
+                }, noteDrafts: asyncState.statsNoteDrafts || null,
                 combatOn: Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true),
                 worldview: resolveWorldview(worldviewAssets),
             });

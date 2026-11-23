@@ -54,6 +54,13 @@ export function createPublicApi(app) {
                 return Array.isArray(rows) ? JSON.parse(JSON.stringify(rows)) : [];
             } catch (error) { return []; }
         },
+        // 调查员快照（仅 coc7）：{ ruleset, name, sheet, attrs, luck, san, skills }；出错、未启用、非 coc7 返回 null。
+        investigator() {
+            try {
+                const snap = app.statsReaders && typeof app.statsReaders.investigator === 'function' ? app.statsReaders.investigator() : null;
+                return snap && typeof snap === 'object' ? JSON.parse(JSON.stringify(snap)) : null;
+            } catch (error) { return null; }
+        },
         // 角色对主角的好感快照：[{ name, aliases, value(好感), dims:{好感,信任,了解,芥蒂,欲望}, stage, romance }]；出错、未启用数值系统返回 []。
         favor() {
             try {

@@ -10,6 +10,7 @@ const KIND_OF = {
     testForReader: () => 'cg',
     edit: () => 'edit',
 };
+export const IMAGE_ENTRY_METHODS = Object.freeze(Object.keys(KIND_OF));
 
 function failureText(result) {
     if (!result) return '没有返回结果';

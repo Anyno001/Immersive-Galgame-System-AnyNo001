@@ -74,12 +74,14 @@ export function fallbackDirectives(narration, directives, { frozen = false } = {
 
 // 成长：打过勾的技能掷 d100，大于当前值则 +1d10（不超过 90），然后清勾。
 // aptitude 只在 strengthRev ≥ 2 时传入（'平庸' / '出众' / '天纵'）；没有时按旧规则，随机数消耗与旧楼一致。
-function growSkills(skills, random, changes, aptitude, retry = false) {
+function growSkills(skills, random, changes, aptitude, retry = false, cap = SKILL_MAX) {
     let next = skills;
     for (const [name, skill] of Object.entries(skills)) {
         if (!skill.marked) continue;
+        // CoC 调查员档（上限 99）：克苏鲁神话、信用评级不参加成长检定，只清勾。
+        if (cap > SKILL_MAX && COC_NO_GROWTH.has(name)) { next = { ...next, [name]: { value: skill.value, marked: false } }; continue; }
         const passed = aptitude ? growthPasses(skill.value, aptitude, random, retry) : rollOver(skill.value, random).passed;
-        const to = passed ? Math.min(SKILL_MAX, skill.value + (aptitude ? growthGain(aptitude, random) : rollDie(10, random))) : skill.value;
+        const to = passed ? Math.min(cap, skill.value + (aptitude ? growthGain(aptitude, random) : rollDie(10, random))) : skill.value;
         if (to !== skill.value) changes.push({ source: 'daily', target: '主角', key: name, from: skill.value, to, note: '成长' });
         next = { ...next, [name]: { value: to, marked: false } };
     }
@@ -88,7 +90,8 @@ function growSkills(skills, random, changes, aptitude, retry = false) {
 
 // NPC 成长：打过勾的技能同样掷 d100，成长概率减半（另掷一次对半），幅度与主角相同；没有勾的角色不消耗随机数。
 // skillValueOf(state, 名, 技能) 取当前值（含已有成长）；没有它时只清勾。
-function growNpcSkills(state, random, changes, skillValueOf, aptitudeOf) {
+const COC_NO_GROWTH = new Set(['克苏鲁神话', '信用评级']);
+function growNpcSkills(state, random, changes, skillValueOf, aptitudeOf, cap = SKILL_MAX) {
     let characters = state.characters;
     for (const [name, character] of Object.entries(state.characters)) {
         const growth = character.skillGrowth;
@@ -102,7 +105,7 @@ function growNpcSkills(state, random, changes, skillValueOf, aptitudeOf) {
                 const from = Number(skillValueOf(state, name, skill)) || 0;
                 const tier = typeof aptitudeOf === 'function' ? aptitudeTier(aptitudeOf(name)) : null;
                 if ((tier ? growthPasses(from, tier, random) : rollOver(from, random).passed) && random() < 0.5) {
-                    const to = Math.min(Math.max(SKILL_MAX, from), from + (tier ? growthGain(tier, random) : rollDie(10, random)));
+                    const to = Math.min(Math.max(cap, from), from + (tier ? growthGain(tier, random) : rollDie(10, random)));
                     gained = to - from;
                     if (gained > 0) changes.push({ source: 'daily', target: name, key: skill, from, to, note: '成长' });
                 }
@@ -258,7 +261,7 @@ function expensesDay(state, statusBox, day, days, { expenses, changes, flags, re
 // 日结算：体力恢复（熬夜后只到 70）、压力 −10、技能成长、好感冷却、每日上限清零。
 // 生命不随过夜恢复（合并计划 Q4）：只有回复标签与战斗结果改变伤势。
 // rev ≥ 2：悟性（aptitudeOf）、主角离体（体力不恢复、好感冷却暂停）、随身角色不冷却（traits）、芥蒂淡忘与欲望淡去（romanceSeen 用于判恋爱对象）。
-export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox, expenses, flags, currency, diagnostics } = {}) {
+export function settleDay(state, { skillCap = SKILL_MAX, random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox, expenses, flags, currency, diagnostics } = {}) {
     const day = state.clock.day + 1;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -271,7 +274,7 @@ export function settleDay(state, { random, changes = [], skillValueOf, rev = 0, 
     };
     pushBarChanges(bars, nextBars, changes, '日结算', rev2, rev2 ? 1 : 0);
     let next = withBars(state, nextBars);
-    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw));
+    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw), skillCap);
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, 1, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, 1, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, '日结算', { stress: true, rev2: rev2 ? { day, days: 1, present } : null }) };
     next = withClock(next, { day, floorsSinceDay: 0, stayedUp: false, challenges: 0, ...(state.clock.luckyUsed ? { luckyUsed: false } : {}) });
@@ -299,9 +302,9 @@ function advanceStatusBox(box, day, days, changes) {
 // 成长次数累计进 protagonist.growth（D&D 资历档由它推出，v2 §4.2）。
 const diligentOf = (state, rev2, traits, nsfw) => rev2 && hasTrait(state, traitCatalogOf(traits, nsfw), '主角', '努力家');
 
-function grow(state, random, changes, skillValueOf, aptitudeOf, diligent = false) {
+function grow(state, random, changes, skillValueOf, aptitudeOf, diligent = false, cap = SKILL_MAX) {
     const before = changes.length;
-    const next = withSkills(state, growSkills(state.protagonist.skills, random, changes, typeof aptitudeOf === 'function' ? aptitudeTier(aptitudeOf('主角')) : null, diligent));
+    const next = withSkills(state, growSkills(state.protagonist.skills, random, changes, typeof aptitudeOf === 'function' ? aptitudeTier(aptitudeOf('主角')) : null, diligent, cap));
     const gained = changes.slice(before).filter((c) => c.note === '成长').length;
     const hero = gained ? { ...next, protagonist: { ...next.protagonist, growth: (Number(next.protagonist.growth) || 0) + gained } } : next;
     return growNpcSkills(hero, random, changes, skillValueOf, aptitudeOf);
@@ -319,7 +322,7 @@ export function settleRest(state, { changes = [], frozen = false } = {}) {
 
 // 时间跳跃：体力回满；冷却最多扣到阶段下限；成长只掷一次。天数已在解析时限到 30 天。
 // rev ≥ 2：天数上限 3650（解析阶段决定），冷却、受伤天数、芥蒂淡忘、欲望淡去都按天数一次算完；跳跃楼在场角色（present）不冷却。
-export function settleSkip(state, days, { random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox, expenses, flags, currency, diagnostics } = {}) {
+export function settleSkip(state, days, { skillCap = SKILL_MAX, random, changes = [], skillValueOf, rev = 0, aptitudeOf, traits, nsfw = false, present, romanceSeen, env, statusBox, expenses, flags, currency, diagnostics } = {}) {
     const day = state.clock.day + days;
     const { bars } = state.protagonist;
     const rev2 = Number(rev) >= 2;
@@ -328,7 +331,7 @@ export function settleSkip(state, days, { random, changes = [], skillValueOf, re
     const nextBars = { ...(rev2 ? relaxStress(bars, days) : bars), stamina: detached ? bars.stamina : 100 };
     pushBarChanges(bars, nextBars, changes, `跳过${days}天`, rev2, rev2 ? days : 0);
     let next = withBars(state, nextBars);
-    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw));
+    next = grow(next, random, changes, skillValueOf, rev2 ? aptitudeOf || (() => '平庸') : null, diligentOf(next, rev2, traits, nsfw), skillCap);
     const cooled = rev2 ? coolCharactersRev2(next.characters, day, days, changes, { detached, traits, nsfw, present, romanceSeen }) : coolCharacters(next.characters, day, days, changes);
     next = { ...next, characters: recoverCharacterBars(cooled, changes, `跳过${days}天`, { stress: rev2, rev2: rev2 ? { day, days, present } : null }) };
     const due = Number(rev) >= 3 ? dueSulks(statusBox, day, days) : [];

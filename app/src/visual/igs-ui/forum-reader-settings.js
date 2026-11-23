@@ -1,5 +1,6 @@
 import { forumAnkePromptText, forumPromptText } from './forum-reader-lines.js';
 import { FORUM_MODES, FORUM_PALETTE_IDS } from './forum-reader-palettes.js';
+import { normalizeForumFxKeep } from './forum-fx-block.js';
 import { LOG_PER_TAP_MAX, LOG_PER_TAP_MIN, LOG_REVEALS, LOG_SPEEDS } from './log-reader-settings.js';
 
 // 论坛体阅读模式的设置：与纵向、线上聊天互斥并列。标题 / 板块 / 代号按聊天存（chatMetadata），不在这里。
@@ -67,6 +68,11 @@ export function normalizeForumReaderSettings(value) {
         mood: FORUM_MOODS.includes(src.mood) ? src.mood : src.showMood === true ? 'all' : 'off',
         quote: Object.hasOwn(FORUM_QUOTE_MARKS, src.quote) ? src.quote : 'off',
         foldNsfw: src.foldNsfw !== false,
+        // 屏蔽生图：论坛体开着时所有出图与素材入库都不跑，不改生图页的设置。
+        noImages: src.noImages === true,
+        // 屏蔽演出：没勾「保留」的演出视为关（名单见 forum-fx-block.js）。
+        noFx: src.noFx === true,
+        keepFx: normalizeForumFxKeep(src.keepFx),
         narrIndent: src.narrIndent !== false,
         chainTail: src.chainTail !== false,
         sayInk: src.sayInk === 'name' ? 'name' : 'body',

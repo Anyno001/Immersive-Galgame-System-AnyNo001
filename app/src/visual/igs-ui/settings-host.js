@@ -1,4 +1,5 @@
 import { ensureAliases, forumPoFromText } from './forum-reader-model.js';
+import { parseCocSheet, rollCocAttributes } from '../../scene/stats/coc-investigator.js';
 import { clearNaiQuota, syncNaiQuota, querySettingsNaiQuota, renderNaiQuota } from './settings-nai-quota.js';
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
@@ -848,6 +849,66 @@ export function createSettingsHost(deps) {
         return { ok: true, values };
     }
 
+    // CoC 调查员档界面动作。草稿记在 asyncState.cocDraft（choose / roll / alloc 三步），保存走 options.statsCoc。
+    async function runCocAction(kind) {
+        const panel = state.activeSettings;
+        const coc = typeof options.statsCoc === 'function' ? options.statsCoc : null;
+        if (!panel || !coc) return { ok: false, reason: 'stats-runtime-missing' };
+        const as = panel.asyncState;
+        const redraw = () => { if (state.activeSettings === panel) rerenderSettings(); };
+        const save = async (job) => {
+            as.cocSaving = true; as.cocError = '';
+            redraw();
+            let res;
+            try { res = await job(); } catch (error) { res = { ok: false, reason: String((error && error.message) || error) }; }
+            as.cocSaving = false;
+            if (res && res.ok) delete as.cocDraft; else as.cocError = ({ ruleset: '数值规则不是CoC第七版。', invalid: '车卡数据不完整，请检查八项属性。', 'stats-attribute-conflict': '属性正被其他操作修改，请稍后重试。', 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法写入属性。', 'stats-runtime-missing': '数值系统尚未就绪。' })[res && res.reason] || '请稍后重试。';
+            redraw();
+            return res || { ok: false };
+        };
+        if (kind === 'redo') { as.cocDraft = { stage: 'choose' }; as.cocError = ''; redraw(); return { ok: true }; }
+        if (kind === 'cancel') { delete as.cocDraft; as.cocError = ''; redraw(); return { ok: true }; }
+        if (kind === 'roll') {
+            const rolled = rollCocAttributes();
+            as.cocDraft = { ...(as.cocDraft || {}), stage: 'roll', attrs: rolled.attrs, luck: rolled.luck };
+            as.cocError = ''; redraw();
+            return { ok: true };
+        }
+        if (kind === 'alloc') {
+            const d = as.cocDraft;
+            if (!d || !d.attrs) return { ok: false };
+            as.cocDraft = { occupation: '', occFormula: 'edu4', occPoints: 0, alloc: {}, ...d, stage: 'alloc' };
+            redraw();
+            return { ok: true };
+        }
+        if (kind === 'clear') {
+            if (!await settingsDialogs.confirm('清除调查员档？属性、技能分配都会删除，之后检定回到六维算法。', { okLabel: '清除' })) return { ok: true, cancelled: true };
+            return save(() => coc('clear'));
+        }
+        if (kind === 'apply') {
+            const d = as.cocDraft;
+            if (!d || d.stage !== 'alloc') return { ok: false };
+            return save(() => coc('apply', { v: 1, attrs: d.attrs, luck: d.luck, occupation: d.occupation, occFormula: d.occFormula, occPoints: d.occPoints, alloc: d.alloc, san: d.attrs.意志, source: 'roll', at: Date.now() }));
+        }
+        if (kind === 'paste') {
+            const text = await settingsDialogs.edit('粘贴车卡文本（骰娘 .st 格式或属性列表）：', '', { okLabel: '解析' });
+            if (text == null || !String(text).trim()) return { ok: true, cancelled: true };
+            const p = parseCocSheet(text);
+            const list = (obj) => Object.entries(obj).map(([k, v]) => `${k}${v}`).join('，');
+            let attrs = p.attrs; let luck = p.luck;
+            const preview = () => `属性：${list(attrs) || '无'}\n幸运：${luck ?? '未给出（按 50）'}\n理智：${p.san ?? '未给出（按意志）'}\n技能（${Object.keys(p.skills).length} 项）：${list(p.skills) || '无'}\n认不出的片段：${p.unknown.length ? p.unknown.join('、') : '无'}`;
+            if (p.missing.length) { await settingsDialogs.alert(`${preview()}\n缺少属性：${p.missing.join('、')}，补全后才能应用。`); return { ok: true, cancelled: true }; }
+            if (p.legacy6) {
+                if (!await settingsDialogs.confirm('可能是第六版车卡（属性 3–18），是否按×5换算为 1–99？选「取消」则不应用。', { okLabel: '按×5换算' })) return { ok: true, cancelled: true };
+                attrs = Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, Math.min(99, v * 5)]));
+                if (luck != null && luck <= 18) luck *= 5;
+            }
+            if (!await settingsDialogs.confirm(preview(), { okLabel: '应用' })) return { ok: true, cancelled: true };
+            return save(() => coc('apply', { v: 1, attrs, luck: luck ?? 50, occupation: '', occFormula: 'edu4', occPoints: 0, totals: p.skills, san: p.san ?? attrs.意志, source: 'paste', at: Date.now() }));
+        }
+        return { ok: false, reason: 'stats-coc-unknown' };
+    }
+
     async function runStatsOp(spec) {
         const op = typeof options.statsOp === 'function' ? options.statsOp : null;
         if (!op) return { ok: false, reason: 'stats-runtime-missing' };
@@ -1283,6 +1344,8 @@ export function createSettingsHost(deps) {
         }
         // 数值 v2 存档区操作（角色卡、剧情技能、补全、旧版备份）：交给运行时，结束后重绘。
         if (String(action).startsWith('stats-op:')) return runStatsOp(String(action).slice('stats-op:'.length));
+        // CoC 调查员档：粘贴 / 掷属性 / 分配点数 / 应用 / 清除。
+        if (String(action).startsWith('stats-coc:')) return runCocAction(String(action).slice('stats-coc:'.length));
         // 适配版表格模板下载（§8C）。
         // 推送映射「确认映射」：给当前模板指纹写一个空覆盖，之后不再提示「新的表格模板」（§8B 第 5 条）。
         if (String(action).startsWith('stats-mapping-confirm:')) {
@@ -1881,6 +1944,20 @@ export function createSettingsHost(deps) {
                 const rows = [...root.querySelectorAll('[data-stats-expense-row]')].map((row) => Object.fromEntries(['name', 'amount', 'every'].map((f) => [f, row.querySelector(`[data-stats-expense="${f}"]`)?.value ?? ''])));
                 controller.invoke(`stats-op:expenses-save:${encodeURIComponent(JSON.stringify(rows))}`);
                 return;
+            }
+            // 调查员档建档草稿：职业名、公式、点数、技能分配，只改草稿并重绘合计。
+            const cocDraft = state.activeSettings?.asyncState.cocDraft;
+            if (cocDraft && cocDraft.stage === 'alloc' && target?.getAttribute) {
+                const cocField = target.getAttribute('data-coc-field');
+                const cocOcc = target.getAttribute('data-coc-occ');
+                const cocHobby = target.getAttribute('data-coc-hobby');
+                if (cocField) cocDraft[cocField] = cocField === 'occPoints' ? Math.max(0, Math.round(Number(target.value) || 0)) : String(target.value);
+                else if (cocOcc != null || cocHobby != null) {
+                    const skill = cocOcc != null ? cocOcc : cocHobby;
+                    cocDraft.alloc = cocDraft.alloc || {};
+                    cocDraft.alloc[skill] = { occ: 0, hobby: 0, ...cocDraft.alloc[skill], [cocOcc != null ? 'occ' : 'hobby']: Math.min(99, Math.max(0, Math.round(Number(target.value) || 0))) };
+                }
+                if (cocField || cocOcc != null || cocHobby != null) { rerenderSettings(); return; }
             }
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
             if (heroSkill != null) {
