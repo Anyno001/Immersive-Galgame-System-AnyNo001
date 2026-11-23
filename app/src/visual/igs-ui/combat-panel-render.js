@@ -381,6 +381,7 @@ const CHALLENGE_LOBBY_TIER = Object.freeze({ 轻松: 'normal', 普通: 'elite', 
 function challengeLobbyHtml(v) {
     const l = v.lobby;
     const pics = v.portraits || {};
+    const arts = v.enemyArt || {};
     const hero = l.allies[0];
     const foe = l.enemies[0];
     const tint = pics[hero.name] ? tintTriplet((v.tints || {})[hero.name]) : '';
@@ -389,7 +390,7 @@ function challengeLobbyHtml(v) {
         ? `<div class="igs-combat-row igs-challenge-allies"><span class="igs-combat-label">协助者</span>${l.candidates.map((c) => `<button type="button" class="igs-combat-chip" data-combat-act="ally" data-combat-id="${esc(c.name)}" aria-pressed="${c.picked ? 'true' : 'false'}"${v.pending ? ' aria-disabled="true"' : ''}>${esc(c.name)}</button>`).join('')}</div>` : '';
     const heroHtml = `<figure class="igs-combat-lobby-figure" data-side="ally" data-picked=""${tint ? ` style="--igs-combat-ally-tint:${tint}"` : ''}>${portraitHtml(hero.name, 'ally', pics[hero.name] || '')}`
         + `<span class="igs-combat-plate"><span class="igs-combat-plate-row"><b>${esc(hero.name)}</b>${hero.maxHp ? `<small data-hp="">${CHALLENGE_LABELS.hp} ${esc(hero.maxHp)}</small>` : ''}</span></span></figure>`;
-    const foeHtml = `<figure class="igs-combat-lobby-figure" data-side="enemy" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}">${portraitHtml(foe.name, 'enemy', '', null)}`
+    const foeHtml = `<figure class="igs-combat-lobby-figure" data-side="enemy" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}">${portraitHtml(foe.name, 'enemy', pics[foe.name] || '', arts[foe.name] || null)}`
         + `<figcaption class="igs-combat-plate"><b>${esc(foe.name)}</b><small>${CHALLENGE_LABELS.enemy}</small></figcaption></figure>`;
     const domainBadge = !l.intimate && l.domain && Number.isInteger(l.skillValue) && typeof l.domainMultiplier === 'number'
         ? `${l.domain} ${l.skillValue} (${l.domainMultiplier >= 1 ? '+' : ''}${Math.round((l.domainMultiplier - 1) * 100)}%)`

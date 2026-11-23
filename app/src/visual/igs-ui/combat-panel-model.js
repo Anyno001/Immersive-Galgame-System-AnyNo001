@@ -659,6 +659,7 @@ export function challengeLobbyView(session) {
     const hero = setup?.units?.find((unit) => unit.side === 'ally');
     const foe = setup?.units?.find((unit) => unit.side === 'enemy');
     if (!challenge || !hero || !foe) return null;
+    const tierMap = { 轻松: 'normal', 普通: 'elite', 艰难: 'boss' };
     return {
         challenge: true, encounter: challenge.event, tier: challenge.tier, tierLabel: challenge.tier, domain: challenge.domain, stake: challenge.stake,
         ...(Number.isInteger(challenge.skillValue) ? { skillValue: challenge.skillValue } : {}),
@@ -668,7 +669,7 @@ export function challengeLobbyView(session) {
         allies: [{ id: hero.id, name: hero.name, level: 0, kind: 'deck', className: '', controllable: true, hp: hero.maxHp, maxHp: hero.maxHp },
             ...setup.units.filter((unit) => unit.side === 'ally' && unit.id !== hero.id).map((unit) => ({ id: unit.id, name: unit.name, level: 0, kind: 'deck', className: '', controllable: false }))],
         candidates: (session.challengeCandidates || []).map((item) => ({ name: item.name, picked: challenge.allies.includes(item.name) })), maxAllies: 2,
-        enemies: [{ name: foe.name, count: 1, templated: false, tier: 'normal', art: null }],
+        enemies: [{ name: foe.name, count: 1, templated: false, tier: tierMap[challenge.tier] || 'normal', art: foe.art || null }],
         absent: [], downed: [], skipped: [], canEscape: setup.canEscape !== false,
     };
 }

@@ -25,9 +25,9 @@ export const CHALLENGE_FOE_ID = 'foe';
 // 难度档 → 引擎档位、难关校准倍率与回合数（4–6）；采用方案 B 偏硬核挑战曲线，略高于普通战斗但保持可攻略。
 // 新建的日常挑战与亲密对决都不写回合数、不设回合上限，只按胜负结算（D16）；回合数只留给带 rounds 的旧记录判定。
 export const CHALLENGE_TIER_RULES = Object.freeze({
-    轻松: Object.freeze({ engineTier: 'normal', rounds: 4, hp: 0.9, damage: 0.75 }),
-    普通: Object.freeze({ engineTier: 'elite', rounds: 5, hp: 0.82, damage: 0.88 }),
-    艰难: Object.freeze({ engineTier: 'boss', rounds: 6, hp: 0.55, damage: 0.95 }),
+    轻松: Object.freeze({ engineTier: 'normal', rounds: 4, hp: 1.25, damage: 0.95, minHp: 50 }),
+    普通: Object.freeze({ engineTier: 'elite', rounds: 5, hp: 1.15, damage: 1.05, minHp: 85 }),
+    艰难: Object.freeze({ engineTier: 'boss', rounds: 6, hp: 0.72, damage: 1.1, minHp: 130 }),
 });
 
 // 意志：基础值按体力、压力各降一档；阈值与 stat-bars.js 的 STAMINA_LOW / STRESS_HIGH 一致。
@@ -50,7 +50,7 @@ export function foeThickness(tier) {
     const rule = CHALLENGE_TIER_RULES[tier] || CHALLENGE_TIER_RULES.普通;
     const scaled = scaleEnemyStats({ tier: rule.engineTier, base: { hp: COMBAT_RULES.tiers[rule.engineTier].hp } }, 1, 'normal');
     return {
-        hp: Math.max(1, Math.round(scaled.hp * rule.hp)), damageScale: Math.round(scaled.damageScale * rule.damage * 100) / 100,
+        hp: Math.max(rule.minHp || 1, Math.round(scaled.hp * rule.hp)), damageScale: Math.round(scaled.damageScale * rule.damage * 100) / 100,
         engineTier: rule.engineTier, rounds: rule.rounds, damageCap: COMBAT_RULES.tiers[rule.engineTier].damageCap,
     };
 }
@@ -74,11 +74,11 @@ function buildChallengeEnemyUnit({ enemyProfile, tier, foeKey, foe, foeName, cou
     if (!profile && seed) {
         const pool = enemyPool({ tier: rule.engineTier, seed });
         const picked = fallbackChoice(pool, seed);
-        if (picked) profile = materializeChoice(picked, { id: `${foeKey}-${tier}`, name: displayName });
+        if (picked) profile = materializeChoice(picked, { id: `ch-${foeKey}-${rule.engineTier}`, name: displayName });
     }
     if (profile && Array.isArray(profile.skills) && profile.skills.length) {
         const scaled = scaleEnemyStats(profile, 1, 'normal');
-        const maxHp = Math.max(1, Math.min(9999, Math.round(scaled.hp * rule.hp)));
+        const maxHp = Math.max(rule.minHp || 1, Math.min(9999, Math.round(scaled.hp * rule.hp)));
         const damageScale = Math.min(5, Math.max(0.05, Math.round(scaled.damageScale * rule.damage * 100) / 100));
         const speed = enemySpeedFor(profile.base?.speed ?? combatSpeedFor({ tier: thick.engineTier, id: foeKey }));
         const kinFields = Object.fromEntries(KIN_FIELDS.filter((key) => profile[key] !== undefined).map((key) => [key, profile[key]]));

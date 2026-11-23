@@ -620,3 +620,44 @@ test('日常挑战：敌人池缝合与战斗一致、准备期先拼合模板�
     assert.ok(DOMAIN_CARD_POOLS.烹饪.length >= 10 && DOMAIN_CARD_POOLS.话术.length >= 10);
     assert.notDeepEqual(DOMAIN_CARD_POOLS.烹饪, DOMAIN_CARD_POOLS.话术);
 });
+
+test('回归：日常挑战战前对阵显示对方默认立绘；敌人按 ASCII ID 从 enemyPool 物化且重平衡后满足各档血量与克制起手稀有度', async () => {
+    const { buildChallengeSetup } = await import('../src/combat/challenge-setup.js');
+    const { challengeLobbyView } = await import('../src/visual/igs-ui/combat-panel-model.js');
+    const { renderCombatPanelHtml } = await import('../src/visual/igs-ui/combat-panel-render.js');
+
+    const built = buildChallengeSetup({
+        start: { event: '应对苏曼珠的遗产代管逼宫', domain: '感知', tier: '普通', counterpart: '苏曼珠' },
+        state: { bars: { stamina: 80, stress: 20 }, skills: { 感知: { value: 60 } } },
+        user: { name: '陈默' },
+        enemySeed: 'sumanzhu-1',
+        deckSeed: 'sumanzhu-1',
+    });
+    assert.equal(built.ok, true);
+    const foe = built.setup.units.find((u) => u.side === 'enemy');
+    assert.equal(foe.name, '苏曼珠');
+    assert.ok(foe.template, '仅传 enemySeed 时应成功物化 enemyPool 模板，不得因中文 ID 回退到弱版旧难关');
+    assert.ok(foe.maxHp >= 85, `普通档敌人血量应 ≥ 85，实际 ${foe.maxHp}`);
+    // 技能 60 的起手牌组保持克制（避免全套 rare + 泛滥回血与专精倍率双重膨胀）
+    const heroCatalog = built.setup.units[0].catalog;
+    assert.equal(heroCatalog['ch-push'].rarity, 'common');
+    assert.equal(heroCatalog['ch-hold'].rarity, 'common');
+    assert.equal(heroCatalog['ch-combo'].rarity, 'uncommon');
+    assert.equal(heroCatalog['ch-life-2'].effects.some((e) => e.op === 'heal'), false);
+
+    // 战前对阵传入对方默认立绘 URL 后必须渲染 <img>，不再硬编码空串退回剪影
+    const lobby = challengeLobbyView({ challenge: built.setup.challenge, challengeSetup: built.setup, challengeCandidates: [] });
+    const html = renderCombatPanelHtml({
+        status: 'lobby',
+        lobby,
+        portraits: { 陈默: 'https://example.invalid/chenmo.png', 苏曼珠: 'https://example.invalid/sumanzhu.png' },
+    });
+    assert.ok(html.includes('https://example.invalid/chenmo.png'), '主角立绘应正常显示');
+    assert.ok(html.includes('https://example.invalid/sumanzhu.png'), '日常挑战对方有默认立绘时必须显示立绘');
+
+    // 各档血量下限校验
+    const easy = buildChallengeSetup({ start: { event: '小测', domain: '话术', tier: '轻松' }, state: { bars: { stamina: 80, stress: 20 }, skills: { 话术: { value: 50 } } }, user: { name: '陈默' }, enemySeed: 'e-1', deckSeed: 'e-1' });
+    const hard = buildChallengeSetup({ start: { event: '大考', domain: '话术', tier: '艰难' }, state: { bars: { stamina: 80, stress: 20 }, skills: { 话术: { value: 50 } } }, user: { name: '陈默' }, enemySeed: 'h-1', deckSeed: 'h-1' });
+    assert.ok(easy.setup.units.find((u) => u.side === 'enemy').maxHp >= 50);
+    assert.ok(hard.setup.units.find((u) => u.side === 'enemy').maxHp >= 130);
+});

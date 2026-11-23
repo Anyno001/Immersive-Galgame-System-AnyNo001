@@ -893,7 +893,7 @@ export function createCombatPanelController(doc, options = {}) {
         const src = l ? l.enemies : (preview?.enemies || []);
         const pics = l ? (view.portraits || {}) : portraitsFor(src.map((e) => e.name));
         return src.flatMap((e) => Array.from({ length: Math.max(1, Math.min(2, Number(e.count) || 1)) }, () => e)).slice(0, 2)
-            .map((e) => ({ name: e.name, url: pics[e.name] || '', cell: arts[e.name] || enemyArtCell({ name: e.name, tier: e.tier || preview?.tier || 'normal' }) }));
+            .map((e) => ({ name: e.name, url: pics[e.name] || '', cell: l?.challenge ? null : (arts[e.name] || enemyArtCell({ name: e.name, tier: e.tier || preview?.tier || 'normal' })) }));
     }
 
     function syncIntro(view) {

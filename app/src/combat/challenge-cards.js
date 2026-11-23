@@ -46,10 +46,10 @@ export function challengeTierIndex(skillValue) {
     return value < 80 ? 2 : 3;
 }
 
-// 五个领域牌位：张数、费用、各档模板键（稀有档沿用，epic 档只有 ace 升到 epic 稀有度）。
+// 五个领域牌位：张数、费用、各档模板键（初始牌组压低泛滥回血，留出战利品与升级的成长空间）。
 const SLOTS = Object.freeze({
     push: Object.freeze({ copies: 3, cost: 1, ladder: Object.freeze(['strike', 'quick', 'bash']) }),
-    hold: Object.freeze({ copies: 3, cost: 1, ladder: Object.freeze(['guard', 'brace', 'mend']) }),
+    hold: Object.freeze({ copies: 3, cost: 1, ladder: Object.freeze(['guard', 'brace', 'brace']) }),
     combo: Object.freeze({ copies: 2, cost: 2, ladder: Object.freeze(['twin', 'cripple', 'venom']) }),
     tempo: Object.freeze({ copies: 1, cost: 1, ladder: Object.freeze(['prepare', 'brace', 'surge']) }),
     ace: Object.freeze({ copies: 1, cost: 2, ladder: Object.freeze(['bash', 'rend', 'shatter']) }),
@@ -59,11 +59,11 @@ const names = (push, hold, combo, tempo, ace, ladders = {}) => Object.freeze({ p
 
 export const DOMAIN_CARDS = Object.freeze({
     烹饪: names('拿手菜', '掌控火候', '精心装盘', '备料', '招牌秘方', { push: ['strike', 'bash', 'bash'], combo: ['bash', 'bash', 'cripple'] }),
-    话术: names('据理力争', '以退为进', '层层递进', '理清脉络', '一语中的', { hold: ['brace', 'brace', 'mend'], ace: ['rend', 'rend', 'shatter'] }),
+    话术: names('据理力争', '以退为进', '层层递进', '理清脉络', '一语中的', { hold: ['guard', 'brace', 'brace'], ace: ['rend', 'rend', 'shatter'] }),
     学习: names('融会贯通', '稳扎稳打', '一气呵成', '灵感闪现', '举一反三', { combo: ['twin', 'twin', 'flurry'], tempo: ['prepare', 'quick', 'quick'] }),
     应变: names('随机应变', '见招拆招', '连环对策', '急中生智', '绝处逢生'),
     魅力: names('真诚相待', '温柔以对', '软硬兼施', '恰到好处', '打动人心'),
-    照顾: names('悉心安排', '耐心守候', '体贴入微', '细致周到', '无微不至', { hold: ['guard', 'mend', 'mend'] }),
+    照顾: names('悉心安排', '耐心守候', '体贴入微', '细致周到', '无微不至', { hold: ['guard', 'brace', 'mend'] }),
     艺术: names('灵感挥洒', '沉心打磨', '笔走龙蛇', '即兴发挥', '神来之笔'),
     运动: names('全力以赴', '保持节奏', '一鼓作气', '调匀气息', '突破极限'),
     家务: names('手脚麻利', '有条不紊', '干净利落', '随手收拾', '焕然一新'),
@@ -146,10 +146,10 @@ export const DOMAIN_CARD_KEYS = Object.freeze(Object.fromEntries(Object.entries(
     ])]),
 ])));
 
-// 与领域无关的生活牌，所有人都有。
+// 与领域无关的生活牌，所有人都有（避免初始自带过多无代价回血，保留防守/过牌节奏）。
 export const LIFE_CARDS = Object.freeze([
-    Object.freeze({ id: 'ch-life-1', name: '深呼吸', key: 'brace', cost: 1 }),
-    Object.freeze({ id: 'ch-life-2', name: '暂作休息', key: 'mend', cost: 1 }),
+    Object.freeze({ id: 'ch-life-1', name: '深呼吸', key: 'guard', cost: 1 }),
+    Object.freeze({ id: 'ch-life-2', name: '暂作休息', key: 'brace', cost: 1 }),
     Object.freeze({ id: 'ch-life-3', name: '温习要点', key: 'prepare', cost: 1 }),
     Object.freeze({ id: 'ch-life-4', name: '整理思路', key: 'quick', cost: 1 }),
 ]);
@@ -359,11 +359,17 @@ export function buildChallengeDeck({ domain, skillValue, otherSkills, seed = '',
     const catalog = Object.fromEntries(Object.entries(BASIC_CARDS).map(([id, card]) => [id, cloneJson(card)]));
     const deck = [...Array(COMBAT_RULES.starterDeckShape.basicAttack).fill(BASIC_STRIKE_ID), ...Array(COMBAT_RULES.starterDeckShape.basicDefend).fill(BASIC_DEFEND_ID)];
     const swaps = relatedPicks(key, otherSkills).map((pick, index) => ({ ...pick, slot: RELATED_REPLACES[index] }));
+    // 初始 20 张卡保持克制的起手稀有度（与专精倍率 domainScaling 避免双重膨胀；高稀有卡由战利品三选一与升级获取）。
+    const starterRarityFor = (slot) => {
+        if (slot === 'ace') return tier >= 3 ? 'rare' : tier >= 1 ? 'uncommon' : 'common';
+        if (slot === 'combo') return tier >= 2 ? 'uncommon' : 'common';
+        return tier >= 3 ? 'uncommon' : 'common';
+    };
     const domainCardIds = [];
     for (const [slot, spec] of Object.entries(SLOTS)) {
-        const rarity = slot === 'ace' && tier === 3 ? 'epic' : CHALLENGE_RARITIES[ladderAt];
+        const rarity = starterRarityFor(slot);
         const card = buildCard(`ch-${slot}`, def[slot], slotKeys[slot], spec.cost, rarity, {
-            domain: key, random, allowStitch: Boolean(seed) && (slot === 'ace' || slot === 'combo'),
+            domain: key, random, allowStitch: Boolean(seed) && slot === 'ace' && tier >= 2,
         });
         const swap = swaps.find((item) => item.slot === slot);
         catalog[card.id] = card;
