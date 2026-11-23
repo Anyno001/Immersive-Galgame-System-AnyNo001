@@ -417,6 +417,7 @@ const morphHandOp = {
             card.upgraded = effect.upgraded === true;
             delete card.grow;
             delete card.costMod;
+            delete card.confusedCost;
             kit.emit(ctx, { type: 'transform', unitId: unit.id, inst, from, cardId: BOULDER_ID });
         }
     },

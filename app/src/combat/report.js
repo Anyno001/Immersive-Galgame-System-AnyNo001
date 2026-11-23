@@ -261,6 +261,8 @@ export function collectTurns(events, units = {}, catalog = {}) {
         } else if (event.type === 'curse-chosen') {
             // M7 二选一诅咒：玩家回合开始时的抉择不属于任何出手，记在回合上。
             currentTurn().curses = [...(turn.curses || []), { unitId: event.unitId, status: event.status }];
+        } else if (event.type === 'cost-randomized') {
+            (currentTurn().randomizedCosts ||= []).push({ unitId: event.unitId, inst: event.inst, cost: event.cost });
         } else if (event.type === 'effect-ignored') {
             (currentTurn().ignoredEffects ||= []).push({
                 unitId: event.source?.unitId || event.unitId,
@@ -306,6 +308,14 @@ function describeIgnoredEffects(turns, units) {
     }));
 }
 
+function describeRandomizedCosts(turns, units) {
+    const counts = new Map();
+    for (const turn of turns) for (const event of turn.randomizedCosts || []) {
+        counts.set(event.unitId, (counts.get(event.unitId) || 0) + 1);
+    }
+    return [...counts].map(([id, count]) => `${sanitize(units[id]?.name || id)}因混乱随机了${count}张抽牌的费用`);
+}
+
 // 一回合的文字：觉醒、挑出重要度最高的若干出手（保持原顺序）、倒下者、撤离。
 function describeTurn(turn, units, maxActions, firstAction, finalAction) {
     const picked = turn.actions
@@ -320,6 +330,7 @@ function describeTurn(turn, units, maxActions, firstAction, finalAction) {
         lines.push(`${sanitize(units[unitId]?.name || unitId)} 觉醒：${AWAKEN_TYPE_NAMES[type] || sanitize(type)}${line ? `『${line}』` : ''}`);
     }
     for (const c of turn.curses || []) lines.push(`${sanitize(units[c.unitId]?.name || c.unitId)} 承受了「${CURSE_LABELS[c.status] || sanitize(c.status)}」`);
+    lines.push(...describeRandomizedCosts([turn], units));
     lines.push(...picked.map(({ action }) => `${describeAction(action, units)}${action.desperate ? '（绝境反击）' : ''}`));
     lines.push(...(turn.powers || []).map(power => describeAction(power, units)));
     lines.push(...describeIgnoredEffects([turn], units));
@@ -344,7 +355,8 @@ function describeFolded(turns, units) {
     const powers = [...new Set(turns.flatMap(turn => (turn.powers || []).map(power => `${sanitize(units[power.actorId]?.name || power.actorId)}的「${sanitize(power.skill)}」`)))];
     const ongoing = powers.length ? `，${powers.join('、')}持续触发` : '';
     const ignored = [...new Set(describeIgnoredEffects(turns, units))];
-    return `第${turns[0].index}–${turns.at(-1).index}回合：双方反复交锋${ongoing}${fallen}${ignored.length ? `；${ignored.join('；')}` : ''}。`;
+    const randomized = describeRandomizedCosts(turns, units);
+    return `第${turns[0].index}–${turns.at(-1).index}回合：双方反复交锋${ongoing}${fallen}${[...randomized, ...ignored].length ? `；${[...randomized, ...ignored].join('；')}` : ''}。`;
 }
 
 // 终局双方伤势一行。
@@ -359,7 +371,7 @@ export function buildCombatReport({ combatId, encounter = '', state, events, ene
     if (!result) return { ok: false, reason: 'combat-not-finished' };
     const units = state.units;
     const maxActions = REPORT_DETAIL[detail] || REPORT_DETAIL.normal;
-    const turns = collectTurns(events, units, state.catalog).filter((turn) => turn.actions.length || turn.powers?.length || turn.ignoredEffects?.length || turn.fallen || turn.escape || turn.awaken || turn.curses);
+    const turns = collectTurns(events, units, state.catalog).filter((turn) => turn.actions.length || turn.powers?.length || turn.ignoredEffects?.length || turn.randomizedCosts?.length || turn.fallen || turn.escape || turn.awaken || turn.curses);
     const allActions = turns.flatMap((turn) => turn.actions);
     const firstAction = allActions[0];
     const finalAction = result === 'win'

@@ -50,27 +50,39 @@ const FLOAT_TEXT = Object.freeze({
     // 鞭尸 / 超杀：打在倒下的敌人身上，样式上与掉血区分。
     overkill: (m) => `-${m.amount}`,
     guard: () => '格挡',
+    'shield-break': () => '破盾',
     block: (m) => `+${m.amount} 格挡`,
     heal: (m) => `+${m.amount}`,
+    buff: (m) => `▲ ${m.label || m.status || '增益'}${Number(m.stacks) > 0 ? ` +${m.stacks}` : ''}`,
+    debuff: (m) => `▼ ${m.label || m.status || '减益'}${Number(m.stacks) < 0 ? ` ${m.stacks}` : Number(m.stacks) > 1 ? ` +${m.stacks}` : ''}`,
+    artifact: () => '免疫',
+    cleanse: () => '净化',
     ko: () => '击倒',
     power: (m) => m.text || '能力触发',
 });
 
-// 飘字：每条变化一个 span，挂在单位块里、立绘上方，按序号错开上浮（--i）；击倒也写在受击单位上（战斗面板不在画面中间出命中标签）。返回挂上的节点。
-export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, rarity, fresh = false, heavy = 0 } = {}) {
+// 飘字：每条变化一个 span，挂在单位块里、立绘上方，按序号错开上浮（--i）并微幅横向散开（--dx）；击倒也写在受击单位上。返回挂上的节点。
+export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, rarity, fresh = false, heavy = 0, hitIndex = 0 } = {}) {
     if (!unitEl || !doc?.createElement) return [];
     const nodes = [];
     for (const m of marks || []) {
         const text = FLOAT_TEXT[m.kind];
         if (!text) continue;
         const el = doc.createElement('span');
+        const isPoisonDmg = m.kind === 'damage' && m.damageKind === 'poison';
+        const statusCls = (m.kind === 'buff' || m.kind === 'debuff') && m.status ? ` is-status-${m.status}` : '';
         // fresh（九套画布皮肤）：格挡类飘字借设计稿「+N 格挡」的蓝字黑描边样式（hx-gainfx）。
         // heavy（对敌大伤害档，见 heavyHitRank）：掉血飘字加 is-heavy-1 / is-heavy-2，放大并砸落。
-        el.className = `igs-combat-float is-${m.kind}${reduced ? ' is-reduced' : ''}${fresh && (m.kind === 'block' || m.kind === 'guard') ? ' hx-gainfx' : ''}${m.kind === 'damage' && heavy ? ` is-heavy-${heavy}` : ''}`;
+        el.className = `igs-combat-float is-${m.kind}${isPoisonDmg ? ' is-poison' : ''}${statusCls}${reduced ? ' is-reduced' : ''}${fresh && (m.kind === 'block' || m.kind === 'guard') ? ' hx-gainfx' : ''}${m.kind === 'damage' && !isPoisonDmg && heavy ? ` is-heavy-${heavy}` : ''}`;
         el.setAttribute?.('aria-hidden', 'true');
         el.style?.setProperty?.('--i', String(nodes.length));
+        const spreadIdx = hitIndex + nodes.length;
+        if (!reduced && (hitIndex > 0 || nodes.length > 0)) {
+            const dx = spreadIdx % 2 === 1 ? -18 : spreadIdx % 4 === 2 ? 20 : -8;
+            el.style?.setProperty?.('--dx', `${dx}px`);
+        }
         el.textContent = text(m);
-        if (rarity?.rank) {
+        if (rarity?.rank && !isPoisonDmg && m.kind !== 'buff' && m.kind !== 'debuff') {
             el.style?.setProperty('--igs-float-scale', String(rarity.floatScale));
             el.style?.setProperty('--igs-float-color', rarity.color);
         }
@@ -83,16 +95,23 @@ export function showHitFloats(doc, unitEl, marks, { reduced = false, schedule, r
 }
 
 export const COMBAT_HIT_REACT_ATTR = 'data-igs-combat-react';
-const REACT_ORDER = ['ko', 'damage', 'overkill', 'guard', 'heal', 'block', 'power'];
-const REACT_KIND = Object.freeze({ ko: 'hit', damage: 'hit', overkill: 'hit', guard: 'guard', block: 'guard', heal: 'heal', power: 'power' });
+const REACT_ORDER = ['ko', 'damage', 'overkill', 'shield-break', 'guard', 'debuff', 'buff', 'heal', 'block', 'artifact', 'cleanse', 'power'];
+const REACT_KIND = Object.freeze({
+    ko: 'hit', damage: 'hit', overkill: 'hit', 'shield-break': 'heavy', guard: 'guard',
+    debuff: 'debuff', buff: 'buff', heal: 'heal', block: 'guard',
+    artifact: 'guard', cleanse: 'heal', power: 'power',
+});
 
-// 受击反馈：单位块挂 data-igs-combat-react（hit / heavy / guard / heal），样式按它做一次抖动或泛光，到时移除；减少动态效果时不加。返回反馈类别。
+// 受击与状态反馈：单位块挂 data-igs-combat-react（hit / heavy / poison / guard / heal / buff / debuff / power），样式按它做挤压回弹或光效，到时移除；减少动态效果时不加。返回反馈类别。
 // heavy 为真（对敌大伤害）时受击改为 heavy：先白闪再大幅抖动。
 export function reactUnit(unitEl, marks, { reduced = false, schedule, heavy = false } = {}) {
     if (!unitEl || reduced) return '';
-    const top = REACT_ORDER.find((k) => (marks || []).some((m) => m.kind === k));
+    const list = Array.isArray(marks) ? marks : [];
+    const top = REACT_ORDER.find((k) => list.some((m) => m.kind === k));
     if (!top) return '';
-    const react = heavy && REACT_KIND[top] === 'hit' ? 'heavy' : REACT_KIND[top];
+    let react = REACT_KIND[top];
+    if (top === 'damage' && list.filter((m) => m.kind === 'damage').every((m) => m.damageKind === 'poison')) react = 'poison';
+    else if (heavy && react === 'hit') react = 'heavy';
     // 先摘再挂并强制一次回流，连续命中同一单位时动画从头再播。
     unitEl.removeAttribute?.(COMBAT_HIT_REACT_ATTR);
     void unitEl.offsetWidth;

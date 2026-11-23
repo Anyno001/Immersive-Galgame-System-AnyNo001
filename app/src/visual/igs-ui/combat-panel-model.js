@@ -12,7 +12,7 @@ import { cardMotifSvg } from './combat-card-motifs.js';
 import { scalingMarks } from '../../combat/card-scaling.js';
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { CHALLENGE_LABELS, challengeStatusName, intimateLabelsOf } from '../../combat/challenge-labels.js';
-import { briefRegistered, statusLabel } from '../../combat/mechanics/registry.js';
+import { briefRegistered, statusDef, statusLabel } from '../../combat/mechanics/registry.js';
 import { CURSE_CHOICE_KIND, CURSE_LABELS, curseDetail } from '../../combat/mechanics/foe-curse.js';
 import { powerName } from '../../combat/power-state.js';
 
@@ -366,17 +366,36 @@ export function unitView(state, id, challenge = false) {
     };
 }
 
+function pileCardSummary(state, inst) {
+    const card = cardView(state, inst);
+    if (!card) return { id: inst, inst, name: inst, cost: '', upgraded: false, type: 'skill', text: '' };
+    return {
+        id: inst,
+        inst,
+        cardId: card.id,
+        name: card.name || card.id || inst,
+        cost: card.cost,
+        ...(card.baseCost !== undefined ? { baseCost: card.baseCost } : {}),
+        upgraded: card.upgraded === true,
+        type: card.type || 'skill',
+        text: describeEffects(card.effects || []),
+    };
+}
+
 // v4 待选阶段：引擎 state.pending 属于操控角色时返回 { kind 用途, count 选几张, options 候选手牌实例 }，否则 null。
 // M7 二选一诅咒（kind foe-curse）：options 是 'curse:<序号>'，另给 curses（每项 id / 名称 / 说明）供浮层显示；不对应任何手牌。
+// 牌堆选牌（draw-play / retrieve / search）：另给 candidates（每项含费用 / 卡名 / 效果）及可选 from / to 供选牌浮层显示。
+const PILE_CHOICE_KINDS = new Set(['draw-play', 'retrieve', 'search']);
 export function pendingChoice(state) {
     const p = state?.pending;
     if (!(p && p.unitId === state.controlledId && Array.isArray(p.options))) return null;
-    const choice = { kind: p.kind, count: p.count, options: p.options.slice() };
+    const choice = {
+        kind: p.kind, count: p.count, options: p.options.slice(),
+        ...(p.from ? { from: p.from } : {}),
+        ...(p.to ? { to: p.to } : {}),
+    };
     if (p.kind === CURSE_CHOICE_KIND && Array.isArray(p.offer)) choice.curses = p.offer.map((o, i) => ({ id: p.options[i], name: CURSE_LABELS[o.status] || o.status, text: curseDetail(o) }));
-    if (p.kind === 'draw-play') choice.candidates = p.options.map(inst => {
-        const card = cardView(state, inst);
-        return { id: inst, name: card?.name || inst, text: describeEffects(card?.effects || []) };
-    });
+    if (PILE_CHOICE_KINDS.has(p.kind)) choice.candidates = p.options.map((inst) => pileCardSummary(state, inst));
     return choice;
 }
 
@@ -491,9 +510,12 @@ export function battleView(state, legal = [], { challenge = false } = {}) {
         type: aw.type, label: AWAKEN_TYPE_NAMES[aw.type] || '', line: aw.line || '', used: aw.used === true,
         text: describeEffects(COMBAT_RULES.awakenEffects[aw.type]), usable: legal.some((a) => a.type === 'awaken'),
     } : null;
+    const drawList = pile.draw.map((inst) => pileCardSummary(state, inst)).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+    const discardList = [...pile.discard].reverse().map((inst) => pileCardSummary(state, inst));
     const view = {
         turn: state.turn, phase: state.phase, outcome: state.outcome, energy: hero.energy, energyPerTurn: hero.energyPerTurn,
         piles: { draw: pile.draw.length, discard: pile.discard.length, exhaust: pile.exhaust.length },
+        pileCards: { draw: drawList, discard: discardList },
         hand, allies: side('ally'), enemies: side('enemy'), heroId: hero.id, heroSkill, awaken,
         // v4 人物特性圆球：操控角色的主动与被动特性（固有在前）。
         traits: traitOrbs(state, hero, legal),
@@ -765,26 +787,50 @@ export function combatCutins(events, state, limit = 2) {
 }
 
 
-// 打击感：引擎事件 → 各单位依次受到的变化（掉血 / 全挡 / 治疗 / 获得格挡 / 击倒），按首次出现的顺序分组。
-// 只取事件里已有的数值，不另算规则；面板在命中落下时据此更新血条、飘字与受击反馈。
+const BUILTIN_DEBUFF_KEYS = new Set(['weak', 'vulnerable', 'poison', 'frail', 'no-draw']);
+const isDebuffStatusKey = (key) => BUILTIN_DEBUFF_KEYS.has(key) || Boolean(statusDef(key)?.debuff);
+
+// 打击感：引擎事件 → 各单位依次受到的变化（掉血 / 全挡 / 破盾 / 治疗 / 获得格挡 / 增益 / 减益 / 免疫 / 净化 / 击倒），按首次出现的顺序分组。
+// 只取事件里已有的数值，不另算规则；传入可选 beforeBattle 时可精确识别刚好打空（hpLoss=0）的破盾，未传时仍识别穿透破盾（blocked>0 && hpLoss>0）。
 // 攻击伤害带段号时变化也带 strike；击倒取该单位上一次伤害的段号（中毒等没有段号的伤害致死则不带）。
-export function combatHitMarks(events) {
+export function combatHitMarks(events, beforeBattle = null) {
     const groups = new Map();
     const lastStrike = new Map();
+    const blockTrack = beforeBattle?.units
+        ? new Map(Object.entries(beforeBattle.units).map(([id, u]) => [id, Math.max(0, Number(u?.block) || 0)]))
+        : null;
     const add = (id, mark, strike = 0) => {
         if (!id) return;
         if (!groups.has(id)) groups.set(id, []);
         groups.get(id).push(strike ? { ...mark, strike } : mark);
     };
     for (const e of events || []) {
-        if (e.type === 'damage') {
+        if (e.type === 'block' && e.amount > 0) {
+            if (blockTrack && e.target) blockTrack.set(e.target, (blockTrack.get(e.target) || 0) + Number(e.amount));
+            add(e.target, { kind: 'block', amount: e.amount });
+        } else if (e.type === 'damage') {
             lastStrike.set(e.target, e.strike || 0);
+            const blocked = Math.max(0, Number(e.blocked) || 0);
+            const hpLoss = Math.max(0, Number(e.hpLoss) || 0);
+            let shieldBroken = blocked > 0 && hpLoss > 0;
+            if (blockTrack && e.target && blocked > 0) {
+                const prev = blockTrack.get(e.target) || 0;
+                const next = Math.max(0, prev - blocked);
+                blockTrack.set(e.target, next);
+                if (prev > 0 && next === 0) shieldBroken = true;
+            }
+            if (shieldBroken) add(e.target, { kind: 'shield-break', amount: blocked }, e.strike);
             // 鞭尸 / 超杀：不改血量，只出飘字与受击反馈。
             if (e.overkill) add(e.target, { kind: 'overkill', amount: e.amount }, e.strike);
-            else if (e.hpLoss > 0) add(e.target, { kind: 'damage', amount: e.hpLoss }, e.strike);
-            else if (e.blocked > 0) add(e.target, { kind: 'guard', amount: e.blocked }, e.strike);
+            else if (hpLoss > 0) add(e.target, { kind: 'damage', amount: hpLoss, ...(e.kind ? { damageKind: e.kind } : {}), ...(e.loss ? { loss: true } : {}) }, e.strike);
+            else if (blocked > 0 && !shieldBroken) add(e.target, { kind: 'guard', amount: blocked }, e.strike);
         } else if (e.type === 'heal' && e.amount > 0) add(e.target, { kind: 'heal', amount: e.amount });
-        else if (e.type === 'block' && e.amount > 0) add(e.target, { kind: 'block', amount: e.amount });
+        else if (e.type === 'status' && e.status && Number(e.stacks)) {
+            const stacks = Number(e.stacks);
+            const debuff = stacks < 0 || isDebuffStatusKey(e.status);
+            add(e.target, { kind: debuff ? 'debuff' : 'buff', status: e.status, stacks, label: statusName(e.status) });
+        } else if (e.type === 'artifact' && e.target) add(e.target, { kind: 'artifact', status: e.status || '', label: e.status ? statusName(e.status) : '' });
+        else if (e.type === 'cleanse' && e.target) add(e.target, { kind: 'cleanse', count: Array.isArray(e.statuses) ? e.statuses.length : 1 });
         else if (e.type === 'defeated') add(e.unitId, { kind: 'ko' }, lastStrike.get(e.unitId));
         else if (e.type === 'power-trigger' || e.type === 'buff-trigger') add(e.unitId, { kind: 'power', text: e.name || e.cardId || e.buffId });
     }

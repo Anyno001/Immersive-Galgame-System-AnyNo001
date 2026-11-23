@@ -14,6 +14,8 @@ import { createDuelLowGate } from '../../scene/intimate-duel.js';
 import { combatPortraitNames } from '../../scene/creature-battle.js';
 import { ensureFxLayers } from './fx-layer.js';
 import { COMBAT_HEAVY_HIT, COMBAT_HIT_REACT_ATTR, COMBAT_HIT_REACT_MS, applyHitMarks, cloneCardGhost, heavyHitRank, hpSnapshot, launchCardGhost, paintUnitHp, playedActionName, playedCardFx, reactUnit, showHeavyBurst, showHitFloats, showRarityFx, showWindupFx, windupFx } from './combat-hit-fx.js';
+import { COMBAT_IMPACT_VIGNETTE_ATTR, impactTierFor, pulseVignette, showImpactBurst, showShieldBreak, showStatusFx } from './combat-impact-fx.js';
+import { CARD_INCOMING_ATTR, COMBAT_CARD_MOTION, bumpPile, findPileEl, measureCardBox, pileAnchorRect, planCardMotions, playDiscardCards, playDrawCards, playPileTransfers, syncPileDocks } from './combat-card-motion.js';
 import { battleView, challengeLobbyView, combatCutins, combatFxSource, combatHitMarks, combatLandings, endView, isItemSelection, isSkillSelection, itemSelection, lobbyView, pendingChoice, resolveHeroSkill, resolveItem, resolvePlay, selectedItemView, selectedSkillView, selectionItemId, selectionSkillId, skillSelection, unitDetailView, unitView, volleyTargets } from './combat-panel-model.js';
 import { cardTipHtml, combatIntroUiHtml, combatReasonText, renderCombatPanelHtml, ringFront, tintTriplet, traitTipHtml, unitTipHtml } from './combat-panel-render.js';
 import { actionProgress } from '../../combat/engine.js';
@@ -120,6 +122,8 @@ export function createCombatPanelController(doc, options = {}) {
     let hoverInst = '';
     // 道具按钮点开的道具列表（界面状态，不进会话）：点列表以外的地方、Esc、用掉道具或关闭面板时收起。
     let itemsOpen = false;
+    // 抽牌堆 / 弃牌堆只读查看浮层（'' | 'draw' | 'discard'）：点左下「抽牌」/右下「弃牌」切换，点关闭/遮罩/Esc/新动作收起。
+    let pileOpen = '';
     // 风格化皮肤的敌人圆环「正前方」敌人（单位 id，界面状态，不进会话）：点后排敌人转到正前方；空串时由渲染层取第一名存活敌人。
     let frontFoe = '';
     // 照搬概念稿的皮肤画布方向（port 竖屏 / land 横屏）：按面板宽高比定，变了才重绘。
@@ -152,6 +156,9 @@ export function createCombatPanelController(doc, options = {}) {
     // 补位先保留旧敌人，命中落完后退场；新敌人入场完成才能出手。
     const swaps = new Map();
     const entering = new Map();
+    // 抽卡动画尚未落位的手牌 inst，以及回合结束等待自动行动演完再发的新手牌。
+    const incomingCards = new Set();
+    let pendingDraw = null;
     // 每次动作递增，作为动作身份：结算收尾（settle）与自动行动演出锁只认对应的那次动作；更早动作的时间轴照常播完、照常落下。
     let hitGen = 0;
     // 正在播的时间轴条数，以及排队等着播的时间轴：连续出牌与结束回合后的阶段按动作顺序逐条播放（引擎已逐个立即结算）。
@@ -282,12 +289,13 @@ export function createCombatPanelController(doc, options = {}) {
         if (event.result === 'ko') later(() => sfx(creatureSfxKind('fade', voice.size, voice.kind)), KO_FALL_SFX_DELAY_MS + 250);
     };
     // 影子卡：画布皮肤的牌套一层同皮肤容器（外层按视口矩形定位，内层按画布缩放），样式与手牌一致；其余皮肤照旧。
-    const ghostOf = (el) => {
+    const ghostOf = (el, { keepPoor = false } = {}) => {
         const card = cloneCardGhost(el);
         const box = card ? canvasGhostWrap(doc, el) : null;
         if (!box) return card;
-        // 画布皮肤的手牌带选中 / 缺能量 / 抬起类名：影子卡按手牌原样的窄牌出发（设计稿 play 同样去掉这几个类）。
-        card.classList?.remove?.('sel', 'top', 'poor');
+        // 画布皮肤的手牌带选中 / 缺能量 / 抬起类名：出牌影子按原样去掉；抽/弃牌保留 poor 态避免落位色差跳变。
+        card.classList?.remove?.('sel', 'top');
+        if (!keepPoor) card.classList?.remove?.('poor');
         box.inner.appendChild(card);
         return box.wrap;
     };
@@ -545,6 +553,7 @@ export function createCombatPanelController(doc, options = {}) {
         const lifted = liftUnitFx();
         if (view.battle && hoverInst) view.hovered = hoverInst;
         if (view.battle && itemsOpen) view.itemsOpen = true;
+        if (view.battle && pileOpen) view.pileOpen = pileOpen;
         // 暂存中的单位已在 snapshot 里按暂存血量写进视图：新节点首帧就是显示值，不会先按结算后的血量算一次样式再补画（那样受击前血条会先跌再回弹）。
         root.querySelector(':scope > .igs-combat-loot-detail')?.remove();
         body.innerHTML = renderCombatPanelHtml(view);
@@ -556,7 +565,17 @@ export function createCombatPanelController(doc, options = {}) {
             el?.style?.setProperty?.('--swap-t', `${-Math.max(0, Math.round(Number(u.swapT) || 0))}ms`);
         }
         restoreUnitFx(lifted);
+        if (incomingCards.size && view.battle && !reduced() && !lowQuality()) {
+            const liveHand = new Set((view.battle.hand || []).map((c) => c.inst));
+            for (const inst of [...incomingCards]) {
+                if (!liveHand.has(inst)) { incomingCards.delete(inst); continue; }
+                cardEl(inst)?.setAttribute?.(CARD_INCOMING_ATTR, '');
+            }
+        } else if (incomingCards.size) {
+            incomingCards.clear();
+        }
         syncControlDock();
+        syncPileDocks(doc, root, view.battle && !view.battle.outcome && !view.end ? view.battle.piles : null);
         syncLootDetail();
         if (view.intro && !stageFxStyle(skinOf())) flashScreen(false);
         syncIntro(view);
@@ -786,8 +805,14 @@ export function createCombatPanelController(doc, options = {}) {
         waiting.length = 0;
         for (const n of cutinNodes) n.remove?.();
         cutinNodes.clear();
+        pendingDraw = null;
+        if (incomingCards.size) {
+            for (const inst of incomingCards) cardEl(inst)?.removeAttribute?.(CARD_INCOMING_ATTR);
+            incomingCards.clear();
+        }
         root?.removeAttribute?.('data-igs-combat-hold');
         root?.removeAttribute?.('data-igs-combat-shake');
+        root?.removeAttribute?.(COMBAT_IMPACT_VIGNETTE_ATTR);
         if (stage) markCaption(stage, null);
     }
 
@@ -1209,7 +1234,7 @@ export function createCombatPanelController(doc, options = {}) {
     // 引擎事件 → 行动条推进 + fx-battle 演出。逐段串行：头像沿线前进到该段快照（出手者到达出手点）→ 暂停移动、播出手演出（至少 ACT_GAP_MS）→ 出手者回到起点 → 下一段。
     // from 为动作前的进度（结束回合时操控角色已回到起点）；fly 为出牌飞行卡的时长（第一段命中等它飞到再落下）；每段演出用递增页号作身份。
     // gen 为这次动作的身份（hitGen），ids 为这次动作暂存的单位（holdUnits 的返回值），时间轴走完时各减一次引用。
-    function playFx(events, { start = false, from = null, fly = 0, gen = hitGen, held: ids = [] } = {}) {
+    function playFx(events, { start = false, from = null, fly = 0, gen = hitGen, held: ids = [], beforeBattle = null } = {}) {
         const cur = session()?.state();
         // 没有演出可播：照样收尾，并让排在后面的时间轴接着播。
         if (!stage || !cur?.battle || !events?.length) { if (autoGen === gen) setAuto(-1); releaseHeld(ids); if (!busy) advance(); settle(gen); return; }
@@ -1265,6 +1290,10 @@ export function createCombatPanelController(doc, options = {}) {
         };
         // 画布皮肤开场已有 VS 对撞，不再叠「ENCOUNTER」遭遇横幅；初始方案照旧。
         const encounter = start && !stageFxStyle(skinOf());
+        // 逐段追踪格挡余量以精确识别刚好打空（hpLoss=0）的破盾。
+        const segBlocks = beforeBattle?.units
+            ? Object.fromEntries(Object.entries(beforeBattle.units).map(([id, u]) => [id, { block: Math.max(0, Number(u?.block) || 0) }]))
+            : null;
         segs.forEach((seg, i) => {
             const fx = combatFxSource(seg.events, cur.battle, { start: encounter && i === 0, foe, title: cur.start?.encounter || '' });
             fxSeq += 1;
@@ -1287,7 +1316,13 @@ export function createCombatPanelController(doc, options = {}) {
             // 有特写时先播特写，命中演出在最后一个特写开始淡出时落下；这一段的停留时长覆盖特写与命中两者。
             // 出牌飞行卡只在第一段：命中等影子卡飞到目标后落下。没有特写也不飞时 lead / span 为 0，节奏与旧版一致。
             const cuts = planCutins(seg.events, cur.battle);
-            const marks = combatHitMarks(seg.events);
+            const marks = combatHitMarks(seg.events, segBlocks ? { units: segBlocks } : null);
+            if (segBlocks) {
+                for (const ev of seg.events || []) {
+                    if (ev?.type === 'block' && ev.amount > 0 && segBlocks[ev.target]) segBlocks[ev.target].block += Number(ev.amount);
+                    else if (ev?.type === 'damage' && ev.blocked > 0 && segBlocks[ev.target]) segBlocks[ev.target].block = Math.max(0, segBlocks[ev.target].block - Number(ev.blocked));
+                }
+            }
             const rarity = playedCardFx(seg.events, cur.battle, fxOptions);
             // 本段有命中演出时招式条（顶部卡名）已报出卡名，只给它按稀有度上色，不在画面中间重复横幅；没有命中（格挡、强化等）才用中间横幅。
             const caption = (plan.events || []).some(e => e.type === 'hit');
@@ -1366,7 +1401,7 @@ export function createCombatPanelController(doc, options = {}) {
         };
         if (counted && !auto && handoff < at) later(() => { if (my === token && stage === host) handOver(); }, Math.max(handoff, 1));
         later(() => {
-            if (autoGen === gen) setAuto(-1);
+            if (autoGen === gen) { setAuto(-1); flushPendingDraw(gen); }
             if (my !== token || stage !== host) return;
             if (counted) { handOver(); finishTimeline(); }
             else { releaseHeld(ids); if (!live) { markActing(null); markCaption(stage, null); } }
@@ -1504,6 +1539,8 @@ export function createCombatPanelController(doc, options = {}) {
         const named = landing?.named || [];
         const strikes = landing?.strikes || new Map();
         const sounded = new Set();
+        const hitCounts = new Map();
+        const statusSounded = new Set();
         let impacted = false;
         let heavied = false;
         for (const { unitId, marks: all } of marks) {
@@ -1525,32 +1562,88 @@ export function createCombatPanelController(doc, options = {}) {
                     if (my !== token || !root) return;
                     const entry = held.get(unitId);
                     const el = unitEl(unitId);
-                    // 受击形态只落在出手者以外、本次被打中（掉血或全挡）的单位上：普通卡与技能画基础形态，稀有及以上另加光晕、停顿与震屏。
-                    const struck = Boolean(rarity?.rank || rarity?.strike) && unitId !== rarity.unitId && list.some(mark => mark.kind === 'damage' || mark.kind === 'guard' || mark.kind === 'overkill');
-                    const stop = struck && !impacted ? rarity.hold : 0;
+                    const hitIndex = hitCounts.get(unitId) || 0;
                     const ko = defer && entry && list.some((mark) => mark.kind === 'ko');
                     const shown = ko ? list.filter((mark) => mark.kind !== 'ko') : list;
+                    const dmgMarks = shown.filter((mark) => mark.kind === 'damage');
+                    const isPoisonHit = dmgMarks.length > 0 && dmgMarks.every((mark) => mark.damageKind === 'poison');
+                    const hasHit = dmgMarks.length > 0 || shown.some((mark) => mark.kind === 'overkill');
+                    const hasBreak = shown.some((mark) => mark.kind === 'shield-break');
+                    const hasGuard = !hasHit && !hasBreak && shown.some((mark) => mark.kind === 'guard');
+                    const isKo = shown.some((mark) => mark.kind === 'ko');
+                    const isHeroHurt = units[unitId]?.side === 'ally' && dmgMarks.length > 0;
+                    if (hasHit || hasGuard || hasBreak) hitCounts.set(unitId, hitIndex + 1);
+                    // 受击形态只落在出手者以外、本次被打中（掉血或全挡或破盾）的单位上：普通卡与技能画基础形态，稀有及以上另加光晕、停顿与震屏。
+                    const struck = !isPoisonHit && Boolean(rarity?.rank || rarity?.strike) && unitId !== rarity.unitId && (hasHit || hasGuard || hasBreak);
+                    const stop = struck && !impacted ? rarity.hold : 0;
                     // 对敌大伤害（heavyHitRank）：按这次落下的掉血合计与敌人最大生命定档，飘字砸落、受击重抖、爆点；本段第一次另补停顿与震屏。
-                    const heavy = units[unitId]?.side === 'enemy' ? heavyHitRank(shown, entry?.maxHp || units[unitId]?.maxHp) : 0;
+                    const heavy = units[unitId]?.side === 'enemy' && !isPoisonHit ? heavyHitRank(shown, entry?.maxHp || units[unitId]?.maxHp) : 0;
                     const tier = heavy ? COMBAT_HEAVY_HIT[heavy] : null;
-                    const hold = Math.max(stop, tier && !heavied && !reduced() ? tier.hold : 0);
+                    const impact = !isPoisonHit ? impactTierFor(shown, { rarity, maxHp: entry?.maxHp || units[unitId]?.maxHp, isKo, heavyRank: heavy, skin: skinOf() }) : { level: 0, hold: 0, shake: 0, vignette: '', life: 0 };
+                    const waveHold = !reduced() && impact.level > 0
+                        ? (hitIndex > 0 && impact.level < 2 ? Math.min(impact.hold, 28) : impact.hold)
+                        : 0;
+                    const hold = Math.max(stop, tier && !heavied && !reduced() ? tier.hold : 0, waveHold);
                     if (entry) { applyHitMarks(entry, shown); if (ko) { entry.hp = 0; entry.ko = true; } paintUnitHp(el, entry); }
-                    showHitFloats(doc, el, shown, { reduced: reduced(), schedule: later, rarity, fresh: hxOn(), heavy });
+                    showHitFloats(doc, el, shown, { reduced: reduced(), schedule: later, rarity, fresh: hxOn(), heavy, hitIndex });
                     // 停顿期间受击动画暂停，摘除受击反馈的计时顺延同样时长，动画不被截短。
-                    reactUnit(el, list, { reduced: reduced() || lowQuality(), schedule: hold ? (fn, ms) => later(fn, ms + hold) : later, heavy: heavy > 0 });
+                    reactUnit(el, shown, { reduced: reduced() || lowQuality(), schedule: hold ? (fn, ms) => later(fn, ms + hold) : later, heavy: heavy > 0 });
+                    // 全伤害档位主题光栅纹理命中特效（按皮肤主题切换美术素材，零 SVG），多段连击自动交替斩向与微偏落点。
+                    if (hasHit || hasGuard || isKo) {
+                        const burstKind = isKo ? 'ko' : isPoisonHit ? 'poison' : hasGuard ? 'guard' : (rarity?.strike?.form || 'slash');
+                        const burstColor = isPoisonHit ? '#95f058' : hasGuard ? '#7fd8ff' : (rarity?.strike?.color || '');
+                        for (const node of showImpactBurst(doc, el, { skin: skinOf(), kind: burstKind, form: rarity?.strike?.form, element: rarity?.strike?.element, color: burstColor, level: Math.max(1, impact.level), hitIndex, isKo }, { reduced: reduced(), low: lowQuality(), schedule: later })) {
+                            cutinNodes.add(node);
+                            later(() => cutinNodes.delete(node), Math.max(480, impact.life || 520));
+                        }
+                    }
+                    // 破盾（格挡被打碎）主题光栅碎盾爆裂 + 脆裂音效。
+                    if (hasBreak) {
+                        for (const node of showShieldBreak(doc, el, { skin: skinOf(), reduced: reduced(), low: lowQuality(), schedule: later })) {
+                            cutinNodes.add(node);
+                            later(() => cutinNodes.delete(node), 700);
+                        }
+                        if (!statusSounded.has(`break:${unitId}`)) { statusSounded.add(`break:${unitId}`); sfx('battle-shield-break'); }
+                    }
+                    // 增益 Buff / 减益 Debuff / 护盾 / 治疗 / 免疫 / 净化 主题光栅光效与配套音效。
+                    for (const node of showStatusFx(doc, el, shown, { skin: skinOf(), reduced: reduced(), low: lowQuality(), schedule: later })) {
+                        cutinNodes.add(node);
+                        later(() => cutinNodes.delete(node), 860);
+                    }
+                    if (isPoisonHit && !statusSounded.has('poison-hit')) { statusSounded.add('poison-hit'); sfx('battle-poison'); }
+                    if (shown.some((m) => m.kind === 'artifact') && !statusSounded.has('artifact')) { statusSounded.add('artifact'); sfx('battle-artifact'); }
+                    else if (shown.some((m) => m.kind === 'debuff' && m.status === 'poison') && !statusSounded.has('poison')) { statusSounded.add('poison'); sfx('battle-poison'); }
+                    else if (shown.some((m) => m.kind === 'debuff') && !statusSounded.has('debuff')) { statusSounded.add('debuff'); sfx('battle-debuff'); }
+                    else if (shown.some((m) => m.kind === 'buff' || m.kind === 'cleanse') && !statusSounded.has('buff')) { statusSounded.add('buff'); sfx('battle-buff'); }
                     if (heavy) for (const node of showHeavyBurst(doc, el, heavy, { reduced: reduced(), low: lowQuality(), schedule: later })) {
                         cutinNodes.add(node);
                         later(() => cutinNodes.delete(node), tier.life);
                     }
                     hxHitCues(unitId, shown, { struck, rarity, enemyActs });
                     // 倒下（鞭尸推迟的由 revealDowns 出）：敌方按登记与否出两类姿态与倒地声、说倒下台词；其余掉血的单位说受击台词（同单位节流）。
-                    if (shown.some((mark) => mark.kind === 'ko')) koFallCue(unitId);
-                    else if (shown.some((mark) => mark.kind === 'damage')) unitSay(unitId, 'hit');
+                    if (isKo) koFallCue(unitId);
+                    else if (dmgMarks.length) unitSay(unitId, 'hit');
+                    // 卡肉顿帧、定向震屏与暗角闪震：普通命中也有轻量卡肉，重击/巨创/击倒逐级增强，并与稀有度/大伤害停顿去重取强。
+                    const vigKind = isHeroHurt ? 'hurt' : impact.vignette;
+                    if (vigKind) pulseVignette(root, vigKind, { reduced: reduced(), low: lowQuality(), schedule: later });
+                    const baseHold = Math.max(stop, tier && !heavied ? tier.hold : 0);
+                    const baseShake = Math.max(struck && !impacted ? (rarity?.shake || 0) : 0, tier && !heavied ? tier.shake : 0);
                     if (struck) {
                         rarityNodes(el, rarity, 'hit');
                         if (!impacted) { impacted = true; rarityImpact(rarity, unitId); }
                     }
                     if (tier && !heavied) { heavied = true; heavyImpact(tier, impacted ? rarity : null, unitId); }
+                    if (!reduced() && impact.level > 0) {
+                        const panelEl = root;
+                        if (waveHold > baseHold) holdPanel(panelEl, waveHold);
+                        const waveShake = hitIndex > 0 && impact.level < 2 ? Math.max(1.5, impact.shake * 0.7) : impact.shake;
+                        if (!lowQuality() && waveShake > baseShake) {
+                            later(() => {
+                                if (root !== panelEl) return;
+                                shakePanel(panelEl, strikeDirection(rarity?.unitId, unitId), waveShake, Math.max(1, impact.level));
+                            }, Math.max(waveHold, baseHold));
+                        }
+                    }
                     if (wave && !wave.first && typeof onWave === 'function' && !sounded.has(wave)) { sounded.add(wave); onWave(wave.event, list); }
                 };
                 if (at > 0) later(land, at); else land();
@@ -1641,6 +1734,119 @@ export function createCombatPanelController(doc, options = {}) {
         return ms;
     }
 
+    // 抽卡与弃卡动画（杀戮尖塔 2 风格弧线甩牌）：结算前捕获即将离手入弃牌堆的牌，重绘后立即播弃牌与发牌（回合结束若有敌方行动，发牌延至轮回玩家时播）。
+    function captureDiscards(insts) {
+        if (!insts?.length || reduced() || lowQuality()) return [];
+        const out = [];
+        for (const inst of insts) {
+            const el = cardEl(inst);
+            const rect = measureCardBox(el, root);
+            if (!el || !rect) continue;
+            const ghost = ghostOf(el, { keepPoor: true });
+            if (ghost) out.push({ inst, rect, ghost });
+        }
+        return out;
+    }
+
+    function revealIncoming(insts = null) {
+        const list = insts ? insts : [...incomingCards];
+        for (const inst of list) {
+            incomingCards.delete(inst);
+            cardEl(inst)?.removeAttribute?.(CARD_INCOMING_ATTR);
+        }
+    }
+
+    function runDiscardMotion(captured, endTurn = false) {
+        if (!captured?.length || !stage || reduced() || lowQuality()) return 0;
+        const anchor = pileAnchorRect(root, stage, 'discard');
+        if (!anchor) return 0;
+        const host = stage;
+        const my = token;
+        const { nodes, totalMs } = playDiscardCards(host, captured, anchor, {
+            reduced: reduced(),
+            endTurn,
+            schedule: (fn, t) => later(() => { if (my === token && stage === host) fn(); }, t),
+            onStart: (count) => {
+                const bursts = Math.min(3, Math.max(1, Math.ceil(count / 2)));
+                for (let i = 0; i < bursts; i += 1) {
+                    if (i === 0) sfx('battle-card-discard');
+                    else later(() => { if (my === token && stage === host) sfx('battle-card-discard'); }, i * 48);
+                }
+            },
+            onArrive: () => bumpPile(findPileEl(root, 'discard'), 'discard', { reduced: reduced(), schedule: later }),
+        });
+        for (const n of nodes) cutinNodes.add(n);
+        if (nodes.length) later(() => { for (const n of nodes) cutinNodes.delete(n); }, totalMs + 20);
+        return totalMs;
+    }
+
+    function runDrawMotion(insts, drawSource) {
+        if (!insts?.length) return 0;
+        if (!stage || reduced() || lowQuality()) { revealIncoming(insts); return 0; }
+        const drawAnchor = pileAnchorRect(root, stage, 'draw');
+        const discardAnchor = pileAnchorRect(root, stage, 'discard');
+        const items = [];
+        const skipped = [];
+        for (const inst of insts) {
+            const el = cardEl(inst);
+            const rect = measureCardBox(el, root);
+            if (!el || !rect) { skipped.push(inst); continue; }
+            const ghost = ghostOf(el, { keepPoor: true });
+            if (!ghost) { skipped.push(inst); continue; }
+            const src = drawSource?.get?.(inst) === 'discard' ? discardAnchor : drawAnchor;
+            items.push({ inst, rect, ghost, cardEl: el, fromRect: src, source: drawSource?.get?.(inst) || 'draw' });
+        }
+        if (skipped.length) revealIncoming(skipped);
+        if (!items.length) return 0;
+        const host = stage;
+        const my = token;
+        const { nodes, totalMs } = playDrawCards(host, items, drawAnchor, {
+            reduced: reduced(),
+            schedule: (fn, t) => later(() => { if (my === token && stage === host) fn(); }, t),
+            onEach: (item, index) => {
+                if (index < 5) sfx('battle-card-draw');
+                const pileKind = item.source === 'discard' ? 'discard' : 'draw';
+                bumpPile(findPileEl(root, pileKind), pileKind, { reduced: reduced(), schedule: later });
+            },
+            onLand: (inst) => {
+                incomingCards.delete(inst);
+                cardEl(inst)?.removeAttribute?.(CARD_INCOMING_ATTR);
+            },
+        });
+        for (const n of nodes) cutinNodes.add(n);
+        if (nodes.length) later(() => { for (const n of nodes) cutinNodes.delete(n); }, totalMs + 20);
+        return totalMs;
+    }
+
+    function runTransferMotion(transfers) {
+        if (!transfers?.length || !stage || reduced() || lowQuality()) return 0;
+        const fromRect = pileAnchorRect(root, stage, 'discard');
+        const toRect = pileAnchorRect(root, stage, 'draw');
+        if (!fromRect || !toRect) return 0;
+        const host = stage;
+        const my = token;
+        const { nodes, totalMs } = playPileTransfers(doc, host, transfers.length, fromRect, toRect, {
+            reduced: reduced(),
+            schedule: (fn, t) => later(() => { if (my === token && stage === host) fn(); }, t),
+            onStart: () => {
+                sfx('battle-card-draw');
+                bumpPile(findPileEl(root, 'discard'), 'discard', { reduced: reduced(), schedule: later });
+            },
+            onArrive: () => bumpPile(findPileEl(root, 'draw'), 'draw', { reduced: reduced(), schedule: later }),
+        });
+        for (const n of nodes) cutinNodes.add(n);
+        if (nodes.length) later(() => { for (const n of nodes) cutinNodes.delete(n); }, totalMs + 20);
+        return totalMs;
+    }
+
+    function flushPendingDraw(gen) {
+        if (!pendingDraw || (gen != null && pendingDraw.gen !== gen)) return;
+        const { insts, drawSource } = pendingDraw;
+        pendingDraw = null;
+        if (session()?.state()?.battle?.outcome) { revealIncoming(insts); return; }
+        runDrawMotion(insts, drawSource);
+    }
+
     async function prepare({ recoverReward = false } = {}) {
         const s = session();
         if (!s || messageId === null || pending) return { ok: false, reason: pending ? 'combat-busy' : 'combat-session-unavailable' };
@@ -1728,7 +1934,7 @@ export function createCombatPanelController(doc, options = {}) {
         const playedName = action?.type === 'play' ? was?.catalog?.[was.cards?.[action.inst]?.owner]?.[was.cards?.[action.inst]?.cardId]?.name : '';
         const r = s.act(action);
         if (r.ok && playedName) duelFx.onPlay(playedName);
-        selected = null; chosen = [];
+        selected = null; chosen = []; pileOpen = '';
         say(r);
         // 新动作：引擎已立即结算，演出按动作顺序逐条播放——前面的时间轴还没播完时排到它们之后（拼手速可以一口气打出多张），命中按增量落到同一份暂存血量上；
         // 本次有变化、还没暂存的单位按本次动作前的血量暂存。这次动作结束了战斗：减少动态效果时收掉旧演出、直接显示结算画面；
@@ -1738,12 +1944,31 @@ export function createCombatPanelController(doc, options = {}) {
         let ids = [];
         if (r.ok) { hitGen += 1; ids = holdUnits(prior, r.events); settling = ended && !reduced(); }
         if (r.ok && !reduced() && !lowQuality()) noteSwaps(r.events);
+        const motion = r.ok ? planCardMotions(was, s.state().battle, action, r.events) : { discarded: [], drawn: [], drawSource: new Map(), endTurn: false };
+        const capturedDiscards = r.ok ? captureDiscards(motion.discarded) : [];
+        if (r.ok && pendingDraw) { revealIncoming(pendingDraw.insts); pendingDraw = null; }
+        if (r.ok && incomingCards.size) revealIncoming();
+        if (r.ok && !ended && !reduced() && !lowQuality() && motion.drawn.length) {
+            for (const inst of motion.drawn) incomingCards.add(inst);
+        }
         render();
         if (r.ok) {
             // 有队友或敌人出手（结束回合）：立即加演出锁；前面的演出还没播完时，行动条先停在结束回合前的进度。
             const gen = hitGen;
             const auto = fxSegments(r.events).some((g) => g.actor);
             if (auto) setAuto(gen);
+            if (capturedDiscards.length) runDiscardMotion(capturedDiscards, motion.endTurn);
+            if (motion.transfers?.length) runTransferMotion(motion.transfers);
+            if (!ended && motion.drawn.length) {
+                if (motion.endTurn && auto && !reduced() && !lowQuality()) {
+                    pendingDraw = { gen, insts: motion.drawn, drawSource: motion.drawSource };
+                } else {
+                    const drawGap = capturedDiscards.length ? COMBAT_CARD_MOTION.afterDiscardGapMs : 0;
+                    const my = token;
+                    if (drawGap) later(() => { if (my === token && hitGen === gen) runDrawMotion(motion.drawn, motion.drawSource); }, drawGap);
+                    else runDrawMotion(motion.drawn, motion.drawSource);
+                }
+            }
             // 出手即反馈：己方出牌 / 人物技能 / 道具立即一声挥出、影子卡立即飞向目标；特效与伤害按动作顺序排队依次结算，命中音随命中演出落下。
             if (['play', 'hero-skill', 'item'].includes(action?.type)) sfx('battle-card');
             const fly = flyCard(card, action, r.events);
@@ -1760,12 +1985,12 @@ export function createCombatPanelController(doc, options = {}) {
                 }, fly);
             }
             const start = () => {
-                if (!queued) { playFx(r.events, { from, fly, gen, held: ids }); return; }
-                if (landed) { playFx(r.events, { from, gen, held: ids }); return; }
+                if (!queued) { playFx(r.events, { from, fly, gen, held: ids, beforeBattle: was }); return; }
+                if (landed) { playFx(r.events, { from, gen, held: ids, beforeBattle: was }); return; }
                 busy += 1;
                 onLand = () => {
                     busy = Math.max(0, busy - 1);
-                    playFx(r.events, { from, gen, held: ids });
+                    playFx(r.events, { from, gen, held: ids, beforeBattle: was });
                 };
             };
             start.reveal = action?.type === 'end-turn' || action?.type === 'escape';
@@ -1934,7 +2159,8 @@ export function createCombatPanelController(doc, options = {}) {
         const sel = itemSelection(itemId);
         if (pick.reason === 'combat-target-required') {
             if (selected === sel) { selected = null; render(); return { ok: true, reason: 'combat-selection-cleared' }; }
-            itemsOpen = false; selected = sel; notice = ''; render();
+            itemsOpen = false;
+        pileOpen = ''; selected = sel; notice = ''; render();
             return pick;
         }
         selected = null; notice = combatReasonText(pick.reason); render();
@@ -1953,6 +2179,7 @@ export function createCombatPanelController(doc, options = {}) {
     // 收起道具列表：移除列表节点并改类名，不整块重绘（随后的点击还要命中原节点）。
     function closeItems() {
         itemsOpen = false;
+        pileOpen = '';
         const box = root?.querySelector?.('.igs-combat-items');
         box?.querySelector?.('.igs-combat-item-menu')?.remove?.();
         if (box) box.className = 'igs-combat-items';
@@ -1964,6 +2191,7 @@ export function createCombatPanelController(doc, options = {}) {
 
     function cancelSelection() {
         endDrag();
+        if (root && pileOpen) { pileOpen = ''; render(); return true; }
         if (root && itemsOpen) { itemsOpen = false; render(); return true; }
         if (!root || (!selected && !chosen.length)) return false;
         selected = null; chosen = [];
@@ -2014,13 +2242,22 @@ export function createCombatPanelController(doc, options = {}) {
                 say(r);
                 // 先收起开场对撞（或排开战过场）再重画：画布皮肤的两半滑出时，战斗画面已经在底下画好。
                 const lead = r.ok ? showOpening() : 0;
+                const startMotion = r.ok ? planCardMotions(null, s.state().battle, null, r.events, { start: true }) : null;
+                if (startMotion?.drawn?.length && !reduced() && !lowQuality()) {
+                    for (const inst of startMotion.drawn) incomingCards.add(inst);
+                }
                 render();
                 if (r.ok) {
-                    // 开战过场走完再播开局演出；过场期间已有新动作（hitGen 变了）或面板已关闭时不再补播。
+                    // 开战过场走完再播开局演出与初始发牌；过场期间已有新动作（hitGen 变了）或面板已关闭时不再补播。
                     const my = token;
                     const gen = hitGen;
-                    if (lead) later(() => { if (my === token && gen === hitGen) playFx(r.events, { start: true }); }, lead);
-                    else playFx(r.events, { start: true });
+                    const playStart = () => {
+                        if (my !== token || gen !== hitGen) return;
+                        playFx(r.events, { start: true });
+                        if (startMotion?.drawn?.length) runDrawMotion(startMotion.drawn, startMotion.drawSource);
+                    };
+                    if (lead) later(playStart, lead);
+                    else playStart();
                 }
                 return r;
             }
@@ -2033,6 +2270,17 @@ export function createCombatPanelController(doc, options = {}) {
             case 'cancel': selected = null; chosen = []; render(); return { ok: true };
             case 'choose-pick': return pendingChoice(s.state().battle) ? toggleChoice(id) : { ok: false, reason: 'no-choice-pending' };
             case 'choose-confirm': return confirmChoice();
+            case 'pile-view': {
+                const kind = id === 'draw' || id === 'discard' ? id : '';
+                if (!kind || !s.state().battle || s.state().battle.outcome) return { ok: false, reason: 'combat-pile-unavailable' };
+                pileOpen = pileOpen === kind ? '' : kind;
+                render();
+                return { ok: true, pile: pileOpen };
+            }
+            case 'pile-close':
+                pileOpen = '';
+                render();
+                return { ok: true };
             case 'end-turn': return act({ type: 'end-turn' });
             case 'escape': return act({ type: 'escape' });
             case 'stop': return sendAndLeave(() => s.abandon());
@@ -2416,7 +2664,7 @@ export function createCombatPanelController(doc, options = {}) {
         followUp = ['auto', 'abandon'].includes(openOptions.then) ? openOptions.then : '';
         preview = openOptions.preview && typeof openOptions.preview === 'object' ? openOptions.preview : null;
         historyOpen = openOptions.history === true;
-        purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = '';
+        purgeOpen = false; purgeFocus = ''; upgradeOpen = false; upgradeFocus = ''; pileOpen = '';
         notice = ''; pending = ''; selected = null; chosen = []; controlledId = null; settling = false; lobbyShown = false; autoGen = -1; flipShown = null; resultShown = null;
         frontFoe = '';
         token += 1;
@@ -2503,6 +2751,7 @@ export function createCombatPanelController(doc, options = {}) {
         held.clear(); drawnLook.clear(); swaps.clear(); entering.clear();
         hoverInst = '';
         itemsOpen = false;
+        pileOpen = '';
         hitGen += 1;
         if (stage) cancelBattleFx(stage);
         if (speedWatch) { speedWatch.disconnect(); speedWatch = null; }

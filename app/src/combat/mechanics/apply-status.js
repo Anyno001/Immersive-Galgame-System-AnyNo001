@@ -141,6 +141,8 @@ export const APPLY_STATUSES = Object.freeze({
     tender: Object.freeze({ debuff: true, max: 3, value: 5 }),
     soar: Object.freeze({ max: 1, value: 8 }),
     burrowed: Object.freeze({ max: 1, value: 8 }),
+    curiosity: Object.freeze({ max: 5, value: 8 }),
+    regenerate: Object.freeze({ max: 30, value: 2 }),
     // 敌人模板 M6（foe-afflict.js）。硬壳、蒸汽、滑溜等层数是绝对值，不随档位换算。
     slow: Object.freeze({ max: 1, value: 6 }),
     chrono: Object.freeze({ max: 5, value: 5 }),
@@ -156,6 +158,7 @@ export const APPLY_STATUSES = Object.freeze({
     steam: Object.freeze({ max: 99, value: 0.5 }),
     hex: Object.freeze({ debuff: true, max: 3, value: 5 }),
     smoggy: Object.freeze({ debuff: true, max: 1, value: 6 }),
+    confused: Object.freeze({ debuff: true, max: 1, value: 6 }),
 });
 const AREA = new Set(['all-enemies', 'all-allies']);
 export const targetFactor = (target) => (AREA.has(target) ? 1.4 : target === 'random-enemy' ? 0.85 : 1);

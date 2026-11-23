@@ -94,9 +94,7 @@ registerMechanic({
             for (const effect of view?.effects || []) {
                 if (effect.op !== 'bounty') continue;
                 if (effect.reward === 'upgrade') {
-                    const def = ctx.state.catalog[owner.id]?.[entry.cardId];
-                    if (!def?.upgraded || ctx.state.cards[ctx.inst].upgraded) continue;
-                    kit.ownCard(ctx, ctx.inst).upgraded = true;
+                    if (!kit.upgradeCard(ctx, ctx.inst)) continue;
                     kit.emit(ctx, { type: 'battle-growth', unitId: owner.id, stat: 'upgrade', amount: 1, cardId: entry.cardId });
                 } else if (!entry.temp) {
                     addGrowth(ctx, owner, kit, effect.reward, effect.amount, entry.cardId, entry.copyId);

@@ -283,7 +283,7 @@ export function enemyUnits(start, templates, partyLevel, difficulty, enemyAttrib
         const vitals = applyAbilities(scaled.hp, template.base?.speed ?? combatSpeedFor({ tier: template.tier, id: template.id }), attributes);
         const combat = (REL_TIERS[attributes?.tier] || REL_TIERS[DEFAULT_REL_TIER]).combat;
         const factor = crowd * encounterScaleFor(template.tier, battleWins, archetype)
-            * (template.generated !== false ? (COMBAT_RULES.generatedScale[template.tier] ?? 1) : 1);
+            * (!fromTemplate && template.generated !== false ? (COMBAT_RULES.generatedScale[template.tier] ?? 1) : 1);
         const maxHp = Math.max(1, Math.min(9999, Math.round(vitals.hp * factor * combat.hp)));
         const damageScale = Math.min(5, Math.round(scaled.damageScale * factor * combat.damage * 100) / 100);
         return (id, shownName, extra = {}) => {

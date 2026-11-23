@@ -13,8 +13,7 @@ const upgradable = (state, inst) => {
     return Boolean(entry && entry.upgraded !== true && state.catalog[entry.owner]?.[entry.cardId]?.upgraded);
 };
 function upgradeInst(ctx, unit, kit, inst) {
-    if (!upgradable(ctx.state, inst)) return false;
-    kit.ownCard(ctx, inst).upgraded = true;
+    if (!kit.upgradeCard(ctx, inst)) return false;
     kit.emit(ctx, { type: 'upgrade-card', unitId: unit.id, inst });
     return true;
 }
@@ -94,7 +93,8 @@ const copyExhaustOp = {
         });
         for (const inst of kit.selectCards(ctx, 'random', options, Math.min(effect.amount ?? 1, options.length), 'pick')) {
             const entry = ctx.state.cards[inst];
-            kit.addTempCard(ctx, unit, { cardId: entry.cardId, upgraded: entry.upgraded === true }, 'hand');
+            kit.addTempCard(ctx, unit, { cardId: entry.cardId, upgraded: entry.upgraded === true,
+                ...(entry.confusedCost === undefined ? {} : { confusedCost: entry.confusedCost }) }, 'hand');
         }
     },
     value: (e) => e.amount * 6,

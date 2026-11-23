@@ -34,7 +34,7 @@ registerMechanic({
                 const from = entry.cardId;
                 entry.cardId = MINION_STRIKE_ID;
                 entry.upgraded = e.upgraded === true;
-                for (const field of ['grow', 'costMod', 'bonus', 'inscription', 'grants', 'realExhaust']) delete entry[field];
+                for (const field of ['grow', 'costMod', 'confusedCost', 'bonus', 'inscription', 'grants', 'realExhaust']) delete entry[field];
                 kit.emit(ctx, { type: 'transform', unitId: unit.id, inst, from, cardId: MINION_STRIKE_ID });
             },
             value: e => 7 + (e.upgraded ? 3 : 0),
@@ -217,9 +217,7 @@ registerMechanic({
         },
         create(ctx, { unit, inst }, kit) {
             if (!st(unit, 'reality') || !inst) return;
-            const entry = ctx.state.cards[inst];
-            if (!entry || entry.upgraded || !ctx.state.catalog[entry.owner]?.[entry.cardId]?.upgraded) return;
-            kit.ownCard(ctx, inst).upgraded = true;
+            if (!kit.upgradeCard(ctx, inst)) return;
             kit.emit(ctx, { type: 'upgrade-card', unitId: unit.id, inst });
         },
     },

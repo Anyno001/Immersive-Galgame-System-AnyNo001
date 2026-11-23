@@ -40,6 +40,17 @@ const handOptions = (state, unit, kit, keep) => state.piles[unit.id].hand.filter
 const upgradable = (card, entry, state) => entry && entry.upgraded !== true && Boolean(state.catalog[entry.owner]?.[entry.cardId]?.upgraded);
 const handChoice = (keep, count = (e) => e.amount) => (state, unit, effect, kit) => (effect.mode === 'choose' || effect.from === 'choose'
     ? { options: handOptions(state, unit, kit, keep), count: Math.min(count(effect), handOptions(state, unit, kit, keep).length) } : null);
+const searchOptions = (state, unit, effect, kit) => {
+    const costOk = (card) => effect.cost === undefined || !(state.rulesVersion >= 6) || card.cost === effect.cost;
+    return (state.piles[unit.id]?.draw || []).filter((inst) => {
+        const card = kit.cardView(state, inst);
+        return card && (!effect.cardType || card.type === effect.cardType) && costOk(card);
+    });
+};
+const retrieveOptions = (state, unit, effect, kit) => (state.piles[unit.id]?.[effect.from] || []).filter((inst) => {
+    const card = kit.cardView(state, inst);
+    return card && !card.unplayable && (!effect.cardType || card.type === effect.cardType);
+});
 
 registerMechanic({
     key: 'pile', family: 'general', archetypes: [], unitKinds: ['deck'],
@@ -54,12 +65,13 @@ registerMechanic({
                     ...(cost === undefined ? {} : { cost }),
                 };
             },
+            choice(state, unit, effect, kit) {
+                if (!(state.rulesVersion >= 7)) return null;
+                const options = searchOptions(state, unit, effect, kit);
+                return { options, count: Math.min(effect.amount, options.length), from: 'draw', to: 'hand' };
+            },
             apply(ctx, unit, effect, aimId, source, kit) {
-                const costOk = (card) => effect.cost === undefined || !(ctx.state.rulesVersion >= 6) || card.cost === effect.cost;
-                const options = pileOf(ctx, unit).draw.filter((inst) => {
-                    const card = kit.cardView(ctx.state, inst);
-                    return card && (!effect.cardType || card.type === effect.cardType) && costOk(card);
-                });
+                const options = searchOptions(ctx.state, unit, effect, kit);
                 for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveFromPile(ctx, unit, kit, inst, 'draw');
             },
             value: (e) => e.amount * 5,
@@ -77,11 +89,13 @@ registerMechanic({
                     ...typeField(effect, path, state, kit),
                 };
             },
+            choice(state, unit, effect, kit) {
+                if (!(state.rulesVersion >= 7)) return null;
+                const options = retrieveOptions(state, unit, effect, kit);
+                return { options, count: Math.min(effect.amount, options.length), from: effect.from, to: effect.to === 'top' ? 'top' : 'hand' };
+            },
             apply(ctx, unit, effect, aimId, source, kit) {
-                const options = pileOf(ctx, unit)[effect.from].filter((inst) => {
-                    const card = kit.cardView(ctx.state, inst);
-                    return card && !card.unplayable && (!effect.cardType || card.type === effect.cardType);
-                });
+                const options = retrieveOptions(ctx.state, unit, effect, kit);
                 const to = ctx.state.rulesVersion >= 7 && effect.to === 'top' ? 'top' : 'hand';
                 for (const inst of kit.selectCards(ctx, 'choose', options, Math.min(effect.amount, options.length), 'pick')) moveFromPile(ctx, unit, kit, inst, effect.from, to);
             },
@@ -160,7 +174,8 @@ registerMechanic({
                     const entry = ctx.state.cards[inst];
                     if (!entry) continue;
                     const res = kit.resOf(ctx, unit);
-                    res.copyNext = [...(res.copyNext || []), { cardId: entry.cardId, upgraded: entry.upgraded === true, amount: effect.amount }];
+                    res.copyNext = [...(res.copyNext || []), { cardId: entry.cardId, upgraded: entry.upgraded === true, amount: effect.amount,
+                        ...(entry.confusedCost === undefined ? {} : { confusedCost: entry.confusedCost }) }];
                     kit.emit(ctx, { type: 'copy-next', unitId: unit.id, inst, amount: effect.amount });
                 }
             },
@@ -212,6 +227,7 @@ registerMechanic({
                     card.upgraded = false;
                     delete card.grow;
                     delete card.costMod;
+                    delete card.confusedCost;
                     kit.emit(ctx, { type: 'transform', unitId: unit.id, inst, from, cardId });
                 }
             },
@@ -229,8 +245,7 @@ registerMechanic({
                 const options = effect.mode === 'self' ? (ctx.inst ? [ctx.inst] : []) : handOptions(ctx.state, unit, kit, upgradable);
                 const picked = effect.mode === 'self' ? options : kit.selectCards(ctx, effect.mode, options, Math.min(effect.amount, options.length), 'pick');
                 for (const inst of picked) {
-                    if (!upgradable(null, ctx.state.cards[inst], ctx.state)) continue;
-                    kit.ownCard(ctx, inst).upgraded = true;
+                    if (!kit.upgradeCard(ctx, inst)) continue;
                     kit.emit(ctx, { type: 'upgrade-card', unitId: unit.id, inst });
                 }
             },
@@ -259,7 +274,8 @@ registerMechanic({
             if (!queued) return;
             delete unit.res.copyNext;
             if (!Object.keys(unit.res).length) delete unit.res;
-            for (const item of queued) for (let i = 0; i < item.amount; i += 1) kit.addTempCard(ctx, unit, { cardId: item.cardId, upgraded: item.upgraded }, 'hand');
+            for (const item of queued) for (let i = 0; i < item.amount; i += 1) kit.addTempCard(ctx, unit, { cardId: item.cardId, upgraded: item.upgraded,
+                ...(item.confusedCost === undefined ? {} : { confusedCost: item.confusedCost }) }, 'hand');
         },
     },
 });

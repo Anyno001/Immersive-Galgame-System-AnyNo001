@@ -1,5 +1,5 @@
 // S2 精英：基础难度；Knight Gang 为组合占位不建条目。可保真条目登记原版模型，Beta 保留 beta 状态。
-import { enemy, unavailableEnemy, skill, passive, atk, st, ap, cycle } from './dsl.js';
+import { enemy, unavailableEnemy, skill, passive, atk, st, ap, op, cycle } from './dsl.js';
 
 const research = '.limcode/cache/enemy-research/';
 const ref = (file, from, to = from) => ({ file: `${research}${file}`, lines: [from, to] });
@@ -8,9 +8,9 @@ const audit = (line) => ref('114-sts2-elite-behavior-audit.md', line);
 const matrix = (line) => ref('136-capability-matrix.md', line);
 
 const ROWS = [
-    [1, 'Bygone Effigy', '旧日神像', 127, 'pending', 17, 16, 259, '迟缓是否计入当前牌及重置事件未证，不借相近倍率补足。'],
+    [1, 'Bygone Effigy', '旧日神像', 127, 'release', 17, 16, 259, '开场减速1（slow，对手本回合每已打出一张牌受到攻击伤害+10%，向下取整、仅限攻击牌、每回合重置）；固定行动：沉睡（纯待机，不挂睡眠状态）→苏醒（力量+10）→此后每回合斩击13。官方页修订72459（2026-11-14）已明确Slow逐张加10%向下取整及纯待机无状态；A9斩击15及高阶HP132只记备注。'],
     [2, 'Byrdonis', '巢鸟领主', [81, 84], 'release', 18, 17, 260, '俯冲17与啄击3×3交替；领地1：每个自身回合结束力量+1，力量逐段加到啄击。A9伤害19与4×3、高阶HP90只记备注。'],
-    [3, 'Phrog Parasite', '寄生蛙', [61, 64], 'release', 19, 18, 261, '死亡召唤4只指定随从且须继续击败；感染卡牌定义未读。'],
+    [3, 'Phrog Parasite', '寄生蛙', [61, 64], 'release', 19, 18, 261, '固定交替：感染（弃牌堆洗入3张「感染」status-infection，回合末在手牌中造成3点伤害）→鞭击4×4；倒下触发deathSpawns生成4只非爪牙扭蠕虫（生命中点19，首回合晕厥待机，之后奇偶错位交替撕咬6与扭动塞感染1+力量+2），须击败全部扭蠕虫才判胜。官方页修订73081与Infection修订74066补全卡牌定义；玩家/敌方回合致死时点差异保留为来源边界，A9伤害5×4/7及高阶HP66–68只记备注。'],
     [4, 'Phantasmal Gardener', '幻影园丁', [26, 31], 'release', 20, 19, 262, '仅随固定四体遭遇幻影园丁同场：从左到右Flail、Bite、Lash、Enlarge起手，之后各自沿Bite→Lash→Flail→Enlarge循环；开场Skittish6，首次完整打出后给盾，不在多段之间给盾。', ['四体均为非爪牙；经批准仅该固定编组例外完整同场，不拆后备。', '每回合重置归属、完全格挡/零伤害、致死、多目标与Osty边界未闭合，沿用skittish项目口径，见59。A8/A9与高阶HP不混入基础模型。'], { encounterOnly: true }],
     [5, 'Skulking Colony', '潜伏虫群', 75, 'release', 21, 20, 263, '固定循环疾冲14、疾冲、惯性9并力量+2、穿刺7×2；硬化外壳20经 M6 shell（两次重置间累计失血≤层数，主角与自身回合开始各重置）。Boot/Doom 特例来源未闭合；A9力量3/4冲突、高阶数值与HP80只记备注。'],
     [6, 'Terror Eel', '恐鳗', 140, 'pending', 22, 21, 264, '阈值插入眩晕后的意图替换时点与恢复位置未给；易伤99层超状态上限。'],
@@ -27,11 +27,37 @@ const ROWS = [
 const fields = { weight: 1, cooldown: 0, maxRepeat: 2 };
 const once = { ...fields, maxRepeat: 1 };
 // 已收录条目的原版模型，按来源键对应上表同一行；该行末项改作备注。
+const wrigglerSkills = [
+    skill('stunned', '初生晕厥', 'idle', [op('idle')], fields),
+    skill('bite', '恶咬', 'attack', [atk(6)], fields),
+    skill('wriggle', '扭动', 'buff', [op('create', { card: 'status-infection', amount: 1, to: 'discard' }), st('strength', 2, 'self')], fields),
+];
 const MODELS = {
+    'Bygone Effigy': {
+        skills: [
+            skill('sleep', '沉睡', 'idle', [op('idle')], fields),
+            skill('wake', '苏醒', 'buff', [st('strength', 10, 'self')], fields),
+            skill('slashes', '斩击', 'attack', [atk(13)], { ...fields, maxRepeat: 0 }),
+        ],
+        script: cycle(['sleep', 'wake', 'slashes'], 2),
+        passives: [passive('slow', '迟缓', 'battle-start', [ap('slow', 1, 'self')])],
+    },
     Byrdonis: {
         skills: [skill('swoop', '俯冲', 'attack', [atk(17)], fields), skill('peck', '啄击', 'attack', [atk(3, 3)], fields)],
         script: cycle(['swoop', 'peck']),
         passives: [passive('territorial', '领地', 'turn-end', [st('strength', 1, 'self')])],
+    },
+    'Phrog Parasite': {
+        skills: [
+            skill('infect', '寄生感染', 'debuff', [op('create', { card: 'status-infection', amount: 3, to: 'discard' })], fields),
+            skill('lash', '鞭击', 'attack', [atk(4, 4)], fields),
+        ],
+        script: cycle(['infect', 'lash']),
+        kin: {
+            wrigglerOdd: { name: '扭蠕虫', maxHp: 19, skills: wrigglerSkills, script: { opener: 'stunned', ...cycle(['bite', 'wriggle']) } },
+            wrigglerEven: { name: '扭蠕虫', maxHp: 19, skills: wrigglerSkills, script: { opener: 'stunned', ...cycle(['wriggle', 'bite']) } },
+        },
+        deathSpawns: ['wrigglerOdd', 'wrigglerEven', 'wrigglerOdd', 'wrigglerEven'],
     },
     'Phantasmal Gardener': {
         skills: [
@@ -66,6 +92,8 @@ const MODELS = {
 export const STS2_ELITES = Object.freeze(ROWS.map(([no, sourceKey, name, hp, status, line, auditLine, matrixLine, reason, notes = [], flags = {}]) => {
     const evidence = [base(line), audit(auditLine), matrix(matrixLine)];
     if (sourceKey === 'Phantasmal Gardener') evidence.push(ref('59-sts2-gardener-card-boundary.md', 14, 29));
+    if (sourceKey === 'Bygone Effigy') evidence.push(ref('170-sts2-vantom-effigy-insatiable-wiring.md', 5, 24));
+    if (sourceKey === 'Phrog Parasite') evidence.push(ref('58-sts2-phrog-wriggler-spawn.md', 12, 31), ref('171-sts2-phrog-wriggler-wiring.md', 5, 18));
     return MODELS[sourceKey]
         ? enemy('sts2', 'elite', no, name, 'elite', status, MODELS[sourceKey], { ...flags, sourceKey, hp, evidence, notes: [reason, ...notes] })
         : unavailableEnemy('sts2', 'elite', no, name, 'elite', status, { sourceKey, hp, reason, evidence });

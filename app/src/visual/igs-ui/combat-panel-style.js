@@ -1,6 +1,8 @@
 import { IGS_UI_BLUR, IGS_UI_EDGE_NIGHT, IGS_UI_ELEVATION, IGS_UI_FILL, IGS_UI_FONT_SANS, IGS_UI_INK, IGS_UI_NIGHT_RGB, IGS_UI_RADIUS, IGS_UI_THICKNESS, IGS_UI_WARM, igsUiSurface } from '../../styles/ui-material.js';
 import { COMBAT_CUTIN_ART_FONT, COMBAT_CUTIN_STYLE_TEXT } from './combat-cutin-style.js';
 import { COMBAT_HIT_STYLE_TEXT } from './combat-hit-fx-style.js';
+import { COMBAT_IMPACT_FX_STYLE_TEXT } from './combat-impact-fx.js';
+import { COMBAT_CARD_MOTION_STYLE_TEXT } from './combat-card-motion.js';
 import { COMBAT_KO_FALL_STYLE_TEXT } from './combat-ko-fall.js';
 import { COMBAT_LINE_STYLE_TEXT } from './combat-lines.js';
 import { COMBAT_STAGE_FX_STYLE_TEXT } from './combat-stage-fx.js';
@@ -808,6 +810,7 @@ ${AWAKEN_FX}
 ${COMBAT_CUTIN_STYLE_TEXT}
 ${COMBAT_STAGE_FX_STYLE_TEXT}
 ${COMBAT_HIT_STYLE_TEXT}
+${COMBAT_CARD_MOTION_STYLE_TEXT}
 ${COMBAT_KO_FALL_STYLE_TEXT}
 ${COMBAT_LINE_STYLE_TEXT}
 ${COMBAT_ENEMY_ART_STYLE_TEXT}
@@ -859,4 +862,5 @@ ${C}[data-igs-combat-reduced] :is(.igs-combat-unit,.cx-unit)[data-swap],#igs-ove
 ${TARGET_PICKER_STYLE_TEXT}
 ${INTIMATE_DUEL_STYLE_TEXT}
 ${INTIMATE_DUEL_FX_STYLE_TEXT}
+${COMBAT_IMPACT_FX_STYLE_TEXT}
 `;

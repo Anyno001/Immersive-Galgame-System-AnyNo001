@@ -15,7 +15,6 @@ const UNAVAILABLE = [
     [13, 'Leaf Slime (S)', '小叶黏体', [11, 15], 'pending', [base(28), ref('68-sts2-slimes-behavior.md', 19), matrix(149)], 'S2黏液已独立登记为1费抽1张后消耗；首招权重仍未给，不据两招禁连用反推等权或固定首招，见缓存164。'],
     [16, 'Shrinker Beetle', '缩身甲虫', [38, 40], 'pending', [base(31), ref('73-sts2-mawler-shrinker-behavior.md', 27, 29), matrix(152)], '交替段起始相位未给；缩身需绑定施加者存活的状态。'],
     [21, 'Vine Shambler', '蔓行者', 61, 'pending', [base(37), ref('75-sts2-jaxfruit-vine-cycles.md', 27, 29), matrix(157)], '缠蔓层数与持续期、加费优先级未给，不能用既有加费状态冒充。'],
-    [22, 'Wriggler（事件版）', '扭蠕虫', [17, 21], 'pending', [base(38), ref('58-sts2-phrog-wriggler-spawn.md', 29, 31), matrix(158)], '感染卡牌定义未读取；召唤版先眩晕与多体错位起手属遭遇层。'],
 ];
 
 export const STS2_OVERGROWTH = Object.freeze([
@@ -129,6 +128,17 @@ export const STS2_OVERGROWTH = Object.freeze([
             ['首招绞缠3，之后等权选藤鞭（伤害7、格挡5）或抽击12，再绞缠，交替循环；不同攻击节点可重复同招，不额外限制连用。',
                 '绞缠在受害者自身回合末造成可格挡的层数伤害，绑定施加者存活；本地采用重复施加累计、按来源移除份额，回合末先镀甲及持续效果再绞缠。',
                 '多来源份额及同时死亡边界、眩晕后的节点恢复未获原作证实；等权节点使用本地种子，不宣称复现原作随机数消耗。A9伤害8/13及高阶HP54–56只记备注。'])),
+    enemy('sts2', 'overgrowth', 22, '扭蠕虫', 'normal', 'release',
+        {
+            skills: [
+                skill('bite', '恶咬', 'attack', [atk(6)], fields),
+                skill('wriggle', '扭动', 'buff', [op('create', { card: 'status-infection', amount: 1, to: 'discard' }), st('strength', 2, 'self')], fields),
+            ],
+            script: { opener: 'bite', next: { bite: [{ skill: 'wriggle', weight: 1 }], wriggle: [{ skill: 'bite', weight: 1 }] } },
+        },
+        { ...flags('Wriggler（事件版）', [17, 21], [base(38), ref('58-sts2-phrog-wriggler-spawn.md', 26, 31), matrix(158), ref('171-sts2-phrog-wriggler-wiring.md', 5, 18)],
+            ['仅随固定四体遭遇「扭蠕虫群」（enc-wrigglers）同场，不单独入池：奇数位恶咬6起手、偶数位扭动（弃牌堆塞感染1并力量+2）起手，之后两招交替、开场不晕厥。',
+                '寄生蛙死亡召唤版在 en-sts2-elite-03 的 kin 中实现（首回合晕厥待机）；Infection 定义由官方页修订74066补全，A9伤害7及高阶HP18–22只记备注。']), encounterOnly: true }),
     ...UNAVAILABLE.map(([no, sourceKey, name, hp, status, evidence, reason]) => unavailableEnemy(
         'sts2', 'overgrowth', no, name, 'normal', status, { sourceKey, hp, reason, evidence })),
 ].sort((a, b) => a.id.localeCompare(b.id)));

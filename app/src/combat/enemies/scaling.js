@@ -44,7 +44,7 @@ const DAMAGE_OPS = new Set(['damage', 'drain', 'mutual-damage', 'delayed-counter
 // 数值成长（M5）的增量与上限随伤害一同换算；target-hp 的除数按生命比例，不换算。
 const SURGE_KEYS = ['per', 'cap'];
 // M6 层数即绝对数值的特性：硬壳额度、胆怯格挡、金属化格挡随格挡（生命比例）换算，蒸汽存量随伤害换算，不超过单次施加上限。
-const STATUS_SCALE = Object.freeze({ shell: 'block', skittish: 'block', metallicize: 'block', steam: 'damage' });
+const STATUS_SCALE = Object.freeze({ shell: 'block', skittish: 'block', metallicize: 'block', regenerate: 'block', steam: 'damage' });
 const scaledStacks = (stacks, ratio, max) => Math.min(max, Math.max(1, Math.round(stacks * ratio)));
 function scaleEffects(effects, scale) {
     return (effects || []).map((effect) => {

@@ -6,11 +6,18 @@
 
 | 档位 | 原版模板 | 程序缝合 | 特性池合计 |
 |---|---:|---:|---:|
-| 普通 | 57 | 57 | 114 |
-| 精英 | 8 | 8 | 16 |
-| 首领 | 5 | 5 | 10 |
+| 普通 | 63 | 63 | 126 |
+| 精英 | 12 | 12 | 24 |
+| 首领 | 10 | 10 | 20 |
 
-单体池原版共70条；三档在64个确定性种子下均保持原版:缝合=1:1、可以物化。首领为 The Guardian、The Collector、Lagavulin Matriarch、Waterfall Giant、Knowledge Demon。翎风鸟已补齐正常选招与反复击落恢复；收集者已补齐数量分支、补至两只炬首侍从及第四个自身回合减益；墨滴灵只随三体遭遇展开，保留两侧戳刺、中间旋击起手及后续交替循环。眠甲虫已接入双计数睡眠、醒来卸甲与滚击后力量成长，相关定向回归6/6通过。Red Slaver 已接入首招、束缚前循环、25%一次性束缚及用后55:45选招，相关定向回归7/7通过。Living Fog 已接入烟雾、交替攻击与召唤；Gas Bomb 仅在其 kin.bomb 实现，先爆炸再自毁，不独立入池。Living Fog／Underdocks 定向3/3、64种子池1/1及S2集中汇总1/1通过。Shield Gremlin 已接入随机保护存活同伴、独处盾击和不限连用；新增技能单位专用protect-ally，校验、换算、生产装配与重放定向3/3通过，目录/集中参考值/64种子池3/3、S1汇总1/1通过。来源未证边界继续保留，数量不代表两作正式版全覆盖，也不代表平衡或真实环境验收完成。
+单体池原版共85条（S1 41、S2 44）；三档在64个确定性种子下均保持原版:缝合=1:1、可以物化。首领为 Slime Boss、The Guardian、The Collector、Time Eater、Awakened One、Vantom、Lagavulin Matriarch、Waterfall Giant、The Insatiable、Knowledge Demon。另含10条仅遭遇成员（S1 2、S2 8），支撑6组可物化 M8 固定遭遇（执阵与祈愈、帝蟹、墨滴灵、扭蠕虫群、血亲、幻影园丁），合计95条可参战正式条目。Batches 168–172 按官方 `slaythespire.wiki.gg/api.php` 最新修订批量补齐全部来源已闭合、无版本冲突且非隔离的条目：
+- **Batch 168（缠塔藤 + 执阵与祈愈）**：新增脚本条件 `target-status` / `target-no-status` / `ally-missing-hp-gte`（`script-conditions.js`，档案与直接建局 fail-closed 对齐）；`Spire Growth`（`en-sts1-act3-07`，HP 170）入普通单体池；`Centurion` + `Mystic` 登记为 `encounterOnly` 并接入固定双体遭遇 `enc-centurion-mystic`（见缓存 168、137 §6as）。
+- **Batch 169（穿刺残卷 / 渊喉兽 / 蜕羽醒者）**：新增敌方状态 `curiosity`（能力牌加力）与 `regenerate`（不衰减回合末回血），`pool.js` 排除 `heal-to` 进入缝合池；`Book of Stabbing`（`en-sts1-act2-09`，精英，HP 160–164，`Painful Stabs` + `foe-volley` `uses+2`）、`The Maw`（`en-sts1-act3-06`，普通，HP 300，`foe-volley` `ceil(turn/2)` 与转移表）与 `Awakened One`（`en-sts1-act3-17`，首领，HP 300，`Regenerate 10` + `Curiosity 1` + `onDefeat` 归零重生转二阶段与 `status-void`）入三档单体池（见缓存 169、137 §6at）。
+- **Batch 170（墨魇 / 旧日神像 / 无餍者）**：`rules.js` + `status-cards.js` 新增 S2 专属牌 `status-escape`（狂乱逃离，1 费令敌方流沙 +1 且本场费用 +1），`pool.js` 排除 `sandpit` 进缝合池；`Vantom`（`en-sts2-boss-03`，首领，HP 173，`Slippery 9`）、`Bygone Effigy`（`en-sts2-elite-01`，精英，HP 127，`Slow 1` + 纯待机沉睡）与 `The Insatiable`（`en-sts2-boss-07`，首领，HP 321，`Sandpit 4` + 6 张狂乱逃离）入精英/首领单体池（见缓存 170、137 §6au）。
+- **Batch 171（寄生蛙 + 扭蠕虫群）**：新增 S2 状态牌 `status-infection`（感染，不可打出、回合末手牌扣 3 血）；`engine.js` 将 `v6/v7` `foeCap=3` 下死亡生成/异种分裂超编的非爪牙单位排入 `state.reserve` 等待补位（不凭空丢失）；`Phrog Parasite`（`en-sts2-elite-03`，精英，HP 61–64，倒下生成 4 只首回合晕厥非爪牙扭蠕虫）入精英单体池，`Wriggler` 登记为 `encounterOnly` 并接入 M8 固定遭遇 `enc-wrigglers`（见缓存 171、137 §6av）。
+- **Batch 172（巨刺黏体 / 巨蚀黏体 / 聚胶王）**：复用 M3 `split-into`（`hp: 'current'`）与 M4 `hpAtMostPct: 50` 改写意图接入 `Spike Slime (L)`（`en-sts1-act1-06`）、`Acid Slime (L)`（`en-sts1-act1-09`）与 `Slime Boss`（`en-sts1-act1-24`，支持大→中两段递归分裂）（见缓存 172、137 §6aw）。
+
+此前已接入的重点条目（The Guardian、The Collector、Time Eater、Transient、Giant Head、Snecko、Shelled Parasite、Byrd、Red Slaver、Shield Gremlin、Spiker、Lagavulin、Living Fog、Tunneler、Slumbering Beetle、Leaf/Twig Slime (M)、Lagavulin Matriarch、Waterfall Giant、Knowledge Demon、Skulking Colony、Soul Nexus、Byrdonis 及既有 M8 遭遇）均经兼容回归复验通过。来源未证边界继续保留，数量不代表两作正式版全覆盖，也不代表平衡或真实环境验收完成。
 
 Frog Knight既有release模板已补核生产装配：v6/v7各4种子、满血/恰好半血/低于半血三条路径，共24场景；检查点的一次性冲锋、意图及完整事件重放一致。蛙骑士与通用条件步定向2/2通过，池计数不变；镀甲和精确检查时点等来源边界见缓存151与137 §6ab，未改运行时或平衡配置。
 
@@ -34,7 +41,7 @@ Phantasmal Gardener已接入固定精英遭遇「幻影园丁」：四名非爪�
 
 ## 后续补录口径
 
-当前目录171条：S1可抽30、excluded26、pending10；S2可抽40、仅遭遇成员7、excluded27、pending22、beta8、deprecated1。excluded中的Torch Head与Gas Bomb已在各自召唤者内实现，仅保留禁止独立入池标记，不计未完成；后续清单共83条（S1 35、S2 48），另列16条隔离内容。动态参考A中S1普通档为30/12，S2普通档为48/11、精英档为78.75/15.5、首领档为215.5/19.5，Act1批次为30/10、Hive为74/16、Underdocks为53.5/9.5；仅遭遇成员仍参与参考值，未做平衡校准。已登记6组固定遭遇，其中帝蟹、墨滴灵、血亲、幻影园丁4组可物化，迷失与遗忘、炮手与活体盾因成员未就绪仍整组拒收。
+当前目录171条：S1可抽41、仅遭遇成员2、excluded14、pending9；S2可抽44、仅遭遇成员8、excluded25、pending19、beta8、deprecated1。excluded中的Torch Head与Gas Bomb已在各自召唤者内实现，仅保留禁止独立入池标记，不计未完成；后续真正缺证据/冲突/非战斗/跨机制阻断的清单共65条（S1 22、S2 43），另列19条隔离内容（10仅遭遇+8 beta+1 deprecated）。动态参考A（`SOURCE_TIER_REF`）中S1普通档为42/13、精英档为110/18、首领档为282/32（Act2批次为61/16.5、109.5/14、282/18），S2普通档为47.25/11、精英档为78.75/15、首领档为215.5/22（Overgrowth批次为31.5/10）；仅遭遇成员仍参与参考值，未做平衡校准。已登记8组固定遭遇，其中执阵与祈愈、帝蟹、墨滴灵、扭蠕虫群、血亲、幻影园丁6组可物化，迷失与遗忘、炮手与活体盾因搭档来源缺证仍整组拒收。
 
 Leaf Slime (M)与Twig Slime (M)已入普通单体池：独立S2黏液`status-slime-sts2`为1费、抽1张后消耗，S1旧`status-slime`仍为1费仅消耗。中叶首招塞2张、后与攻击8交替；中枝首招塞1张、后续攻击11/塞牌按67:33，塞牌禁二连、攻击`maxRepeat:0`不限连用。本地受限加权不宣称复现原作RNG。新旧牌、v6/v7各4种子生产物化/意图/事件重放、真实大厅buildSetup与64种子池复验7/7，既有兼容16/16；来源及边界见缓存164与137 §6ao。小叶首招权重仍未给，保持pending；不登记Easy/Hard Slimes遭遇。S2普通参考由52/11变为48/11，影响同组归一换算，#balance仍暂缓。
 
@@ -44,57 +51,44 @@ Leaf Slime (M)与Twig Slime (M)已入普通单体池：独立S2黏液`status-sli
 
 表内省略统一前缀 `en-`，其余即稳定条目ID。随从不得单独入池，固定同场成员不得拆散抽取。
 
-## S1 第一幕（9条）
+## S1 第一幕（6条）
 
 | ID | 来源敌人 | 后续工作 |
 |---|---|---|
 | sts1-act1-01 | Cultist | E：Ritual获得当回合是否成长 |
 | sts1-act1-03 | RedLouse | E/M：Curl Up受击边界、开战定值随机伤害 |
 | sts1-act1-04 | Green Louse | E/M：同上，进阶连用冲突 |
-| sts1-act1-06 | Spike Slime (L) | E/W：分裂原语已有；子体最大HP、继承、致死边界 |
-| sts1-act1-09 | Acid Slime (L) | E/W：同上，通常选招及连用限制复核 |
 | sts1-act1-11 | Acid Slime (S) | E：首招、循环和概率 |
 | sts1-act1-13 | Mad Gremlin | E/M：Angry逐段、完全格挡及间接伤害 |
-| sts1-act1-24 | Slime Boss | E/W：共享kin与二次分裂已有；子体继承、致死、倍率方案 |
 | sts1-act1-26 | Hexaghost | E/M/W：目标回合生命伤害、六段及基础Burn已有；升级牌堆范围/顺序未证，Burn升级结算、批量升级与后续Sear造牌链未接，保持excluded（162；137 §6am） |
 
-## S1 第二幕（10条）
+## S1 第二幕（6条）
 
 | ID | 来源敌人 | 后续工作 |
 |---|---|---|
 | sts1-act2-02 | Chosen | E：组间随机交替与S1妖术已有；Hex施加层数、持续/来源死亡清除未证，估值不是初值，保持excluded（161；137 §6al） |
-| sts1-act2-05 | Centurion | E/M：同伴定向保护、Fury权重；与Mystic固定同场 |
-| sts1-act2-06 | Mystic | M/E：同伴失血条件、连续治疗及首招 |
 | sts1-act2-07 | Snake Plant | E：Malleable触发/递增、完全格挡与重置未证；A17后续序列有编辑疑问，保持pending（161；137 §6al） |
-| sts1-act2-08 | Snecko | M/E：Confused费用随机及费用修正交互 |
-| sts1-act2-09 | Book of Stabbing | E：连刺起算冲突、Painful Stabs初值 |
 | sts1-act2-10 | Gremlin Leader | M/E：其他同伴目标、召唤分支与满员行为 |
 | sts1-act2-12 | The Champ | E/M/W：首招、Taunt相位、重复候选转移及半血优先级待证；概率插招/一次性阶段不等于周期触发，见缓存152 |
 | sts1-act2-15 | Bronze Automaton | M/E：按稀有度暂扣牌与死亡返还、铜球保护目标 |
 | sts1-act2-16 | Bronze Orb | K/M：随Automaton；Stasis与向召唤者给格挡 |
 
-## S1 第三/四幕（16条）
+## S1 第三/四幕（10条）
 
 | ID | 来源敌人 | 后续工作 |
 |---|---|---|
 | sts1-act3-04 | Darkling | E/M：群体复活计时冲突、阵位起手与开战随机伤害 |
-| sts1-act3-06 | The Maw | E/W：script.next条件转移、foe-volley每两回合加段已有；Nom Nom原作回合计数与玩家回合/自身行动次数的对应未闭合，保留excluded（159） |
-| sts1-act3-07 | Spire Growth | M/E：按目标状态替换候选、来源死亡解除 |
-| sts1-act3-08 | Transient | E/W：回合起算与Shifting/Fading时点；原语已有 |
 | sts1-act3-09 | Writhing Mass | E/W：重掷、永久寄生原语已有；Malleable等仍缺证 |
-| sts1-act3-10 | Giant Head | E/W：Slow当张计入与成长起算 |
 | sts1-act3-11 | Nemesis | E：项目无实体已有；原作首次生效、获得/移除及伤害限制未证，保持pending（163；137 §6an） |
 | sts1-act3-12 | Reptomancer | E/W：指定召唤、初始随从与数量条件已有；满员改用Snake Strike与连用限制的优先级待证，非替换存活单位，保持excluded（163；137 §6an） |
 | sts1-act3-13 | Dagger | K/E/W：仅随Reptomancer完整接线；伤口→爆炸后自死原语已有，沿用已批准新生等待/绑定退场，精确队列和槽位待证，保持excluded（163；137 §6an） |
-| sts1-act3-14 | Time Eater | M/E：清除自身减益、半血Haste刷新；跨回合chrono已有 |
 | sts1-act3-15 | Donu | E/W：起手与双体固定遭遇 |
 | sts1-act3-16 | Deca | E/W：起手与双体固定遭遇 |
-| sts1-act3-17 | Awakened One | E/W：归零重生已有；二阶段再生及状态保留 |
 | sts1-act4-01 | Spire Shield | M/E：周期插招与随机两步组合、初始朝向 |
 | sts1-act4-02 | Spire Spear | M/E：首招与周期组合衔接、初始朝向 |
 | sts1-act4-03 | Corrupt Heart | M/E：逐次增益、第六次后行为、逐牌反伤与周期组合 |
 
-## S2 Overgrowth（6条）
+## S2 Overgrowth（5条）
 
 | ID | 来源敌人 | 状态 | 后续工作 |
 |---|---|---|---|
@@ -103,7 +97,6 @@ Leaf Slime (M)与Twig Slime (M)已入普通单体池：独立S2黏液`status-sli
 | sts2-overgrowth-13 | Leaf Slime (S) | pending | E：仅首招权重未给；S2黏液牌面已核，不能由禁连用反推等权（164） |
 | sts2-overgrowth-16 | Shrinker Beetle | pending | M/E：绑定来源存活的缩身、交替段起始相位 |
 | sts2-overgrowth-21 | Vine Shambler | pending | M/E：Tangled层数、持续期及加费优先级 |
-| sts2-overgrowth-22 | Wriggler（事件版） | pending | E/M：Infection牌定义、召唤与多体错位首招 |
 
 ## S2 Underdocks（7条）
 
@@ -141,16 +134,14 @@ Leaf Slime (M)与Twig Slime (M)已入普通单体池：独立S2黏液`status-sli
 | sts2-glory-07 | Guardbot | excluded | K/M：给Fabricator格挡15须绑定身份，不能用ally最低生命比例回落替代（149） |
 | sts2-glory-08 | Noisebot | excluded | K/E：两牌堆的Dazed数量分配及位置未闭合（101、149） |
 | sts2-glory-10 | Globe Head | pending | M/E：Galvanic附着牌区、新生成牌、复制与来源死亡 |
-| sts2-glory-12 | Slimed Berserker | pending | E：HP版本冲突、Slimed牌定义 |
+| sts2-glory-12 | Slimed Berserker | pending | E/M/W：S2 Slimed独立牌已有；HP266/276与历史261/281冲突未解，分段生成仍共享接收方十张额度，不能保证每次塞满10张（165；137 §6ap） |
 | sts2-glory-13 | Living Shield | excluded | E/M/W：固定搭档身份及Rampart25链路未接；来源死亡、清盾/加盾顺序和意图刷新待证，整组不可物化（153） |
 | sts2-glory-16 | The Forgotten | pending | E/W：敏捷伤害及返还已有；Miasma顺序缺证，固定搭档The Lost |
 
-## S2 精英（8条）
+## S2 精英（6条）
 
 | ID | 来源敌人 | 状态 | 后续工作 |
 |---|---|---|---|
-| sts2-elite-01 | Bygone Effigy | pending | E/W：slow已有；当张计入与重置事件 |
-| sts2-elite-03 | Phrog Parasite | excluded | E/W：死亡生成已有；Infection牌定义、Wriggler随从档案 |
 | sts2-elite-06 | Terror Eel | pending | E/M：阈值眩晕改写与恢复时点、易伤99层范围 |
 | sts2-elite-07 | Decimillipede | excluded | E/M：同体多节复活、复活后的随机续招 |
 | sts2-elite-09 | Infested Prism | pending | E：Tainted文本、施加时点与范围 |
@@ -158,13 +149,11 @@ Leaf Slime (M)与Twig Slime (M)已入普通单体池：独立S2黏液`status-sli
 | sts2-elite-11 | Spectral Knight | pending | E/M：S2 Hex虚无附着及新生成牌范围，不等同S1 Hex |
 | sts2-elite-12 | Magi Knight | pending | E/M：Dampen解除时升级恢复及临时升级交互 |
 
-## S2 首领（5条）
+## S2 首领（3条）
 
 | ID | 来源敌人 | 状态 | 后续工作 |
 |---|---|---|---|
 | sts2-boss-01 | Ceremonial Beast | pending | E/W：打断已有；Ringing定义、持续期及阈值意图时点 |
-| sts2-boss-03 | Vantom | pending | E：基础伤害27/26、滑溜9/8版本冲突 |
-| sts2-boss-07 | The Insatiable | excluded | M/W：sandpit已有；专属逃脱牌及吞食胜负链 |
 | sts2-boss-12 | Torch Head Amalgam | excluded | K/X：仅随Queen，召唤者为beta，继续隔离 |
 | sts2-boss-13 | Test Subject（Phase 1 / 2 / 3） | excluded | E/M：foe-volley加段已有；阶段击杀/Fatal、复活前不可选中及非最终胜利暂缓缺完整链路；复活时点/占行动、首招、Painful Stabs数量、Nemesis首周期与跨阶段计数仍缺证（51；137 §6x） |
 
@@ -177,11 +166,14 @@ Leaf Slime (M)与Twig Slime (M)已入普通单体池：独立S2黏液`status-sli
 | sts2-event-03 | Battle Friend V2.0 | excluded | X/M：同上，非普通敌人模板 |
 | sts2-event-04 | Battle Friend V3.0 | excluded | X/M：同上，非普通敌人模板 |
 
-## 隔离记录（16条，不计入上述83条）
+## 隔离记录（19条，不计入上述65条）
 
 | ID | 来源敌人 | 隔离状态 | 恢复条件 |
 |---|---|---|---|
+| sts1-act2-05 | Centurion | encounterOnly | 已实现，仅随固定双体遭遇「执阵与祈愈」（enc-centurion-mystic）物化，不独立抽取 |
+| sts1-act2-06 | Mystic | encounterOnly | 已实现，仅随固定双体遭遇「执阵与祈愈」（enc-centurion-mystic）物化，不独立抽取 |
 | sts2-overgrowth-11 | Inklet | encounterOnly | 已实现，仅随三体遭遇「墨滴灵」物化，不独立抽取 |
+| sts2-overgrowth-22 | Wriggler（事件版） | encounterOnly | 已实现，仅随固定四体遭遇「扭蠕虫群」（enc-wrigglers）物化，奇偶错位起手、开场不晕厥，不独立抽取 |
 | sts2-hive-06 | Exoskeleton | beta | 正式版本与碎步随机规则核定后重审 |
 | sts2-hive-08 | Louse Progenitor | beta | 正式版本、蜷身受击与清除时序核定后重审 |
 | sts2-glory-03 | Axebot | beta | 正式版本及原位补货实例规则核定后重审 |

@@ -11,7 +11,7 @@ import { ENEMY_ART_KEYS } from './enemy-art.js';
 import { ABILITY_KEYS, REL_TIERS, normalizeManualScores, prefsFromScores } from './abilities.js';
 import { normalizeHeroScores, normalizeNpcScores } from '../scene/stats/ability-fields.js';
 import { TRAIT_BASE_SLOTS, TRAIT_KINDS, TRAIT_LINKS, TRAIT_RARITIES, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
-import { DEFEAT_CAUSES, ORB_FILTER_KINDS, opHandler, reserveBuiltins } from './mechanics/registry.js';
+import { DEFEAT_CAUSES, ORB_FILTER_KINDS, opHandler, registeredStatuses, reserveBuiltins } from './mechanics/registry.js';
 import { INSCRIPTION_KEYS, inscribable } from './mechanics/inscription.js';
 import { rewardUpgradable } from './reward-cards.js';
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
@@ -22,7 +22,7 @@ import { winPointsBonus } from './relics/off-combat.js';
 import { BIAS_CATEGORIES, TRAIT_FLIPS, biasCategoryOf, traitFlipIssue } from './trait-reward-bias.js';
 import { CLASS_PASSIVE_VERSION } from './class-passives.js';
 import { CARD_ARCHETYPES } from './attribute-policy.js';
-import { SCRIPT_CONDITION_MAX, isScriptCondition } from './script-conditions.js';
+import { SCRIPT_CONDITION_MAX, SCRIPT_MISSING_HP_CONDITIONS, SCRIPT_MISSING_HP_MAX, SCRIPT_STATUS_CONDITIONS, isScriptCondition } from './script-conditions.js';
 import { UPGRADE_FIELDS, UPGRADE_FLAGS } from './card-upgrade.js';
 import { SOURCE_CARD_MODELS, TEMPLATE_UPGRADE_MODEL_KEYS, sourceCardMatches, templateUpgradeMatches } from './card-source-models.js';
 import { DEATH_SPAWN_LIMIT, KIN_DEF_FIELDS, KIN_FIELDS, KIN_LIMIT, kitEffects, kitKinRefs, validKinKey } from './kin.js';
@@ -605,9 +605,18 @@ function validateInterrupt(rule, path, state) {
 
 // 加权候选表：[{ skill, weight }]，1–6 项，权重 1–100 的整数。
 export const SCRIPT_PICK_MAX = 6;
-// 脚本条件：随从数 / 同伴数（kin-lt、kin-gte、allies-lt、allies-gte，取值 1–5）或沿用效果条件。
+// 脚本条件：随从数 / 同伴数（kin-lt、kin-gte、allies-lt、allies-gte，取值 1–5）、目标状态（target-status / target-no-status）、同阵营失血（ally-missing-hp-gte，1–999）或沿用效果条件。
 function validateScriptWhen(when, path, state) {
     if (!isScriptCondition(when)) return validateCondition(when, path, state);
+    if (SCRIPT_STATUS_CONDITIONS.includes(when.kind)) {
+        checkKnownFields(when, ['kind', 'status'], path, state);
+        const allowed = [...STATUSES, ...registeredStatuses()];
+        return { kind: when.kind, status: enumField(when.status, joinPath(path, 'status'), state, allowed) };
+    }
+    if (SCRIPT_MISSING_HP_CONDITIONS.includes(when.kind)) {
+        checkKnownFields(when, ['kind', 'value'], path, state);
+        return { kind: when.kind, value: intField(when.value, joinPath(path, 'value'), state, 1, SCRIPT_MISSING_HP_MAX) };
+    }
     checkKnownFields(when, ['kind', 'value'], path, state);
     return { kind: when.kind, value: intField(when.value, joinPath(path, 'value'), state, 1, SCRIPT_CONDITION_MAX) };
 }

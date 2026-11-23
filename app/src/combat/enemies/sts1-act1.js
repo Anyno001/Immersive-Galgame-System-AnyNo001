@@ -19,13 +19,34 @@ const UNAVAILABLE = [
     [1, 'Cultist', '祭火信徒', 'normal', [48, 54], 'pending', '17-sts1-cultist-query-check.md', [14, 26], 39, 'S1 Ritual 获得当回合是否成长未闭合；不能套用 S2 跳过首次回合末的机制。'],
     [3, 'Red Louse', '赤背蜷虫', 'normal', [10, 15], 'pending', '18-sts1-act1-small.md', [17, 25], 41, 'Curl Up 的完全格挡、零伤害和移除边界未闭合；Bite 另有开战定值随机范围。'],
     [4, 'Green Louse', '青背蜷虫', 'normal', [11, 17], 'pending', '18-sts1-act1-small.md', [18, 25], 42, 'Curl Up 边界同 Red Louse，不能用普通受击加盾替代；进阶连用冲突只保留来源备注。'],
-    [6, 'Spike Slime (L)', '巨刺黏体', 'normal', [64, 70], 'release', '19-sts1-slimes.md', [15, 28], 44, '半血打断当前意图后生成两只不同技能的中型子体；现有 split 即时复制自身，语义不等价。'],
-    [9, 'Acid Slime (L)', '巨蚀黏体', 'normal', [65, 69], 'release', '19-sts1-slimes.md', [18, 28], 47, '半血改写意图并分裂为两只中型子体，不能用受伤即时复制自身替代。'],
     [11, 'Acid Slime (S)', '幼蚀黏体', 'normal', [8, 12], 'pending', '19-sts1-slimes.md', [20, 30], 49, '基础招式已知，但首招、循环和概率未给，不能按技能表顺序推断。'],
     [13, 'Mad Gremlin', '暴怒小妖', 'normal', [20, 24], 'pending', '20-sts1-gremlins.md', [16, 27], 51, 'Angry 的逐段、完全格挡和间接伤害边界未给，不能替换为现有受击成长。'],
-    [24, 'Slime Boss', '聚胶王', 'boss', 140, 'release', '29-sts1-act1-bosses.md', [17, 20], 62, '半血改写意图并生成酸/刺两类大型子体；现有召唤和分裂不能保留子体技能与继承。'],
     [26, 'Hexaghost', '六焰幽核', 'boss', 250, 'release', '29-sts1-act1-bosses.md', [33, 37], 64, 'Divider所需目标回合开始生命伤害已有foe-surge target-hp，模板段数支持六段；基础灼痕status-burn也已实现。Inferno升级已有Burn的牌堆范围与顺序仍缺证，Burn升级结算、批量升级及之后Sear持续产升级Burn的链路未接；不删减该行为放行，保持excluded，见缓存162。'],
 ];
+
+const spikeMediumSkills = () => [
+    skill('lick', '舔舐', 'debuff', [st('frail', 1, 'enemy')], fields(7)),
+    skill('tackle', '焰撞', 'attack-debuff', [atk(8), op('create', { card: 'status-slime', amount: 1, to: 'discard' })], fields(3)),
+];
+const acidMediumSkills = () => [
+    skill('spit', '蚀液', 'attack-debuff', [atk(7), op('create', { card: 'status-slime', amount: 1, to: 'discard' })], fields(3)),
+    skill('lick', '舔舐', 'debuff', [st('weak', 1, 'enemy')], fields(3)),
+    skill('tackle', '冲撞', 'attack', [atk(10)], { ...fields(4), maxRepeat: 1 }),
+];
+const spikeLargeSkills = () => [
+    skill('lick', '舔舐', 'debuff', [st('frail', 2, 'enemy')], fields(7)),
+    skill('tackle', '焰撞', 'attack-debuff', [atk(16), op('create', { card: 'status-slime', amount: 2, to: 'discard' })], fields(3)),
+];
+const acidLargeSkills = () => [
+    skill('spit', '蚀液', 'attack-debuff', [atk(11), op('create', { card: 'status-slime', amount: 2, to: 'discard' })], fields(3)),
+    skill('lick', '舔舐', 'debuff', [st('weak', 2, 'enemy')], fields(3)),
+    skill('tackle', '冲撞', 'attack', [atk(16)], { ...fields(4), maxRepeat: 1 }),
+];
+const splitPhase = (kinKeys) => [{
+    hpAtMostPct: 50,
+    addSkills: [skill('split', '分裂', 'special', [op('split-into', { kin: kinKeys, hp: 'current' })], fields())],
+    intent: 'split',
+}];
 
 // Looter / Mugger：前两回合 Mug，第三回合等概率 Lunge 或 Smoke Bomb；Lunge 后接 Smoke Bomb，Smoke Bomb 后 Escape（21:23-24）。
 // 两次 Mug 用两个技能 ID 区分，供 next 转移表定位第三回合分叉；Escape 自挂 1 层遁逃，本回合结束撤离并带走盗金（M7）。
@@ -115,19 +136,55 @@ export const STS1_ACT1 = Object.freeze([
             passives: [passive('spores', '孢云', 'battle-start', [ap('death-curse', 2, 'self')])] },
         flags('Fungi Beast', [22, 28], `${research}18-sts1-act1-small.md`, [19, 19],
             ['Bite/Grow 3:2，Bite 不连用三次、Grow 不连用两次（136:43）；孢云死亡时对方易伤2由 death-curse 表达。', 'A2/A17 力量4/5 及进阶HP只记备注。'])),
+    enemy('sts1', 'act1', 6, '巨刺黏体', 'normal', 'release',
+        {
+            skills: spikeLargeSkills(),
+            phases: splitPhase(['spikeM', 'spikeM']),
+            kin: { spikeM: { name: '中刺黏体', maxHp: 30, skills: spikeMediumSkills() } },
+        },
+        { sourceKey: 'Spike Slime (L)', hp: [64, 70],
+            evidence: [{ file: slimeSource, lines: [15, 28] }, { file: `${research}136-capability-matrix.md`, lines: [44, 44] },
+                { file: `${research}172-sts1-slime-split-wiring.md`, lines: [5, 18] }],
+            notes: ['舔舐（脆弱2）与焰撞（16并弃牌堆塞黏浊2）按7:3选招，同招禁三连；生命不高于50%时立即将意图改写为分裂（hpAtMostPct:50 + split-into hp:current），本体离场并按分裂时当前生命生成两只中刺黏体（各自不再分裂）。',
+                '来源Slimes修订68809、19:15–28与172；受限加权采用本地确定性实现，A2(18)、A17(脆弱3/舔舐禁连)及进阶HP67–73只记备注。'] }),
     enemy('sts1', 'act1', 7, '中刺黏体', 'normal', 'release',
-        { skills: [
-            skill('lick', '舔舐', 'debuff', [st('frail', 1, 'enemy')], fields(7)),
-            skill('tackle', '焰撞', 'attack-debuff', [atk(8), op('create', { card: 'status-slime', amount: 1, to: 'discard' })], fields(3)),
-        ] },
+        { skills: spikeMediumSkills() },
         flags('Spike Slime (M)', [28, 32], slimeSource, [16, 24], ['Lick/Flame Tackle 7:3、同招不连用三次（19:24 沿用 L 的模式，不继承分裂）。', 'A2伤害10及进阶HP只记备注。'])),
+    enemy('sts1', 'act1', 9, '巨蚀黏体', 'normal', 'release',
+        {
+            skills: acidLargeSkills(),
+            phases: splitPhase(['acidM', 'acidM']),
+            kin: { acidM: { name: '中蚀黏体', maxHp: 30, skills: acidMediumSkills() } },
+        },
+        { sourceKey: 'Acid Slime (L)', hp: [65, 69],
+            evidence: [{ file: slimeSource, lines: [18, 28] }, { file: `${research}136-capability-matrix.md`, lines: [47, 47] },
+                { file: `${research}172-sts1-slime-split-wiring.md`, lines: [5, 18] }],
+            notes: ['蚀液（11并弃牌堆塞黏浊2）、舔舐（虚弱2）、冲撞（16）按3:3:4选招，冲撞禁二连、其余禁三连；生命不高于50%时立即将意图改写为分裂（hpAtMostPct:50 + split-into hp:current），本体离场并按当前生命生成两只中蚀黏体。',
+                '来源Slimes修订68809、19:18–28与172；受限加权采用本地确定性实现，A2(12/18)、A17(4:3:3/舔舐禁连)及进阶HP68–72只记备注。'] }),
     enemy('sts1', 'act1', 10, '中蚀黏体', 'normal', 'release',
-        { skills: [
-            skill('spit', '蚀液', 'attack-debuff', [atk(7), op('create', { card: 'status-slime', amount: 1, to: 'discard' })], fields(3)),
-            skill('lick', '舔舐', 'debuff', [st('weak', 1, 'enemy')], fields(3)),
-            skill('tackle', '冲撞', 'attack', [atk(10)], { ...fields(4), maxRepeat: 1 }),
-        ] },
+        { skills: acidMediumSkills() },
         flags('Acid Slime (M)', [28, 32], slimeSource, [19, 26], ['Corrosive Spit/Lick/Tackle 3:3:4；Tackle 不连用两次、其余不连用三次（19:25-26）。', 'A17 权重4:2:4 与 Lick 禁连、A2伤害8/12及进阶HP只记备注。'])),
+    enemy('sts1', 'act1', 24, '聚胶王', 'boss', 'release',
+        {
+            skills: [
+                skill('goop', '黏液喷吐', 'debuff', [op('create', { card: 'status-slime', amount: 3, to: 'discard' })], fields()),
+                skill('prep', '蓄势待发', 'idle', [op('idle')], fields()),
+                skill('slam', '重压猛砸', 'attack', [atk(35)], fields()),
+            ],
+            script: cycle(['goop', 'prep', 'slam']),
+            phases: splitPhase(['acidL', 'spikeL']),
+            kin: {
+                acidL: { name: '巨蚀黏体', maxHp: 67, skills: acidLargeSkills(), phases: splitPhase(['acidM', 'acidM']) },
+                spikeL: { name: '巨刺黏体', maxHp: 67, skills: spikeLargeSkills(), phases: splitPhase(['spikeM', 'spikeM']) },
+                acidM: { name: '中蚀黏体', maxHp: 30, skills: acidMediumSkills() },
+                spikeM: { name: '中刺黏体', maxHp: 30, skills: spikeMediumSkills() },
+            },
+        },
+        { sourceKey: 'Slime Boss', hp: 140,
+            evidence: [{ file: `${research}29-sts1-act1-bosses.md`, lines: [17, 20] }, { file: `${research}136-capability-matrix.md`, lines: [62, 62] },
+                { file: `${research}172-sts1-slime-split-wiring.md`, lines: [5, 22] }],
+            notes: ['固定三步循环：黏液喷吐（弃牌堆塞黏浊3）→蓄势待发（idle）→重压猛砸35；生命不高于50%时立即改写意图为分裂，按当前生命分裂为1只巨蚀黏体与1只巨刺黏体（两只大型子体各自保留半血再分裂为两只中型子体的阶段与kin表）。',
+                '来源Slime Boss修订68807、Slimes修订68809、29:17–20与172；A4(38)、A19(黏浊5)及进阶HP150只记备注。'] }),
     enemy('sts1', 'act1', 16, '蓄咒小妖', 'normal', 'release',
         { skills: [skill('charge', '蓄咒', 'idle', [op('idle')], fields()), skill('blast', '终极爆裂', 'attack', [atk(25)], fields())],
             script: cycle(['charge', 'charge', 'blast', 'charge', 'charge', 'charge', 'blast'], 3) },

@@ -12,11 +12,11 @@ const bossAudit = (from, to) => ref('115-sts2-boss-behavior-audit.md', from, to)
 const BOSSES = [
     [1, 'Ceremonial Beast', '祭仪巨兽', 252, 'pending', [17], [16], 285, '扰鸣定义及持续期来源冲突，失血阈值插招的意图时机未闭合。'],
     [2, 'Kin Priest / Kin Follower', '血亲祭司', 190, 'release', [18, 19], [17, 18], 286, '仅随固定遭遇血亲出现：祭司四步循环，两名Follower初始同场，分别从Quick Slash和Power Dance起手并独立循环；随从绑定祭司，不独立入池。', ['Follower生命按来源58–59的中点58.5换算后取整，继承祭司最终伤害倍率；不重复乘首领倍率。', '两种起手未绑定原作左右阵位；退场、Fatal、同回合Doom及多体死亡精确队列仍缺证，沿用已批准Minion退场约定，见55。'], { encounterOnly: true }],
-    [3, 'Vantom', '墨魇', 173, 'pending', [20], [19], 287, '基础伤害27/26与滑溜9/8存在版本冲突。'],
+    [3, 'Vantom', '墨魇', 173, 'release', [20], [19], 287, '开场滑溜9（slippery，每次失去生命至多1点并减1层，完全格挡不减）；固定四步循环：墨斑7→墨枪6×2→肢解27（弃牌堆塞伤口3）→蓄势（力量+2）。官方页修订73483（2026-11-15）已定型为HP 173、滑溜9、肢解27，消除了旧版27/26与9/8历史冲突；A9伤害8/7×2/30及高阶HP183只记备注。'],
     [4, 'Lagavulin Matriarch', '酣眠石卫母', 222, 'release', [21], [20], 288, '开场镀甲12、睡眠3（M4 sleep：失血即醒或睡满自然醒，醒来移除镀甲）；醒后斩击19→剖腹9×2→回斩12并格挡12→汲魂（对方攻击力/防御力各降2、自身力量+2）循环。', ['三回合计时锚点、失血唤醒是否占空行动与意图刷新未闭合（116:30），按 M4 实现：不带晕厥、自身回合结束计时、完全格挡不唤醒（116:23）。', '汲魂按 S1 已醒型先例以 atk-down/def-down 表达力量/敏捷-2；A8/A9 数值与高阶HP233只记备注。']],
     [5, 'Soul Fysh', '魂鱼', 211, 'beta', [22], [21], 289, 'Beta 内容；召引卡牌定义未读。'],
     [6, 'Waterfall Giant', '瀑流巨人', 240, 'release', [23], [22], 290, '首招增压（蒸汽+15），之后践踏15并虚弱1→冲撞10→虹吸回复10→压力炮20（每用一次+5，M5 foe-surge uses）→加压13循环，五招各蒸汽+3；被击杀时持有蒸汽则转「将爆」（M4 归零重生 needs steam + brace，清全部状态），下一次出手按记下的蒸汽量爆炸后自毁，无蒸汽时正常倒下。', ['回复取 52:22 基础值10（11:23 的15为旧版/高阶）；单人局取每名玩家10。', '致死时点（玩家/敌方回合）对将爆是否占行动、爆炸与力量/虚弱/无形的关系、同死判定未闭合（52:41–47），按 M4 项目选择；末形态展示为无限HP、实际999999999（52:32），此处将爆期间失血截为0。A8/A9数值与高阶HP250只记备注。']],
-    [7, 'The Insatiable', '无餍者', 321, 'release', [29], [23], 291, '沙坑倒计时吞食玩家与专属逃脱卡牌不支持。'],
+    [7, 'The Insatiable', '无餍者', 321, 'release', [29], [23], 291, '首招流沙化（自身获得流沙4，往玩家抽牌堆与弃牌堆各洗入3张「狂乱逃离」status-escape）；之后四步循环：乱击8×2→扑咬28→垂涎（力量+2）→乱击8×2。流沙每回合末减1、归零时吞没操控角色（无视保命）；狂乱逃离1费可打出，令敌方流沙+1且该张牌本场费用+1。来源The Insatiable修订73400、Frantic Escape修订72736与170；流沙不进入缝合素材，A9伤害9×2/31、力量3及高阶HP341只记备注。'],
     [8, 'Knowledge Demon', '知识恶魔', 379, 'release', [30], [24], 292, '固定循环知识诅咒→掌掴17→知识压顶8×3→沉思（11伤害、回复30、力量+2）；三次诅咒依次给出（瓦解6/心智腐朽1）、（瓦解7/怠惰3）、（瓦解8/衰竭1）由玩家二选一（M7 offer-curse），三套给完后跳过诅咒，只循环后三招。', ['四种诅咒的触发时点、多轮瓦解叠加/替换与来源解除未闭合（117:30–37），按 M7 项目选择：本场状态、层数叠加。', '“每名玩家回复30”按单人局取30；A9数值与高阶HP399只记备注。']],
     [9, 'Kaiser Crab（Crusher）', '帝蟹碎爪', 209, 'release', [31], [25], 293, '帝蟹左爪，只作遭遇「帝蟹」成员：碾压12→膨胀打击4→虫刺6×2并虚弱/脆弱各2→适应（力量+2）→护击12并格挡18循环；背袭（M8 flank：玩家朝向另一爪时受其攻击×1.5）；蟹怒（mate-down：同伴倒下时力量+6、格挡99）。',
         ['初始朝向（出手顺序第一名存活敌人）、自动打牌随机目标转向、伤害加成取整、同回合双爪死亡与死亡/转向/蟹怒先后未闭合（118:31–32），按 M8 项目选择。', 'A9数值与高阶HP219只记备注。'], { encounterOnly: true }],
@@ -59,6 +59,29 @@ const MODELS = {
             script: { opener: 'slash', next: { slash: [{ skill: 'boomerang', weight: 1 }],
                 boomerang: [{ skill: 'dance', weight: 1 }], dance: [{ skill: 'slash', weight: 1 }] } },
         } },
+    },
+    'Vantom': {
+        skills: [
+            skill('blot', '墨斑', 'attack', [atk(7)], fields),
+            skill('lance', '墨枪', 'attack', [atk(6, 2)], fields),
+            skill('dismember', '肢解', 'attack-debuff', [atk(27), op('create', { card: 'status-wound', amount: 3, to: 'discard' })], fields),
+            skill('prepare', '蓄势', 'buff', [st('strength', 2, 'self')], fields),
+        ],
+        script: cycle(['blot', 'lance', 'dismember', 'prepare']),
+        passives: [passive('slippery', '滑溜', 'battle-start', [ap('slippery', 9, 'self')])],
+    },
+    'The Insatiable': {
+        skills: [
+            skill('liquify', '流沙化', 'debuff', [
+                ap('sandpit', 4, 'self'),
+                op('create', { card: 'status-escape', amount: 3, to: 'draw' }),
+                op('create', { card: 'status-escape', amount: 3, to: 'discard' }),
+            ], fields),
+            skill('thrash', '乱击', 'attack', [atk(8, 2)], fields),
+            skill('bite', '扑咬', 'attack', [atk(28)], fields),
+            skill('salivate', '垂涎', 'buff', [st('strength', 2, 'self')], fields),
+        ],
+        script: { opener: 'liquify', ...cycle(['thrash', 'bite', 'salivate', 'thrash']) },
     },
     'Lagavulin Matriarch': {
         skills: [
@@ -132,8 +155,10 @@ const MODELS = {
 const crabSource = ref('118-sts2-kaiser-crab-source-recheck.md', 12, 32);
 const EXTRA_EVIDENCE = {
     'Kin Priest / Kin Follower': ref('55-sts2-kin-offset-cycles.md', 14, 43),
+    Vantom: ref('170-sts2-vantom-effigy-insatiable-wiring.md', 5, 18),
     'Lagavulin Matriarch': ref('116-sts2-matriarch-source-recheck.md', 12, 30),
     'Waterfall Giant': ref('52-sts2-waterfall-giant-death.md', 12, 47),
+    'The Insatiable': ref('170-sts2-vantom-effigy-insatiable-wiring.md', 5, 24),
     'Knowledge Demon': ref('117-sts2-knowledge-demon-source-recheck.md', 12, 37),
     'Kaiser Crab（Crusher）': crabSource,
     'Kaiser Crab（Rocket）': crabSource,

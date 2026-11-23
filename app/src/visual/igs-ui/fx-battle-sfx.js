@@ -72,10 +72,45 @@ export const BATTLE_SFX_PARTIALS = Object.freeze({
         p('square', 440, 440, 0.16, 0.06, 0.12, { attack: 0.002 }),
         p('sine', 900, 300, 0.26, 0.3, 0.16, { attack: 0.01, sweep: 1 }),
     ]),
-    // 卡牌战斗面板：己方出牌的挥出声（短促风切 + 轻响），特写进场的斩切声与余鸣，觉醒的上扬鸣响与低频托底。
+    // 卡牌战斗面板：己方出牌的挥出声（短促风切 + 轻响），抽卡清脆上扬纸声与弃卡收拢下沉声，特写进场的斩切声与余鸣，觉醒的上扬鸣响与低频托底。
     'battle-card': Object.freeze([
         p('noise', 2400, 600, 0, 0.16, 0.22, { filter: 'bandpass', q: 0.8, attack: 0.004, sweep: 1 }),
         p('triangle', 660, 990, 0, 0.08, 0.12, { attack: 0.002, sweep: 1 }),
+    ]),
+    'battle-card-draw': Object.freeze([
+        p('noise', 1600, 3400, 0, 0.075, 0.13, { filter: 'bandpass', q: 1.1, attack: 0.003, sweep: 1 }),
+        p('triangle', 520, 820, 0, 0.055, 0.08, { attack: 0.002, sweep: 1 }),
+    ]),
+    'battle-card-discard': Object.freeze([
+        p('noise', 2300, 720, 0, 0.095, 0.14, { filter: 'bandpass', q: 0.95, attack: 0.003, sweep: 1 }),
+        p('triangle', 460, 250, 0, 0.065, 0.08, { attack: 0.002, sweep: 1 }),
+    ]),
+    // 状态与防御特效音：增益上扬和声、减益下沉暗脉、中毒腐蚀气泡、人工制品棱镜弹碎。
+    'battle-buff': Object.freeze([
+        p('triangle', 587, 587, 0, 0.11, 0.18, { attack: 0.004 }),
+        p('triangle', 880, 880, 0.07, 0.14, 0.2, { attack: 0.004 }),
+        p('sine', 1175, 1318, 0.14, 0.24, 0.16, { attack: 0.004, sweep: 1 }),
+    ]),
+    'battle-debuff': Object.freeze([
+        p('sawtooth', 420, 170, 0, 0.16, 0.16, { attack: 0.004, sweep: 1 }),
+        p('triangle', 260, 118, 0.05, 0.22, 0.22, { attack: 0.005, sweep: 1 }),
+    ]),
+    'battle-poison': Object.freeze([
+        p('noise', 1400, 620, 0, 0.16, 0.15, { filter: 'bandpass', q: 2.2, attack: 0.006, sweep: 1 }),
+        p('sine', 520, 780, 0.03, 0.08, 0.14, { attack: 0.004, sweep: 1 }),
+        p('sine', 640, 420, 0.1, 0.1, 0.12, { attack: 0.004, sweep: 1 }),
+    ]),
+    'battle-artifact': Object.freeze([
+        p('triangle', 1760, 2349, 0, 0.08, 0.2, { attack: 0.002, sweep: 1 }),
+        p('sine', 2637, 2637, 0.03, 0.26, 0.16, { attack: 0.003 }),
+    ]),
+    // 破盾（格挡被打碎）：高频晶碎裂声 + 三道交错玻璃泛音 + 中低频脆裂冲击。
+    'battle-shield-break': Object.freeze([
+        p('noise', 4600, 1400, 0, 0.18, 0.28, { filter: 'bandpass', q: 1.4, attack: 0.002, sweep: 1 }),
+        p('triangle', 2794, 1980, 0, 0.09, 0.2, { attack: 0.001, sweep: 1 }),
+        p('sine', 3520, 2400, 0.025, 0.12, 0.16, { attack: 0.002, sweep: 1 }),
+        p('sine', 2093, 1320, 0.055, 0.15, 0.14, { attack: 0.002, sweep: 1 }),
+        p('sawtooth', 240, 82, 0, 0.14, 0.24, { attack: 0.002, sweep: 1 }),
     ]),
     'battle-cutin': Object.freeze([
         p('noise', 4000, 900, 0, 0.22, 0.26, { filter: 'bandpass', q: 0.7, attack: 0.003, sweep: 1 }),

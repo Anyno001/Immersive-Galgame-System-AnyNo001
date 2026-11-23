@@ -1,12 +1,13 @@
 import { abilityMod, ABILITY_KEYS } from './abilities.js';
 
-// v1：属性修正 + 熟练加值；v2（规则 v7 起）：只看属性修正，曲线放大，等级不再带来倍率成长。
-export const ATTRIBUTE_POLICY_VERSION = 2;
-export const ATTRIBUTE_POLICY_VERSIONS = Object.freeze([1, 2]);
-const ATTRIBUTE_RULES_MIN_VERSION = Object.freeze({ 1: 6, 2: 7 });
+// v1：属性修正 + 熟练加值；v2（规则 v7）：只看属性修正，最高 3.00；v3（规则 v7 新建局）：只看属性修正，最高封顶 2.00（支持档 1.50），克制膨胀。
+export const ATTRIBUTE_POLICY_VERSION = 3;
+export const ATTRIBUTE_POLICY_VERSIONS = Object.freeze([1, 2, 3]);
+const ATTRIBUTE_RULES_MIN_VERSION = Object.freeze({ 1: 6, 2: 7, 3: 7 });
 const CURVES = Object.freeze({
     1: { normal: { step: 0.08, low: 0.90, high: 1.30 }, support: { step: 0.04, low: 0.95, high: 1.15 } },
     2: { normal: { step: 0.30, low: 0.70, high: 3.00 }, support: { step: 0.15, low: 0.85, high: 2.00 } },
+    3: { normal: { step: 0.16, low: 0.80, high: 2.00 }, support: { step: 0.08, low: 0.90, high: 1.50 } },
 });
 export const OFFENSE_ABILITY = Object.freeze({ warrior: 'str', guardian: 'str', assassin: 'str', ranger: 'str', mage: 'int', priest: 'wis', summoner: 'cha', bard: 'cha' });
 export const ATTRIBUTE_SIFT_AT = 16;

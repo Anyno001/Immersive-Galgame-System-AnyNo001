@@ -14,11 +14,15 @@ const TIERS = Object.freeze(['normal', 'elite', 'boss']);
 // 遭遇关系可先登记；成员均为 release 且未排除后才能物化，不以占位成员补足来源缺口。
 // 成员条目带 encounterOnly 时只经此处同场展开，不进单体抽取池。
 const ENCOUNTER_ENTRIES = Object.freeze([
+    // S1 第二幕执阵卫士 + 祈愈术士固定双体遭遇（24:17–25、修订68368）。
+    { id: 'enc-centurion-mystic', name: '执阵与祈愈', tier: 'normal', members: [{ enemyId: 'en-sts1-act2-05', count: 1 }, { enemyId: 'en-sts1-act2-06', count: 1 }] },
     // S2 帝蟹：左爪碎爪 + 右爪火箭爪同场（118:14）。
     { id: 'enc-kaiser-crab', name: '帝蟹', tier: 'boss', members: [{ enemyId: 'en-sts2-boss-09', count: 1 }, { enemyId: 'en-sts2-boss-15', count: 1 }] },
     { id: 'enc-lost-forgotten', name: '迷失与遗忘', tier: 'normal', members: [{ enemyId: 'en-sts2-glory-15', count: 1 }, { enemyId: 'en-sts2-glory-16', count: 1 }] },
     { id: 'enc-turret-shield', name: '炮手与活体盾', tier: 'normal', members: [{ enemyId: 'en-sts2-glory-14', count: 1 }, { enemyId: 'en-sts2-glory-13', count: 1 }] },
     { id: 'enc-inklets', name: '墨滴灵', tier: 'normal', members: [{ enemyId: 'en-sts2-overgrowth-11', count: 3, openers: [null, 'whirl', null] }] },
+    // S2 茂密植被事件四体扭蠕虫固定遭遇：奇偶错位起手、开场不晕厥（58:26–31、修订73081）。
+    { id: 'enc-wrigglers', name: '扭蠕虫群', tier: 'normal', members: [{ enemyId: 'en-sts2-overgrowth-22', count: 4, openers: ['bite', 'wriggle', 'bite', 'wriggle'] }] },
     { id: 'enc-the-kin', name: '血亲', tier: 'boss', members: [{ enemyId: 'en-sts2-boss-02', count: 1,
         initialKin: [{ key: 'follower', count: 2, openers: ['slash', 'dance'] }] }] },
     { id: GARDENER_FORMATION.id, name: '幻影园丁', tier: 'elite', members: [

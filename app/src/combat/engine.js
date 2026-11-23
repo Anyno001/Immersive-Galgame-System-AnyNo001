@@ -9,7 +9,7 @@
 // - 效果、技能、被动这类静态定义不再深拷贝，引擎对它们只读。
 // 行为、数值与事件流与 v0.39.0 一致。
 import { COMBAT_RULES, TOKEN_CARDS, estimateBattleEffectsValue, isCompatibleRulesVersion } from './rules.js';
-import { BUS_FILTERS, DEFEAT_CAUSES, damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, statusDef } from './mechanics/registry.js';
+import { BUS_FILTERS, DEFEAT_CAUSES, damageModifiers, hooksAt, isLossKind, opAllowedFor, opHandler, registeredStatuses, statusDef } from './mechanics/registry.js';
 import { isInscription } from './mechanics/inscription.js';
 import { CURSE_CHOICE_KIND, openCurseOffer, takeCurse } from './mechanics/foe-curse.js';
 import { hash32, nextRandom, randomInt } from './random.js';
@@ -18,7 +18,7 @@ import {
     effectsNeedTarget, effectsPickAlly, livingIds, lowestRatioId, opposite, radianceOf, targetSpec, weakestId,
 } from './battle-state.js';
 import { chooseAllyPlay, chooseSkillIntent, isScriptOpener, nextScriptStep, pickCards, scriptNodeSkills, scriptPlan, skillHasUses } from './policy.js';
-import { SCRIPT_CONDITION_MAX, isScriptCondition } from './script-conditions.js';
+import { SCRIPT_CONDITION_MAX, SCRIPT_MISSING_HP_CONDITIONS, SCRIPT_MISSING_HP_MAX, SCRIPT_STATUS_CONDITIONS, isScriptCondition } from './script-conditions.js';
 import { INSERT_MAX, INTERRUPT_EVENTS, INTERRUPT_MAX, INTERRUPT_SEQ_MAX, INTERRUPT_THEN, REBIRTH_CLEAR, SKILL_USES_MAX, SLEEP_HURT_MODES, SLEEP_SHED_MAX, STATUSES, normalizeEffect, normalizeEnemyTemplate, normalizeKinFields } from './schema.js';
 import { kinUnitDefinition } from './kin.js';
 import { GARDENER_FORMATION, validEncounterFormation } from './encounter-formation.js';
@@ -100,6 +100,7 @@ function shuffle(holder, list) {
 
 // stacks 大于 0 才保留该状态，否则删除。
 function setStatus(unit, status, stacks, attribute, powerSource, signed = false) {
+    if (status === 'confused' && stacks > 0) stacks = 1;
     const previous = unit.statuses[status] || 0;
     const stored = unit.res?.attributeStatuses?.[status];
     if (stored || (attribute?.timing === 'deferred' && stacks > previous)) {
@@ -204,9 +205,21 @@ function traitsInvalid(traits) {
 // 行动脚本（敌人模板）：opener / openers 二选一，cycle / next 二选一；引用的技能须在技能或阶段技能里；loopFrom 落在 cycle 范围内。
 const SCRIPT_CYCLE_LIMIT = 12;
 const SCRIPT_PICK_LIMIT = 6;
-// 脚本条件：随从数 / 同伴数严格校验取值；其余条件只校验形状，未知种类在判定时恒不成立（不会误出招）。
-const whenInvalid = (when) => !when || typeof when !== 'object' || Array.isArray(when) || typeof when.kind !== 'string' || !when.kind
-    || (isScriptCondition(when) ? !intInRange(when.value, 1, SCRIPT_CONDITION_MAX) : when.value !== undefined && !['number', 'string'].includes(typeof when.value));
+// 脚本条件：随从数 / 同伴数、目标状态与同阵营失血严格校验字段与取值；其余条件校验形状，未知种类在判定时恒不成立。
+const SCRIPT_STATUS_KEYS = new Set([...STATUSES, ...registeredStatuses()]);
+const whenInvalid = (when) => {
+    if (!when || typeof when !== 'object' || Array.isArray(when) || typeof when.kind !== 'string' || !when.kind) return true;
+    if (SCRIPT_STATUS_CONDITIONS.includes(when.kind)) {
+        return Object.keys(when).some((k) => k !== 'kind' && k !== 'status') || !SCRIPT_STATUS_KEYS.has(when.status);
+    }
+    if (SCRIPT_MISSING_HP_CONDITIONS.includes(when.kind)) {
+        return Object.keys(when).some((k) => k !== 'kind' && k !== 'value') || !intInRange(when.value, 1, SCRIPT_MISSING_HP_MAX);
+    }
+    if (isScriptCondition(when)) {
+        return Object.keys(when).some((k) => k !== 'kind' && k !== 'value') || !intInRange(when.value, 1, SCRIPT_CONDITION_MAX);
+    }
+    return when.value !== undefined && !['number', 'string'].includes(typeof when.value);
+};
 const pickListInvalid = (list, skillIds) => !Array.isArray(list) || !list.length || list.length > SCRIPT_PICK_LIMIT
     || list.some((item) => !item || typeof item !== 'object' || !skillIds.has(item.skill) || !intInRange(item.weight, 1, 100)
         || (item.when !== undefined && whenInvalid(item.when)));
@@ -614,6 +627,7 @@ function checkOutcome(ctx) {
 function reinforce(ctx, fallen) {
     const state = ctx.state;
     if (fallen.side !== 'enemy' || fallen.minion === true || fallen.res?.reviveAt != null || !state.reserve?.length) return;
+    if (state.foeCap && livingIds(state, 'enemy').filter((id) => state.units[id].minion !== true).length >= state.foeCap) return;
     const nextId = state.reserve.shift();
     if (!state.reserve.length) delete state.reserve;
     state.order[state.order.indexOf(fallen.id)] = nextId;
@@ -632,11 +646,13 @@ function enterUnit(ctx, unit) {
 // 规则 v5 运行时新增敌方技能单位（E10 分裂、E13 召唤爪牙共用）：在场存活敌人不足 maxEnemiesOnField 时建出单位并补齐 cooldowns / history，
 // 追加到出手顺序末尾；id 取 `<来源>-<tag><n>`，序号顺延避开已有单位。只建不入场（调用方发事件后再 enterUnit），满员返回 null。
 // state.foeCap 存在时，新单位不是爪牙（minion 为假）还要求在场普通敌人少于 foeCap；爪牙只受总位置限制，占普通敌人空出的位置。
-function spawnUnit(ctx, owner, def, tag, minion = false) {
+// allowReserve 为真时（死亡生成 / 异种分裂的非爪牙超编个体），超出 foeCap 的新单位写入 state.reserve 待补位，不凭空丢失。
+function spawnUnit(ctx, owner, def, tag, minion = false, allowReserve = false) {
     const state = ctx.state;
     const living = livingIds(state, 'enemy');
-    if (living.length >= COMBAT_RULES.maxEnemiesOnField) return null;
-    if (!minion && state.foeCap && living.filter((id) => state.units[id].minion !== true).length >= state.foeCap) return null;
+    const overField = living.length >= COMBAT_RULES.maxEnemiesOnField;
+    const overFoeCap = !minion && Boolean(state.foeCap) && living.filter((id) => state.units[id].minion !== true).length >= state.foeCap;
+    if (overField || (overFoeCap && (!allowReserve || (state.reserve?.length || 0) >= COMBAT_RULES.maxEnemiesOnField))) return null;
     const base = String(owner.id).slice(0, 56);
     let n = 1;
     while (Object.hasOwn(state.units, `${base}-${tag}${n}`)) n += 1;
@@ -655,7 +671,8 @@ function spawnUnit(ctx, owner, def, tag, minion = false) {
     state.units[id] = unit;
     state.cooldowns[id] = {};
     state.history[id] = [];
-    state.order.push(id);
+    if (overFoeCap) state.reserve = [...(state.reserve || []), id];
+    else state.order.push(id);
     return unit;
 }
 
@@ -704,7 +721,7 @@ function createKin(ctx, owner, key, mode, hp) {
     const def = owner?.kin?.[key];
     if (!(state.rulesVersion >= 5) || state.outcome || !def || owner.side !== 'enemy' || (mode === 'summon' && !owner.alive)) return null;
     const minion = def.minion ?? (mode === 'summon' ? true : owner.minion === true);
-    const unit = spawnUnit(ctx, owner, kinUnitDefinition(owner, key, hp), 'k', minion);
+    const unit = spawnUnit(ctx, owner, kinUnitDefinition(owner, key, hp), 'k', minion, mode === 'death' || mode === 'split');
     if (!unit) return null;
     unit.kinOf = owner.id;
     unit.kinKey = key;
@@ -716,12 +733,14 @@ function createKin(ctx, owner, key, mode, hp) {
     return unit;
 }
 
-// M3 召唤指定随从 / 倒下生成：建出后发事件再入场；场上满员或条件不符返回 null。
+// M3 召唤指定随从 / 倒下生成：建出后发事件再入场；超出 foeCap 进入 reserve 的个体等待补位后再入场。
 function spawnKin(ctx, owner, key, mode) {
     const unit = createKin(ctx, owner, key, mode);
     if (!unit) return null;
-    emit(ctx, mode === 'summon' ? { type: 'minion-enter', unitId: unit.id, ownerId: owner.id, name: unit.name } : { type: 'kin-enter', unitId: unit.id, ownerId: owner.id, name: unit.name, cause: mode });
-    enterUnit(ctx, unit);
+    const reserved = Boolean(ctx.state.reserve?.includes(unit.id));
+    emit(ctx, mode === 'summon' ? { type: 'minion-enter', unitId: unit.id, ownerId: owner.id, name: unit.name }
+        : { type: 'kin-enter', unitId: unit.id, ownerId: owner.id, name: unit.name, cause: mode, ...(reserved ? { reserve: true } : {}) });
+    if (!reserved) enterUnit(ctx, unit);
     return unit;
 }
 
@@ -741,7 +760,7 @@ function splitIntoKin(ctx, unit, keys, hpMode) {
         if (child) children.push(child);
     }
     emit(ctx, { type: 'split', unitId: unit.id, into: children.map((child) => child.id), hp });
-    for (const child of children) enterUnit(ctx, child);
+    for (const child of children) if (!state.reserve?.includes(child.id)) enterUnit(ctx, child);
     checkOutcome(ctx);
     return children;
 }
@@ -1139,7 +1158,7 @@ function takeEncore(ctx, unit) {
 const engineKit = (targets) => ({
     emit, dealDamage, addStatus, setStatus, statusSources, heal, gainBlock, strike, runEffects, drawCards, fireBus, rollInt, computeDamage, computeBlock, attributeAmount, resOf, ownCatalog, targets,
     // 规则 v5 牌堆操作用：弃牌、消耗、临时牌、写时复制、选牌（choose 时消费玩家选择或按策略选）、牌面视图与效果估值。
-    discardCard, exhaustCard, addTempCard, copyCard, ownCard, selectCards, cardView, cardValue: estimateBattleEffectsValue, handLimit: COMBAT_RULES.handLimit,
+    discardCard, exhaustCard, addTempCard, copyCard, upgradeCard, ownCard, selectCards, cardView, cardValue: estimateBattleEffectsValue, handLimit: COMBAT_RULES.handLimit,
     // 敌人模板 M7 偷牌（mechanics/foe-heist.js）：长期卡组至少保留的张数，偷到只剩这么多时不再偷。
     deckMin: COMBAT_RULES.deckMin,
     // 敌人模板 M6（mechanics/foe-afflict.js）：往对方牌堆塞内置状态牌（foreign 为真时不算对方自己生成）。
@@ -1454,6 +1473,7 @@ function pendingChoiceFor(state, unit, effect) {
     const hand = state.piles[unit.id].hand;
     let options = null;
     let count = 1;
+    let extra = null;
     if (effect.op === 'discard' && effect.mode === 'choose') {
         options = hand.slice();
         count = Math.min(effect.amount, hand.length);
@@ -1462,14 +1482,15 @@ function pendingChoiceFor(state, unit, effect) {
     } else if (effect.op === 'cost-mod' && effect.mode === 'choose') {
         options = costlyCards(state, unit);
     } else if (state.rulesVersion >= 5 && opAllowedFor(effect.op, unit.kind)) {
-        // 规则 v5 已登记算子：自己声明手牌待选。
+        // 规则 v5 已登记算子：自己声明待选（手牌或牌堆）。
         const picked = opHandler(effect.op).choice?.(state, unit, effect, { cardView });
         if (picked && Array.isArray(picked.options)) {
             options = picked.options.slice();
             count = picked.count;
+            if (picked.from || picked.to) extra = { ...(picked.from ? { from: picked.from } : {}), ...(picked.to ? { to: picked.to } : {}) };
         }
     }
-    return options && count > 0 && options.length > count ? { options, count } : null;
+    return options && count > 0 && options.length > count ? { options, count, ...(extra || {}) } : null;
 }
 
 function discardCard(ctx, unit, inst) {
@@ -1560,8 +1581,21 @@ function copyCard(ctx, unit, inst, where) {
     const entry = { cardId: source.cardId, upgraded: source.upgraded === true };
     if (source.grow) entry.grow = source.grow;
     if (source.costMod) entry.costMod = source.costMod;
+    if (source.confusedCost !== undefined) entry.confusedCost = source.confusedCost;
     if (source.inscription) entry.inscription = source.inscription;
     addTempCard(ctx, unit, entry, where);
+}
+
+function upgradeCard(ctx, inst) {
+    const entry = ctx.state.cards[inst];
+    const def = entry && ctx.state.catalog[entry.owner]?.[entry.cardId];
+    if (!def?.upgraded || entry.upgraded) return false;
+    const card = ownCard(ctx, inst);
+    card.upgraded = true;
+    if (def.upgraded.cost !== undefined && def.upgraded.cost !== def.cost) {
+        delete card.confusedCost;
+    }
+    return true;
 }
 
 // 生成内置临时牌/状态牌；同名定义已在该单位的 catalog 里时复用，id 冲突但名字不同则放弃。
@@ -1965,7 +1999,11 @@ function resolvePlay(ctx) {
             if (choice) {
                 play.exhaust = ctx.exhaust;
                 if (ctx.recur) play.recur = ctx.recur;
-                state.pending = { kind: effect.op, unitId: unit.id, inst: play.inst, count: choice.count, options: choice.options };
+                state.pending = {
+                    kind: effect.op, unitId: unit.id, inst: play.inst, count: choice.count, options: choice.options,
+                    ...(choice.from ? { from: choice.from } : {}),
+                    ...(choice.to ? { to: choice.to } : {}),
+                };
                 emit(ctx, { type: 'choose-start', unitId: unit.id, kind: effect.op, count: choice.count, options: choice.options.slice() });
                 ctx.inst = null;
                 return;

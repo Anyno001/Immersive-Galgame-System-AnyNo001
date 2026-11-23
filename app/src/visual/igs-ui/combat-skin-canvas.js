@@ -83,7 +83,8 @@ export function canvasGhostWrap(doc, cardEl) {
     const hand = cardEl?.closest?.('.cx-hand');
     if (!canvas || !hand || typeof doc?.createElement !== 'function') return null;
     const wrap = doc.createElement('div');
-    wrap.className = `igs-cx-ghost${canvas.classList.contains('land') ? ' land' : ''}`;
+    const orientCls = canvas.classList.contains('land') ? ' land' : canvas.classList.contains('port') ? ' port' : '';
+    wrap.className = `igs-cx-ghost${orientCls}`;
     wrap.setAttribute('data-cx', canvas.getAttribute('data-cx') || '');
     wrap.setAttribute('aria-hidden', 'true');
     const inner = doc.createElement('div');

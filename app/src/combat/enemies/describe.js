@@ -5,7 +5,7 @@ import { statusLabel } from '../mechanics/registry.js';
 export const UNKNOWN_TEXT = '特殊效果';
 export const DESCRIBE_TEXT_MAX = 40;
 const DEBUFF_NAMES = Object.freeze({ vulnerable: '易伤', weak: '虚弱', frail: '脆弱', poison: '中毒', 'no-draw': '禁抽' });
-const KNOWN_OPS = new Set(['damage', 'drain', 'block', 'protect-ally', 'heal', 'status', 'apply-status', 'create', 'shed', 'idle', 'self-destruct', 'seize-might', 'conditional', 'steal-gold', 'offer-curse', 'foe-surge', 'release', 'summon-kin', 'split-into', 'constrict']);
+const KNOWN_OPS = new Set(['damage', 'drain', 'block', 'protect-ally', 'heal', 'heal-to', 'cleanse', 'status', 'apply-status', 'create', 'shed', 'idle', 'self-destruct', 'seize-might', 'conditional', 'steal-gold', 'offer-curse', 'foe-surge', 'foe-volley', 'release', 'summon-kin', 'split-into', 'constrict']);
 const GROWTH = new Set(['strength', 'ritual']);
 const GUARD = new Set(['plated', 'plating', 'metallicize', 'barricade', 'artifact', 'dexterity']);
 
@@ -64,6 +64,16 @@ export function describeEnemy(profile) {
     if (effects.some((e) => e?.op === 'steal-gold')) add('偷取金币');
     if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'flee')) add('得手即逃');
     if (effects.some((e) => e?.op === 'offer-curse')) add('逼人二选一诅咒');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'chrono')) add('限制出牌节奏');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'fading')) add('限时消逝');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'shifting')) add('受击暂降攻击');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'slow')) add('出牌越多受击越重');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'stabs')) add('命中塞伤口');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'slippery')) add('受击限损1血');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'sandpit')) add('流沙倒计时');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'curiosity')) add('出能力牌会变强');
+    if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'regenerate')) add('每回合回血');
+    if (effects.some((e) => e?.op === 'foe-volley')) add('越打段数越多');
     if (effects.some((e) => e?.op === 'foe-surge')) add('越打越狠');
     const cards = [...new Set(effects.filter((e) => e?.op === 'create').map((e) => TOKEN_CARDS[e.card]?.name).filter(Boolean))];
     if (cards.length) add(`往牌堆塞${cards.slice(0, 2).join('/')}`);
@@ -73,7 +83,8 @@ export function describeEnemy(profile) {
     if (effects.some((e) => e?.op === 'protect-ally')) add('保护同伴');
     if (effects.some((e) => e?.op === 'block' || (isStatus(e) && !onFoe(e) && GUARD.has(e.status)))) add('善于防守');
     if (effects.some((e) => isStatus(e) && !onFoe(e) && e.status === 'thorns')) add('带荆棘');
-    if (effects.some((e) => e?.op === 'heal')) add('会回血');
+    if (effects.some((e) => e?.op === 'cleanse')) add('会净化减益');
+    if (effects.some((e) => e?.op === 'heal' || e?.op === 'heal-to')) add('会回血');
     if (effects.some((e) => isStatus(e) && e.status === 'soar')) add('会腾空');
     if (!armorPause && !burrowPause && effects.some((e) => e?.op === 'idle')) add('时而蓄势');
     if (!traits.length) add('攻守平平');

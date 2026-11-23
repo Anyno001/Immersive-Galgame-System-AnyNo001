@@ -3,17 +3,22 @@
 import { registerMechanic } from './registry.js';
 
 export const BURN_DAMAGE = 2;
+export const INFECTION_DAMAGE = 3;
 export const PAIN_LOSS = 1;
 export const VOID_ENERGY = 1;
 const RETAIN_MAX = 3;
-// 不能打出的状态牌没有效果字段，牌面规则写在这里。
+// 不能打出的状态牌与带特殊牌面结算的状态牌规则写在这里。
 export const STATUS_CARD_TEXT = Object.freeze({
     'status-burn': `回合结束时在手牌中：受到 ${BURN_DAMAGE} 点伤害`,
+    'status-infection': `回合结束时在手牌中：受到 ${INFECTION_DAMAGE} 点伤害`,
+    'status-escape': '令敌方「流沙」倒计时 +1；此牌本场费用 +1',
     'status-void': `抽到时失去 ${VOID_ENERGY} 点能量`,
     'status-pain': `在手牌中时：每打出一张牌失去 ${PAIN_LOSS} 点生命`,
 });
 const REPORT_TEXT = Object.freeze({
     'status-burn': (n) => `手中的灼痕造成 ${n} 点伤害`,
+    'status-infection': (n) => `手中的感染造成 ${n} 点伤害`,
+    'status-escape': (n) => `狂乱逃离延后了 ${n} 回合流沙倒计时`,
     'status-void': (n) => `抽到空洞，失去 ${n} 点能量`,
     'status-pain': (n) => `痛楚发作，失去 ${n} 点生命`,
 });
@@ -26,11 +31,19 @@ registerMechanic({
     hooks: {
         'turn-end-before'(ctx, { unit }, kit) {
             if (unit.kind !== 'deck' || !unit.alive) return;
-            const count = inHand(ctx, unit, 'status-burn');
-            if (!count) return;
-            const amount = count * BURN_DAMAGE;
-            kit.emit(ctx, { type: 'status-card', unitId: unit.id, cardId: 'status-burn', count, amount });
-            kit.dealDamage(ctx, unit, amount, { unitId: unit.id, kind: 'status', id: 'status-burn' }, 'burn', true);
+            const burns = inHand(ctx, unit, 'status-burn');
+            if (burns) {
+                const amount = burns * BURN_DAMAGE;
+                kit.emit(ctx, { type: 'status-card', unitId: unit.id, cardId: 'status-burn', count: burns, amount });
+                kit.dealDamage(ctx, unit, amount, { unitId: unit.id, kind: 'status', id: 'status-burn' }, 'burn', true);
+            }
+            if (!unit.alive || ctx.state.outcome) return;
+            const infections = inHand(ctx, unit, 'status-infection');
+            if (infections) {
+                const amount = infections * INFECTION_DAMAGE;
+                kit.emit(ctx, { type: 'status-card', unitId: unit.id, cardId: 'status-infection', count: infections, amount });
+                kit.dealDamage(ctx, unit, amount, { unitId: unit.id, kind: 'status', id: 'status-infection' }, 'burn', true);
+            }
         },
         draw(ctx, { unit, insts }, kit) {
             if (unit.kind !== 'deck') return;
@@ -40,8 +53,22 @@ registerMechanic({
             unit.energy -= amount;
             kit.emit(ctx, { type: 'status-card', unitId: unit.id, cardId: 'status-void', count, amount });
         },
-        'play-after'(ctx, { unit }, kit) {
+        'play-after'(ctx, { unit, inst, card }, kit) {
             if (unit.kind !== 'deck' || !unit.alive) return;
+            if (card?.id === 'status-escape' && !ctx.state.outcome) {
+                const foes = ctx.state.order.map((id) => ctx.state.units[id])
+                    .filter((other) => other?.alive && other.side !== unit.side && (other.statuses?.sandpit || 0) > 0);
+                for (const foe of foes) {
+                    kit.addStatus(ctx, foe, 'sandpit', 1, { unitId: unit.id, kind: 'card', id: 'status-escape' });
+                }
+                const entry = inst != null ? kit.ownCard(ctx, inst) : null;
+                if (entry) {
+                    entry.costMod = (entry.costMod || 0) + 1;
+                    kit.emit(ctx, { type: 'cost-mod', unitId: unit.id, inst, amount: 1, scope: 'combat' });
+                }
+                kit.emit(ctx, { type: 'status-card', unitId: unit.id, cardId: 'status-escape', count: 1, amount: 1 });
+            }
+            if (!unit.alive || ctx.state.outcome) return;
             const count = inHand(ctx, unit, 'status-pain');
             if (!count) return;
             const amount = count * PAIN_LOSS;

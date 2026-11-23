@@ -26,11 +26,15 @@ export function describeEnemySuitability(profile) {
     add(hasStatus('plated', 'plating', 'metallicize', 'barricade', 'shell'), '甲壳生物、盾卫或重装构装体');
     add(hasStatus('flying', 'soar'), '飞禽、翼兽或腾空作战的敌人');
     add(hasOp('foe-volley'), '攻击段数逐渐增多的连击型敌人');
-    add(hasOp('foe-surge') || hasStatus('strength', 'ritual'), '会强化自身、越战越强的敌人');
-    add(hasOp('create'), '会制造伤口、杂物或干扰对手牌组的敌人');
+    add(hasStatus('chrono'), '操纵时间、限制连打节奏的强敌或首领');
+    add(hasStatus('fading', 'shifting', 'slippery'), '限时现世、受击暂衰或难以重创的虚影与异象');
+    add(hasStatus('sandpit'), '布设流沙或限时吞噬陷阱的巨兽与首领');
+    add(hasStatus('slow'), '庞大迟缓、越战越易受创的巨像');
+    add(hasOp('foe-surge') || hasStatus('strength', 'ritual', 'curiosity'), '会强化自身、越战越强的敌人');
+    add(hasOp('create') || hasStatus('stabs'), '会制造伤口、杂物或干扰对手牌组的敌人');
     add(effects.some((e) => ['status', 'apply-status'].includes(e.op) && e.target && e.target !== 'self'
         && !['strength', 'dexterity'].includes(e.status)), '使用毒素、咒术或削弱手段的敌人');
-    add(hasOp('heal'), '能自愈或通过仪式恢复的敌人');
+    add(hasOp('heal', 'heal-to') || hasStatus('regenerate'), '能自愈或通过仪式恢复的敌人');
     const strikes = effects.filter((e) => ['damage', 'drain'].includes(e.op));
     add(strikes.some((e) => e.hits >= 3), '依靠连续扑击、快攻或连射的敌人');
     const cap = COMBAT_RULES.tiers[profile?.tier]?.damageCap ?? COMBAT_RULES.tiers.normal.damageCap;

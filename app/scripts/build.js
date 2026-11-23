@@ -66,12 +66,21 @@ const withEnemyAtlas = withVoice.replace(ENEMY_ATLAS_ASSET_RE, (_match, file) =>
     return `./enemy-atlas/${file}`;
 });
 if (!enemyAtlasAssets.size) throw new Error('Combat enemy atlas images are missing from bundle.');
+// 战斗主题特效纹理：new URL('../../../assets/combat-vfx/<套组>/<文件名>', import.meta.url) 改写为 ./combat-vfx/<套组>/<文件名>，复制到 dist/combat-vfx/。
+const COMBAT_VFX_ASSET_RE = /(?:\.\.?\/)+assets\/combat-vfx\/([a-z0-9-]+\/[\w.-]+\.webp)/g;
+const combatVfxSourceDir = path.join(appRoot, 'assets', 'combat-vfx');
+const combatVfxAssets = new Set();
+const withCombatVfx = withEnemyAtlas.replace(COMBAT_VFX_ASSET_RE, (_match, rel) => {
+    combatVfxAssets.add(rel);
+    return `./combat-vfx/${rel}`;
+});
+if (!combatVfxAssets.size) throw new Error('Combat VFX textures are missing from bundle.');
 // 内置表情包：源码以 new URL('../../assets/stickers/<套组>/', import.meta.url) 引用目录，改写为 ./stickers/<套组>/，整个套组目录复制到 dist/stickers/<套组>/。
 const STICKER_SETS_DIRS = ['daimao', 'nga'];
 const STICKER_ASSET_RE = /(?:\.\.?\/)+assets\/stickers\/(daimao|nga)\//g;
 const stickerSourceDir = path.join(appRoot, 'assets', 'stickers');
 const stickerSetsUsed = new Set();
-const withStickers = withEnemyAtlas.replace(STICKER_ASSET_RE, (_match, dir) => {
+const withStickers = withCombatVfx.replace(STICKER_ASSET_RE, (_match, dir) => {
     stickerSetsUsed.add(dir);
     return `./stickers/${dir}/`;
 });
@@ -225,6 +234,25 @@ for (const file of enemyAtlasAssets) {
     if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Combat enemy atlas image exceeds the jsDelivr file limit: ${source}`);
     copyIfChanged(source, path.join(enemyAtlasTargetDir, file));
 }
+// 战斗主题特效纹理：按套组目录复制到 dist/combat-vfx/<套组>/<文件名>，校验 webp 签名与 jsDelivr 单文件上限。
+const combatVfxTargetDir = path.join(distRoot, 'combat-vfx');
+fs.mkdirSync(combatVfxTargetDir, { recursive: true });
+const combatVfxExpected = new Map();
+for (const rel of combatVfxAssets) {
+    const [pack, file] = rel.split('/');
+    if (!combatVfxExpected.has(pack)) combatVfxExpected.set(pack, new Set());
+    combatVfxExpected.get(pack).add(file);
+    const source = path.join(combatVfxSourceDir, pack, file);
+    if (!fs.existsSync(source)) throw new Error(`Combat VFX texture is missing: ${source}`);
+    const head = readHead(source, 12);
+    if (head.toString('latin1', 0, 4) !== 'RIFF' || head.toString('latin1', 8, 12) !== 'WEBP') throw new Error(`Combat VFX texture is not webp: ${source}`);
+    if (fs.statSync(source).size > JSDELIVR_FILE_LIMIT_BYTES) throw new Error(`Combat VFX texture exceeds the jsDelivr file limit: ${source}`);
+    const targetPackDir = path.join(combatVfxTargetDir, pack);
+    fs.mkdirSync(targetPackDir, { recursive: true });
+    copyIfChanged(source, path.join(targetPackDir, file));
+}
+pruneDir(combatVfxTargetDir, new Set(combatVfxExpected.keys()));
+for (const [pack, files] of combatVfxExpected) pruneDir(path.join(combatVfxTargetDir, pack), files);
 // 内置表情包：整套目录复制（webp / png 图 + 来源.md），校验文件签名与 jsDelivr 单文件上限；图片不进 bundle。
 const stickerTargetRoot = path.join(distRoot, 'stickers');
 fs.mkdirSync(stickerTargetRoot, { recursive: true });

@@ -75,6 +75,11 @@ export function chooseAllyPlay(state, unitId) {
         const guard = bestBy(playable, (card) => perCost(card, estimateBlock(unit, card.effects, state.rulesVersion, 'card', unit.attributePolicy ? state : undefined)));
         if (guard) return playFor(state, unit, guard);
     }
+    // 场上存在流沙倒计时危急的敌人时，优先打出「狂乱逃离」延后吞没。
+    if (foes.some((id) => { const pit = state.units[id]?.statuses?.sandpit || 0; return pit > 0 && pit <= 2; })) {
+        const escape = playable.find((card) => card.id === 'status-escape');
+        if (escape) return playFor(state, unit, escape);
+    }
 
     let kill = null;
     for (const card of playable) {

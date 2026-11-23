@@ -6,7 +6,7 @@ import { applyAction, createBattle, replayBattle } from '../src/combat/engine.js
 import { chooseAllyPlay, chooseSkillIntent } from '../src/combat/policy.js';
 import { templateEnemy } from '../src/combat/generation.js';
 import { BASIC_CARDS, TOKEN_CARDS } from '../src/combat/rules.js';
-import { conditionHolds, computeBlock, computeDamage, describeIntent, estimateBlock } from '../src/combat/battle-state.js';
+import { cardView, conditionHolds, computeBlock, computeDamage, describeIntent, estimateBlock } from '../src/combat/battle-state.js';
 import { scaleSkills } from '../src/combat/card-scaling.js';
 import { enemy, cycle } from '../src/combat/enemies/dsl.js';
 import { ENEMIES, SOURCE_TIER_REF, prepareEnemyEntries, materializeEnemy } from '../src/combat/enemies/index.js';
@@ -936,10 +936,10 @@ describe('正式敌人条目', () => {
         assert.deepEqual(STS1_ACT1.map((item) => item.sourceKey), keys);
         const pending = STS1_ACT1.filter((item) => item.status === 'pending');
         assert.deepEqual(pending.map((item) => item.sourceKey), ['Cultist', 'Red Louse', 'Green Louse', 'Acid Slime (S)', 'Mad Gremlin']);
-        assert.equal(STS1_ACT1.filter((item) => item.excluded).length, 4);
+        assert.equal(STS1_ACT1.filter((item) => item.excluded).length, 1);
         const ready = enemyCandidates({}, ENEMIES.filter((item) => item.group === 'act1' && item.source === 'sts1'));
-        assert.deepEqual(ready.map((item) => item.sourceKey), ['Jaw Worm（第一幕）', 'Fungi Beast', 'Spike Slime (M)', 'Spike Slime (S)', 'Acid Slime (M)',
-            'Fat Gremlin', 'Shield Gremlin', 'Sneaky Gremlin', 'Gremlin Wizard', 'Blue Slaver', 'Red Slaver', 'Looter', 'Mugger', 'Gremlin Nob', 'Lagavulin', 'Sentry', 'The Guardian']);
+        assert.deepEqual(ready.map((item) => item.sourceKey), ['Jaw Worm（第一幕）', 'Fungi Beast', 'Spike Slime (L)', 'Spike Slime (M)', 'Spike Slime (S)', 'Acid Slime (L)', 'Acid Slime (M)',
+            'Fat Gremlin', 'Shield Gremlin', 'Sneaky Gremlin', 'Gremlin Wizard', 'Blue Slaver', 'Red Slaver', 'Looter', 'Mugger', 'Gremlin Nob', 'Lagavulin', 'Sentry', 'Slime Boss', 'The Guardian']);
         for (const raw of STS1_ACT1.filter((item) => item.status !== 'release' || item.excluded)) {
             const item = ENEMIES.find((entry) => entry.id === raw.id);
             assert.ok(item.notes[0] && item.evidence.length >= 2, item.id);
@@ -952,7 +952,7 @@ describe('正式敌人条目', () => {
         }
         const act1 = ENEMIES.filter((item) => item.group === 'act1' && item.source === 'sts1');
         assert.deepEqual(enemyCandidates({ tier: 'elite' }, act1).map((item) => item.sourceKey), ['Gremlin Nob', 'Lagavulin', 'Sentry']);
-        assert.deepEqual(enemyCandidates({ tier: 'boss' }, act1).map((item) => item.sourceKey), ['The Guardian']);
+        assert.deepEqual(enemyCandidates({ tier: 'boss' }, act1).map((item) => item.sourceKey), ['Slime Boss', 'The Guardian']);
     });
 
     it('protect-ally 双入口拒收非法字段和数值，不放宽卡牌目标；格挡与能力换算一致', () => {
@@ -1196,17 +1196,18 @@ describe('正式敌人条目', () => {
         }
     });
 
-    it('第二幕16个来源逐一对账，翎风鸟、封垒浮卫、甲壳寄生兽、鞭策监工与收集者入池', () => {
+    it('第二幕16个来源逐一对账，翎风鸟、封垒浮卫、甲壳寄生兽、惑视蛇、鞭策监工与收集者入池', () => {
         const keys = ['Byrd', 'Chosen', 'Spheric Guardian', 'Shelled Parasite', 'Centurion', 'Mystic',
             'Snake Plant', 'Snecko', 'Book of Stabbing', 'Gremlin Leader', 'Taskmaster',
             'The Champ', 'The Collector', 'Torch Head', 'Bronze Automaton', 'Bronze Orb'];
         assert.deepEqual(STS1_ACT2.map((item) => item.sourceKey), keys);
-        assert.deepEqual(STS1_ACT2.filter((item) => item.status === 'pending').map((item) => item.sourceKey), ['Snake Plant', 'Snecko']);
-        assert.equal(STS1_ACT2.filter((item) => item.excluded).length, 9);
-        assert.deepEqual(enemyReferences(STS1_ACT2), { 'sts1|normal': { hp: 28, damage: 18 }, 'sts1|elite': { hp: 57, damage: 7 }, 'sts1|boss': { hp: 282, damage: 18 } });
+        assert.deepEqual(STS1_ACT2.filter((item) => item.status === 'pending').map((item) => item.sourceKey), ['Snake Plant']);
+        assert.equal(STS1_ACT2.filter((item) => item.excluded).length, 6);
+        assert.deepEqual(STS1_ACT2.filter((item) => item.encounterOnly).map((item) => item.sourceKey), ['Centurion', 'Mystic']);
+        assert.deepEqual(enemyReferences(STS1_ACT2), { 'sts1|normal': { hp: 61, damage: 16.5 }, 'sts1|elite': { hp: 109.5, damage: 14 }, 'sts1|boss': { hp: 282, damage: 18 } });
         const entries = ENEMIES.filter((item) => item.source === 'sts1' && item.group === 'act2');
         assert.equal(entries.length, 16);
-        assert.deepEqual(enemyCandidates({}, entries).map((item) => item.sourceKey), ['Byrd', 'Spheric Guardian', 'Shelled Parasite', 'Taskmaster', 'The Collector']);
+        assert.deepEqual(enemyCandidates({}, entries).map((item) => item.sourceKey), ['Byrd', 'Spheric Guardian', 'Shelled Parasite', 'Snecko', 'Book of Stabbing', 'Taskmaster', 'The Collector']);
         for (const item of entries.filter((entry) => entry.status !== 'release' || entry.excluded)) {
             assert.ok(item.notes[0] && item.evidence.length === 2, item.id);
             assert.equal(item.original, null);
@@ -1214,6 +1215,162 @@ describe('正式敌人条目', () => {
             for (const model of ['original']) assert.equal(resolveEnemy(item.id, model), null);
         }
         assert.equal(drawEnemy({ seed: 'act2-boss', tier: 'boss' }, entries)?.template.enemyId, 'en-sts1-act2-13');
+    });
+
+    it('Snecko 原始模型、档案归一化、物化、单体与缝合池准入，v6/v7多种子首招/60:40/撕咬禁三连/尾鞭不限连用与重放一致', () => {
+        const raw = STS1_ACT2.find((item) => item.sourceKey === 'Snecko');
+        assert.equal(raw.status, 'release');
+        assert.equal(Boolean(raw.excluded), false);
+        assert.deepEqual(raw.hp, [114, 120]);
+        assert.deepEqual(raw.original.skills.map((skill) => [skill.id, skill.intent, skill.weight ?? 1, skill.maxRepeat]), [
+            ['glare', 'debuff', 1, 2],
+            ['bite', 'attack', 6, 2],
+            ['tail', 'attack-debuff', 4, 0],
+        ]);
+        assert.deepEqual(raw.original.skills.map((skill) => skill.effects), [
+            [{ op: 'apply-status', status: 'confused', stacks: 1, target: 'enemy' }],
+            [{ op: 'damage', amount: 15, hits: 1, target: 'enemy' }],
+            [{ op: 'damage', amount: 8, hits: 1, target: 'enemy' }, { op: 'status', status: 'vulnerable', stacks: 2, target: 'enemy' }],
+        ]);
+        assert.equal(raw.original.script.opener, 'glare');
+        for (const key of ['glare', 'bite', 'tail']) {
+            assert.deepEqual(raw.original.script.next[key], [{ skill: 'bite', weight: 60 }, { skill: 'tail', weight: 40 }]);
+        }
+        assert.ok(raw.evidence.some((item) => item.file.includes('166-snecko-confused-wiring.md')));
+
+        const entry = ENEMIES.find((item) => item.id === raw.id);
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        const normalized = normalizeProfile(profile);
+        assert.equal(normalized.ok, true, JSON.stringify(normalized.errors));
+        assert.deepEqual(normalizeProfile(normalized.value).value, normalized.value);
+        assert.equal(profile.template.enemyId, 'en-sts1-act2-08');
+        assert.equal(profile.template.model, 'original');
+        assert.ok(describeEnemy(profile).includes('混乱'));
+
+        // 单体与缝合池准入边界：普通档 1:1，原版必含 Snecko，缝合项取到 Snecko 技能也可物化并通过 schema。
+        const normalCands = enemyCandidates({ tier: 'normal' }, ENEMIES);
+        assert.ok(normalCands.some((item) => item.id === 'en-sts1-act2-08'));
+        let sawStitchedSnecko = false;
+        for (let i = 0; i < 16; i += 1) {
+            const pool = enemyPool({ tier: 'normal', seed: `snecko-pool-${i}` });
+            const originals = pool.filter((item) => item.kind === 'original');
+            const stitched = pool.filter((item) => item.kind === 'stitched');
+            assert.equal(originals.length, normalCands.length);
+            assert.equal(stitched.length, normalCands.length);
+            assert.ok(originals.some((item) => item.enemyId === 'en-sts1-act2-08'));
+            for (const item of stitched.filter((candidate) => candidate.sources?.includes('en-sts1-act2-08'))) {
+                sawStitchedSnecko = true;
+                const choice = materializeChoice(item, { id: `stitch-${i}`, name: '缝合惑视' });
+                assert.equal(normalizeProfile(choice).ok, true, JSON.stringify(normalizeProfile(choice).errors));
+            }
+        }
+        assert.equal(sawStitchedSnecko, true, '缝合池应在若干确定性种子中取材 Snecko 技能并合法物化');
+
+        const { units: [unit] } = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] },
+            new Map([[profile.name, profile]]), 1, 'normal');
+        const seenAfterGlare = new Set();
+        for (const rulesVersion of [6, 7]) for (const seed of [0, 7, 19, 42]) {
+            const heroCards = [0, 1, 2, 3].map((n) => testCard(`sn-card-${n}`, 'skill', [{ op: 'block', amount: 2 }], { cost: n % 3 }));
+            const setup = { rulesVersion, controlledId: 'hero', units: [
+                traitHero(heroCards, { maxHp: 9999 }), unit,
+            ] };
+            const built = createBattle(setup, seed);
+            assert.equal(built.ok, true, JSON.stringify(built.error));
+            assert.equal(describeIntent(built.state, 'foe').skillId, 'glare');
+            let state = built.state;
+            const events = [...built.events], actions = [];
+            const used = () => events.filter((event) => event.type === 'skill' && event.unitId === 'foe').map((event) => event.skillId);
+            for (let turn = 0; turn < 64 && used().length < 10; turn += 1) {
+                const next = act(state);
+                state = next.state;
+                events.push(...next.events);
+                actions.push(END_TURN);
+                const seq = used();
+                if (seq.length === 1) {
+                    assert.equal(seq[0], 'glare');
+                    assert.equal(state.units.hero.statuses.confused, 1);
+                }
+                if (seq.length >= 1) {
+                    const before = JSON.stringify(state);
+                    const intent = describeIntent(state, 'foe').skillId;
+                    assert.equal(JSON.stringify(state), before);
+                    assert.notEqual(intent, 'glare');
+                    // 60:40 候选边界（history 不触发 bite 禁三连时）。
+                    const freshHist = { ...state, history: { ...state.history, foe: ['glare'] } };
+                    assert.deepEqual([0, 0.59999, 0.6, 0.99999].map((roll) => chooseSkillIntent(freshHist, 'foe', roll).skillId),
+                        ['bite', 'bite', 'tail', 'tail']);
+                    // Bite 禁三连。
+                    const twoBites = { ...state, history: { ...state.history, foe: ['bite', 'bite'] } };
+                    assert.equal(chooseSkillIntent(twoBites, 'foe', 0).skillId, 'tail');
+                    // Tail 不额外限制连用。
+                    const sixTails = { ...state, history: { ...state.history, foe: Array(6).fill('tail') } };
+                    assert.equal(chooseSkillIntent(sixTails, 'foe', 0.9).skillId, 'tail');
+                }
+            }
+            const seq = used();
+            assert.ok(seq.length >= 10);
+            assert.equal(seq[0], 'glare');
+            assert.equal(seq.filter((id) => id === 'glare').length, 1);
+            for (let i = 1; i < seq.length; i += 1) seenAfterGlare.add(seq[i]);
+            for (let i = 2; i < seq.length; i += 1) {
+                assert.equal(seq[i] === 'bite' && seq[i - 1] === 'bite' && seq[i - 2] === 'bite', false, 'Bite 不得三连');
+            }
+            const confusedApplies = events.filter((event) => event.type === 'status' && event.status === 'confused' && event.target === 'hero');
+            assert.equal(confusedApplies.length, 1);
+            assert.equal(state.units.hero.statuses.confused, 1);
+            const randomized = events.filter((event) => event.type === 'cost-randomized' && event.unitId === 'hero');
+            assert.ok(randomized.length > 0, '惑视生效后生产抽牌须触发 cost-randomized');
+            for (const event of randomized) assert.ok(Number.isInteger(event.cost) && event.cost >= 0 && event.cost <= 3);
+            const replayed = replayBattle(JSON.parse(JSON.stringify(setup)), seed, actions);
+            assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+            assert.deepEqual(replayed.state, state);
+            assert.deepEqual(replayed.events, events);
+        }
+        assert.deepEqual([...seenAfterGlare].sort(), ['bite', 'tail']);
+    });
+
+    it('Snecko 经真实大厅buildSetup入战，首招惑视后生产抽牌触发Confused且保存重放一致', async (t) => {
+        const f = await createGenerationFixture({ chatId: 'snecko-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        assert.equal(effective.ok, true);
+        const hero = effective.characters.get(effective.attributes.heroId);
+        const profile = materializeEnemy(ENEMIES.find((item) => item.sourceKey === 'Snecko'), 'original');
+        const lobby = { heroId: hero.id, controllable: [hero.id], allies: [hero], enemies: new Map([[profile.name, profile]]) };
+        const start = { tier: 'normal', enemies: [{ name: profile.name, count: 1 }] };
+        const built = buildSetup(lobby, start, { userName: hero.name, combatId: 'snecko-lobby' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        assert.equal(built.setup.foeCap, 3);
+        assert.equal(Object.hasOwn(built.setup, 'encounterFormation'), false);
+        assert.equal(Object.hasOwn(built.setup, 'reserve'), false);
+        const saved = JSON.parse(JSON.stringify(built.setup));
+        const initial = createBattle(saved, 19);
+        assert.equal(initial.ok, true, JSON.stringify(initial.error));
+        const foeId = initial.state.order.find((id) => initial.state.units[id].side === 'enemy');
+        assert.equal(describeIntent(initial.state, foeId).skillId, 'glare');
+        let state = initial.state;
+        const events = [...initial.events], actions = [];
+        // 有界推进直到 Snecko 放出惑视并经历玩家下一次真实抽牌触发 cost-randomized。
+        for (let turn = 0; turn < 12 && !events.some((event) => event.type === 'cost-randomized' && event.unitId === hero.id); turn += 1) {
+            const next = act(state);
+            state = next.state;
+            events.push(...next.events);
+            actions.push(END_TURN);
+        }
+        assert.equal(state.units[hero.id].statuses.confused, 1);
+        const rolled = events.filter((event) => event.type === 'cost-randomized' && event.unitId === hero.id);
+        assert.ok(rolled.length > 0, '真实大厅建局后抽牌应触发 Confused 随机费用');
+        for (const inst of state.piles[hero.id].hand) {
+            const view = cardView(state, inst);
+            if (view && !view.unplayable && typeof view.cost === 'number') {
+                assert.equal(state.cards[inst].confusedCost, view.cost);
+            }
+        }
+        const replayed = replayBattle(saved, 19, actions);
+        assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+        assert.deepEqual(replayed.state, state);
+        assert.deepEqual(replayed.events, events);
+        assert.deepEqual(built.setup, saved);
     });
 
     it('Collector 原版数值与随从表闭合，随从不独立入池；按数量切换候选权重', () => {
@@ -1649,7 +1806,7 @@ describe('正式敌人条目', () => {
             'Writhing Mass', 'Giant Head', 'Nemesis', 'Reptomancer', 'Dagger', 'Time Eater', 'Donu', 'Deca', 'Awakened One'];
         assert.deepEqual(STS1_ACT3.map((item) => item.sourceKey), act3);
         assert.deepEqual(STS1_ACT3.filter((item) => item.status === 'pending').map((item) => item.sourceKey), ['Nemesis', 'Donu', 'Deca']);
-        assert.equal(STS1_ACT3.filter((item) => item.excluded).length, 10);
+        assert.equal(STS1_ACT3.filter((item) => item.excluded).length, 4);
         assert.deepEqual(STS1_ACT4.map((item) => item.sourceKey), ['Spire Shield', 'Spire Spear', 'Corrupt Heart']);
         assert.equal(STS1_ACT4.filter((item) => item.excluded).length, 3);
         assert.deepEqual(STS1_EVENTS.map((item) => item.sourceKey),
@@ -1665,14 +1822,14 @@ describe('正式敌人条目', () => {
         const sts1 = ENEMIES.filter((item) => item.source === 'sts1');
         assert.equal(sts1.length, 66);
         assert.equal(new Set(sts1.map((item) => item.sourceKey)).size, 66);
-        assert.equal(sts1.filter((item) => item.status === 'pending').length, 10);
-        assert.equal(sts1.filter((item) => item.excluded).length, 26);
+        assert.equal(sts1.filter((item) => item.status === 'pending').length, 9);
+        assert.equal(sts1.filter((item) => item.excluded).length, 14);
         assert.deepEqual(enemyCandidates({}, sts1).map((item) => item.sourceKey),
-            ['Jaw Worm（第一幕）', 'Fungi Beast', 'Spike Slime (M)', 'Spike Slime (S)', 'Acid Slime (M)', 'Fat Gremlin', 'Shield Gremlin', 'Sneaky Gremlin',
-                'Gremlin Wizard', 'Blue Slaver', 'Red Slaver', 'Looter', 'Mugger', 'Gremlin Nob', 'Lagavulin', 'Sentry', 'The Guardian', 'Byrd', 'Spheric Guardian', 'Shelled Parasite', 'Taskmaster', 'The Collector',
-                'Exploder', 'Repulsor', 'Spiker', 'Orb Walker', 'Pointy（事件）', 'Romeo（事件）', 'Bear（事件）', 'Lagavulin（Dead Adventurer 已醒型）']);
-        assert.ok(['折甲巨像', '薪魂收集者'].includes(drawEnemy({ seed: 'sts1-boss', tier: 'boss' }, sts1)?.name));
-        assert.deepEqual(enemyReferences(sts1), { 'sts1|normal': { hp: 30, damage: 12 }, 'sts1|elite': { hp: 84, damage: 14 }, 'sts1|boss': { hp: 261, damage: 25 } });
+            ['Jaw Worm（第一幕）', 'Fungi Beast', 'Spike Slime (L)', 'Spike Slime (M)', 'Spike Slime (S)', 'Acid Slime (L)', 'Acid Slime (M)', 'Fat Gremlin', 'Shield Gremlin', 'Sneaky Gremlin',
+                'Gremlin Wizard', 'Blue Slaver', 'Red Slaver', 'Looter', 'Mugger', 'Gremlin Nob', 'Lagavulin', 'Sentry', 'Slime Boss', 'The Guardian', 'Byrd', 'Spheric Guardian', 'Shelled Parasite', 'Snecko', 'Book of Stabbing', 'Taskmaster', 'The Collector',
+                'Exploder', 'Repulsor', 'Spiker', 'Orb Walker', 'The Maw', 'Spire Growth', 'Transient', 'Giant Head', 'Time Eater', 'Awakened One', 'Pointy（事件）', 'Romeo（事件）', 'Bear（事件）', 'Lagavulin（Dead Adventurer 已醒型）']);
+        assert.ok(['聚胶王', '折甲巨像', '薪魂收集者', '蚀刻时兽', '蜕羽醒者'].includes(drawEnemy({ seed: 'sts1-boss', tier: 'boss' }, sts1)?.name));
+        assert.deepEqual(enemyReferences(sts1), { 'sts1|normal': { hp: 42, damage: 13 }, 'sts1|elite': { hp: 110, damage: 18 }, 'sts1|boss': { hp: 282, damage: 32 } });
     });
     it('Spiker 开场荆棘3，增棘最多六次且不限连用，耗尽后只攻击；重放一致', () => {
         const raw = STS1_ACT3.find((item) => item.sourceKey === 'Spiker');
@@ -1761,6 +1918,566 @@ describe('正式敌人条目', () => {
         assert.deepEqual(replayed.events, [...created.events, ...played.events, ...poisoned.events, ...turnEvents]);
     });
 
+    it('Transient（将逝巨影）生产物化、回合伤害成长、受击变形减攻、5回合消逝与 v6/v7 大厅建局重放一致', async (t) => {
+        const raw = STS1_ACT3.find((item) => item.sourceKey === 'Transient');
+        assert.equal(raw.status, 'release');
+        assert.equal(Boolean(raw.excluded), false);
+        assert.equal(raw.hp, 999);
+        assert.ok(raw.evidence.some((e) => e.file.includes('167-sts1-act3-trio-wiring.md')));
+        const entry = ENEMIES.find((item) => item.id === raw.id);
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+        const surgeEff = profile.skills[0].effects[0];
+        assert.equal(surgeEff.op, 'foe-surge');
+        assert.equal(surgeEff.source, 'turn');
+
+        // 1) v6 / v7 生产装配：回合伤害线性递增，受击触发变形临时减攻并于自身回合末清除，第 5 回合末消逝倒下判胜。
+        const poke = testCard('poke', 'attack', [{ op: 'damage', amount: 10 }]);
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'normal').units;
+        for (const rulesVersion of [6, 7]) {
+            const makeSetup = () => {
+                const hero = traitHero([poke, poke, poke], { speed: unit.speed, maxHp: 999 });
+                return { rulesVersion, controlledId: 'hero', units: [hero, unit] };
+            };
+            // 对照组：第 1 回合不出牌，记录无变形减攻时首击伤害。
+            const baseline = act(createBattle(makeSetup(), 11).state);
+            const baseHit = baseline.events.find((e) => e.type === 'damage' && e.target === 'hero' && e.source?.unitId === 'foe');
+            assert.ok(baseHit && baseHit.amount > 0);
+
+            const setup = makeSetup();
+            const created = createBattle(setup, 11);
+            assert.equal(created.ok, true, JSON.stringify(created.error));
+            let state = created.state;
+            assert.equal(state.units.foe.statuses.fading, 5);
+            assert.equal(state.units.foe.statuses.shifting, 1);
+
+            const events = [...created.events];
+            const actions = [];
+            // 第 1 回合先打 10 点伤害：变形附加 10 层本回合减攻，削弱紧接而来的首击，随后自身回合末清零。
+            const pokeInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'poke');
+            const hitRes = applyAction(state, { type: 'play', inst: pokeInst, targetId: 'foe' });
+            assert.equal(hitRes.ok, true);
+            assert.equal(hitRes.state.units.foe.statuses.shackle, 10);
+            state = hitRes.state;
+            events.push(...hitRes.events);
+            actions.push({ type: 'play', inst: pokeInst, targetId: 'foe' });
+
+            const foeHits = [];
+            for (let turn = 0; turn < 12 && !state.outcome; turn += 1) {
+                const res = act(state);
+                state = res.state;
+                events.push(...res.events);
+                actions.push(END_TURN);
+                for (const e of res.events) {
+                    if (e.type === 'damage' && e.target === 'hero' && e.source?.unitId === 'foe') foeHits.push(e);
+                }
+            }
+            const surges = events.filter((e) => e.type === 'surge' && e.unitId === 'foe');
+            assert.equal(surges.length, 5, `v${rulesVersion} surges=${JSON.stringify(surges)}`);
+            for (const s of surges) assert.equal(s.amount, surgeEff.amount + surgeEff.per * s.turn);
+            assert.ok(foeHits[0].amount < baseHit.amount, `受击变形应削弱首击：${foeHits[0].amount} < ${baseHit.amount}`);
+            assert.equal(foeHits.length, 5);
+            assert.equal(state.units.foe.alive, false);
+            assert.equal(state.outcome, 'victory');
+            assert.ok(events.some((e) => e.type === 'faded' && e.unitId === 'foe'));
+            assert.equal(state.units.foe.statuses.shackle || 0, 0);
+
+            const replayed = replayBattle(setup, 11, actions);
+            assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+            assert.deepEqual(replayed.state, state);
+            assert.deepEqual(replayed.events, events);
+        }
+
+        // 2) 真实大厅 buildSetup 路径物化、入战与保存重放。
+        const f = await createGenerationFixture({ chatId: 'transient-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        assert.equal(effective.ok, true);
+        const hero = effective.characters.get(effective.attributes.heroId);
+        const lobbyProf = materializeEnemy(entry, 'original');
+        const built = buildSetup({ heroId: hero.id, controllable: [hero.id], allies: [hero], enemies: new Map([[lobbyProf.name, lobbyProf]]) },
+            { tier: 'normal', enemies: [{ name: lobbyProf.name, count: 1 }] }, { userName: hero.name, combatId: 'transient-lobby' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        const started = createBattle(built.setup, 5);
+        assert.equal(started.ok, true, JSON.stringify(started.error));
+        const foeId = Object.keys(started.state.units).find((id) => started.state.units[id].side === 'enemy');
+        assert.equal(started.state.units[foeId].statuses.fading, 5);
+        assert.equal(started.state.units[foeId].statuses.shifting, 1);
+        const step1 = act(started.state);
+        const replayed = replayBattle(built.setup, 5, [END_TURN]);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, step1.state);
+    });
+
+    it('Giant Head（迟暮巨首）生产物化、开场减速增伤、前4回合1:1禁三连、第5回合起时辰已到成长封顶与 v6/v7 重放一致', async (t) => {
+        const raw = STS1_ACT3.find((item) => item.sourceKey === 'Giant Head');
+        assert.equal(raw.status, 'release');
+        assert.equal(Boolean(raw.excluded), false);
+        assert.equal(raw.hp, 500);
+        assert.ok(raw.evidence.some((e) => e.file.includes('167-sts1-act3-trio-wiring.md')));
+        const entry = ENEMIES.find((item) => item.id === raw.id);
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+        const timeEff = profile.skills.find((s) => s.id === 'time').effects[0];
+        assert.equal(timeEff.op, 'foe-surge');
+        assert.equal(timeEff.source, 'uses');
+
+        // 1) 开场 Slow 增伤验证：第 1 张牌 +0%，第 2 张 +10%，第 3 张 +20%，下回合重置。
+        const strike10 = testCard('s10', 'attack', [{ op: 'damage', amount: 10 }]);
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'elite').units;
+        {
+            const hero = traitHero([strike10, strike10, strike10, strike10, strike10]);
+            hero.energy = 6;
+            hero.maxHp = 999;
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            const created = createBattle(setup, 3);
+            assert.equal(created.ok, true, JSON.stringify(created.error));
+            assert.equal(created.state.units.foe.statuses.slow, 1);
+            let s = created.state;
+            const dmgs = [];
+            for (let i = 0; i < 3; i += 1) {
+                const cardInst = s.piles.hero.hand.find((id) => s.cards[id].cardId === 's10');
+                const res = applyAction(s, { type: 'play', inst: cardInst, targetId: 'foe' });
+                assert.equal(res.ok, true);
+                dmgs.push(res.events.find((e) => e.type === 'damage' && e.target === 'foe').amount);
+                s = res.state;
+            }
+            assert.deepEqual(dmgs, [10, 11, 12], 'Slow 应按本回合已打出牌数逐张 +10%');
+            const nextTurn = act(s);
+            const resetInst = nextTurn.state.piles.hero.hand.find((id) => nextTurn.state.cards[id].cardId === 's10');
+            const afterReset = applyAction(nextTurn.state, { type: 'play', inst: resetInst, targetId: 'foe' });
+            assert.equal(afterReset.events.find((e) => e.type === 'damage' && e.target === 'foe').amount, 10, '新回合开始后 Slow 计数重置');
+        }
+
+        // 2) v6 / v7 多种子：前 4 回合只出 count/glare 且禁三连，第 5 回合意图已切为 time，之后每次 +per 并在 cap 封顶。
+        const seenEarly = new Set();
+        for (const rulesVersion of [6, 7]) {
+            for (const seed of [1, 2, 7, 13]) {
+                const setup = setupWith(unit);
+                setup.rulesVersion = rulesVersion;
+                setup.units[0].maxHp = 9999;
+                const created = createBattle(setup, seed);
+                assert.equal(created.ok, true, JSON.stringify(created.error));
+                let state = created.state;
+                const events = [...created.events];
+                const actions = [];
+                let foeActs = 0;
+                let fifthIntent = null;
+                for (let turn = 0; turn < 20 && foeActs < 12 && !state.outcome; turn += 1) {
+                    const res = act(state);
+                    state = res.state;
+                    events.push(...res.events);
+                    actions.push(END_TURN);
+                    const acted = res.events.filter((e) => e.type === 'skill' && e.unitId === 'foe').length;
+                    if (acted) {
+                        foeActs += acted;
+                        if (foeActs === 4 && fifthIntent === null) fifthIntent = state.intents.foe?.skillId;
+                    }
+                }
+                assert.equal(fifthIntent, 'time', `v${rulesVersion} seed=${seed} 第4次出手后意图应已显示时辰已到`);
+                const used = events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId);
+                assert.ok(used.length >= 12, `v${rulesVersion} seed=${seed} used=${used.length}`);
+                const first4 = used.slice(0, 4);
+                for (const id of first4) {
+                    assert.ok(id === 'count' || id === 'glare', first4.join());
+                    seenEarly.add(id);
+                }
+                for (let i = 2; i < 4; i += 1) {
+                    assert.equal(first4[i] === first4[i - 1] && first4[i] === first4[i - 2], false, `禁三连: ${first4.join()}`);
+                }
+                assert.ok(used.slice(4).every((id) => id === 'time'), used.join());
+                const surges = events.filter((e) => e.type === 'surge' && e.unitId === 'foe').map((e) => e.amount);
+                assert.equal(surges.length, used.length - 4);
+                for (let i = 0; i < surges.length; i += 1) {
+                    assert.equal(surges[i], Math.min(timeEff.cap, timeEff.amount + timeEff.per * i));
+                }
+                assert.equal(surges[surges.length - 1], timeEff.cap, '应到达伤害上限并封顶');
+                const replayed = replayBattle(setup, seed, actions);
+                assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+                assert.deepEqual(replayed.state, state);
+                assert.deepEqual(replayed.events, events);
+            }
+        }
+        assert.deepEqual([...seenEarly].sort(), ['count', 'glare']);
+
+        // 3) 真实大厅 buildSetup 路径验证。
+        const f = await createGenerationFixture({ chatId: 'giant-head-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        assert.equal(effective.ok, true);
+        const hero = effective.characters.get(effective.attributes.heroId);
+        const lobbyProf = materializeEnemy(entry, 'original');
+        const built = buildSetup({ heroId: hero.id, controllable: [hero.id], allies: [hero], enemies: new Map([[lobbyProf.name, lobbyProf]]) },
+            { tier: 'elite', enemies: [{ name: lobbyProf.name, count: 1 }] }, { userName: hero.name, combatId: 'giant-head-lobby' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        const started = createBattle(built.setup, 7);
+        assert.equal(started.ok, true);
+        const step1 = act(started.state);
+        const replayed = replayBattle(built.setup, 7, [END_TURN]);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, step1.state);
+    });
+
+    it('Time Eater（蚀刻时兽）生产物化、跨回合12张时滞、45:35:20受限选招、少抽与半血一次性时空加速净化回血重放一致', async (t) => {
+        const raw = STS1_ACT3.find((item) => item.sourceKey === 'Time Eater');
+        assert.equal(raw.status, 'release');
+        assert.equal(Boolean(raw.excluded), false);
+        assert.equal(raw.hp, 456);
+        assert.ok(raw.evidence.some((e) => e.file.includes('167-sts1-act3-trio-wiring.md')));
+        const entry = ENEMIES.find((item) => item.id === raw.id);
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'boss').units;
+
+        // 1a) 跨回合 12 张牌触发 Time Warp 强结回合 + 力量+2。
+        const freeWard = testCard('fw', 'skill', [{ op: 'block', amount: 1, target: 'self' }]);
+        {
+            const hero = traitHero(Array(7).fill(freeWard), { energy: 8, draw: 7, maxHp: 999 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            const created = createBattle(setup, 9);
+            assert.equal(created.ok, true, JSON.stringify(created.error));
+            let state = created.state;
+            assert.equal(state.units.foe.statuses.chrono, 2);
+            const events = [...created.events];
+            const actions = [];
+
+            for (let i = 0; i < 7; i += 1) {
+                const inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'fw');
+                const r = applyAction(state, { type: 'play', inst });
+                assert.equal(r.ok, true);
+                state = r.state;
+                events.push(...r.events);
+                actions.push({ type: 'play', inst });
+            }
+            assert.equal(state.units.foe.res?.chrono, 7, '第 1 回合 7 张牌应保留在 chrono 计数');
+            const end1 = act(state);
+            state = end1.state;
+            events.push(...end1.events);
+            actions.push(END_TURN);
+            assert.equal(state.units.foe.res?.chrono, 7, '跨回合应保留 chrono 计数');
+
+            let warped = false;
+            for (let i = 0; i < 5; i += 1) {
+                const inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'fw');
+                const r = applyAction(state, { type: 'play', inst });
+                assert.equal(r.ok, true);
+                state = r.state;
+                events.push(...r.events);
+                actions.push({ type: 'play', inst });
+                if (r.events.some((e) => e.type === 'time-warp' && e.unitId === 'foe')) warped = true;
+            }
+            assert.equal(warped, true, '第 12 张牌应触发时间扭曲');
+            assert.equal(state.units.foe.statuses.strength, 2);
+            assert.equal(state.units.foe.res?.chrono, undefined);
+            const replayed = replayBattle(setup, 9, actions);
+            assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+            assert.deepEqual(replayed.state, state);
+            assert.deepEqual(replayed.events, events);
+        }
+
+        // 1b) 严格低于 50% HP 立即刷新意图为 Haste，执行后净化全部减益（保留 chrono）并回复至 50% 最大生命，再次跌破 50% 不重复触发。
+        const bigNuke = testCard('nuke', 'attack', [
+            { op: 'damage', amount: 80 },
+            { op: 'status', status: 'vulnerable', stacks: 2, target: 'enemy' },
+            { op: 'status', status: 'poison', stacks: 3, target: 'enemy' },
+        ]);
+        {
+            const hero = traitHero([bigNuke, bigNuke, bigNuke, bigNuke, bigNuke], { energy: 8, draw: 5, speed: unit.speed, maxHp: 999 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            const created = createBattle(setup, 15);
+            assert.equal(created.ok, true, JSON.stringify(created.error));
+            let state = created.state;
+            const events = [...created.events];
+            const actions = [];
+            const halfGoal = Math.ceil(state.units.foe.maxHp * 0.5);
+
+            // 打 2–3 张高伤牌使 HP 严格低于 50%，挂上易伤与中毒，立即刷新意图为 haste。
+            while (state.units.foe.hp >= halfGoal && !state.outcome) {
+                const nukeInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'nuke');
+                assert.ok(nukeInst);
+                const r = applyAction(state, { type: 'play', inst: nukeInst, targetId: 'foe' });
+                assert.equal(r.ok, true);
+                state = r.state;
+                events.push(...r.events);
+                actions.push({ type: 'play', inst: nukeInst, targetId: 'foe' });
+            }
+            assert.equal(state.intents.foe?.skillId, 'haste', '严格低于 50% HP 应立即刷新意图为时空加速');
+            assert.ok((state.units.foe.statuses.vulnerable || 0) > 0 && (state.units.foe.statuses.poison || 0) > 0);
+            const hasteEnd = act(state);
+            state = hasteEnd.state;
+            events.push(...hasteEnd.events);
+            actions.push(END_TURN);
+            assert.ok(hasteEnd.events.some((e) => e.type === 'skill' && e.unitId === 'foe' && e.skillId === 'haste'));
+            assert.ok(hasteEnd.events.some((e) => e.type === 'cleanse' && e.target === 'foe'));
+            assert.equal(state.units.foe.statuses.vulnerable || 0, 0);
+            assert.equal(state.units.foe.statuses.poison || 0, 0);
+            assert.equal(state.units.foe.statuses.chrono, 2, '净化不得清除时间扭曲');
+            assert.equal(state.units.foe.hp, halfGoal, '时空加速应回复至 50% 最大生命');
+
+            // 再次打到严格低于 50% HP：Haste 仅一次，不得再次触发。
+            const againInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'nuke');
+            const againRes = applyAction(state, { type: 'play', inst: againInst, targetId: 'foe' });
+            assert.equal(againRes.ok, true);
+            state = againRes.state;
+            events.push(...againRes.events);
+            actions.push({ type: 'play', inst: againInst, targetId: 'foe' });
+            assert.ok(state.units.foe.hp < halfGoal);
+            assert.notEqual(state.intents.foe?.skillId, 'haste', '时空加速每场仅触发一次');
+
+            const replayed = replayBattle(setup, 15, actions);
+            assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+            assert.deepEqual(replayed.state, state);
+            assert.deepEqual(replayed.events, events);
+        }
+
+        // 2) v6 / v7 多种子常规选招：reverberate 禁三连，slam / ripple 禁二连，三招均出现且重放一致。
+        const seen = new Set();
+        let sawDrawDown = false;
+        for (const rulesVersion of [6, 7]) {
+            for (const seed of [1, 3, 7, 19]) {
+                const setup = setupWith(unit);
+                setup.rulesVersion = rulesVersion;
+                setup.units[0].maxHp = 9999;
+                const created = createBattle(setup, seed);
+                assert.equal(created.ok, true);
+                let state = created.state;
+                const events = [...created.events];
+                const actions = [];
+                for (let turn = 0; turn < 14 && !state.outcome; turn += 1) {
+                    const r = act(state);
+                    state = r.state;
+                    events.push(...r.events);
+                    actions.push(END_TURN);
+                    if (r.events.some((e) => e.type === 'status' && e.target === 'hero' && e.status === 'draw-down')) sawDrawDown = true;
+                }
+                const used = events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId);
+                for (const id of used) seen.add(id);
+                for (let i = 1; i < used.length; i += 1) {
+                    if (used[i] === 'slam' || used[i] === 'ripple') assert.notEqual(used[i], used[i - 1], `禁二连: ${used.join()}`);
+                    if (i >= 2 && used[i] === 'reverberate') assert.equal(used[i - 1] === 'reverberate' && used[i - 2] === 'reverberate', false, `禁三连: ${used.join()}`);
+                }
+                const replayed = replayBattle(setup, seed, actions);
+                assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+                assert.deepEqual(replayed.state, state);
+                assert.deepEqual(replayed.events, events);
+            }
+        }
+        assert.deepEqual([...seen].sort(), ['reverberate', 'ripple', 'slam']);
+        assert.equal(sawDrawDown, true);
+
+        // 3) 真实大厅 buildSetup 路径验证。
+        const f = await createGenerationFixture({ chatId: 'time-eater-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        assert.equal(effective.ok, true);
+        const hero = effective.characters.get(effective.attributes.heroId);
+        const lobbyProf = materializeEnemy(entry, 'original');
+        const built = buildSetup({ heroId: hero.id, controllable: [hero.id], allies: [hero], enemies: new Map([[lobbyProf.name, lobbyProf]]) },
+            { tier: 'boss', enemies: [{ name: lobbyProf.name, count: 1 }] }, { userName: hero.name, combatId: 'time-eater-lobby' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        const started = createBattle(built.setup, 7);
+        assert.equal(started.ok, true);
+        const step1 = act(started.state);
+        const replayed = replayBattle(built.setup, 7, [END_TURN]);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, step1.state);
+    });
+
+    it('Spire Growth（缠塔藤）生产物化、目标状态脚本条件校验、缠绕替换重藤砸击与倒下解除份额重放一致', () => {
+        const raw = STS1_ACT3.find((item) => item.sourceKey === 'Spire Growth');
+        assert.equal(raw.status, 'release');
+        assert.equal(Boolean(raw.excluded), false);
+        assert.equal(raw.hp, 170);
+        const entry = ENEMIES.find((item) => item.id === raw.id);
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+
+        // 非法 target-status / ally-missing-hp-gte 在档案与直接建局均 fail-closed 拒收。
+        const badProfile = JSON.parse(JSON.stringify(profile));
+        badProfile.script.next.tackle[1].when = { kind: 'target-no-status', status: 'no-such-status' };
+        assert.equal(normalizeProfile(badProfile).ok, false);
+        const badUnit = foeUnit({ skills: profile.skills, script: badProfile.script });
+        assert.equal(createBattle(setupWith(badUnit), 1).ok, false);
+        const badHpUnit = foeUnit({ skills: profile.skills, script: { cycle: [{ skill: 'tackle', when: { kind: 'ally-missing-hp-gte', value: 0 } }] } });
+        assert.equal(createBattle(setupWith(badHpUnit), 1).ok, false);
+
+        // 生产装配：缠绕后不再重复施放缠绕（替换为重藤砸击），两种攻击禁三连；击杀缠塔藤后缠绕份额清除。
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'normal').units;
+        const cleanseCard = testCard('purify', 'skill', [{ op: 'cleanse', target: 'self' }]);
+        const killCard = testCard('finisher', 'attack', [{ op: 'damage', amount: 99 }]);
+        let sawConstrict = false;
+        let sawSmashAfterConstrict = false;
+        for (const rulesVersion of [6, 7]) {
+            for (const seed of [1, 2, 4, 9]) {
+                const hero = traitHero([cleanseCard, killCard], { speed: unit.speed, maxHp: 999 });
+                const setup = { rulesVersion, controlledId: 'hero', units: [hero, unit] };
+                const created = createBattle(setup, seed);
+                assert.equal(created.ok, true);
+                let state = created.state;
+                const events = [...created.events];
+                const actions = [];
+                for (let turn = 0; turn < 12 && !state.outcome; turn += 1) {
+                    const r = act(state);
+                    state = r.state;
+                    events.push(...r.events);
+                    actions.push(END_TURN);
+                }
+                const used = events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId);
+                const firstConstrict = used.indexOf('constrict');
+                if (firstConstrict >= 0) {
+                    sawConstrict = true;
+                    // 未净化时，一旦施放缠绕，后续不再出现第二次 constrict，且出现 smash。
+                    assert.equal(used.slice(firstConstrict + 1).includes('constrict'), false, `已带缠绕不应重复缠绕: ${used.join()}`);
+                    if (used.slice(firstConstrict + 1).includes('smash')) sawSmashAfterConstrict = true;
+                }
+                for (let i = 2; i < used.length; i += 1) {
+                    if (used[i] === 'tackle' || used[i] === 'smash') {
+                        assert.equal(used[i] === used[i - 1] && used[i] === used[i - 2], false, `禁三连: ${used.join()}`);
+                    }
+                }
+                const replayed = replayBattle(setup, seed, actions);
+                assert.equal(replayed.ok, true);
+                assert.deepEqual(replayed.state, state);
+                assert.deepEqual(replayed.events, events);
+            }
+        }
+        assert.equal(sawConstrict, true);
+        assert.equal(sawSmashAfterConstrict, true);
+
+        // 施加缠绕后击杀缠塔藤：缠绕份额立即随施加者倒下解除。
+        const hero = traitHero([killCard, killCard, killCard], { speed: unit.speed, maxHp: 999 });
+        const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+        let seedWithConstrict = 0;
+        let state = null;
+        for (let s = 1; s <= 20; s += 1) {
+            const c = createBattle(setup, s);
+            if (c.state.intents.foe?.skillId === 'constrict') { seedWithConstrict = s; state = c.state; break; }
+        }
+        assert.ok(seedWithConstrict > 0);
+        state = act(state).state;
+        assert.ok((state.units.hero.statuses.constricted || 0) > 0);
+        while (state.units.foe.alive && !state.outcome) {
+            const inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'finisher');
+            if (!inst) { state = act(state).state; continue; }
+            state = applyAction(state, { type: 'play', inst, targetId: 'foe' }).state;
+        }
+        assert.equal(state.units.foe.alive, false);
+        assert.equal(state.units.hero.statuses.constricted || 0, 0, '缠塔藤倒下后应解除其缠绕份额');
+    });
+
+    it('Centurion + Mystic 固定双体遭遇（enc-centurion-mystic）同场护卫/独处转狂怒、失血阈值双连治疗与大厅重放一致', async (t) => {
+        const centRaw = STS1_ACT2.find((item) => item.sourceKey === 'Centurion');
+        const mysRaw = STS1_ACT2.find((item) => item.sourceKey === 'Mystic');
+        assert.equal(centRaw.encounterOnly, true);
+        assert.equal(mysRaw.encounterOnly, true);
+        assert.equal(resolveEnemy(centRaw.id, 'original'), null);
+        assert.equal(resolveEnemy(mysRaw.id, 'original'), null);
+        const enc = ENEMY_ENCOUNTERS.find((e) => e.id === 'enc-centurion-mystic');
+        assert.ok(enc && !enc.unavailable);
+        const mat = materializeEncounter(enc);
+        assert.ok(mat && mat.members.length === 2);
+
+        // 1) 真实大厅 buildSetup 展开「执阵与祈愈」双体同场并重放一致。
+        const f = await createGenerationFixture({ chatId: 'centurion-mystic-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        assert.equal(effective.ok, true);
+        const hero = effective.characters.get(effective.attributes.heroId);
+        const built = buildSetup(
+            { heroId: hero.id, controllable: [hero.id], allies: [hero], enemies: new Map([[enc.name, mat]]) },
+            { tier: 'normal', enemies: [{ name: enc.name, count: 1 }] },
+            { userName: hero.name, combatId: 'centurion-mystic-lobby' },
+        );
+        assert.equal(built.ok, true, JSON.stringify(built));
+        assert.equal(built.setup.units.filter((u) => u.side === 'enemy').length, 2);
+
+        // 2) 同场状态下：满血时 Mystic 不出 heal，Centurion 不出 fury；打伤 Centurion 失血 >= 16 后 Mystic 触发 heal 且最多连用 2 次；击杀 Mystic 后 Centurion 改出 fury 不再 protect。
+        const [centU, mysU] = built.setup.units.filter((u) => u.side === 'enemy');
+        centU.speed = 90;
+        mysU.speed = 90;
+        // 保证两次攻击打掉执阵卫士至少 32 点血（便于观察连续两回合治疗后第 3 次退回），同时不击杀执阵卫士。
+        centU.maxHp = Math.max(centU.maxHp, 72);
+        const poke20 = testCard('p20', 'attack', [{ op: 'damage', amount: 24 }]);
+        const nuke = testCard('nuke', 'attack', [{ op: 'damage', amount: 99 }]);
+        const customHero = traitHero([poke20, poke20, nuke, nuke], { speed: 90, maxHp: 999 });
+        const setup = { rulesVersion: 7, controlledId: 'hero', units: [customHero, centU, mysU] };
+        const created = createBattle(setup, 7);
+        assert.equal(created.ok, true, JSON.stringify(created.error));
+        let state = created.state;
+        const events = [...created.events];
+        const actions = [];
+
+        // 满血前 4 回合：Mystic 从未出 heal，Centurion 从未出 fury。
+        for (let i = 0; i < 4; i += 1) {
+            const r = act(state);
+            state = r.state;
+            events.push(...r.events);
+            actions.push(END_TURN);
+        }
+        const earlyMys = events.filter((e) => e.type === 'skill' && e.unitId === mysU.id).map((e) => e.skillId);
+        const earlyCent = events.filter((e) => e.type === 'skill' && e.unitId === centU.id).map((e) => e.skillId);
+        assert.equal(earlyMys.includes('heal'), false, `满血不应治疗: ${earlyMys.join()}`);
+        assert.equal(earlyCent.includes('fury'), false, `祈愈存活时不应狂怒: ${earlyCent.join()}`);
+
+        // 把执阵卫士打掉至少 32 点血（确保连续两回合依然失血 >= 16）：观察 Mystic 连续治疗后第 3 次退回 attack/buff。
+        for (let k = 0; k < 2; k += 1) {
+            const pInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'p20');
+            assert.ok(pInst);
+            const r = applyAction(state, { type: 'play', inst: pInst, targetId: centU.id });
+            assert.equal(r.ok, true, JSON.stringify(r.error));
+            state = r.state;
+            events.push(...r.events);
+            actions.push({ type: 'play', inst: pInst, targetId: centU.id });
+        }
+        assert.equal(state.units[centU.id].alive, true);
+        assert.ok(state.units[centU.id].maxHp - state.units[centU.id].hp >= 32);
+        const healPhaseStart = events.length;
+        for (let i = 0; i < 4; i += 1) {
+            const r = act(state);
+            state = r.state;
+            events.push(...r.events);
+            actions.push(END_TURN);
+        }
+        const healWindow = events.slice(healPhaseStart).filter((e) => e.type === 'skill' && e.unitId === mysU.id).map((e) => e.skillId);
+        assert.ok(healWindow.includes('heal'), `同伴失血>=16时祈愈术士应施放治疗: ${healWindow.join()}`);
+        for (let i = 2; i < healWindow.length; i += 1) {
+            assert.equal(healWindow[i] === 'heal' && healWindow[i - 1] === 'heal' && healWindow[i - 2] === 'heal', false, `治疗最多连用两次: ${healWindow.join()}`);
+        }
+
+        // 击杀祈愈术士后，执阵卫士不再使用 protect，改出 slash / fury。
+        while (state.units[mysU.id].alive && !state.outcome) {
+            const nInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'nuke');
+            if (!nInst) {
+                const r = act(state);
+                state = r.state;
+                events.push(...r.events);
+                actions.push(END_TURN);
+                continue;
+            }
+            const r = applyAction(state, { type: 'play', inst: nInst, targetId: mysU.id });
+            state = r.state;
+            events.push(...r.events);
+            actions.push({ type: 'play', inst: nInst, targetId: mysU.id });
+        }
+        assert.equal(state.units[mysU.id].alive, false);
+        const soloStart = events.length;
+        for (let i = 0; i < 8 && !state.outcome; i += 1) {
+            const r = act(state);
+            state = r.state;
+            events.push(...r.events);
+            actions.push(END_TURN);
+        }
+        // 击杀当回合已公示的 protect 可能执行一次，之后全部规划只含 slash / fury。
+        const soloCent = events.slice(soloStart).filter((e) => e.type === 'skill' && e.unitId === centU.id).map((e) => e.skillId);
+        assert.equal(soloCent.slice(1).includes('protect'), false, `独处后不应再规划保护: ${soloCent.join()}`);
+        assert.ok(soloCent.includes('fury') || soloCent.includes('slash'));
+
+        const replayed = replayBattle(setup, 7, actions);
+        assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+        assert.deepEqual(replayed.state, state);
+        assert.deepEqual(replayed.events, events);
+    });
+
 
 
     it('Repulsor 扰念不限连用，斥击禁连且基础权重1:4；实际四连与重放一致', () => {
@@ -1823,8 +2540,9 @@ describe('正式敌人条目', () => {
             'Vine Shambler', 'Wriggler（事件版）'];
         assert.deepEqual(STS2_OVERGROWTH.map((item) => item.sourceKey), keys);
         assert.deepEqual(STS2_OVERGROWTH.filter((item) => item.status === 'pending').map((item) => item.sourceKey),
-            ['Fogmog', 'Leaf Slime (S)', 'Shrinker Beetle', 'Vine Shambler', 'Wriggler（事件版）']);
+            ['Fogmog', 'Leaf Slime (S)', 'Shrinker Beetle', 'Vine Shambler']);
         assert.equal(STS2_OVERGROWTH.filter((item) => item.excluded).length, 1);
+        assert.deepEqual(STS2_OVERGROWTH.filter((item) => item.encounterOnly).map((item) => item.sourceKey), ['Inklet', 'Wriggler（事件版）']);
         const entries = ENEMIES.filter((item) => item.source === 'sts2' && item.group === 'overgrowth');
         assert.equal(entries.length, 22);
         assert.deepEqual(enemyCandidates({}, entries).map((item) => item.sourceKey),
@@ -1835,7 +2553,7 @@ describe('正式敌人条目', () => {
             assert.equal(item.original, null);
             for (const model of ['original']) assert.equal(resolveEnemy(item.id, model), null);
         }
-        assert.deepEqual(enemyReferences(STS2_OVERGROWTH), { 'sts2|normal': { hp: 31.75, damage: 10 } });
+        assert.deepEqual(enemyReferences(STS2_OVERGROWTH), { 'sts2|normal': { hp: 31.5, damage: 10 } });
         for (const tier of ['elite', 'boss']) assert.equal(drawEnemy({ seed: 'og-empty', tier }, entries), null);
     });
 
@@ -2297,6 +3015,59 @@ describe('正式敌人条目', () => {
         assert.equal(ENEMIES.filter((item) => item.source === 'sts2' && ['overgrowth', 'underdocks', 'hive', 'glory'].includes(item.group)).length, 72);
     });
 
+    it('Slimed Berserker 保持待证且不可物化或进入单体和缝合池', () => {
+        const entry = ENEMIES.find((item) => item.id === 'en-sts2-glory-12');
+        assert.equal(entry.status, 'pending');
+        assert.equal(entry.original, null);
+        assert.equal(materializeEnemy(entry, 'original'), null);
+        assert.equal(resolveEnemy(entry.id, 'original'), null);
+        assert.equal(enemyCandidates().some((item) => item.id === entry.id), false);
+        const pool = enemyPool({ tier: 'normal', seed: 'berserker-pending' });
+        assert.ok(pool.length > 0);
+        assert.equal(pool.some((item) => item.enemyId === entry.id || item.sources?.includes(entry.id)), false);
+    });
+
+    it('S2 黏液分段生成共享接收方十张额度，档案单次超限拒收且v6/v7重放一致', () => {
+        const junk = (amount) => ({ op: 'create', card: 'status-slime-sts2', amount, to: 'discard' });
+        for (const amount of [0, 5, 10]) {
+            const bad = normalizeProfile(enemyProfile({ skills: [guard('junk', { effects: [junk(amount)] }), guard('wait')] }));
+            assert.equal(bad.ok, false);
+            assert.ok(reasons(bad).includes('skills[0].effects[0].amount:out-of-range'));
+        }
+        for (const rulesVersion of [6, 7]) for (const ownCreated of [0, 1]) {
+            const skills = [guard('junk', { intent: 'debuff', effects: [3, 3, 3, 1].map(junk) }), guard('wait')];
+            assert.equal(normalizeProfile(enemyProfile({ skills })).ok, true);
+            const make = testCard('make-before-junk', 'skill', [{ op: 'create', card: 'token-ward', amount: 1, to: 'discard' }]);
+            const setup = { rulesVersion, controlledId: 'hero', units: [
+                traitHero(Array(5).fill(make), { draw: 1 }),
+                foeUnit({ skills, script: { opener: 'junk', cycle: ['wait'] } }),
+            ] };
+            const built = createBattle(setup, 7);
+            assert.equal(built.ok, true, JSON.stringify(built.error));
+            let state = built.state;
+            const events = [...built.events], actions = [];
+            if (ownCreated) {
+                const action = { type: 'play', inst: state.piles.hero.hand[0] };
+                const next = act(state, action);
+                actions.push(action);
+                events.push(...next.events);
+                state = next.state;
+                assert.equal(next.events.filter((event) => event.type === 'card-created' && event.cardId === 'token-ward').length, 1);
+            }
+            const next = act(state);
+            actions.push(END_TURN);
+            events.push(...next.events);
+            const made = next.events.filter((event) => event.type === 'card-created' && event.cardId === 'status-slime-sts2');
+            assert.equal(made.length, 10 - ownCreated);
+            assert.ok(made.every((event) => event.unitId === 'hero' && event.to === 'discard'));
+            assert.equal(events.filter((event) => event.type === 'card-created').length, 10);
+            const replayed = replayBattle(JSON.parse(JSON.stringify(setup)), 7, actions);
+            assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+            assert.deepEqual(replayed.state, next.state);
+            assert.deepEqual(replayed.events, events);
+        }
+    });
+
     it('迷失与遗忘、炮手与活体盾固定同场，搭档待证时不能部分物化或拆入单体和缝合池', () => {
         for (const [sourceKey, id, name, partner] of [
             ['The Lost', 'enc-lost-forgotten', '迷失与遗忘', 'en-sts2-glory-16'],
@@ -2344,14 +3115,14 @@ describe('正式敌人条目', () => {
         assert.deepEqual(STS2_ELITES.map((item) => item.sourceKey), keys);
         assert.ok(STS2_ELITES.every((item) => item.tier === 'elite'));
         assert.deepEqual(STS2_ELITES.filter((item) => item.status === 'pending').map((item) => item.sourceKey),
-            ['Bygone Effigy', 'Terror Eel', 'Infested Prism', 'Flail Knight', 'Spectral Knight', 'Magi Knight']);
+            ['Terror Eel', 'Infested Prism', 'Flail Knight', 'Spectral Knight', 'Magi Knight']);
         assert.deepEqual(STS2_ELITES.filter((item) => item.status === 'beta').map((item) => item.sourceKey), ['Entomancer', 'Mecha Knight']);
-        assert.equal(STS2_ELITES.filter((item) => item.excluded).length, 2);
+        assert.equal(STS2_ELITES.filter((item) => item.excluded).length, 1);
         assert.deepEqual(STS2_ELITES.filter((item) => item.encounterOnly).map((item) => item.sourceKey), ['Phantasmal Gardener']);
-        assert.deepEqual(enemyReferences(STS2_ELITES), { 'sts2|elite': { hp: 78.75, damage: 15.5 } });
+        assert.deepEqual(enemyReferences(STS2_ELITES), { 'sts2|elite': { hp: 78.75, damage: 15 } });
         const entries = ENEMIES.filter((item) => item.source === 'sts2' && item.group === 'elite');
         assert.equal(entries.length, 14);
-        assert.deepEqual(enemyCandidates({ tier: 'elite' }, entries).map((item) => item.sourceKey), ['Byrdonis', 'Skulking Colony', 'Soul Nexus']);
+        assert.deepEqual(enemyCandidates({ tier: 'elite' }, entries).map((item) => item.sourceKey), ['Bygone Effigy', 'Byrdonis', 'Phrog Parasite', 'Skulking Colony', 'Soul Nexus']);
         assert.equal(drawEnemy({ seed: 'elite-empty', tier: 'boss' }, entries), null);
         for (const item of entries.filter((entry) => entry.status !== 'release' || entry.excluded)) {
             assert.ok(item.notes[0] && item.evidence.length === 3, item.id);
@@ -2370,13 +3141,13 @@ describe('正式敌人条目', () => {
         assert.ok(STS2_BOSSES.every((item) => item.tier === 'boss'));
         assert.deepEqual(STS2_BOSSES.filter((item) => item.encounterOnly).map((item) => item.id), ['en-sts2-boss-02', 'en-sts2-boss-09', 'en-sts2-boss-15']);
         for (const id of ['en-sts2-boss-02', 'en-sts2-boss-09', 'en-sts2-boss-15']) assert.equal(resolveEnemy(id, 'original'), null, id);
-        assert.deepEqual(STS2_BOSSES.filter((item) => item.status === 'pending').map((item) => item.sourceKey), ['Ceremonial Beast', 'Vantom']);
+        assert.deepEqual(STS2_BOSSES.filter((item) => item.status === 'pending').map((item) => item.sourceKey), ['Ceremonial Beast']);
         assert.deepEqual(STS2_BOSSES.filter((item) => item.status === 'beta').map((item) => item.sourceKey), ['Soul Fysh', 'Aeonglass', 'Queen']);
         assert.deepEqual(STS2_BOSSES.filter((item) => item.status === 'deprecated').map((item) => item.sourceKey), ['Doormaker']);
-        assert.equal(STS2_BOSSES.filter((item) => item.excluded).length, 3);
+        assert.equal(STS2_BOSSES.filter((item) => item.excluded).length, 2);
         assert.deepEqual(STS2_EVENTS.map((item) => item.sourceKey), ['The Merchant???', 'Battle Friend V1.0', 'Battle Friend V2.0', 'Battle Friend V3.0']);
         assert.equal(STS2_EVENTS.filter((item) => item.excluded).length, 4);
-        assert.deepEqual(enemyReferences([...STS2_BOSSES, ...STS2_EVENTS]), { 'sts2|boss': { hp: 215.5, damage: 19.5 } });
+        assert.deepEqual(enemyReferences([...STS2_BOSSES, ...STS2_EVENTS]), { 'sts2|boss': { hp: 215.5, damage: 22 } });
         for (const raw of [...STS2_BOSSES, ...STS2_EVENTS].filter((item) => item.status !== 'release' || item.excluded)) {
             const item = ENEMIES.find((entry) => entry.id === raw.id);
             assert.ok(item.notes[0], item.id);
@@ -2395,13 +3166,421 @@ describe('正式敌人条目', () => {
                 'Leaf Slime (M)', 'Mawler', 'Nibbit', 'Slithering Strangler', 'Snapping Jaxfruit', 'Twig Slime (M)', 'Twig Slime (S)', 'Calcified Cultist', 'Damp Cultist', 'Haunted Ship', 'Living Fog',
                 'Punch Construct', 'Seapunk', 'Sewer Clam', 'Toadpole', 'Bowlbug (Rock)', 'Bowlbug (Egg)', 'Bowlbug (Nectar)',
                 'Chomper', 'Mysterious Knight（事件）', 'Slumbering Beetle', 'Spiny Toad', 'Tunneler', 'Devoted Sculptor', 'Frog Knight', 'Owl Magistrate',
-                'Byrdonis', 'Skulking Colony', 'Soul Nexus', 'Lagavulin Matriarch', 'Waterfall Giant', 'Knowledge Demon']);
+                'Bygone Effigy', 'Byrdonis', 'Phrog Parasite', 'Skulking Colony', 'Soul Nexus', 'Vantom', 'Lagavulin Matriarch', 'Waterfall Giant', 'The Insatiable', 'Knowledge Demon']);
         assert.deepEqual(enemyCandidates({ tier: 'elite' }, ENEMIES).map((item) => item.sourceKey),
-            ['Gremlin Nob', 'Lagavulin', 'Sentry', 'Taskmaster', 'Lagavulin（Dead Adventurer 已醒型）', 'Byrdonis', 'Skulking Colony', 'Soul Nexus']);
-        assert.deepEqual(enemyCandidates({ tier: 'boss' }, ENEMIES).map((item) => item.sourceKey), ['The Guardian', 'The Collector', 'Lagavulin Matriarch', 'Waterfall Giant', 'Knowledge Demon']);
-        assert.ok(['折甲巨像', '薪魂收集者', '酣眠石卫母', '瀑流巨人', '知识恶魔'].includes(drawEnemy({ seed: 'all-boss', tier: 'boss' })?.name));
-        assert.deepEqual(SOURCE_TIER_REF, { 'sts1|normal': { hp: 30, damage: 12 }, 'sts1|elite': { hp: 84, damage: 14 }, 'sts1|boss': { hp: 261, damage: 25 },
-            'sts2|normal': { hp: 48, damage: 11 }, 'sts2|elite': { hp: 78.75, damage: 15.5 }, 'sts2|boss': { hp: 215.5, damage: 19.5 } });
+            ['Gremlin Nob', 'Lagavulin', 'Sentry', 'Book of Stabbing', 'Taskmaster', 'Giant Head', 'Lagavulin（Dead Adventurer 已醒型）', 'Bygone Effigy', 'Byrdonis', 'Phrog Parasite', 'Skulking Colony', 'Soul Nexus']);
+        assert.deepEqual(enemyCandidates({ tier: 'boss' }, ENEMIES).map((item) => item.sourceKey), ['Slime Boss', 'The Guardian', 'The Collector', 'Time Eater', 'Awakened One', 'Vantom', 'Lagavulin Matriarch', 'Waterfall Giant', 'The Insatiable', 'Knowledge Demon']);
+        assert.ok(['聚胶王', '折甲巨像', '薪魂收集者', '蚀刻时兽', '蜕羽醒者', '墨魇', '酣眠石卫母', '瀑流巨人', '无餍者', '知识恶魔'].includes(drawEnemy({ seed: 'all-boss', tier: 'boss' })?.name));
+        assert.deepEqual(SOURCE_TIER_REF, { 'sts1|normal': { hp: 42, damage: 13 }, 'sts1|elite': { hp: 110, damage: 18 }, 'sts1|boss': { hp: 282, damage: 32 },
+            'sts2|normal': { hp: 47.25, damage: 11 }, 'sts2|elite': { hp: 78.75, damage: 15 }, 'sts2|boss': { hp: 215.5, damage: 22 } });
+    });
+
+    it('Batch 169：Book of Stabbing（穿刺残卷）连刺成长、Painful Stabs 每段未格挡塞伤口与 85:15 限连重放一致', () => {
+        const entry = ENEMIES.find((item) => item.sourceKey === 'Book of Stabbing');
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'elite').units;
+        unit.speed = 90;
+        const hero = traitHero([testCard('noop', 'skill', [{ op: 'block', amount: 1, target: 'self' }])], { speed: 90, maxHp: 9999 });
+        const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+        const created = createBattle(setup, 5);
+        assert.equal(created.ok, true);
+        let state = created.state;
+        assert.equal(state.units.foe.statuses.stabs, 1);
+        const events = [...created.events];
+        const actions = [];
+        for (let i = 0; i < 10 && !state.outcome; i += 1) {
+            const r = act(state);
+            state = r.state;
+            events.push(...r.events);
+            actions.push(END_TURN);
+        }
+        const volleys = events.filter((e) => e.type === 'volley' && e.unitId === 'foe').map((e) => e.hits);
+        assert.ok(volleys.length >= 3, `应多次施放连刺: ${JSON.stringify(volleys)}`);
+        assert.deepEqual(volleys.slice(0, 3), [2, 3, 4], 'Multi Stab 段数应为 uses + 2: 2, 3, 4');
+        const wounds = Object.values(state.cards).filter((c) => c.cardId === 'status-wound').length;
+        const unblockedHits = events.filter((e) => e.type === 'damage' && e.target === 'hero' && e.source?.unitId === 'foe' && e.hpLoss > 0).length;
+        assert.equal(wounds, unblockedHits, 'Painful Stabs 应按未格挡攻击段数塞入等量伤口');
+        const used = events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId);
+        for (let i = 1; i < used.length; i += 1) {
+            if (used[i] === 'big') assert.notEqual(used[i - 1], 'big', `重刺禁二连: ${used.join()}`);
+            if (i >= 2 && used[i] === 'multi') assert.equal(used[i - 1] === 'multi' && used[i - 2] === 'multi', false, `连刺禁三连: ${used.join()}`);
+        }
+        const replayed = replayBattle(setup, 5, actions);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, state);
+        assert.deepEqual(replayed.events, events);
+    });
+
+    it('Batch 169：The Maw（渊喉兽）咆哮起手、啃噬按 ceil(turn/2) 增长与 nom→drool 必然转移重放一致', () => {
+        const entry = ENEMIES.find((item) => item.sourceKey === 'The Maw');
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'normal').units;
+        unit.speed = 90;
+        let sawNom = false;
+        for (const seed of [1, 2, 7, 13]) {
+            const hero = traitHero([testCard('noop', 'skill', [{ op: 'block', amount: 1, target: 'self' }])], { speed: 90, maxHp: 9999 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            const created = createBattle(setup, seed);
+            assert.equal(created.ok, true);
+            let state = created.state;
+            assert.equal(state.intents.foe.skillId, 'roar');
+            const events = [...created.events];
+            const actions = [];
+            for (let i = 0; i < 10 && !state.outcome; i += 1) {
+                const r = act(state);
+                state = r.state;
+                events.push(...r.events);
+                actions.push(END_TURN);
+            }
+            const used = events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId);
+            assert.equal(used[0], 'roar');
+            for (let i = 0; i < used.length - 1; i += 1) {
+                if (used[i] === 'nom') {
+                    sawNom = true;
+                    assert.equal(used[i + 1], 'drool', `啃噬后必接流涎: ${used.join()}`);
+                }
+            }
+            for (const v of events.filter((e) => e.type === 'volley' && e.unitId === 'foe')) {
+                assert.equal(v.hits, Math.ceil(v.turn / 2), `啃噬段数应等于 ceil(turn/2): ${JSON.stringify(v)}`);
+            }
+            const replayed = replayBattle(setup, seed, actions);
+            assert.equal(replayed.ok, true);
+            assert.deepEqual(replayed.state, state);
+            assert.deepEqual(replayed.events, events);
+        }
+        assert.equal(sawNom, true);
+    });
+
+    it('Batch 169：Awakened One（蜕羽醒者）好奇/再生、归零重生保留力量与再生、二阶段暗影回响与空洞抽牌扣能重放一致', async (t) => {
+        const entry = ENEMIES.find((item) => item.sourceKey === 'Awakened One');
+        const profile = materializeEnemy(entry, 'original', { id: 'foe' });
+        assert.equal(normalizeProfile(profile).ok, true);
+        const [unit] = enemyUnits({ enemies: [{ name: profile.name, count: 1 }] }, new Map([[profile.name, profile]]), 1, 'boss').units;
+        unit.speed = 90;
+        const pwr = testCard('pwr', 'power', [{ op: 'status', status: 'strength', stacks: 1, target: 'self' }]);
+        const skl = testCard('skl', 'skill', [{ op: 'block', amount: 2, target: 'self' }]);
+        const debuff = testCard('dbf', 'skill', [{ op: 'status', status: 'weak', stacks: 2, target: 'enemy' }]);
+        const nuke = testCard('nuke', 'attack', [{ op: 'damage', amount: 99 }]);
+        const hero = traitHero([pwr, skl, debuff, nuke, nuke], { speed: 90, maxHp: 9999, energy: 6 });
+        const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+        const created = createBattle(setup, 3);
+        assert.equal(created.ok, true, JSON.stringify(created.error));
+        let state = created.state;
+        const events = [...created.events];
+        const actions = [];
+        assert.equal(state.units.foe.statuses.curiosity, 1);
+        assert.ok((state.units.foe.statuses.regenerate || 0) > 0);
+        const regenVal = state.units.foe.statuses.regenerate;
+        assert.equal(state.intents.foe.skillId, 'slash');
+
+        // 1) 能力牌触发好奇 +1 力量，技能牌不触发好奇；施加虚弱后击穿一阶段触发 onDefeat 重生。
+        const playCard = (cardId, targetId) => {
+            const inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === cardId);
+            assert.ok(inst, `手牌应含 ${cardId}`);
+            const action = targetId ? { type: 'play', inst, targetId } : { type: 'play', inst };
+            const r = applyAction(state, action);
+            assert.equal(r.ok, true, JSON.stringify(r.error));
+            state = r.state;
+            events.push(...r.events);
+            actions.push(action);
+        };
+        playCard('skl');
+        assert.equal(state.units.foe.statuses.strength || 0, 0, '技能牌不应触发好奇');
+        playCard('pwr');
+        assert.equal(state.units.foe.statuses.strength, 1, '能力牌应触发好奇 +1 力量');
+        playCard('dbf', 'foe');
+        assert.equal(state.units.foe.statuses.weak, 2);
+
+        // 击穿第一阶段生命 -> 触发 rebirth：立即卸除好奇、清除虚弱、保留力量与再生、意图改写为 rebirth。
+        while (!events.some((e) => e.type === 'rebirth' && e.unitId === 'foe')) {
+            const inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'nuke');
+            if (!inst) {
+                const r = act(state);
+                state = r.state;
+                events.push(...r.events);
+                actions.push(END_TURN);
+                continue;
+            }
+            playCard('nuke', 'foe');
+        }
+        assert.equal(state.units.foe.alive, true);
+        assert.equal(state.units.foe.statuses.curiosity || 0, 0, '重生应立即卸除好奇');
+        assert.equal(state.units.foe.statuses.weak || 0, 0, '重生应清除减益');
+        assert.equal(state.units.foe.statuses.strength, 1, '重生应保留已获得力量');
+        assert.equal(state.units.foe.statuses.regenerate, regenVal, '重生应保留再生');
+        assert.equal(state.intents.foe.skillId, 'rebirth', '重生回合意图应立即改为 rebirth');
+
+        // 执行 rebirth 回合后，二阶段首招必为 dark-echo，随后在 tackle/sludge 间 50:50；再生不衰减持续回血。
+        const afterRebirthStart = events.length;
+        for (let i = 0; i < 8 && !state.outcome; i += 1) {
+            const r = act(state);
+            state = r.state;
+            events.push(...r.events);
+            actions.push(END_TURN);
+        }
+        const p2Skills = events.slice(afterRebirthStart).filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId);
+        assert.equal(p2Skills[0], 'rebirth');
+        assert.equal(p2Skills[1], 'dark-echo', `二阶段首招应为暗影回响: ${p2Skills.join()}`);
+        assert.ok(p2Skills.slice(2).every((id) => id === 'tackle' || id === 'sludge'), `二阶段后续应只在猛冲/淤泥中选招: ${p2Skills.join()}`);
+        assert.equal(state.units.foe.statuses.regenerate, regenVal, '再生不随回合衰减');
+
+        const replayed = replayBattle(setup, 3, actions);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, state);
+        assert.deepEqual(replayed.events, events);
+
+        // 真实大厅 buildSetup 路径核验。
+        const f = await createGenerationFixture({ chatId: 'awakened-one-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        const lobbyHero = effective.characters.get(effective.attributes.heroId);
+        const lobbyProf = materializeEnemy(entry, 'original');
+        const built = buildSetup({ heroId: lobbyHero.id, controllable: [lobbyHero.id], allies: [lobbyHero], enemies: new Map([[lobbyProf.name, lobbyProf]]) },
+            { tier: 'boss', enemies: [{ name: lobbyProf.name, count: 1 }] }, { userName: lobbyHero.name, combatId: 'awakened-one-lobby' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+    });
+
+    it('Batch 170：Vantom（墨魇）滑溜9、Bygone Effigy（旧日神像）减速循环与 The Insatiable（无餍者）流沙+狂乱逃离加费续命重放一致', () => {
+        // 1) Vantom：滑溜9限损1血、固定四步循环。
+        {
+            const entry = ENEMIES.find((item) => item.sourceKey === 'Vantom');
+            const prof = materializeEnemy(entry, 'original', { id: 'foe' });
+            const [unit] = enemyUnits({ enemies: [{ name: prof.name, count: 1 }] }, new Map([[prof.name, prof]]), 1, 'boss').units;
+            unit.speed = 90;
+            const bigHit = testCard('bh', 'attack', [{ op: 'damage', amount: 30 }]);
+            const hero = traitHero([bigHit], { speed: 90, maxHp: 9999 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            let state = createBattle(setup, 4).state;
+            assert.equal(state.units.foe.statuses.slippery, 9);
+            const hp0 = state.units.foe.hp;
+            const hit = applyAction(state, { type: 'play', inst: state.piles.hero.hand[0], targetId: 'foe' });
+            assert.equal(hp0 - hit.state.units.foe.hp, 1, '滑溜应将单次失血限制为 1');
+            assert.equal(hit.state.units.foe.statuses.slippery, 8);
+            state = hit.state;
+            const skills = [];
+            for (let i = 0; i < 4; i += 1) {
+                const r = act(state);
+                state = r.state;
+                skills.push(...r.events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId));
+            }
+            assert.deepEqual(skills, ['blot', 'lance', 'dismember', 'prepare']);
+        }
+        // 2) Bygone Effigy：开场减速1、沉睡→苏醒+10力量→每回合斩击。
+        {
+            const entry = ENEMIES.find((item) => item.sourceKey === 'Bygone Effigy');
+            const prof = materializeEnemy(entry, 'original', { id: 'foe' });
+            const [unit] = enemyUnits({ enemies: [{ name: prof.name, count: 1 }] }, new Map([[prof.name, prof]]), 1, 'elite').units;
+            unit.speed = 90;
+            const hero = traitHero([testCard('noop', 'skill', [{ op: 'block', amount: 1, target: 'self' }])], { speed: 90, maxHp: 9999 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            let state = createBattle(setup, 2).state;
+            assert.equal(state.units.foe.statuses.slow, 1);
+            assert.equal(state.units.foe.statuses.asleep || 0, 0, '旧日神像沉睡不挂睡眠状态');
+            const skills = [];
+            for (let i = 0; i < 4; i += 1) {
+                const r = act(state);
+                state = r.state;
+                skills.push(...r.events.filter((e) => e.type === 'skill' && e.unitId === 'foe').map((e) => e.skillId));
+            }
+            assert.deepEqual(skills, ['sleep', 'wake', 'slashes', 'slashes']);
+            assert.equal(state.units.foe.statuses.strength, 10);
+        }
+        // 3) The Insatiable：首招流沙4 + 6张狂乱逃离，打出狂乱逃离令敌方流沙+1且该张牌费用+1，倒计时归零吞没主角。
+        {
+            const entry = ENEMIES.find((item) => item.sourceKey === 'The Insatiable');
+            const prof = materializeEnemy(entry, 'original', { id: 'foe' });
+            const [unit] = enemyUnits({ enemies: [{ name: prof.name, count: 1 }] }, new Map([[prof.name, prof]]), 1, 'boss').units;
+            unit.speed = 90;
+            const hero = traitHero([testCard('noop', 'skill', [{ op: 'block', amount: 1, target: 'self' }])], { speed: 90, maxHp: 9999, energy: 5, draw: 6 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            const created = createBattle(setup, 8);
+            let state = created.state;
+            const events = [...created.events];
+            const actions = [];
+            const r1 = act(state);
+            state = r1.state;
+            events.push(...r1.events);
+            actions.push(END_TURN);
+            // 首回合施放流沙化获得4层流沙，随即回合末减1变为3，牌库/弃牌堆共生成6张 status-escape。
+            assert.equal(state.units.foe.statuses.sandpit, 3);
+            const escapes = Object.entries(state.cards).filter(([, c]) => c.cardId === 'status-escape');
+            assert.equal(escapes.length, 6);
+            // 打出一张手牌中的狂乱逃离：敌方流沙+1，且该张实例本场费用+1。
+            const escInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'status-escape');
+            assert.ok(escInst, '次轮抽牌应抽到狂乱逃离');
+            assert.equal(cardView(state, escInst).cost, 1);
+            const playEsc = applyAction(state, { type: 'play', inst: escInst });
+            assert.equal(playEsc.ok, true);
+            state = playEsc.state;
+            events.push(...playEsc.events);
+            actions.push({ type: 'play', inst: escInst });
+            assert.equal(state.units.foe.statuses.sandpit, 4, '打出狂乱逃离应令敌方流沙+1');
+            assert.equal(cardView(state, escInst).cost, 2, '打出狂乱逃离后该张牌本场费用应+1');
+            // 之后不再打逃离牌，4回合后流沙归零吞没主角判负。
+            for (let i = 0; i < 4 && !state.outcome; i += 1) {
+                const r = act(state);
+                state = r.state;
+                events.push(...r.events);
+                actions.push(END_TURN);
+            }
+            assert.equal(state.outcome, 'defeat');
+            assert.ok(events.some((e) => e.type === 'engulf' && e.unitId === 'foe'));
+            const replayed = replayBattle(setup, 8, actions);
+            assert.equal(replayed.ok, true);
+            assert.deepEqual(replayed.state, state);
+            assert.deepEqual(replayed.events, events);
+        }
+    });
+
+    it('Batch 171：Phrog Parasite（寄生蛙）感染扣3血、死后生成4只非爪牙扭蠕虫首回合晕厥，与 enc-wrigglers 固定遭遇重放一致', async (t) => {
+        // 1) Phrog Parasite：交替 infect/lash，感染牌回合末在手牌扣3血；本体死后生4只非爪牙扭蠕虫且战斗继续，首回合全晕厥待机，次轮奇偶错位。
+        const phEntry = ENEMIES.find((item) => item.sourceKey === 'Phrog Parasite');
+        const phProf = materializeEnemy(phEntry, 'original', { id: 'phrog' });
+        const [phUnit] = enemyUnits({ enemies: [{ name: phProf.name, count: 1 }] }, new Map([[phProf.name, phProf]]), 1, 'elite').units;
+        phUnit.speed = 90;
+        const nuke = testCard('nuke', 'attack', [{ op: 'damage', amount: 99 }]);
+        const hero = traitHero([nuke, nuke], { speed: 90, maxHp: 999, draw: 5 });
+        const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, phUnit] };
+        const created = createBattle(setup, 6);
+        let state = created.state;
+        const events = [...created.events];
+        const actions = [];
+        // 第1回合不杀寄生蛙，让其施放 infect 塞 3 张感染牌。
+        const t1 = act(state);
+        state = t1.state;
+        events.push(...t1.events);
+        actions.push(END_TURN);
+        assert.equal(Object.values(state.cards).filter((c) => c.cardId === 'status-infection').length, 3);
+        // 第2回合手牌抽到感染牌并结束回合：验证 status-infection 回合末每张造成 3 点伤害。
+        const infInHand = state.piles.hero.hand.filter((id) => state.cards[id].cardId === 'status-infection').length;
+        assert.ok(infInHand > 0);
+        // 先击杀寄生蛙 -> 生成 4 只非爪牙扭蠕虫，战斗不结束！
+        while (state.units.phrog.alive) {
+            const inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'nuke');
+            const r = applyAction(state, { type: 'play', inst, targetId: 'phrog' });
+            state = r.state;
+            events.push(...r.events);
+            actions.push({ type: 'play', inst, targetId: 'phrog' });
+        }
+        assert.equal(state.outcome, null, '寄生蛙倒下后还有4只扭蠕虫，不应结束战斗');
+        const activeSpawned = state.order.map((id) => state.units[id]).filter((u) => u.side === 'enemy' && u.alive);
+        assert.equal(activeSpawned.length, 3, 'v7 场上非爪牙上限为 3');
+        assert.equal(state.reserve?.length, 1, '第 4 只扭蠕虫应进入后备队列待补位，不凭空丢失');
+        const allSpawned = Object.values(state.units).filter((u) => u.side === 'enemy' && u.alive);
+        assert.equal(allSpawned.length, 4);
+        assert.ok(allSpawned.every((u) => u.minion !== true));
+        assert.ok(activeSpawned.every((u) => state.intents[u.id]?.skillId === 'stunned'), '场上召唤出的扭蠕虫首回合应为晕厥待机');
+        const t2 = act(state);
+        state = t2.state;
+        events.push(...t2.events);
+        actions.push(END_TURN);
+        assert.ok(t2.events.some((e) => e.type === 'status-card' && e.cardId === 'status-infection' && e.amount === infInHand * 3));
+        assert.deepEqual(activeSpawned.map((u) => state.intents[u.id]?.skillId), ['bite', 'wriggle', 'bite'], '晕厥后应奇偶错位起招');
+        // 击杀场上 1 只扭蠕虫 -> 后备的第 4 只立即补位入场并进入首回合晕厥待机！
+        const nukeInst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'nuke');
+        assert.ok(nukeInst);
+        const killOne = applyAction(state, { type: 'play', inst: nukeInst, targetId: activeSpawned[0].id });
+        state = killOne.state;
+        events.push(...killOne.events);
+        actions.push({ type: 'play', inst: nukeInst, targetId: activeSpawned[0].id });
+        assert.equal(state.reserve, undefined, '第 4 只扭蠕虫应已补位入场');
+        const reinforced = killOne.events.find((e) => e.type === 'reinforce');
+        assert.ok(reinforced && state.intents[reinforced.unitId]?.skillId === 'stunned');
+        const replayed = replayBattle(setup, 6, actions);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, state);
+        assert.deepEqual(replayed.events, events);
+
+        // 2) enc-wrigglers 固定四体事件遭遇：经真实大厅 buildSetup 展开（3 场上 + 1 后备），奇偶错位起手且开场不晕厥。
+        const enc = ENEMY_ENCOUNTERS.find((e) => e.id === 'enc-wrigglers');
+        assert.ok(enc && !enc.unavailable);
+        const f = await createGenerationFixture({ chatId: 'wrigglers-lobby' });
+        t.after(f.dispose);
+        const effective = await f.services.getLedger().effectiveState();
+        const lobbyHero = effective.characters.get(effective.attributes.heroId);
+        const built = buildSetup({ heroId: lobbyHero.id, controllable: [lobbyHero.id], allies: [lobbyHero], enemies: new Map([[enc.name, materializeEncounter(enc)]]) },
+            { tier: 'normal', enemies: [{ name: enc.name, count: 1 }] }, { userName: lobbyHero.name, combatId: 'wrigglers-lobby' });
+        assert.equal(built.ok, true, JSON.stringify(built));
+        const started = createBattle(built.setup, 3);
+        const activeWrigglers = started.state.order.map((id) => started.state.units[id]).filter((u) => u.side === 'enemy');
+        assert.equal(activeWrigglers.length, 3);
+        assert.equal(started.state.reserve?.length, 1);
+        assert.deepEqual(activeWrigglers.map((u) => started.state.intents[u.id]?.skillId), ['bite', 'wriggle', 'bite']);
+    });
+
+    it('Batch 172：Spike Slime (L) / Acid Slime (L) 半血改意图分裂与 Slime Boss 两段递归分裂（大→中）重放一致', () => {
+        // 1) Acid Slime (L) & Spike Slime (L) 半血即时改写意图为 split 并按当前生命生成 2 只中型子体。
+        for (const [key, childName] of [['Spike Slime (L)', '中刺黏体'], ['Acid Slime (L)', '中蚀黏体']]) {
+            const entry = ENEMIES.find((item) => item.sourceKey === key);
+            const prof = materializeEnemy(entry, 'original', { id: 'slime' });
+            const [unit] = enemyUnits({ enemies: [{ name: prof.name, count: 1 }] }, new Map([[prof.name, prof]]), 1, 'normal').units;
+            unit.speed = 90;
+            const halfHit = testCard('hh', 'attack', [{ op: 'damage', amount: Math.ceil(unit.maxHp * 0.55) }]);
+            const hero = traitHero([halfHit], { speed: 90, maxHp: 999 });
+            const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, unit] };
+            let state = createBattle(setup, 5).state;
+            const r1 = applyAction(state, { type: 'play', inst: state.piles.hero.hand[0], targetId: 'slime' });
+            state = r1.state;
+            const splitHp = state.units.slime.hp;
+            assert.equal(state.intents.slime.skillId, 'split', `${key} 降至半血应立即改写意图为分裂`);
+            const r2 = act(state);
+            state = r2.state;
+            const kids = Object.values(state.units).filter((u) => u.side === 'enemy' && u.alive);
+            assert.equal(kids.length, 2);
+            assert.ok(kids.every((k) => k.name === childName && k.hp === splitHp && k.maxHp === splitHp));
+        }
+
+        // 2) Slime Boss 两段分裂：Slime Boss -> 巨蚀黏体 + 巨刺黏体 -> 巨蚀黏体半血再分裂为 2 只中蚀黏体！
+        const sbEntry = ENEMIES.find((item) => item.sourceKey === 'Slime Boss');
+        const sbProf = materializeEnemy(sbEntry, 'original', { id: 'sb' });
+        const [sbUnit] = enemyUnits({ enemies: [{ name: sbProf.name, count: 1 }] }, new Map([[sbProf.name, sbProf]]), 1, 'boss').units;
+        sbUnit.speed = 90;
+        const cut1 = testCard('c1', 'attack', [{ op: 'damage', amount: Math.ceil(sbUnit.maxHp * 0.55) }]);
+        const cut2 = testCard('c2', 'attack', [{ op: 'damage', amount: Math.max(1, Math.ceil((sbUnit.maxHp - Math.ceil(sbUnit.maxHp * 0.55)) * 0.55)) }]);
+        const hero = traitHero([cut1, cut2], { speed: 90, maxHp: 999 });
+        const setup = { rulesVersion: 7, controlledId: 'hero', units: [hero, sbUnit] };
+        const created = createBattle(setup, 7);
+        let state = created.state;
+        const events = [...created.events];
+        const actions = [];
+        assert.equal(state.intents.sb.skillId, 'goop');
+        const c1Inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'c1');
+        const p1 = applyAction(state, { type: 'play', inst: c1Inst, targetId: 'sb' });
+        state = p1.state;
+        events.push(...p1.events);
+        actions.push({ type: 'play', inst: c1Inst, targetId: 'sb' });
+        const sbSplitHp = state.units.sb.hp;
+        assert.equal(state.intents.sb.skillId, 'split');
+        const e1 = act(state);
+        state = e1.state;
+        events.push(...e1.events);
+        actions.push(END_TURN);
+        const larges = Object.values(state.units).filter((u) => u.side === 'enemy' && u.alive);
+        assert.deepEqual(larges.map((u) => [u.name, u.hp, u.maxHp]), [['巨蚀黏体', sbSplitHp, sbSplitHp], ['巨刺黏体', sbSplitHp, sbSplitHp]]);
+        // 把巨蚀黏体打到半血以下 -> 二次分裂为 2 只中蚀黏体，与巨刺黏体共 3 只同场！
+        const acidL = larges[0];
+        const c2Inst = state.piles.hero.hand.find((id) => state.cards[id].cardId === 'c2');
+        const p2 = applyAction(state, { type: 'play', inst: c2Inst, targetId: acidL.id });
+        state = p2.state;
+        events.push(...p2.events);
+        actions.push({ type: 'play', inst: c2Inst, targetId: acidL.id });
+        const acidSplitHp = state.units[acidL.id].hp;
+        assert.equal(state.intents[acidL.id].skillId, 'split');
+        const e2 = act(state);
+        state = e2.state;
+        events.push(...e2.events);
+        actions.push(END_TURN);
+        const stage2 = Object.values(state.units).filter((u) => u.side === 'enemy' && u.alive);
+        assert.equal(stage2.length, 3);
+        assert.equal(stage2.filter((u) => u.name === '中蚀黏体' && u.hp === acidSplitHp && u.maxHp === acidSplitHp).length, 2);
+        assert.equal(stage2.filter((u) => u.name === '巨刺黏体').length, 1);
+
+        const replayed = replayBattle(setup, 7, actions);
+        assert.equal(replayed.ok, true);
+        assert.deepEqual(replayed.state, state);
+        assert.deepEqual(replayed.events, events);
     });
 
 });
@@ -2894,16 +4073,20 @@ describe('M4 睡眠与唤醒', () => {
         assert.deepEqual(replayed.events, events);
     });
     it('酣眠石卫条目：睡满 3 回合自然醒后重击、重击、汲魂循环，醒来卸下金属化；重放一致', () => {
-        const profile = materializeEnemy(ENEMIES.find((e) => e.sourceKey === 'Lagavulin'), 'original');
+        const entry = ENEMIES.find((e) => e.sourceKey === 'Lagavulin');
+        assert.equal(entry.original.passives[0].effects[0].stacks, 8);
+        const profile = materializeEnemy(entry, 'original');
+        const metal = profile.passives[0].effects[0].stacks;
+        assert.ok(metal > 0);
         const foe = foeUnit({ skills: profile.skills, script: profile.script, passives: profile.passives });
         const created = createBattle(setupWith(foe), 7);
         assert.equal(created.ok, true, JSON.stringify(created.error));
-        assert.equal(created.state.units.foe.statuses.metallicize, 8);
+        assert.equal(created.state.units.foe.statuses.metallicize, metal);
         assert.equal(created.state.units.foe.statuses.plated ?? 0, 0);
         assert.equal(created.state.units.foe.statuses.asleep, 3);
         const dozing = runTurns(foe, 2);
-        assert.equal(dozing.state.units.foe.statuses.metallicize, 8);
-        assert.equal(dozing.state.units.foe.block, 8);
+        assert.equal(dozing.state.units.foe.statuses.metallicize, metal);
+        assert.equal(dozing.state.units.foe.block, metal);
         const run = runTurns(foe, 6);
         assert.deepEqual(run.skills, ['sleep', 'sleep', 'sleep', 'attack', 'attack', 'siphon']);
         assert.deepEqual(run.events.filter((e) => e.type === 'wake').map((e) => e.cause), ['natural']);
@@ -4898,6 +6081,7 @@ describe('敌人特性池与 enemy-roster（#enemy-draw）', () => {
                     assert.equal(item.fit, describeEnemySuitability(item.profile));
                     if (item.kind !== 'stitched') continue;
                     assert.equal(item.profile.skills.some((skill) => skill.effects.some((effect) => effect.op === 'apply-status' && effect.status === 'burrowed')), false, `${tier} ${seed} ${item.code}: 潜地不能脱离原脚本进入缝合池`);
+                    assert.equal((item.profile.passives || []).some((p) => p.effects.some((effect) => effect.op === 'apply-status' && effect.status === 'fading')), false, `${tier} ${seed} ${item.code}: 消逝不能脱离原脚本进入缝合池`);
                     assert.equal(item.profile.script, undefined);
                     assert.ok(item.profile.skills.length >= 2 && item.profile.skills.length <= 4);
                     assert.ok(item.profile.passives.length <= 1);

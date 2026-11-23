@@ -88,6 +88,10 @@ export function cardView(state, inst) {
     }
     // 规则 v6 固定卡 grant-flag（mechanics/fixed-pile.js）：本场赋予的关键字，记在 state.cards[inst].grants。
     if (state.rulesVersion >= 5 && Array.isArray(entry.grants)) for (const flag of entry.grants) view[flag] = true;
+    if (state.rulesVersion >= 5 && typeof view.cost === 'number' && !view.unplayable
+        && Number.isInteger(entry.confusedCost) && entry.confusedCost >= 0 && entry.confusedCost <= 3) {
+        view = { ...view, cost: entry.confusedCost };
+    }
     const costShift = (owner?.handCost || 0) + (entry.costMod || 0) + (owner?.turnCostMod?.[inst] || 0);
     if (typeof view.cost !== 'number') return view;
     let cost = Math.max(0, view.cost + costShift);

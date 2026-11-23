@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { applyAction, createBattle, replayBattle } from '../src/combat/engine.js';
-import { COMBAT_RULES, combatSpeedFor, enemySpeedFor, estimateBattleEffectsValue, estimateCardValue, estimateEffectsValue, evaluateCardBudget, rarityWindow } from '../src/combat/rules.js';
+import { COMBAT_RULES, combatSpeedFor, crowdScaleFor, enemySpeedFor, estimateBattleEffectsValue, estimateCardValue, estimateEffectsValue, evaluateCardBudget, rarityWindow, scaleEnemyStats } from '../src/combat/rules.js';
 import { cardView, describeIntent } from '../src/combat/battle-state.js';
 import { buildSetup, createCombatSession, enemyUnits, locateCombatStart, SESSION_VERSION, sessionKeyFor } from '../src/combat/session.js';
 import { createCountingStorage } from './helpers/combat-mock-host-services.js';
@@ -22,9 +24,13 @@ import { renderCombatPanelHtml } from '../src/visual/igs-ui/combat-panel-render.
 import { createCombatPanelController } from '../src/visual/igs-ui/combat-panel.js';
 import { CANVAS_BATTLE } from '../src/visual/igs-ui/combat-skin-registry.js';
 import { applyHitMarks, COMBAT_HIT_REACT_ATTR, reactUnit, showHitFloats } from '../src/visual/igs-ui/combat-hit-fx.js';
+import { COMBAT_IMPACT_FX_STYLE_TEXT, COMBAT_IMPACT_VIGNETTE_ATTR, impactTierFor, pulseVignette, showImpactBurst, showShieldBreak, showStatusFx } from '../src/visual/igs-ui/combat-impact-fx.js';
+import { COMBAT_VFX_THEMES, resolveVfxTheme, vfxTextureUrl } from '../src/visual/igs-ui/combat-vfx-themes.js';
+import { CARD_INCOMING_ATTR, COMBAT_CARD_MOTION, COMBAT_CARD_MOTION_STYLE_TEXT, PILE_BUMP_ATTR, bumpPile, cardNaturalRotate, findPileEl, measureCardBox, pileAnchorRect, planCardMotions, playDiscardCards, playDrawCards, syncPileDocks } from '../src/visual/igs-ui/combat-card-motion.js';
+import { BATTLE_SFX_PARTIALS } from '../src/visual/igs-ui/fx-battle-sfx.js';
 import { attributeMultiplier, createAttributePolicy } from '../src/combat/attribute-policy.js';
 import { fitCard } from '../src/combat/fixed-cards/dsl.js';
-import { pickCards } from '../src/combat/policy.js';
+import { chooseAllyPlay, pickCards } from '../src/combat/policy.js';
 import { SOURCE_CARD_MODELS, TEMPLATE_UPGRADE_MODELS, sameSourceValue, templateSourceUpgrade } from '../src/combat/card-source-models.js';
 import { checkTemplateUpgradeCoverage, TEMPLATE_UPGRADE_POLICIES, templateUpgradeDecision } from '../src/combat/card-template-upgrades.js';
 import { templateCardFace } from '../src/combat/card-template-definitions.js';
@@ -76,9 +82,19 @@ test('v7 新局接受现有快照字段，v6 及更早存档仍按自身版本�
     }
 });
 
-test('属性策略 v2：主属性 20 伤害不低于 2.5 倍且不随等级变化，v1 对局按旧公式重放，版本错配拒收', () => {
+test('属性策略 v3：最大倍率封顶 2.0 且不随等级变化，v1/v2 对局按旧公式重放，版本错配拒收', () => {
     const scores = { str: 20, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
     const make = (version, proficiency, str = 20) => ({ version, role: 'warrior', scores: { ...scores, str }, proficiency });
+    // v3（方案 C）：每 +2 属性 +16%，常规上限 2.00，辅助上限 1.50，熟练加值（等级）不影响倍率。
+    assert.equal(attributeMultiplier(make(3, 2, 20), 'str'), 1.8);
+    assert.equal(attributeMultiplier(make(3, 2, 20), 'str'), attributeMultiplier(make(3, 6, 20), 'str'));
+    assert.equal(attributeMultiplier(make(3, 2, 24), 'str'), 2);
+    assert.equal(attributeMultiplier(make(3, 2, 30), 'str'), 2);
+    assert.equal(attributeMultiplier(make(3, 2, 1), 'str'), 0.8);
+    assert.equal(attributeMultiplier(make(3, 2, 20), 'str', 'support'), 1.4);
+    assert.equal(attributeMultiplier(make(3, 2, 30), 'str', 'support'), 1.5);
+    assert.equal(attributeMultiplier(make(3, 2, 1), 'str', 'support'), 0.9);
+    // v2 / v1 旧曲线保持不变，确保历史存档确定性重放。
     assert.ok(attributeMultiplier(make(2, 2), 'str') >= 2.5);
     assert.equal(attributeMultiplier(make(2, 2), 'str'), attributeMultiplier(make(2, 6), 'str'));
     assert.equal(attributeMultiplier(make(2, 2, 30), 'str'), 3);
@@ -86,7 +102,7 @@ test('属性策略 v2：主属性 20 伤害不低于 2.5 倍且不随等级变�
     assert.ok(attributeMultiplier(make(2, 2), 'str', 'support') < attributeMultiplier(make(2, 2), 'str'));
     assert.equal(attributeMultiplier(make(1, 2, 15), 'str'), 1.16);
     assert.equal(attributeMultiplier(make(1, 6, 15), 'str'), 1.3);
-    assert.equal(createAttributePolicy({ attributes: { scores, proficiency: 2 }, classProfile: { archetype: 'warrior' } }).version, 2);
+    assert.equal(createAttributePolicy({ attributes: { scores, proficiency: 2 }, classProfile: { archetype: 'warrior' } }).version, 3);
 
     const run = (version, rules, policyValue) => {
         const input = setup(version);
@@ -100,13 +116,18 @@ test('属性策略 v2：主属性 20 伤害不低于 2.5 倍且不随等级变�
         assert.deepEqual(replayBattle(input, 7, [play]).state, result.state);
         return result;
     };
-    // v2：6 × 2.5 = 15，熟练加值（等级）不再改变结果。
+    // v3：6 × 1.8 = 10.8 → 11，熟练加值（等级）不再改变结果；主属性 30 封顶 2.0：6 × 2.0 = 12。
+    for (const proficiency of [2, 6]) assert.equal(run(7, 3, make(3, proficiency, 20)).state.units.foe.hp, 489);
+    assert.equal(run(7, 3, make(3, 2, 30)).state.units.foe.hp, 488);
+    // v2 旧局继续按 6 × 2.5 = 15 重放。
     for (const proficiency of [2, 6]) assert.equal(run(7, 2, make(2, proficiency)).state.units.foe.hp, 485);
     // 旧 v1 策略（含已开局的 v7 对局）沿用 1 + 0.08 × (修正 + 熟练 − 2)：6 × 1.3 = 8。
     assert.equal(run(6, 1, make(1, 2)).state.units.foe.hp, 492);
     assert.equal(run(7, 1, make(1, 2)).state.units.foe.hp, 492);
     assert.equal(run(6, 2, make(2, 2)).error.reason, 'invalid-attribute-rules');
-    assert.equal(run(7, 3, make(2, 2)).error.reason, 'invalid-attribute-rules');
+    assert.equal(run(6, 3, make(3, 2)).error.reason, 'invalid-attribute-rules');
+    assert.equal(run(7, 4, make(3, 2)).error.reason, 'invalid-attribute-rules');
+    assert.equal(run(7, 3, make(2, 2)).error.reason, 'invalid-attribute-policy');
     assert.equal(run(7, 2, make(1, 2)).error.reason, 'invalid-attribute-policy');
     assert.equal(run(7, 1, make(2, 2)).error.reason, 'invalid-attribute-policy');
 });
@@ -324,7 +345,7 @@ test('头槌模板可求解、指定数值及升级，正式生成建局后按�
             enemies: new Map([['史莱姆', templateEnemy('史莱姆', 'normal')]]) },
         { tier: 'normal', enemies: [{ name: '史莱姆', count: 1 }] }, { userName: hero.name });
         assert.equal(built.ok, true);
-        assert.equal(built.setup.attributeRules, 2);
+        assert.equal(built.setup.attributeRules, 3);
         for (const version of [6, 7]) {
             // v6 快照保留属性策略 v1，且不启用新增的升级卡面契约。
             const input = version === 7 ? built.setup : { ...built.setup, rulesVersion: 6, attributeRules: 1, cardUpgradeRules: undefined, exhaustRules: undefined,
@@ -512,11 +533,11 @@ test('七类蓄势经真实装备建局授予、加伤并消耗，卸下后不�
 
 
 test('敌人新建局仅压缩高于100的速度，三种入口一致且旧setup不重算', () => {
-    assert.equal(enemySpeedFor(120), 110);
+    assert.equal(enemySpeedFor(120), 115);
     assert.equal(enemySpeedFor(90), 90);
     const template = templateEnemy('史莱姆', 'normal');
     const start = { enemies: [{ name: '史莱姆', count: 1 }] };
-    for (const [speed, expected] of [[120, 110], [90, 90]]) {
+    for (const [speed, expected] of [[120, 115], [90, 90]]) {
         const enemy = { ...template, base: { ...template.base, speed } };
         const built = enemyUnits(start, new Map([['史莱姆', enemy]]), 1, 'normal');
         assert.equal(built.units[0].speed, expected);
@@ -585,10 +606,16 @@ test('关系标签经账本与真实建局器生效，1级下限不抵消远逊�
         assert.equal(foe.speed, Math.round(base.speed * speed));
         assert.equal(createBattle(built.setup, 7).ok, true);
     }
-    for (const tier of ['stronger', 'formidable', 'overwhelming']) {
+    for (const [tier, hp, damage, speed] of [
+        ['stronger', 1.15, 1.1, 1.03],
+        ['formidable', 1.35, 1.25, 1.06],
+        ['overwhelming', 1.65, 1.45, 1.1],
+    ]) {
         const reference = enemyUnits(start, new Map([['史莱姆', enemy]]), 1, 'normal', new Map([['史莱姆', { ...untagged, tier: 'even' }]])).units[0];
         const actual = enemyUnits(start, new Map([['史莱姆', enemy]]), 1, 'normal', new Map([['史莱姆', { ...untagged, tier }]])).units[0];
-        assert.deepEqual(actual, reference);
+        assert.ok(Math.abs(actual.maxHp - reference.maxHp * hp) <= 1, `${tier}: maxHp`);
+        assert.ok(Math.abs(actual.damageScale - reference.damageScale * damage) <= 0.02, `${tier}: damageScale`);
+        assert.equal(actual.speed, Math.round(reference.speed * speed), `${tier}: speed`);
     }
     assert.deepEqual(createBattle(saved, 7).state, original.state);
     const action = { type: 'end-turn' };
@@ -1395,9 +1422,472 @@ function signatureBattle(cards, { draw = 10, energy = 3, upgraded = [], passives
             const replay = replayBattle(input, seed, actions);
             assert.equal(replay.ok, true, JSON.stringify(replay.error));
             assert.deepEqual(replay.state, state);
+            assert.deepEqual(replay.events, events);
         },
     };
 }
+
+function confusedBattle(cards, { version = 7, active = true, ...options } = {}) {
+    const battle = signatureBattle(cards, { energy: 10, ...options,
+        configure(input) {
+            input.rulesVersion = version;
+            if (version < 7) {
+                delete input.cardUpgradeRules;
+                delete input.exhaustRules;
+            }
+            input.units[0].deck = cards.map(card => card.id);
+            if (active) input.units[1].passives = [{ id: 'confused-start', name: '混乱', trigger: 'battle-start', effects: [
+                { op: 'apply-status', status: 'confused', stacks: 1, target: 'enemy' },
+                { op: 'apply-status', status: 'confused', stacks: 1, target: 'enemy' },
+            ] }];
+            options.configure?.(input);
+        },
+    });
+    if (active) battle.step({ type: 'end-turn' });
+    return battle;
+}
+const confusedCard = (id, effects, extra = {}) => ({ id, name: id, type: 'skill', cost: 1, effects, ...extra });
+
+test('Confused 真实抽牌随机0–3且不叠加，跳过X费和不可打出牌，v3–v7重放一致', () => {
+    const cards = [0, 1, 2, 3].map(cost => confusedCard(`confused-${cost}`, [{ op: 'block', amount: 1 }], { cost }));
+    cards.push(confusedCard('confused-x', [{ op: 'block', amount: 1 }], { cost: 'X' }),
+        confusedCard('confused-locked', [{ op: 'block', amount: 1 }], { unplayable: true }));
+    const seen = new Set();
+    for (const version of [3, 4, 5, 6, 7]) for (const seed of [0, 7, 19, 42]) {
+        const battle = confusedBattle(cards, { version, seed });
+        const rolled = battle.events.filter(event => event.type === 'cost-randomized');
+        assert.equal(rolled.length, version >= 5 ? 4 : 0);
+        assert.equal(battle.state.units.hero.statuses.confused, version >= 5 ? 1 : undefined);
+        for (const event of rolled) {
+            assert.ok(Number.isInteger(event.cost) && event.cost >= 0 && event.cost <= 3);
+            assert.equal(cardView(battle.state, event.inst).cost, event.cost);
+            seen.add(event.cost);
+        }
+        for (const id of ['confused-x', 'confused-locked']) {
+            const inst = battle.find(id);
+            assert.equal(battle.state.cards[inst].confusedCost, undefined);
+            assert.equal(cardView(battle.state, inst).cost, id === 'confused-x' ? 'X' : 1);
+        }
+        battle.replay();
+    }
+    assert.deepEqual([...seen].sort(), [0, 1, 2, 3]);
+    const normal = confusedBattle(cards, { active: false });
+    assert.equal(normal.events.some(event => event.type === 'cost-randomized'), false);
+    assert.ok(Object.values(normal.state.cards).every(entry => !Object.hasOwn(entry, 'confusedCost')));
+    normal.replay();
+});
+
+test('Confused 回手和直接生成不重掷，保留跨回合及净化后仍保留实例费用', () => {
+    const loop = confusedCard('confused-loop', [{ op: 'recur', to: 'hand' }]);
+    const keep = confusedCard('confused-keep', [{ op: 'grant-flag', flag: 'retain' }]);
+    const make = confusedCard('confused-make', [{ op: 'create', card: 'status-slime', amount: 1, to: 'hand' }]);
+    const clean = confusedCard('confused-clean', [{ op: 'cleanse', target: 'self' }]);
+    const battle = confusedBattle([loop, keep, make, clean]);
+    const inst = battle.find(loop.id);
+    const cost = battle.state.cards[inst].confusedCost;
+    const returned = battle.play(loop.id);
+    assert.ok(battle.state.piles.hero.hand.includes(inst));
+    assert.equal(battle.state.cards[inst].confusedCost, cost);
+    assert.equal(returned.events.some(event => event.type === 'cost-randomized'), false);
+    const created = battle.play(make.id);
+    const token = created.events.find(event => event.type === 'card-created').inst;
+    assert.equal(battle.state.cards[token].confusedCost, undefined);
+    assert.equal(cardView(battle.state, token).cost, 1);
+    assert.equal(created.events.some(event => event.type === 'cost-randomized'), false);
+    battle.play(keep.id);
+    battle.step({ type: 'end-turn' });
+    assert.ok(battle.state.piles.hero.hand.includes(inst));
+    assert.equal(battle.state.cards[inst].confusedCost, cost);
+    const beforeClean = battle.state.cards[inst].confusedCost;
+    battle.play(clean.id);
+    assert.equal(battle.state.units.hero.statuses.confused, undefined);
+    assert.equal(cardView(battle.state, inst).cost, beforeClean);
+    battle.step({ type: 'end-turn' });
+    assert.equal(battle.state.cards[inst].confusedCost, beforeClean);
+    battle.replay();
+});
+
+test('Confused 普通复制、延迟复制和消耗堆复制保留随机费用，不视为抽牌', () => {
+    for (const mode of ['copy', 'copy-next', 'copy-exhausted']) {
+        const effects = mode === 'copy'
+            ? [{ op: 'copy', from: 'self', amount: 1, to: 'hand' }]
+            : mode === 'copy-next' ? [{ op: 'copy-next', from: 'self', amount: 1 }]
+                : [{ op: 'exhaust-self' }];
+        const source = confusedCard('confused-source', effects);
+        const copier = confusedCard('confused-copier', [{ op: 'copy-exhausted', amount: 1 }]);
+        const battle = confusedBattle([source, copier]);
+        const inst = battle.find(source.id);
+        const cost = battle.state.cards[inst].confusedCost;
+        let result = battle.play(source.id);
+        if (mode === 'copy-next') result = battle.step({ type: 'end-turn' });
+        if (mode === 'copy-exhausted') {
+            assert.ok(battle.state.piles.hero.exhaust.includes(inst));
+            result = battle.play(copier.id);
+        }
+        const copy = result.events.find(event => event.type === 'card-created' && event.cardId === source.id);
+        assert.ok(copy, mode);
+        assert.notEqual(copy.inst, inst);
+        assert.equal(battle.state.cards[copy.inst].confusedCost, cost, mode);
+        assert.equal(cardView(battle.state, copy.inst).cost, cost, mode);
+        assert.equal(result.events.some(event => event.type === 'cost-randomized' && event.inst === copy.inst), false);
+        battle.replay();
+    }
+});
+
+test('Confused 改费升级恢复升级费用，不改费升级及重复升级不重置，三条变形清除旧费用', () => {
+    for (const changed of [false, true]) {
+        const card = confusedCard('confused-upgrade', [{ op: 'upgrade-card', amount: 1, mode: 'self' }, { op: 'recur', to: 'hand' }],
+            { upgraded: { ...(changed ? { cost: 0 } : {}), effects: [{ op: 'upgrade-card', amount: 1, mode: 'self' }, { op: 'recur', to: 'hand' }] } });
+        const battle = confusedBattle([card]);
+        const inst = battle.find(card.id);
+        const cost = battle.state.cards[inst].confusedCost;
+        battle.play(card.id);
+        assert.equal(battle.state.cards[inst].upgraded, true);
+        assert.equal(battle.state.cards[inst].confusedCost, changed ? undefined : cost);
+        assert.equal(cardView(battle.state, inst).cost, changed ? 0 : cost);
+        battle.step({ type: 'end-turn' });
+        const rerolled = battle.state.cards[inst].confusedCost;
+        battle.play(card.id);
+        assert.equal(battle.state.cards[inst].confusedCost, rerolled);
+        battle.replay();
+    }
+    for (const op of ['transmute', 'morph-hand', 'transform-minion']) {
+        const target = confusedCard('confused-transform-target', [{ op: 'block', amount: 1 }], { type: 'attack' });
+        const effect = op === 'transmute' ? { op, amount: 1, mode: 'choose' } : op === 'morph-hand' ? { op, cardType: 'attack' } : { op };
+        const change = confusedCard('confused-transform', [effect]);
+        const battle = confusedBattle([target, change]);
+        const inst = battle.find(target.id);
+        assert.ok(Number.isInteger(battle.state.cards[inst].confusedCost));
+        battle.play(change.id);
+        if (battle.state.pending) battle.step({ type: 'choose', insts: [inst] });
+        assert.notEqual(battle.state.cards[inst].cardId, target.id);
+        assert.equal(battle.state.cards[inst].confusedCost, undefined, op);
+        battle.replay();
+    }
+});
+
+test('Confused 检索、取回不重掷，可打出状态牌入库抽牌触发随机，重抽覆盖旧减费且新修正生效', () => {
+    const pickCard = confusedCard('confused-search', [{ op: 'search', amount: 1, cardType: 'attack' }], { cost: 0 });
+    const fetchCard = confusedCard('confused-retrieve', [{ op: 'retrieve', amount: 1, from: 'discard', cardType: 'attack' }], { cost: 0 });
+    const target = confusedCard('confused-target', [{ op: 'damage', amount: 4, target: 'enemy' }], { type: 'attack', cost: 2 });
+    const dropCard = confusedCard('confused-drop', [{ op: 'discard', amount: 1, mode: 'choose' }], { cost: 0 });
+    const drawCard = confusedCard('confused-draw', [{ op: 'draw', amount: 2 }], { cost: 0 });
+    const slimeMaker = confusedCard('confused-slime-draw', [
+        { op: 'create', card: 'status-slime', amount: 1, to: 'draw' },
+        { op: 'create', card: 'status-slime-sts2', amount: 1, to: 'draw' },
+    ], { cost: 0 });
+    const cheapCard = confusedCard('confused-cheap', [
+        { op: 'cost-mod', amount: -1, mode: 'choose', scope: 'combat' },
+        { op: 'cost-mod', amount: -1, mode: 'choose', scope: 'turn' },
+        { op: 'discount-card', amount: 1, count: 1, cardType: 'attack' },
+    ], { cost: 0 });
+    // 1) search 检索：目标在抽牌堆中，检索入手不触发 cost-randomized 且保持无 confusedCost。
+    const filler = confusedCard('confused-filler', [{ op: 'block', amount: 1 }], { cost: 0 });
+    let sb = null;
+    for (let seed = 1; seed <= 30; seed += 1) {
+        const candidate = confusedBattle([pickCard, target, filler], { draw: 1, seed });
+        if (candidate.find(pickCard.id)
+            && candidate.state.piles.hero.draw.some(inst => candidate.state.cards[inst].cardId === target.id)) {
+            sb = candidate;
+            break;
+        }
+    }
+    assert.ok(sb, '需要找到 pickCard 在手牌且 target 在抽牌堆的确定性种子');
+    const drawTargetInst = sb.state.piles.hero.draw.find(inst => sb.state.cards[inst].cardId === target.id);
+    assert.ok(drawTargetInst);
+    const beforeSearch = sb.state.cards[drawTargetInst].confusedCost;
+    const searched = sb.play(pickCard.id);
+    assert.ok(sb.state.piles.hero.hand.includes(drawTargetInst));
+    assert.equal(sb.state.cards[drawTargetInst].confusedCost, beforeSearch);
+    assert.equal(searched.events.some(event => event.type === 'cost-randomized'), false);
+    sb.replay();
+
+    // 2) 抽到后施加 costMod / turnCostMod / discount 生效 -> 丢弃 -> retrieve 回手不重掷 -> 再丢弃重抽覆盖旧减费。
+    let mb = null;
+    for (let seed = 1; seed <= 40; seed += 1) {
+        const candidate = confusedBattle([target, cheapCard, dropCard, fetchCard, drawCard, slimeMaker], { draw: 6, seed });
+        const inst = candidate.find(target.id);
+        if (inst && candidate.state.cards[inst].confusedCost === 3) { mb = candidate; break; }
+    }
+    assert.ok(mb, '需要找到目标牌混乱费用为 3 的确定性种子');
+    const tInst = mb.find(target.id);
+    assert.equal(cardView(mb.state, tInst).cost, 3);
+    mb.play(cheapCard.id);
+    if (mb.state.pending) mb.step({ type: 'choose', insts: [tInst] });
+    if (mb.state.pending) mb.step({ type: 'choose', insts: [tInst] });
+    assert.equal(mb.state.cards[tInst].costMod, -1);
+    assert.equal(mb.state.units.hero.turnCostMod?.[tInst], -1);
+    assert.equal(mb.state.cards[tInst].discount, 1);
+    assert.equal(cardView(mb.state, tInst).cost, 0);
+
+    // 丢弃后 retrieve 取回不重掷，保留原 confusedCost。
+    mb.play(dropCard.id);
+    mb.step({ type: 'choose', insts: [tInst] });
+    assert.ok(mb.state.piles.hero.discard.includes(tInst));
+    const retrieved = mb.play(fetchCard.id);
+    assert.ok(mb.state.piles.hero.hand.includes(tInst));
+    assert.equal(mb.state.cards[tInst].confusedCost, 3);
+    assert.equal(retrieved.events.some(event => event.type === 'cost-randomized'), false);
+
+    // 塞入两种可打出状态牌到抽牌堆，然后真实抽牌：两种状态牌都触发随机费用。
+    mb.play(slimeMaker.id);
+    const drawnSlimes = mb.play(drawCard.id);
+    const slimeRolls = drawnSlimes.events.filter(event => event.type === 'cost-randomized');
+    assert.equal(slimeRolls.length, 2);
+    const rolledIds = slimeRolls.map(event => mb.state.cards[event.inst].cardId).sort();
+    assert.deepEqual(rolledIds, ['status-slime', 'status-slime-sts2']);
+    for (const event of slimeRolls) {
+        assert.ok(Number.isInteger(event.cost) && event.cost >= 0 && event.cost <= 3);
+        assert.equal(cardView(mb.state, event.inst).cost, event.cost);
+    }
+
+    // 结束回合让带旧 costMod/discount/turnCostMod 的 target 进入弃牌堆并洗回真实重抽：旧减费清除并重新随机。
+    const redrawn = mb.step({ type: 'end-turn' });
+    const targetRoll = redrawn.events.find(event => event.type === 'cost-randomized' && event.inst === tInst);
+    assert.ok(targetRoll, '重抽应重新触发 cost-randomized');
+    assert.equal(mb.state.cards[tInst].confusedCost, targetRoll.cost);
+    assert.equal(mb.state.cards[tInst].costMod, undefined);
+    assert.equal(mb.state.cards[tInst].discount, undefined);
+    assert.equal(mb.state.units.hero.turnCostMod?.[tInst], undefined);
+    assert.equal(cardView(mb.state, tInst).cost, targetRoll.cost);
+    mb.replay();
+});
+
+test('Confused handCost、免费出牌覆盖顺序与浮动／渐省刻印优先级符合契约', () => {
+    const skillA = confusedCard('confused-skill-a', [{ op: 'block', amount: 2 }], { cost: 2 });
+    const skillB = confusedCard('confused-skill-b', [{ op: 'block', amount: 2 }], { cost: 2 });
+    const attackA = confusedCard('confused-atk-a', [{ op: 'damage', amount: 4, target: 'enemy' }], { type: 'attack', cost: 2 });
+    const handCheap = confusedCard('confused-hand-cheap', [{ op: 'hand-cost', amount: -1 }], { cost: 0 });
+    const freeTurn = confusedCard('confused-free-turn', [{ op: 'apply-status', status: 'freeplay', stacks: 2, target: 'self' }], { cost: 0 });
+    const freeOne = confusedCard('confused-free-one', [{ op: 'free-next', amount: 1 }], { cost: 0 });
+    const pyreCard = confusedCard('confused-pyre', [{ op: 'apply-status', status: 'pyre', stacks: 1, target: 'self' }], { type: 'power', cost: 0 });
+    const drawOne = confusedCard('confused-draw-one', [{ op: 'draw', amount: 1 }], { cost: 0 });
+
+    // 1) handCost 作用于 confusedCost 之上；free-next / pyre 在 handCost 之后覆盖为 0；免费期间抽牌仍触发随机。
+    let fb = null;
+    for (let seed = 1; seed <= 40; seed += 1) {
+        const candidate = confusedBattle([skillA, skillB, attackA, handCheap, freeOne, pyreCard, drawOne], { draw: 6, seed });
+        const a = candidate.find(skillA.id);
+        const atk = candidate.find(attackA.id);
+        if (a && atk && !candidate.find(skillB.id) && candidate.state.cards[a].confusedCost >= 2 && candidate.state.cards[atk].confusedCost >= 2) {
+            fb = candidate;
+            break;
+        }
+    }
+    assert.ok(fb, '需要找到 skillA 与 attackA 混乱费用 >= 2 且 skillB 仍在抽牌堆的种子');
+    const aInst = fb.find(skillA.id);
+    const atkInst = fb.find(attackA.id);
+    const aRoll = fb.state.cards[aInst].confusedCost;
+    const atkRoll = fb.state.cards[atkInst].confusedCost;
+    fb.play(handCheap.id);
+    assert.equal(cardView(fb.state, aInst).cost, aRoll - 1);
+    assert.equal(cardView(fb.state, atkInst).cost, atkRoll - 1);
+    // free-next 覆盖为 0，消耗后恢复 handCost + confusedCost。
+    fb.play(freeOne.id);
+    assert.equal(cardView(fb.state, atkInst).cost, 0);
+    assert.equal(cardView(fb.state, aInst).cost, 0);
+    const beforeEnergy = fb.state.units.hero.energy;
+    fb.play(attackA.id, 'foe');
+    assert.equal(fb.state.units.hero.energy, beforeEnergy);
+    assert.equal(cardView(fb.state, aInst).cost, aRoll - 1);
+    // pyre 覆盖技能牌为 0，但在 pyre 下抽牌仍触发 cost-randomized 并写入 confusedCost。
+    fb.play(pyreCard.id);
+    assert.equal(cardView(fb.state, aInst).cost, 0);
+    const drawnUnderPyre = fb.play(drawOne.id);
+    const bRollEvent = drawnUnderPyre.events.find(event => event.type === 'cost-randomized');
+    assert.ok(bRollEvent);
+    assert.equal(fb.state.cards[bRollEvent.inst].cardId, skillB.id);
+    assert.equal(fb.state.cards[bRollEvent.inst].confusedCost, bRollEvent.cost);
+    assert.equal(cardView(fb.state, bRollEvent.inst).cost, 0);
+    fb.replay();
+
+    // 2) freeplay 状态同样覆盖 confusedCost 与 handCost。
+    let fp = null;
+    for (let seed = 1; seed <= 30; seed += 1) {
+        const candidate = confusedBattle([attackA, freeTurn], { draw: 5, seed });
+        const inst = candidate.find(attackA.id);
+        if (inst && candidate.state.cards[inst].confusedCost >= 2) { fp = candidate; break; }
+    }
+    assert.ok(fp);
+    fp.play(freeTurn.id);
+    assert.equal(cardView(fp.state, fp.find(attackA.id)).cost, 0);
+    fp.replay();
+
+    // 3) 浮动（float）与渐省（thrift）刻印位于 cardFaceView 牌面层，cardView 中 confusedCost 覆盖牌面数字费用；改费升级清除 confusedCost 后恢复升级费用。
+    const floatCard = confusedCard('confused-float', [{ op: 'block', amount: 2 }], {
+        cost: 2, upgraded: { cost: 0, effects: [{ op: 'block', amount: 3 }] },
+    });
+    const thriftCard = confusedCard('confused-thrift', [{ op: 'block', amount: 2 }], {
+        cost: 3, upgraded: { cost: 1, effects: [{ op: 'block', amount: 3 }] },
+    });
+    const keepAll = confusedCard('confused-keep-all', [{ op: 'grant-flag', flag: 'retain' }], { cost: 0 });
+    const upgrader = confusedCard('confused-up', [{ op: 'upgrade-card', amount: 2, mode: 'random' }], { cost: 0 });
+    const ib = confusedBattle([floatCard, thriftCard, keepAll, upgrader], { draw: 5, seed: 11,
+        configure(input) {
+            input.units[0].deck = [
+                { cardId: floatCard.id, inscription: 'float' },
+                { cardId: thriftCard.id, inscription: 'thrift' },
+                keepAll.id,
+                upgrader.id,
+            ];
+        },
+    });
+    const flInst = ib.find(floatCard.id);
+    const thInst = ib.find(thriftCard.id);
+    assert.ok(Number.isInteger(ib.state.cards[flInst].floatCost));
+    assert.ok(Number.isInteger(ib.state.cards[flInst].confusedCost));
+    assert.equal(cardView(ib.state, flInst).cost, ib.state.cards[flInst].confusedCost);
+    // 赋予保留并跨回合后，渐省刻印累计（首回合末 + 本回合末共 2 层），但 confusedCost 仍在 cardView 层覆盖牌面费用。
+    ib.play(keepAll.id);
+    ib.step({ type: 'end-turn' });
+    assert.equal(ib.state.cards[thInst].thrift, 2);
+    assert.equal(cardView(ib.state, thInst).cost, ib.state.cards[thInst].confusedCost);
+    // 改费升级清除 confusedCost 后，浮动仍由 floatCost、渐省由升级费扣减 thrift 决定。
+    ib.play(upgrader.id);
+    assert.equal(ib.state.cards[flInst].confusedCost, undefined);
+    assert.equal(ib.state.cards[thInst].confusedCost, undefined);
+    assert.equal(cardView(ib.state, flInst).cost, ib.state.cards[flInst].floatCost);
+    assert.equal(cardView(ib.state, thInst).cost, Math.max(0, 1 - ib.state.cards[thInst].thrift));
+    ib.replay();
+});
+
+test('Confused 升级入口（upgrade-pile、reality、battle-growth）按是否改费正确处理随机费用', () => {
+    const costUp = confusedCard('confused-cost-up', [{ op: 'block', amount: 2 }], {
+        cost: 2, upgraded: { cost: 0, effects: [{ op: 'block', amount: 2 }] },
+    });
+    const sameUp = confusedCard('confused-same-up', [{ op: 'block', amount: 2 }], {
+        cost: 2, upgraded: { effects: [{ op: 'block', amount: 4 }] },
+    });
+    // 1) upgrade-pile (drawn)：先 draw-card 随机，再 draw 升级 -> 改费清 confusedCost，不改费保留。
+    const upDrawn = confusedCard('confused-up-drawn', [{ op: 'upgrade-pile', from: 'drawn', amount: 2 }, { op: 'draw', amount: 2 }], { cost: 0 });
+    let db = null;
+    for (let seed = 1; seed <= 30; seed += 1) {
+        const candidate = confusedBattle([upDrawn, costUp, sameUp], { draw: 1, seed });
+        if (candidate.find(upDrawn.id) && !candidate.find(costUp.id) && !candidate.find(sameUp.id)) { db = candidate; break; }
+    }
+    assert.ok(db);
+    const drawnRes = db.play(upDrawn.id);
+    const cInst = db.find(costUp.id);
+    const sInst = db.find(sameUp.id);
+    const sRoll = drawnRes.events.find(event => event.type === 'cost-randomized' && event.inst === sInst);
+    assert.ok(sRoll);
+    assert.equal(db.state.cards[cInst].upgraded, true);
+    assert.equal(db.state.cards[cInst].confusedCost, undefined);
+    assert.equal(cardView(db.state, cInst).cost, 0);
+    assert.equal(db.state.cards[sInst].upgraded, true);
+    assert.equal(db.state.cards[sInst].confusedCost, sRoll.cost);
+    assert.equal(cardView(db.state, sInst).cost, sRoll.cost);
+    db.replay();
+
+    // 2) upgrade-pile (draw)：抽牌堆中已带 confusedCost 的牌升级，改费清 confusedCost，不改费保留。
+    const upDraw = confusedCard('confused-up-draw', [{ op: 'upgrade-pile', from: 'draw', amount: 2 }], { cost: 0 });
+    const topDeck = confusedCard('confused-top', [{ op: 'topdeck', amount: 2, mode: 'choose' }], { cost: 0 });
+    const pb = confusedBattle([upDraw, topDeck, costUp, sameUp], { draw: 4, seed: 7 });
+    const pCostInst = pb.find(costUp.id);
+    const pSameInst = pb.find(sameUp.id);
+    const pSameRoll = pb.state.cards[pSameInst].confusedCost;
+    pb.play(topDeck.id);
+    pb.step({ type: 'choose', insts: [pCostInst, pSameInst] });
+    pb.play(upDraw.id);
+    assert.equal(pb.state.cards[pCostInst].upgraded, true);
+    assert.equal(pb.state.cards[pCostInst].confusedCost, undefined);
+    assert.equal(pb.state.cards[pSameInst].upgraded, true);
+    assert.equal(pb.state.cards[pSameInst].confusedCost, pSameRoll);
+    pb.replay();
+
+    // 3) reality（card-signatures create 钩子）：复制带 confusedCost 的牌时自动升级，改费清 confusedCost，不改费保留。
+    const reality = confusedCard('confused-reality', [{ op: 'apply-status', status: 'reality', stacks: 1, target: 'self' }], { type: 'power', cost: 0 });
+    const copyCost = confusedCard('confused-copy-cost', [{ op: 'copy', from: 'self', amount: 1, to: 'hand' }], {
+        cost: 2, upgraded: { cost: 0, effects: [{ op: 'copy', from: 'self', amount: 1, to: 'hand' }] },
+    });
+    const copySame = confusedCard('confused-copy-same', [{ op: 'copy', from: 'self', amount: 1, to: 'hand' }], {
+        cost: 2, upgraded: { effects: [{ op: 'copy', from: 'self', amount: 1, to: 'hand' }, { op: 'block', amount: 1 }] },
+    });
+    const rb = confusedBattle([reality, copyCost, copySame], { draw: 5, seed: 13 });
+    rb.play(reality.id);
+    const sameSrcInst = rb.find(copySame.id);
+    const sameSrcRoll = rb.state.cards[sameSrcInst].confusedCost;
+    const costCreated = rb.play(copyCost.id).events.find(event => event.type === 'card-created' && event.cardId === copyCost.id);
+    const sameCreated = rb.play(copySame.id).events.find(event => event.type === 'card-created' && event.cardId === copySame.id);
+    assert.ok(costCreated && sameCreated);
+    assert.equal(rb.state.cards[costCreated.inst].upgraded, true);
+    assert.equal(rb.state.cards[costCreated.inst].confusedCost, undefined);
+    assert.equal(cardView(rb.state, costCreated.inst).cost, 0);
+    assert.equal(rb.state.cards[sameCreated.inst].upgraded, true);
+    assert.equal(rb.state.cards[sameCreated.inst].confusedCost, sameSrcRoll);
+    assert.equal(cardView(rb.state, sameCreated.inst).cost, sameSrcRoll);
+    rb.replay();
+
+    // 4) battle-growth（bounty upgrade 击杀升级）：改费清除 confusedCost，不改费保留。
+    for (const changed of [false, true]) {
+        const hunter = confusedCard('confused-bounty', [
+            { op: 'damage', amount: 20, target: 'enemy' },
+            { op: 'bounty', reward: 'upgrade', amount: 1 },
+        ], {
+            type: 'attack', cost: 2,
+            upgraded: { ...(changed ? { cost: 0 } : {}), effects: [{ op: 'damage', amount: 25, target: 'enemy' }, { op: 'bounty', reward: 'upgrade', amount: 1 }] },
+        });
+        const bb = confusedBattle([hunter], { draw: 2, seed: 9, secondFoe: true,
+            configure(input) {
+                input.units[1].maxHp = 10;
+                input.units[1].skills = [{ id: 'idle', name: '蓄力', intent: 'buff', effects: [{ op: 'block', amount: 1, target: 'self' }] }];
+                input.units[2].skills = [{ id: 'idle', name: '蓄力', intent: 'buff', effects: [{ op: 'block', amount: 1, target: 'self' }] }];
+            },
+        });
+        const inst = bb.find(hunter.id);
+        const roll = bb.state.cards[inst].confusedCost;
+        bb.play(hunter.id, 'foe');
+        assert.equal(bb.state.cards[inst].upgraded, true);
+        assert.equal(bb.state.cards[inst].confusedCost, changed ? undefined : roll);
+        assert.equal(cardView(bb.state, inst).cost, changed ? 0 : roll);
+        bb.replay();
+    }
+});
+
+test('Confused cost-randomized 战报按回合归档，无出手、普通与折叠回合均不漏记也不错归', () => {
+    const cards = [0, 1, 2].map(n => confusedCard(`confused-rep-${n}`, [{ op: 'block', amount: 2 }], { cost: 1 }));
+    const battle = confusedBattle(cards, { draw: 3, seed: 17,
+        configure(input) {
+            input.units[1].skills = [{ id: 'tap', name: '轻击', intent: 'buff', effects: [{ op: 'block', amount: 1, target: 'self' }] }];
+        },
+    });
+    // 第一回合（混乱刚生效后的首次真实抽牌）主角先打一张牌，然后连续多个空回合，覆盖无 action 与折叠回合。
+    battle.play(cards[0].id);
+    for (let i = 0; i < 9; i += 1) battle.step({ type: 'end-turn' });
+    const turns = collectTurns(battle.events, battle.state.units, battle.state.catalog);
+    const rolledTurns = turns.filter(turn => (turn.randomizedCosts || []).length > 0);
+    assert.ok(rolledTurns.length >= 9);
+    // 确认 cost-randomized 不误挂到上一张牌的 action.notes，且全部按真实 unitId 归档。
+    for (const turn of turns) {
+        for (const action of turn.actions) {
+            for (const eff of action.targets.values()) {
+                assert.equal(eff.notes.some(text => text.includes('混乱随机')), false);
+            }
+        }
+        for (const item of turn.randomizedCosts || []) assert.equal(item.unitId, 'hero');
+    }
+    // 普通战报与简要战报：第 4–8 回合折叠后仍汇总混乱随机张数。
+    const finished = { ...battle.state, outcome: 'victory' };
+    for (const detail of ['normal', 'brief']) {
+        const report = buildCombatReport({ combatId: `confused-${detail}`, state: finished, events: battle.events, detail });
+        assert.equal(report.ok, true);
+        assert.match(report.text, /主角因混乱随机了\d+张抽牌的费用/);
+        assert.match(report.text, /第4–8回合：.*主角因混乱随机了\d+张抽牌的费用/);
+    }
+    // 只有 turn-start + cost-randomized（没有任何 action）的独立回合不能被过滤丢弃，且区分不同单位不串名。
+    const units = { ...battle.state.units, ally2: { id: 'ally2', name: '同伴', side: 'ally', kind: 'deck', hp: 50, maxHp: 50, alive: true } };
+    const loneEvents = [
+        { type: 'turn-start', turn: 1, unitId: 'hero', side: 'ally' },
+        { type: 'cost-randomized', unitId: 'hero', inst: 'c1', cost: 2 },
+        { type: 'cost-randomized', unitId: 'hero', inst: 'c2', cost: 0 },
+        { type: 'cost-randomized', unitId: 'ally2', inst: 'c3', cost: 3 },
+    ];
+    const loneReport = buildCombatReport({ combatId: 'confused-lone', state: { ...finished, units }, events: loneEvents });
+    assert.equal(loneReport.ok, true);
+    assert.match(loneReport.text, /主角因混乱随机了2张抽牌的费用/);
+    assert.match(loneReport.text, /同伴因混乱随机了1张抽牌的费用/);
+    battle.replay();
+});
 
 test('特色模型：40 项经正式生成、职业白名单、升级物化与回放', async (t) => {
     const fixture = await createGenerationFixture();
@@ -2173,4 +2663,597 @@ test('发送战报点击后立即关闭面板，未返回的真实会话继续�
     assert.equal(actual.state().status, 'done');
     assert.equal(sends, 1);
     assert.equal(panel.isOpen(), false);
+});
+
+test('抽卡与弃卡动画：全10套皮肤牌堆锚点可定位，planCardMotions与WAAPI弧线关键帧符合边界', async (t) => {
+    const { JSDOM } = await import('jsdom');
+    assert.ok(Array.isArray(BATTLE_SFX_PARTIALS['battle-card-draw']));
+    assert.ok(Array.isArray(BATTLE_SFX_PARTIALS['battle-card-discard']));
+    assert.ok(COMBAT_CARD_MOTION_STYLE_TEXT.includes(CARD_INCOMING_ATTR));
+    assert.ok(COMBAT_CARD_MOTION_STYLE_TEXT.includes(PILE_BUMP_ATTR));
+
+    // 1) planCardMotions 纯规则边界：开局首抽、回合内主牌排除与弃牌堆取回、回合末保留/虚无/洗牌重抽。
+    const mkState = (hand, discard = [], exhaust = []) => ({ controlledId: 'hero', piles: { hero: { draw: [], hand, discard, exhaust } } });
+    const startPlan = planCardMotions(null, mkState(['c1', 'c2', 'c3']), null, [{ type: 'draw', unitId: 'hero', count: 3 }], { start: true });
+    assert.deepEqual(startPlan.discarded, []);
+    assert.deepEqual(startPlan.drawn, ['c1', 'c2', 'c3']);
+    assert.equal(startPlan.drawSource.get('c1'), 'draw');
+
+    const playPlan = planCardMotions(
+        mkState(['c1', 'c2', 'c3']),
+        mkState(['c2', 'c4', 'c5'], ['c1', 'c3']),
+        { type: 'play', inst: 'c1' },
+        [
+            { type: 'discard', unitId: 'hero', inst: 'c3' },
+            { type: 'draw', unitId: 'hero', count: 1 },
+            { type: 'fetch', unitId: 'hero', inst: 'c5', from: 'discard', to: 'hand' },
+        ],
+    );
+    assert.deepEqual(playPlan.discarded, ['c3']);
+    assert.deepEqual(playPlan.drawn, ['c4', 'c5']);
+    assert.equal(playPlan.drawSource.get('c4'), 'draw');
+    assert.equal(playPlan.drawSource.get('c5'), 'discard');
+
+    const endTurnReshuffle = planCardMotions(
+        mkState(['keep', 'eth', 'a', 'b']),
+        mkState(['keep', 'a', 'b', 'c']),
+        { type: 'end-turn' },
+        [
+            { type: 'exhaust', unitId: 'hero', inst: 'eth' },
+            { type: 'turn-end', unitId: 'hero' },
+            { type: 'turn-start', unitId: 'hero', side: 'ally' },
+            { type: 'reshuffle', unitId: 'hero', count: 3 },
+            { type: 'draw', unitId: 'hero', count: 3 },
+        ],
+    );
+    assert.equal(endTurnReshuffle.endTurn, true);
+    assert.deepEqual(endTurnReshuffle.discarded, ['b', 'a']);
+    assert.deepEqual(endTurnReshuffle.drawn, ['a', 'b', 'c']);
+
+    // 2) 全 10 套皮肤（initial + 9 套画布皮肤）× 横竖屏：均可定位到有效的抽/弃牌堆锚点。
+    const battle = createBattle(setup(), 7).state;
+    const view = battleView(battle, []);
+    for (const skin of ['initial', ...Object.keys(CANVAS_BATTLE)]) {
+        for (const orient of ['port', 'land']) {
+            const dom = new JSDOM(`<div id="igs-combat-panel"><div class="igs-combat-body">${renderCombatPanelHtml({ status: 'battle', skin, orient, battle: view })}</div><div class="igs-combat-fx"></div></div>`);
+            try {
+                const doc = dom.window.document;
+                const root = doc.querySelector('#igs-combat-panel');
+                const stage = doc.querySelector('.igs-combat-fx');
+                for (const el of root.querySelectorAll('*')) {
+                    el.getBoundingClientRect = () => ({ left: 10, top: 20, right: 90, bottom: 80, width: 80, height: 60 });
+                }
+                const drawEl = findPileEl(root, 'draw');
+                const discEl = findPileEl(root, 'discard');
+                assert.ok(drawEl, `${skin}/${orient} 缺少抽牌堆节点`);
+                assert.ok(discEl, `${skin}/${orient} 缺少弃牌堆节点`);
+                assert.ok(pileAnchorRect(root, stage, 'draw')?.width > 0, `${skin}/${orient}`);
+                assert.ok(pileAnchorRect(root, stage, 'discard')?.width > 0, `${skin}/${orient}`);
+            } finally { dom.window.close(); }
+        }
+    }
+
+    // 3) 复用皮肤原位「抽牌 / 弃牌」文字节点绑定点击查看与动画锚点（不另建底部条），及精确旋转测量。
+    const dockDom = new JSDOM('<div id="igs-combat-panel"><div class="igs-combat-body"><div class="piles pile-d"><span>抽牌 <b>5</b></span></div><div class="piles pile-r"><span>弃牌 <b>0</b></span></div></div><div class="igs-combat-fx"></div></div>');
+    t.after(() => dockDom.window.close());
+    const dockDoc = dockDom.window.document;
+    const dockRoot = dockDoc.querySelector('#igs-combat-panel');
+    const docks = syncPileDocks(dockDoc, dockRoot, { draw: 5, discard: 0 });
+    assert.equal(dockRoot.querySelector('.igs-combat-pile-docks'), null, '不另建底部牌堆占位条');
+    assert.ok(docks && docks.draw?.classList.contains('pile-d') && docks.discard?.classList.contains('pile-r'));
+    assert.equal(docks.draw.getAttribute('data-combat-act'), 'pile-view');
+    assert.equal(docks.draw.getAttribute('data-combat-id'), 'draw');
+    assert.equal(docks.draw.getAttribute('aria-label'), '查看抽牌堆（5 张）');
+    assert.equal(docks.discard.getAttribute('data-combat-act'), 'pile-view');
+    assert.equal(docks.discard.getAttribute('data-combat-id'), 'discard');
+    assert.equal(docks.discard.getAttribute('aria-label'), '查看弃牌堆（0 张）');
+    const sameDocks = syncPileDocks(dockDoc, dockRoot, { draw: 1, discard: 2 });
+    assert.equal(sameDocks.draw, docks.draw);
+    assert.equal(sameDocks.discard, docks.discard);
+    assert.equal(sameDocks.draw.getAttribute('aria-label'), '查看抽牌堆（1 张）');
+    assert.equal(sameDocks.discard.getAttribute('aria-label'), '查看弃牌堆（2 张）');
+    const rotCard = dockDoc.createElement('button');
+    rotCard.style.setProperty('--rot', '-6.5deg');
+    rotCard.getBoundingClientRect = () => ({ left: 200, top: 400, width: 110, height: 150 });
+    Object.defineProperty(rotCard, 'offsetWidth', { value: 90 });
+    Object.defineProperty(rotCard, 'offsetHeight', { value: 130 });
+    assert.equal(cardNaturalRotate(rotCard), -6.5);
+    const box = measureCardBox(rotCard, dockRoot);
+    assert.equal(box.width, 90);
+    assert.equal(box.height, 130);
+    assert.equal(box.cx, 255);
+    assert.equal(box.cy, 475);
+    assert.equal(box.rot, -6.5);
+    syncPileDocks(dockDoc, dockRoot, null);
+    assert.equal(dockRoot.querySelector('[data-combat-pile]'), null);
+
+    // 3b) 画布皮肤的 #igs-cx-canvas .card 规则镜像到 .igs-cx-ghost（排除 .igs-cx-rw），避免飞行中卡面回退旧概念样式。
+    const { CANVAS_STYLE_TEXT } = await import('../src/visual/igs-ui/combat-skin-registry.js');
+    assert.ok(CANVAS_STYLE_TEXT.includes(':is(#igs-cx-canvas,.igs-cx-ghost:not(.igs-cx-rw)):where([data-cx="veil"]) .card .val.no-num svg'));
+    assert.ok(CANVAS_STYLE_TEXT.includes(':is(#igs-cx-canvas,.igs-cx-ghost:not(.igs-cx-rw)):where([data-cx="veil"]) .card .xtra'));
+    assert.ok(CANVAS_STYLE_TEXT.includes(':is(#igs-cx-canvas,.igs-cx-ghost:not(.igs-cx-rw)):where([data-cx="dark-a"]) .hand .card .xtra'));
+    assert.ok(!CANVAS_STYLE_TEXT.includes(':is(#igs-cx-canvas,.igs-cx-ghost:not(.igs-cx-rw)):where([data-cx="veil"]).land .hand{'), '画布 .hand 布局规则不得被镜像到影子容器');
+
+    // 4) WAAPI 弧线抽牌与弃牌关键帧、onfinish 同步交接、牌堆脉冲与 reduced 降级。
+    const dom = new JSDOM('<div id="igs-combat-panel"><div class="igs-combat-fx"></div><span class="pile-d"></span><span class="pile-r"></span></div>');
+    t.after(() => dom.window.close());
+    const doc = dom.window.document;
+    const stage = doc.querySelector('.igs-combat-fx');
+    stage.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 });
+    const timers = [];
+    const schedule = (fn, ms) => timers.push({ fn, ms });
+    const animated = [];
+    const mkGhost = () => {
+        const g = doc.createElement('div');
+        g.animate = (frames, opts) => {
+            const anim = { frames, opts, onfinish: null, cancel() {} };
+            animated.push(anim);
+            return anim;
+        };
+        return g;
+    };
+    const landed = [];
+    const drawRes = playDrawCards(stage, [
+        { inst: 'c1', rect: { left: 260, top: 440, width: 90, height: 130, cx: 305, cy: 505, rot: -5 }, ghost: mkGhost(), cardEl: doc.createElement('button') },
+        { inst: 'c2', rect: { left: 360, top: 440, width: 90, height: 130, cx: 405, cy: 505, rot: 4 }, ghost: mkGhost(), cardEl: doc.createElement('button') },
+    ], { left: 24, top: 520, width: 40, height: 40 }, { schedule, onLand: (inst) => landed.push(inst) });
+    assert.equal(drawRes.nodes.length, 2);
+    assert.ok(drawRes.totalMs >= COMBAT_CARD_MOTION.drawMs);
+    assert.equal(stage.querySelectorAll('.is-draw-ghost').length, 2);
+    // 第一张立即起步，末帧严格对齐自然旋转角 -5deg，第二张按 stagger 错峰。
+    assert.equal(animated.length, 1);
+    assert.equal(animated[0].frames.length, 4);
+    assert.ok(animated[0].frames[0].transform.includes('scale(.18)'));
+    assert.ok(animated[0].frames[2].transform.includes('scale(1.04)'));
+    assert.ok(animated[0].frames[3].transform.includes('rotate(-5.00deg)'));
+    // onfinish 立即无痕交接（先 onLand 后 remove ghost），重复兜底不双触发。
+    animated[0].onfinish?.();
+    assert.deepEqual(landed, ['c1']);
+    assert.equal(stage.querySelectorAll('.is-draw-ghost').length, 1);
+    while (timers.length) timers.shift().fn();
+    assert.equal(animated.length, 2);
+    assert.deepEqual(landed, ['c1', 'c2']);
+    assert.equal(stage.querySelectorAll('.is-draw-ghost').length, 0);
+
+    let arrived = 0;
+    const discRes = playDiscardCards(stage, [
+        { inst: 'c2', rect: { left: 360, top: 440, width: 90, height: 130 }, ghost: mkGhost() },
+    ], { left: 730, top: 520, width: 40, height: 40 }, { endTurn: true, schedule, onArrive: () => { arrived += 1; } });
+    assert.equal(discRes.nodes.length, 1);
+    assert.equal(animated.at(-1).frames.length, 4);
+    assert.ok(animated.at(-1).frames[3].transform.includes('scale(.16)'));
+    while (timers.length) timers.shift().fn();
+    assert.equal(arrived, 1);
+    assert.equal(stage.querySelectorAll('.is-discard-ghost').length, 0);
+
+    // 牌堆弹跳与 reduced 模式。
+    const pileEl = doc.querySelector('.pile-d');
+    bumpPile(pileEl, 'draw', { schedule });
+    assert.equal(pileEl.getAttribute(PILE_BUMP_ATTR), 'draw');
+    while (timers.length) timers.shift().fn();
+    assert.equal(pileEl.getAttribute(PILE_BUMP_ATTR), null);
+
+    const reducedLand = [];
+    const reducedDraw = playDrawCards(stage, [
+        { inst: 'c9', rect: { left: 260, top: 440, width: 90, height: 130 }, ghost: mkGhost(), cardEl: doc.createElement('button') },
+    ], { left: 24, top: 520, width: 40, height: 40 }, { reduced: true, schedule, onLand: (inst) => reducedLand.push(inst) });
+    assert.equal(reducedDraw.nodes.length, 0);
+    assert.deepEqual(reducedLand, ['c9']);
+});
+
+test('抽卡与弃卡动画：面板集成回合末弃牌后接敌方行动再发新牌、音效与关闭清理及reduced退化', async (t) => {
+    const { JSDOM } = await import('jsdom');
+    const drawSkill = { id: 'quick-draw', name: '疾抽', type: 'skill', rarity: 'common', cost: 0, effects: [{ op: 'draw', amount: 1 }] };
+    const dropSkill = { id: 'quick-drop', name: '轻弃', type: 'skill', rarity: 'common', cost: 0, effects: [{ op: 'discard', amount: 1, mode: 'random' }, { op: 'draw', amount: 1 }] };
+    const runScenario = ({ reduced }) => {
+        const dom = new JSDOM('<div id="igs-overlay"></div>', { url: 'http://127.0.0.1/', pretendToBeVisual: true });
+        t.after(() => dom.window.close());
+        const doc = dom.window.document;
+        const win = dom.window;
+        const origRect = win.Element.prototype.getBoundingClientRect;
+        win.Element.prototype.getBoundingClientRect = function rect() {
+            const cls = String(this.className || '');
+            if (cls.includes('igs-combat-fx')) return { left: 0, top: 0, right: 900, bottom: 600, width: 900, height: 600 };
+            if (cls.includes('igs-combat-card')) return { left: 300, top: 430, right: 390, bottom: 560, width: 90, height: 130 };
+            return { left: 40, top: 520, right: 120, bottom: 560, width: 80, height: 40 };
+        };
+        let animCalls = 0;
+        win.Element.prototype.animate = () => { animCalls += 1; return { cancel() {}, effect: { getTiming: () => ({ iterations: 1 }) } }; };
+        t.after(() => { win.Element.prototype.getBoundingClientRect = origRect; });
+
+        const input = setup(7, { cards: [drawSkill, dropSkill, strike] });
+        input.units[0].draw = 3;
+        let built = createBattle(input, 11);
+        assert.equal(built.ok, true);
+        let battleState = built.state;
+        const mockSession = {
+            state: () => ({ status: 'battle', combatId: 'card-motion-test', battle: battleState, legal: [{ type: 'end-turn' }, ...battleState.piles.hero.hand.map((inst) => ({ type: 'play', inst, targetId: 'foe' }))] }),
+            act: (action) => {
+                const res = applyAction(battleState, action);
+                if (res.ok) battleState = res.state;
+                return res;
+            },
+            subscribe: () => () => {},
+        };
+        const sfxLog = [];
+        const timers = [];
+        let tid = 1;
+        const activeTimers = new Map();
+        const schedule = (fn, ms) => {
+            const id = tid++;
+            const item = { id, fn, ms };
+            timers.push(item);
+            activeTimers.set(id, item);
+            return id;
+        };
+        const clear = (id) => { activeTimers.delete(id); };
+        const flush = () => {
+            let guard = 0;
+            while (timers.length && guard < 200) {
+                guard += 1;
+                const item = timers.shift();
+                if (!activeTimers.delete(item.id)) continue;
+                item.fn();
+            }
+        };
+        const panel = createCombatPanelController(doc, {
+            getSession: () => mockSession,
+            skin: () => 'initial',
+            reducedMotion: () => reduced,
+            playSfx: (kind) => sfxLog.push(kind),
+            schedule,
+            clear,
+        });
+        t.after(() => panel.dispose());
+        assert.equal(panel.open(doc.querySelector('#igs-overlay'), { messageId: 0 }).ok, true);
+
+        // 触发结束回合：立即播旧手牌弃牌，自动行动期间新抽手牌隐藏等待，自动行动完后再逐张发牌。
+        doc.querySelector('[data-combat-act="end-turn"]').click();
+        const fx = doc.querySelector('.igs-combat-fx');
+        const discardGhostsDuringAuto = fx.querySelectorAll('.is-discard-ghost').length;
+        const incomingDuringAuto = doc.querySelectorAll(`[${CARD_INCOMING_ATTR}]`).length;
+        flush();
+        const ghostsAfterFlush = fx.querySelectorAll('.igs-card-motion-ghost').length;
+        const incomingAfterFlush = doc.querySelectorAll(`[${CARD_INCOMING_ATTR}]`).length;
+        panel.close();
+        return { animCalls, sfxLog, discardGhostsDuringAuto, incomingDuringAuto, ghostsAfterFlush, incomingAfterFlush, activeAfterClose: activeTimers.size };
+    };
+
+    const full = runScenario({ reduced: false });
+    assert.ok(full.discardGhostsDuringAuto >= 1, '结束回合应立即生成弃牌飞行影子卡');
+    assert.ok(full.incomingDuringAuto >= 1, '敌方行动期间新回合手牌应等待自动行动结束后再发牌');
+    assert.ok(full.animCalls >= 4, '应执行弃牌与抽牌 WAAPI 动画');
+    assert.ok(full.sfxLog.includes('battle-card-discard'), '弃牌应播放弃牌音效');
+    assert.ok(full.sfxLog.includes('battle-card-draw'), '抽牌应播放抽牌音效');
+    assert.equal(full.ghostsAfterFlush, 0, '动画结束后应清理全部影子卡');
+    assert.equal(full.incomingAfterFlush, 0, '发牌结束后应揭露全部手牌');
+    assert.equal(full.activeAfterClose, 0, '关闭面板后不应残留计时器');
+
+    const still = runScenario({ reduced: true });
+    assert.equal(still.discardGhostsDuringAuto, 0);
+    assert.equal(still.incomingDuringAuto, 0);
+    assert.equal(still.sfxLog.includes('battle-card-discard'), false);
+    assert.equal(still.sfxLog.includes('battle-card-draw'), false);
+});
+
+test('抽卡与弃卡动画：点击抽牌/弃牌查看牌堆浮层，v7从弃牌堆亲选进手牌与放抽牌堆顶并重放一致', async (t) => {
+    const { JSDOM } = await import('jsdom');
+    const fetchHand = { id: 'fetch-hand', name: '回溯取牌', type: 'skill', rarity: 'common', cost: 0, effects: [{ op: 'retrieve', amount: 1, from: 'discard' }] };
+    const fetchTop = { id: 'fetch-top', name: '头槌回顶', type: 'attack', rarity: 'common', cost: 0, effects: [{ op: 'damage', amount: 6, target: 'enemy' }, { op: 'retrieve', amount: 1, from: 'discard', to: 'top' }] };
+    const cardA = { id: 'opt-a', name: '斩击甲', type: 'attack', rarity: 'common', cost: 0, effects: [{ op: 'damage', amount: 5, target: 'enemy' }] };
+    const cardB = { id: 'opt-b', name: '护盾乙', type: 'skill', rarity: 'common', cost: 0, effects: [{ op: 'block', amount: 7, target: 'self' }] };
+
+    // 1) v7 引擎：弃牌堆有 2 张候选时 retrieve(hand) 与 retrieve(top) 均挂起 pending，按玩家所选进入手牌或抽牌堆顶且重放一致；v6 保持自动选。
+    for (const [version, mode] of [[7, 'hand'], [7, 'top'], [6, 'hand']]) {
+        const picker = mode === 'top' ? fetchTop : fetchHand;
+        const input = setup(version, { cards: [picker, cardA, cardB, strike] });
+        input.units[0].draw = 4;
+        input.units[0].deck = [picker.id, cardA.id, cardB.id, strike.id];
+        const built = createBattle(input, 7);
+        assert.equal(built.ok, true);
+        let state = built.state;
+        const actions = [];
+        const find = (id) => state.piles.hero.hand.find((inst) => state.cards[inst].cardId === id);
+        const aInst = find(cardA.id);
+        const bInst = find(cardB.id);
+        const pInst = find(picker.id);
+        assert.ok(aInst && bInst && pInst);
+        for (const a of [{ type: 'play', inst: aInst, targetId: 'foe' }, { type: 'play', inst: bInst }]) {
+            state = act(state, a).state;
+            actions.push(a);
+        }
+        assert.equal(state.piles.hero.discard.length, 2);
+        const playPick = mode === 'top' ? { type: 'play', inst: pInst, targetId: 'foe' } : { type: 'play', inst: pInst };
+        state = act(state, playPick).state;
+        actions.push(playPick);
+        if (version === 7) {
+            assert.equal(state.pending?.kind, 'retrieve');
+            assert.equal(state.pending?.from, 'discard');
+            assert.equal(state.pending?.to, mode);
+            assert.equal(state.pending?.options.length, 2);
+            // 显式选择 cardB，验证进手牌或放抽牌堆顶。
+            const chooseAct = { type: 'choose', insts: [bInst] };
+            state = act(state, chooseAct).state;
+            actions.push(chooseAct);
+            assert.equal(state.pending, undefined);
+            if (mode === 'hand') assert.ok(state.piles.hero.hand.includes(bInst));
+            else assert.equal(state.piles.hero.draw.at(-1), bInst);
+        } else {
+            assert.equal(state.pending, undefined);
+        }
+        const replayed = replayBattle(input, 7, actions);
+        assert.equal(replayed.ok, true, JSON.stringify(replayed.error));
+        assert.deepEqual(replayed.state, state);
+    }
+
+    // 2) 面板集成：点击「抽牌」「弃牌」查看当前牌堆浮层，以及通过选牌浮层完成从弃牌堆选卡进手牌。
+    const dom = new JSDOM('<div id="igs-overlay"></div>', { url: 'http://127.0.0.1/', pretendToBeVisual: true });
+    t.after(() => dom.window.close());
+    const doc = dom.window.document;
+    const input = setup(7, { cards: [fetchHand, cardA, cardB, strike] });
+    input.units[0].draw = 5;
+    input.units[0].deck = [fetchHand.id, cardA.id, cardB.id, strike.id, strike.id, strike.id];
+    let battleState = null;
+    for (let s = 1; s <= 20; s += 1) {
+        const candidate = createBattle(input, s).state;
+        const h = candidate.piles.hero.hand.map((inst) => candidate.cards[inst].cardId);
+        if (h.includes(fetchHand.id) && h.includes(cardA.id) && h.includes(cardB.id)) { battleState = candidate; break; }
+    }
+    assert.ok(battleState);
+    const find = (id) => battleState.piles.hero.hand.find((inst) => battleState.cards[inst].cardId === id);
+    battleState = act(battleState, { type: 'play', inst: find(cardA.id), targetId: 'foe' }).state;
+    battleState = act(battleState, { type: 'play', inst: find(cardB.id) }).state;
+    const mockSession = {
+        state: () => ({
+            status: 'battle', combatId: 'pile-view-test', battle: battleState,
+            legal: battleState.pending
+                ? battleState.pending.options.map((inst) => ({ type: 'choose', insts: [inst] }))
+                : [{ type: 'end-turn' }, ...battleState.piles.hero.hand.map((inst) => ({ type: 'play', inst }))],
+        }),
+        act: (action) => {
+            const res = applyAction(battleState, action);
+            if (res.ok) battleState = res.state;
+            return res;
+        },
+        subscribe: () => () => {},
+    };
+    const panel = createCombatPanelController(doc, {
+        getSession: () => mockSession,
+        skin: () => 'veil',
+        reducedMotion: () => true,
+    });
+    t.after(() => panel.dispose());
+    assert.equal(panel.open(doc.querySelector('#igs-overlay'), { messageId: 0 }).ok, true);
+
+    // 点击右下「弃牌」打开弃牌堆查看浮层，确认列出两张弃牌。
+    doc.querySelector('[data-combat-pile="discard"]').click();
+    const discardSheet = doc.querySelector('.igs-pile-sheet');
+    assert.ok(discardSheet);
+    assert.ok(discardSheet.textContent.includes('斩击甲') && discardSheet.textContent.includes('护盾乙'));
+    doc.querySelector('[data-combat-act="pile-close"]').click();
+    assert.equal(doc.querySelector('.igs-pile-sheet'), null);
+
+    // 点击左下「抽牌」打开抽牌堆查看浮层，确认可查看并关闭。
+    doc.querySelector('[data-combat-pile="draw"]').click();
+    assert.ok(doc.querySelector('.igs-pile-sheet')?.textContent.includes('抽牌堆'));
+    doc.querySelector('[data-combat-act="pile-close"]').click();
+
+    // 打出「回溯取牌」挂起弃牌堆选牌弹窗，点选「护盾乙」并确认，验证成功加入手牌。
+    const fetchInst = find(fetchHand.id);
+    const cardBtn = [...doc.querySelectorAll('[data-combat-act="card"]')].find((el) => el.getAttribute('data-combat-id') === fetchInst);
+    assert.ok(cardBtn);
+    cardBtn.click();
+    const heroBtn = doc.querySelector('[data-combat-act="target"]');
+    assert.ok(heroBtn);
+    heroBtn.click();
+    assert.equal(battleState.pending?.kind, 'retrieve');
+    const pickBtn = [...doc.querySelectorAll('[data-combat-act="choose-pick"]')].find((el) => el.textContent.includes('护盾乙'));
+    assert.ok(pickBtn, '应弹出弃牌堆选牌浮层并包含护盾乙');
+    pickBtn.click();
+    doc.querySelector('[data-combat-act="choose-confirm"]').click();
+    assert.equal(battleState.pending, undefined);
+    assert.ok(battleState.piles.hero.hand.some((inst) => battleState.cards[inst].cardId === cardB.id));
+});
+
+test('打击感与状态特效升级：多形态命中爆点、卡肉分档、Buff/Debuff/免疫/净化光效、血条残影与面板集成', async (t) => {
+    const { JSDOM } = await import('jsdom');
+    // 1) combatHitMarks 完整解析增益、减益、负层数降属性、中毒掉血、人工制品免疫与净化事件。
+    const events = [
+        { type: 'damage', target: 'foe', amount: 14, hpLoss: 14, blocked: 0, strike: 1 },
+        { type: 'damage', target: 'foe', amount: 5, hpLoss: 5, blocked: 0, kind: 'poison', loss: true },
+        { type: 'status', target: 'hero', status: 'strength', stacks: 3 },
+        { type: 'status', target: 'foe', status: 'vulnerable', stacks: 2 },
+        { type: 'status', target: 'foe', status: 'confused', stacks: 1 },
+        { type: 'status', target: 'foe', status: 'strength', stacks: -2 },
+        { type: 'artifact', target: 'hero', status: 'confused' },
+        { type: 'cleanse', target: 'hero', statuses: ['weak'] },
+    ];
+    const grouped = new Map(combatHitMarks(events).map((g) => [g.unitId, g.marks]));
+    const foeMarks = grouped.get('foe');
+    const heroMarks = grouped.get('hero');
+    assert.ok(foeMarks.some((m) => m.kind === 'damage' && m.amount === 14 && m.strike === 1));
+    assert.ok(foeMarks.some((m) => m.kind === 'damage' && m.amount === 5 && m.damageKind === 'poison' && m.loss === true));
+    assert.ok(foeMarks.some((m) => m.kind === 'debuff' && m.status === 'vulnerable' && m.stacks === 2));
+    assert.ok(foeMarks.some((m) => m.kind === 'debuff' && m.status === 'confused' && m.stacks === 1));
+    assert.ok(foeMarks.some((m) => m.kind === 'debuff' && m.status === 'strength' && m.stacks === -2));
+    assert.ok(heroMarks.some((m) => m.kind === 'buff' && m.status === 'strength' && m.stacks === 3));
+    assert.ok(heroMarks.some((m) => m.kind === 'artifact' && m.status === 'confused'));
+    assert.ok(heroMarks.some((m) => m.kind === 'cleanse' && m.count === 1));
+
+    // 2) 卡肉分档：普通轻击也有轻顿帧，重击/巨创/击倒逐级增强，格挡有独立短促盾震。
+    assert.equal(impactTierFor([{ kind: 'damage', amount: 6 }], { maxHp: 80 }).level, 1);
+    assert.ok(impactTierFor([{ kind: 'damage', amount: 6 }], { maxHp: 80 }).hold > 0);
+    assert.equal(impactTierFor([{ kind: 'damage', amount: 15 }], { maxHp: 80 }).level, 2);
+    assert.equal(impactTierFor([{ kind: 'damage', amount: 30 }], { maxHp: 80 }).level, 3);
+    assert.equal(impactTierFor([{ kind: 'damage', amount: 10 }, { kind: 'ko' }], { maxHp: 80 }).level, 4);
+    assert.equal(impactTierFor([{ kind: 'guard', amount: 8 }]).level, 1);
+    assert.equal(impactTierFor([{ kind: 'buff', status: 'strength', stacks: 2 }]).level, 0);
+
+    // 3) 按皮肤主题模型驱动的零 SVG 光栅特效、Buff/Debuff 专属光效、暗角闪震、飘字与受击反应。
+    const dom = new JSDOM('<div id="igs-combat-panel"><div class="cx-unit foe"></div></div>');
+    t.after(() => dom.window.close());
+    const doc = dom.window.document;
+    const root = doc.querySelector('#igs-combat-panel');
+    const unit = doc.querySelector('.foe');
+    const timers = [];
+    const schedule = (fn, ms) => { timers.push({ fn, ms }); };
+
+    // 校验 10 套皮肤主题模型齐全，且 38 张光栅 WebP 素材真实存在于仓库且为有效 RIFF/WEBP（含 7 套独立整块结晶格挡盾 shield.webp）。
+    const allSkins = ['veil', 'initial', 'ink', 'comic', 'tech', 'mystic', 'soft-a', 'soft-c', 'dark-a', 'dark-b'];
+    const checkedFiles = new Set();
+    for (const skin of allSkins) {
+        const theme = resolveVfxTheme(skin);
+        assert.equal(theme.id, skin);
+        for (const slot of ['slash', 'burst', 'shield', 'shatter', 'aura', 'poison', 'confused', 'lightning']) {
+            const url = vfxTextureUrl(skin, slot);
+            assert.ok(url.endsWith('.webp'), `${skin}/${slot} 应为 WebP 资源`);
+            const filePath = fileURLToPath(url);
+            if (!checkedFiles.has(filePath)) {
+                checkedFiles.add(filePath);
+                const head = fs.readFileSync(filePath).subarray(0, 12);
+                assert.equal(head.subarray(0, 4).toString('ascii'), 'RIFF', filePath);
+                assert.equal(head.subarray(8, 12).toString('ascii'), 'WEBP', filePath);
+            }
+        }
+    }
+    assert.equal(checkedFiles.size, 38, '7 套主题包×5（含整块结晶 shield 与碎盾 shatter 分离）+ 3 张公共元素纹理共 38 张 WebP');
+    assert.ok(impactTierFor([{ kind: 'damage', amount: 16 }], { maxHp: 80, skin: 'comic' }).hold > impactTierFor([{ kind: 'damage', amount: 16 }], { maxHp: 80, skin: 'soft-a' }).hold, '不同皮肤应按主题模型调节卡肉顿帧倍率');
+
+    const sampleSkins = ['veil', 'ink', 'comic', 'tech', 'mystic', 'soft-a', 'dark-a'];
+    for (const [idx, kind] of ['slash', 'blunt', 'gun', 'blast', 'arcane', 'curse', 'guard', 'poison', 'ko'].entries()) {
+        const skin = sampleSkins[idx % sampleSkins.length];
+        const nodes = showImpactBurst(doc, unit, { skin, kind, element: kind === 'slash' ? 'thunder' : '', level: 2, hitIndex: 1 }, { schedule });
+        assert.equal(nodes.length, 1, `应挂载 ${kind} 爆点`);
+        assert.ok(nodes[0].classList.contains(`is-${kind}`));
+        assert.equal(nodes[0].getAttribute('data-vfx-theme'), skin);
+        assert.equal(nodes[0].querySelector('svg'), null, `${kind} 命中特效不得含任何 SVG`);
+        const imgs = [...nodes[0].querySelectorAll('img.vfx-tex')];
+        assert.ok(imgs.length >= 1 && imgs.every((img) => img.src.endsWith('.webp')), `${kind} 应使用光栅 WebP 纹理`);
+    }
+    assert.notEqual(vfxTextureUrl('ink', 'slash'), vfxTextureUrl('tech', 'slash'), '水墨与科技皮肤应加载独立主题美术纹理');
+    assert.equal(showImpactBurst(doc, unit, { skin: 'veil', kind: 'slash', level: 2 }, { reduced: true, schedule }).length, 0);
+
+    const statusNodes = showStatusFx(doc, unit, [
+        { kind: 'buff', status: 'strength', stacks: 2, label: '攻击力' },
+        { kind: 'buff', status: 'dexterity', stacks: 2, label: '防御力' }, // 同类别去重
+        { kind: 'block', amount: 8 },
+        { kind: 'debuff', status: 'confused', stacks: 1, label: '混乱' },
+        { kind: 'debuff', status: 'poison', stacks: 4, label: '中毒' },
+        { kind: 'debuff', status: 'vulnerable', stacks: 2, label: '易伤' },
+        { kind: 'artifact', status: 'weak', label: '虚弱' },
+        { kind: 'cleanse', count: 1 },
+    ], { skin: 'mystic', schedule });
+    assert.equal(statusNodes.length, 7, 'Buff去重+整块结晶格挡+三类特色Debuff+免疫+净化共7个光效');
+    assert.ok(statusNodes.every((n) => n.querySelector('svg') === null && n.querySelector('img.st-tex')?.src.endsWith('.webp')), '所有状态特效均为零 SVG 光栅纹理');
+    assert.ok(statusNodes.some((n) => n.classList.contains('is-buff') && n.getAttribute('data-vfx-theme') === 'mystic'));
+    assert.ok(statusNodes.some((n) => n.classList.contains('is-block') && n.querySelector('img.st-tex')?.src.includes('/mystic/shield.webp')), '上格挡应使用整块规整结晶 shield.webp 而非碎盾 shatter.webp');
+    assert.ok(statusNodes.some((n) => n.classList.contains('is-debuff-confused') && n.querySelector('img.st-tex')?.src.includes('/common/confused.webp')));
+    assert.ok(statusNodes.some((n) => n.classList.contains('is-debuff-poison') && n.querySelector('img.st-tex')?.src.includes('/common/poison.webp')));
+    assert.ok(statusNodes.some((n) => n.classList.contains('is-debuff-vulnerable') && n.querySelector('img.st-tex')?.src.includes('/mystic/shatter.webp')));
+
+    assert.equal(pulseVignette(root, 'massive', { schedule }), true);
+    assert.equal(root.getAttribute(COMBAT_IMPACT_VIGNETTE_ATTR), 'massive');
+    assert.equal(reactUnit(unit, [{ kind: 'buff', status: 'strength', stacks: 2 }], { schedule }), 'buff');
+    assert.equal(reactUnit(unit, [{ kind: 'debuff', status: 'confused', stacks: 1 }], { schedule }), 'debuff');
+    assert.equal(reactUnit(unit, [{ kind: 'damage', amount: 4, damageKind: 'poison' }], { schedule }), 'poison');
+
+    const floats = showHitFloats(doc, unit, [
+        { kind: 'damage', amount: 5, damageKind: 'poison' },
+        { kind: 'buff', status: 'strength', stacks: 3, label: '攻击力' },
+        { kind: 'debuff', status: 'confused', stacks: 1, label: '混乱' },
+        { kind: 'artifact', status: 'weak', label: '虚弱' },
+        { kind: 'cleanse', count: 1 },
+    ], { schedule, hitIndex: 1 });
+    assert.equal(floats.length, 5);
+    assert.ok(floats[0].classList.contains('is-poison'));
+    assert.equal(floats[1].textContent, '▲ 攻击力 +3');
+    assert.ok(floats[2].classList.contains('is-status-confused') && floats[2].textContent.includes('混乱'));
+    assert.equal(floats[3].textContent, '免疫');
+    assert.equal(floats[4].textContent, '净化');
+
+    for (const item of timers) item.fn();
+    assert.equal(unit.querySelector('.igs-impact-burst'), null);
+    assert.equal(unit.querySelector('.igs-status-fx'), null);
+    assert.equal(root.hasAttribute(COMBAT_IMPACT_VIGNETTE_ATTR), false);
+
+    // 4) 样式与配套合成音效检查：包含全皮肤卡肉顿帧、血条延迟残影、旧版尖刺 SVG 压制及 5 项状态/破盾音效。
+    assert.ok(COMBAT_IMPACT_FX_STYLE_TEXT.includes('[data-igs-combat-hold]'));
+    assert.ok(COMBAT_IMPACT_FX_STYLE_TEXT.includes('.cx-hp::before'));
+    assert.ok(COMBAT_IMPACT_FX_STYLE_TEXT.includes('.igs-shield-break'));
+    assert.ok(COMBAT_IMPACT_FX_STYLE_TEXT.includes('.hx-fxlight{display:none !important;}'));
+    for (const sfxKey of ['battle-buff', 'battle-debuff', 'battle-poison', 'battle-artifact', 'battle-shield-break']) {
+        assert.ok(Array.isArray(BATTLE_SFX_PARTIALS[sfxKey]) && BATTLE_SFX_PARTIALS[sfxKey].length >= 2, sfxKey);
+    }
+
+    // 5) 破盾（格挡被打碎）：穿透破盾、刚好打空破盾与未打碎部分格挡严格区分，破盾触发主题光栅碎盾纹理（零 SVG）、破盾飘字与至少 2 档卡肉。
+    const overflowMarks = combatHitMarks([{ type: 'damage', target: 'foe', amount: 15, blocked: 10, hpLoss: 5, strike: 1 }])[0].marks;
+    assert.ok(overflowMarks.some((m) => m.kind === 'shield-break' && m.amount === 10 && m.strike === 1));
+    assert.ok(overflowMarks.some((m) => m.kind === 'damage' && m.amount === 5 && m.strike === 1));
+    const exactBreakMarks = combatHitMarks(
+        [{ type: 'damage', target: 'foe', amount: 10, blocked: 10, hpLoss: 0, strike: 1 }],
+        { units: { foe: { block: 10 } } },
+    )[0].marks;
+    assert.ok(exactBreakMarks.some((m) => m.kind === 'shield-break' && m.amount === 10));
+    assert.ok(!exactBreakMarks.some((m) => m.kind === 'guard'), '刚好打空格挡时走破盾而非普通格挡');
+    const partialBlockMarks = combatHitMarks(
+        [{ type: 'damage', target: 'foe', amount: 6, blocked: 6, hpLoss: 0, strike: 1 }],
+        { units: { foe: { block: 12 } } },
+    )[0].marks;
+    assert.ok(!partialBlockMarks.some((m) => m.kind === 'shield-break'), '格挡未被打空时不得误触发破盾');
+    assert.ok(partialBlockMarks.some((m) => m.kind === 'guard' && m.amount === 6));
+    assert.equal(impactTierFor([{ kind: 'shield-break', amount: 10 }], { skin: 'veil' }).level, 2);
+    const sbTimers = [];
+    const sbNodes = showShieldBreak(doc, unit, { skin: 'ink', schedule: (fn) => sbTimers.push(fn) });
+    assert.equal(sbNodes.length, 1);
+    assert.equal(sbNodes[0].querySelector('svg'), null, '破盾特效不得含 SVG');
+    assert.equal(sbNodes[0].querySelectorAll('img.sb-tex').length, 2, '高画质应挂主碎盾纹理与景深回响纹理');
+    assert.ok(sbNodes[0].querySelector('img.sb-tex')?.src.includes('/ink/shatter.webp'));
+    assert.equal(sbNodes[0].querySelectorAll('.sb-glint').length, 8);
+    assert.equal(showShieldBreak(doc, unit, { skin: 'ink', reduced: true }).length, 0);
+    const sbFloats = showHitFloats(doc, unit, [{ kind: 'shield-break', amount: 10 }], { schedule: (fn) => sbTimers.push(fn) });
+    assert.equal(sbFloats[0].textContent, '破盾');
+    assert.ok(sbFloats[0].classList.contains('is-shield-break'));
+    for (const fn of sbTimers) fn();
+    assert.equal(unit.querySelector('.igs-shield-break'), null);
+});
+
+test('方案C敌人平衡：模板首领不再误乘generatedScale、同级伤害随等级成长、多人crowd合理且托管优先逃离沙坑', () => {
+    // 1. 模板首领（带 template 且 generated: true）不应用 generatedScale.boss=0.9；纯生成首领仍保留 0.9。
+    const baseBoss = templateEnemy('巨像首领', 'boss');
+    const templateBoss = { ...baseBoss, generated: true, template: { enemyId: 'en-sts1-act1-24', model: 'original' } };
+    const pureGenBoss = { ...baseBoss, generated: true, template: undefined };
+    const startBoss = { tier: 'boss', enemies: [{ name: '巨像首领', count: 1 }] };
+    const fromTemplate = enemyUnits(startBoss, new Map([['巨像首领', templateBoss]]), 1, 'normal').units[0];
+    const fromGen = enemyUnits(startBoss, new Map([['巨像首领', pureGenBoss]]), 1, 'normal').units[0];
+    assert.ok(fromTemplate.maxHp > fromGen.maxHp, '模板首领生命应高于纯生成首领（不被 generatedScale.boss=0.9 误砍）');
+    assert.ok(Math.abs(fromGen.maxHp - Math.round(fromTemplate.maxHp * 0.9)) <= 1);
+    assert.ok(fromTemplate.damageScale > fromGen.damageScale);
+
+    // 2. 同级伤害随敌人等级按 tierDamageScalePerLevel=0.025 成长。
+    const lv1 = scaleEnemyStats(baseBoss, 1, 'normal');
+    const lv10 = scaleEnemyStats(baseBoss, 10, 'normal');
+    assert.equal(lv1.damageScale, COMBAT_RULES.tiers.boss.damageScale);
+    assert.equal(lv10.damageScale, Math.round(COMBAT_RULES.tiers.boss.damageScale * (1 + 0.025 * 9) * 100) / 100);
+
+    // 3. 多人 crowd 阶梯（0胜起单敌 1.00 / 双敌 0.72 / 三敌 0.58 / 四敌 0.50，20胜满额 1.00）。
+    assert.equal(crowdScaleFor(1, 0), 1);
+    assert.equal(crowdScaleFor(2, 0), 0.72);
+    assert.equal(crowdScaleFor(3, 0), 0.58);
+    assert.equal(crowdScaleFor(4, 0), 0.5);
+    assert.equal(crowdScaleFor(4, 20), 1);
+
+    // 4. 托管 AI 在敌方沙坑 countdown <= 2 时优先打出 status-escape。
+    const escapeCard = { id: 'status-escape', name: '狂乱逃离', type: 'status', cost: 1, rarity: 'common', effects: [] };
+    const sandpitInput = setup(7, { cards: [strike, escapeCard] });
+    sandpitInput.units[0].deck = ['strike', 'strike', 'strike', 'strike', 'status-escape', 'strike', 'strike', 'strike', 'strike', 'strike'];
+    sandpitInput.units[0].draw = 5;
+    const built = createBattle(sandpitInput, 7);
+    assert.equal(built.ok, true, JSON.stringify(built.error));
+    const hand = built.state.piles.hero.hand;
+    const escapeInst = hand.find(inst => built.state.cards[inst].cardId === 'status-escape');
+    assert.ok(escapeInst, '手牌应抽到狂乱逃离');
+    const urgentState = structuredClone(built.state);
+    urgentState.units.foe.statuses.sandpit = 2;
+    const chosen = chooseAllyPlay(urgentState, 'hero');
+    assert.deepEqual(chosen, { inst: escapeInst }, '沙坑倒计时 <= 2 时托管必须优先打出狂乱逃离');
 });

@@ -116,6 +116,8 @@ registerMechanic({
         { key: 'burrowed', label: '潜地', clearBlockOnRemove: true },
         { key: 'asleep', label: '睡眠' },
         { key: 'about-to-blow', label: '将爆' },
+        { key: 'curiosity', label: '好奇' },
+        { key: 'regenerate', label: '再生' },
     ],
     ops: {
         // 致死转爆炸（M4）：对目标造成等于 res.stored（重生时记下的 needs 状态层数）的攻击伤害；没有记录时不造成伤害。
@@ -363,6 +365,8 @@ registerMechanic({
                 if (ctx.state.outcome) break;
                 // 恼怒：对方打出技能牌时获得层数攻击力（能力牌不算）。
                 if (card.type === 'skill' && st(foe, 'rile')) kit.addStatus(ctx, foe, 'strength', st(foe, 'rile'), statusSource(foe, 'rile'));
+                // 好奇：对方打出能力牌时获得层数攻击力。
+                if (card.type === 'power' && st(foe, 'curiosity')) kit.addStatus(ctx, foe, 'strength', st(foe, 'curiosity'), statusSource(foe, 'curiosity'));
             }
             const tender = st(unit, 'tender');
             if (tender && unit.alive) {
@@ -370,12 +374,14 @@ registerMechanic({
                 if (res) res.tender = (res.tender || 0) + tender;
             }
         },
-        // 镀甲：自身回合结束获得层数格挡；自身回合开始减 1 层。金属化：自身回合结束获得层数格挡，不衰减、不因受击减层。
+        // 镀甲：自身回合结束获得层数格挡；自身回合开始减 1 层。金属化：自身回合结束获得层数格挡，不衰减、不因受击减层。再生：自身回合结束回复层数生命，不衰减。
         'turn-end-before'(ctx, { unit }, kit) {
             const n = st(unit, 'plating');
             if (n && unit.alive) kit.gainBlock(ctx, unit, n, statusSource(unit, 'plating'));
             const metal = st(unit, 'metallicize');
             if (metal && unit.alive && !ctx.state.outcome) kit.gainBlock(ctx, unit, metal, statusSource(unit, 'metallicize'));
+            const regen = st(unit, 'regenerate');
+            if (regen && unit.alive && !ctx.state.outcome) kit.heal(ctx, unit, regen, statusSource(unit, 'regenerate'));
         },
         'turn-start-after'(ctx, { unit }, kit) {
             const n = st(unit, 'plating');

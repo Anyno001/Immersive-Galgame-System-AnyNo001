@@ -46,20 +46,21 @@ export const COMBAT_RULES = Object.freeze({
     maxAllies: 3,
     defaultSpeed: 100,
     speedJitter: 5,
-    enemySpeedGain: 0.5,
+    enemySpeedGain: 0.75,
     tiers: Object.freeze({
         normal: Object.freeze({ label: '普通', hp: 40, damageCap: 12, exp: 20, speed: 100, hpScale: 1.2, damageScale: 2.38, difficultyGain: 1 }),
         elite: Object.freeze({ label: '精英', hp: 80, damageCap: 18, exp: 45, speed: 104, hpScale: 1.01, damageScale: 1.49, difficultyGain: 0.5 }),
-        boss: Object.freeze({ label: '首领', hp: 160, damageCap: 26, exp: 100, speed: 92, hpScale: 0.51, damageScale: 0.75, difficultyGain: 0.5 }),
+        boss: Object.freeze({ label: '首领', hp: 160, damageCap: 26, exp: 100, speed: 92, hpScale: 1.05, damageScale: 1.05, difficultyGain: 0.5 }),
     }),
     tierScalePerLevel: 0.05,
+    tierDamageScalePerLevel: 0.025,
     levelGap: Object.freeze({ hp: 0.02, damage: 0.04 }),
-    // 剧情战斗每五个有效胜场恢复一档；scale 依次为单敌、双敌、三敌、四敌以上。
+    // 剧情战斗每五个有效胜场恢复一档；scale 依次为单敌、双敌、三敌、四敌以上（单敌开局不打折，多敌温和折算）。
     crowd: Object.freeze([
-        Object.freeze({ wins: 0, scale: Object.freeze([0.8, 0.4, 0.28, 0.22]) }),
-        Object.freeze({ wins: 5, scale: Object.freeze([0.85, 0.55, 0.46, 0.42]) }),
-        Object.freeze({ wins: 10, scale: Object.freeze([0.9, 0.7, 0.64, 0.61]) }),
-        Object.freeze({ wins: 15, scale: Object.freeze([0.95, 0.85, 0.82, 0.81]) }),
+        Object.freeze({ wins: 0, scale: Object.freeze([1, 0.72, 0.58, 0.5]) }),
+        Object.freeze({ wins: 5, scale: Object.freeze([1, 0.8, 0.68, 0.62]) }),
+        Object.freeze({ wins: 10, scale: Object.freeze([1, 0.88, 0.78, 0.74]) }),
+        Object.freeze({ wins: 15, scale: Object.freeze([1, 0.94, 0.89, 0.87]) }),
         Object.freeze({ wins: 20, scale: Object.freeze([1, 1, 1, 1]) }),
     ]),
     // 仅用于剧情建局，避免改变共用 scaleEnemyStats 的日常挑战调用方。
@@ -173,6 +174,8 @@ export const TOKEN_CARDS = deepFreeze({
     'status-burn': { id: 'status-burn', name: '灼痕', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '灼痕' },
     'status-slime': { id: 'status-slime', name: '黏浊', type: 'skill', cost: 1, rarity: 'basic', effects: [{ op: 'exhaust-self' }], skillRef: '黏浊' },
     'status-slime-sts2': { id: 'status-slime-sts2', name: '黏液', type: 'skill', cost: 1, rarity: 'basic', effects: [{ op: 'draw', amount: 1 }, { op: 'exhaust-self' }], skillRef: '黏液' },
+    'status-infection': { id: 'status-infection', name: '感染', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '感染' },
+    'status-escape': { id: 'status-escape', name: '狂乱逃离', type: 'skill', cost: 1, rarity: 'basic', effects: [], skillRef: '狂乱逃离' },
     'status-void': { id: 'status-void', name: '空洞', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, ethereal: true, skillRef: '空洞' },
     'status-pain': { id: 'status-pain', name: '痛楚', type: 'skill', cost: 0, rarity: 'basic', effects: [], unplayable: true, skillRef: '痛楚' },
     // 规则 v6 乐师固定卡的衍生牌（只新增键；只由 v6 固定卡的 create 生成）。
@@ -443,12 +446,14 @@ export function scaleEnemyStats(template, level = 1, difficulty = 'normal', { ga
     const tier = COMBAT_RULES.tiers[template?.tier];
     if (!tier) return null;
     const rule = difficultyRule(difficulty);
-    const levelScale = 1 + COMBAT_RULES.tierScalePerLevel * Math.max(0, (Number(level) || 1) - 1);
+    const levelSteps = Math.max(0, (Number(level) || 1) - 1);
+    const levelScale = 1 + COMBAT_RULES.tierScalePerLevel * levelSteps;
+    const damageLevelScale = 1 + (COMBAT_RULES.tierDamageScalePerLevel ?? 0) * levelSteps;
     const levelGap = Math.max(0, Number(gap) || 0);
     // 难度倍率大于 1 的部分按档位的 difficultyGain 打折，小于 1 的部分原样生效。
     const gained = (multiplier) => multiplier > 1 ? 1 + (multiplier - 1) * (tier.difficultyGain ?? 1) : multiplier;
     const hp = Math.max(1, Math.round(template.base.hp * levelScale * gained(rule.hp) * (tier.hpScale ?? 1) * (1 + COMBAT_RULES.levelGap.hp * levelGap)));
-    const damage = gained(rule.damage) * (tier.damageScale ?? 1) * (1 + COMBAT_RULES.levelGap.damage * levelGap);
+    const damage = damageLevelScale * gained(rule.damage) * (tier.damageScale ?? 1) * (1 + COMBAT_RULES.levelGap.damage * levelGap);
     return { hp, damageScale: Math.min(5, Math.round(damage * 100) / 100) };
 }
 

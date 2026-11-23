@@ -8,6 +8,7 @@ import './guard.js';
 import './drain.js';
 import './pile.js';
 import './energy.js';
+import './confused.js';
 import './status-cards.js';
 import './battle-growth.js';
 import './rampart.js';

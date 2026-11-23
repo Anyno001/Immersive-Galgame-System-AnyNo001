@@ -827,23 +827,66 @@ const intimateResultHtml = (v) => {
     return `<section class="igs-combat-result igs-duel-result" data-outcome="${esc(v.end.outcome)}"><p class="igs-duel-result-line">${esc(line)}</p><div class="igs-combat-actions">${send}</div></section>`;
 };
 
-// M7 二选一诅咒浮层：挂起的选择带 curses 时出现，必须选一项再确认（不能关闭或跳过）；各皮肤与竖屏共用，叠在最上层。
+const PILE_ORIGIN_LABEL = Object.freeze({ draw: '抽牌堆', discard: '弃牌堆', exhaust: '消耗堆' });
+
+function pileChoiceCopy(choice) {
+    const n = choice.count || 1;
+    if (choice.kind === 'draw-play') return { aria: '选择抽牌堆中的牌', cap: '选择一张牌打出', ok: '打出' };
+    if (choice.kind === 'search') return { aria: '选择抽牌堆中的牌', cap: `从抽牌堆选择 ${n} 张牌加入手牌`, ok: '加入手牌' };
+    if (choice.kind === 'retrieve') {
+        const fromLabel = PILE_ORIGIN_LABEL[choice.from] || '弃牌堆';
+        if (choice.to === 'top') return { aria: `选择${fromLabel}中的牌`, cap: `从${fromLabel}选择 ${n} 张牌放到抽牌堆顶`, ok: '放回牌堆顶' };
+        return { aria: `选择${fromLabel}中的牌`, cap: `从${fromLabel}选择 ${n} 张牌加入手牌`, ok: '加入手牌' };
+    }
+    return { aria: '二选一诅咒', cap: '承受一道诅咒（只限本场）', ok: '承受' };
+}
+
+// 牌堆选牌（draw-play / retrieve / search）与 M7 二选一诅咒浮层：各皮肤与竖屏共用，叠在最上层。
 function curseSheetHtml(v) {
     const choice = v.status === 'battle' ? v.battle?.choice : null;
     const candidates = choice?.candidates || choice?.curses;
     if (!candidates?.length || v.battle.outcome) return '';
-    const draw = choice.kind === 'draw-play';
+    const copy = pileChoiceCopy(choice);
     const picks = Array.isArray(v.chosen) ? v.chosen : [];
     const busy = Boolean(v.pending);
-    const items = candidates.map((c) => btn('choose-pick', `${c.name}｜${c.text}`, { id: c.id, pressed: picks.includes(c.id), disabled: busy })).join('');
-    return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="${draw ? '选择抽牌堆中的牌' : '二选一诅咒'}"><i class="igs-combat-purge-veil"></i>`
-        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">${draw ? '选择一张牌打出' : '承受一道诅咒（只限本场）'}</div><div class="igs-combat-purge">${items}</div>`
-        + `<div class="igs-combat-actions">${btn('choose-confirm', draw ? '打出' : '承受', { primary: true, disabled: busy || picks.length !== choice.count })}</div></div></div>`;
+    const items = candidates.map((c) => {
+        const costPrefix = c.cost !== undefined && c.cost !== '' ? `[${c.cost}费] ` : '';
+        const title = `${costPrefix}${c.name}${c.upgraded ? '+' : ''}${c.text ? `｜${c.text}` : ''}`;
+        return btn('choose-pick', title, { id: c.id, pressed: picks.includes(c.id), disabled: busy });
+    }).join('');
+    return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="${esc(copy.aria)}"><i class="igs-combat-purge-veil"></i>`
+        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">${esc(copy.cap)}（已选 ${esc(picks.length)}/${esc(choice.count)}）</div><div class="igs-combat-purge">${items}</div>`
+        + `<div class="igs-combat-actions">${btn('choose-confirm', copy.ok, { primary: true, disabled: busy || picks.length !== choice.count })}</div></div></div>`;
 }
 
-// 面板 HTML：主体按状态与皮肤出，删牌与诅咒浮层统一叠在最上层（结算画布外，各皮肤与竖屏都不被裁切）。
+// 抽牌堆 / 弃牌堆查看浮层：点击左下「抽牌」或右下「弃牌」打开，只读浏览当前牌堆内所有牌。
+const CARD_TYPE_TAG = Object.freeze({ attack: '攻', skill: '技', power: '能', status: '状', curse: '咒' });
+function pileSheetHtml(v) {
+    const kind = v.pileOpen === 'draw' || v.pileOpen === 'discard' ? v.pileOpen : '';
+    if (!kind || v.status !== 'battle' || !v.battle || v.battle.outcome) return '';
+    const list = v.battle.pileCards?.[kind] || [];
+    const label = kind === 'draw' ? '抽牌堆（已按名称排序，不剧透抽牌顺序）' : '弃牌堆（最近弃入在前）';
+    const items = list.length
+        ? list.map((c) => {
+            const typeTag = CARD_TYPE_TAG[c.type] || '牌';
+            const costText = c.cost !== undefined && c.cost !== '' ? `${c.cost}费` : '—';
+            return `<div class="igs-pile-sheet-item" data-card-type="${esc(c.type || 'skill')}">`
+                + `<span class="igs-pile-sheet-cost">${esc(costText)}</span>`
+                + `<span class="igs-pile-sheet-tag">${esc(typeTag)}</span>`
+                + `<b class="igs-pile-sheet-name">${esc(c.name)}${c.upgraded ? '+' : ''}</b>`
+                + `<span class="igs-pile-sheet-text">${esc(c.text || '无额外效果')}</span></div>`;
+        }).join('')
+        : '<div class="igs-pile-sheet-empty">当前没有卡牌</div>';
+    return `<div class="igs-combat-purge-sheet igs-pile-sheet" role="dialog" aria-label="${esc(kind === 'draw' ? '查看抽牌堆' : '查看弃牌堆')}">`
+        + `<i class="igs-combat-purge-veil" data-combat-act="pile-close"></i>`
+        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">${esc(label)} · 共 ${esc(list.length)} 张</div>`
+        + `<div class="igs-pile-sheet-list">${items}</div>`
+        + `<div class="igs-combat-actions">${btn('pile-close', '关闭', { primary: true })}</div></div></div>`;
+}
+
+// 面板 HTML：主体按状态与皮肤出，删牌、升级、选牌/诅咒与牌堆查看浮层统一叠在最上层（结算画布外，各皮肤与竖屏都不被裁切）。
 export function renderCombatPanelHtml(v) {
-    return `${renderCombatPanelBody(v)}${purgeSheetHtml(v)}${upgradeSheetHtml(v)}${curseSheetHtml(v)}`;
+    return `${renderCombatPanelBody(v)}${purgeSheetHtml(v)}${upgradeSheetHtml(v)}${curseSheetHtml(v)}${pileSheetHtml(v)}`;
 }
 
 function renderCombatPanelBody(v) {

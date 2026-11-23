@@ -12,9 +12,9 @@ import { stitchKits, scriptBoundSkills } from './stitch-kin.js';
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const roll = (seed) => nextRandom(hash32(seed)).value;
 // 自爆与纯待机脱离原脚本后语义改变；随从引用由 stitchKits 连带。
-const STITCH_SKIP_OPS = new Set(['self-destruct', 'idle']);
-// 这些状态依赖原脚本的退出条件，不作为独立缝合素材。
-const STITCH_SKIP_STATUSES = new Set(['flee', 'fuse', 'burrowed']);
+const STITCH_SKIP_OPS = new Set(['self-destruct', 'idle', 'heal-to']);
+// 这些状态依赖原脚本的退出或倒计时死亡条件，不作为独立缝合素材。
+const STITCH_SKIP_STATUSES = new Set(['flee', 'fuse', 'burrowed', 'fading', 'sandpit']);
 const STITCH_PASSIVE_TRIGGERS = new Set(['battle-start', 'turn-start', 'turn-end']);
 const opsOf = (effects) => (Array.isArray(effects) ? effects.flatMap((e) => [e?.op, ...opsOf(e?.then)]) : []);
 const statusesOf = (effects) => (Array.isArray(effects) ? effects.flatMap((e) => [e?.op === 'apply-status' ? e.status : null, ...statusesOf(e?.then)]) : []);
