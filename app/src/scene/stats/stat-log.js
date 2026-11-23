@@ -7,6 +7,7 @@ import { STATS_LOG_MAX, createStatsLedger, currentStatsState, ledgerKey } from '
 import { deserializeLedger, sanitizeCatalog, sanitizeLearned } from './stat-persist.js';
 import { currencyRecordValue, normalizeCurrencyRecord } from './stat-currency.js';
 import { normalizeCurrencyEdit } from './stat-currency-edit.js';
+import { cocSheetRecord } from './coc-investigator.js';
 import { LEGACY_SKILL_MAP, mergeLegacyValue } from './stat-registry.js';
 
 export { BUILD_CHOICES, BUILD_MODES };
@@ -178,7 +179,7 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     if (clean.heroPicked) map.set('hero:picked', true);
     if (clean.heroSlots) map.set('hero:slots', clean.heroSlots);
     if (clean.heroBio) map.set('hero:bio', clean.heroBio);
-    if (clean.protagonistCoc) map.set('hero:coc', clean.protagonistCoc);
+    if (clean.protagonistCoc) map.set('hero:coc', cocSheetRecord(clean.protagonistCoc));
     // 豁免亲密门槛已并入 trait:名（键 forced）；force: 键只在读档时兼容旧记录，不再写。
     for (const [name, level] of Object.entries(clean.aptitude)) map.set(`aptitude:${name}`, level);
     for (const [name, marks] of Object.entries(clean.traits)) map.set(`trait:${name}`, marks);

@@ -2889,6 +2889,8 @@ export function createStatsRuntime({
         gateMemo = null;
         persist();
         onChange(currentStatsState(ledger), null);
+        // 没开战斗时检定与人物卡都直接读调查员档，不碰战斗属性表。
+        if (!combatOn()) return { ok: true, sixSynced: null };
         const six = await syncCocSix(clean, id);
         if (!six.ok) {
             try { console.warn('[IGS 数值] 调查员档已保存，六维同步失败：', six.reason); } catch { /* */ }

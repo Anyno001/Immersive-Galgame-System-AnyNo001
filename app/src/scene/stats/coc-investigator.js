@@ -217,7 +217,37 @@ export function parseCocSheet(text) {
     return { attrs, luck, skills, san, unknown, missing, legacy6 };
 }
 
-export function sanitizeCocSheet(raw) {
+const FORMULA_LABELS = { edu4: '教育×4', edu2dex2: '教育×2+敏捷×2', edu2str2: '教育×2+力量×2', edu2app2: '教育×2+外貌×2', edu2pow2: '教育×2+意志×2', custom: '自填' };
+const FORMULA_OF_LABEL = Object.fromEntries(Object.entries(FORMULA_LABELS).map(([k, v]) => [v, k]));
+const mapObject = (obj, fn) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fn(v)]));
+
+// 数据库里的调查员档一律用中文字段名；读档同时认旧版英文字段。
+export function cocSheetRecord(sheet) {
+    const clean = sanitizeCocSheet(sheet);
+    if (!clean) return null;
+    const out = {
+        版本: clean.v, 属性: clean.attrs, 幸运: clean.luck, 理智: clean.san, 职业: clean.occupation,
+        职业点公式: FORMULA_LABELS[clean.occFormula], 职业点: clean.occPoints,
+        来源: clean.source === 'paste' ? '粘贴' : '掷骰', 时间: clean.at,
+    };
+    if (clean.totals) out.技能 = clean.totals;
+    if (clean.alloc) out.技能分配 = mapObject(clean.alloc, (a) => ({ 职业: a.occ, 兴趣: a.hobby }));
+    return out;
+}
+
+function fromRecord(raw) {
+    if (!raw || typeof raw !== 'object' || !raw.属性) return raw;
+    return {
+        v: raw.版本, attrs: raw.属性, luck: raw.幸运, san: raw.理智, occupation: raw.职业,
+        occFormula: FORMULA_OF_LABEL[raw.职业点公式], occPoints: raw.职业点,
+        source: raw.来源 === '粘贴' ? 'paste' : 'roll', at: raw.时间,
+        totals: raw.技能,
+        alloc: raw.技能分配 && typeof raw.技能分配 === 'object' ? mapObject(raw.技能分配, (a) => (a && typeof a === 'object' ? { occ: a.职业, hobby: a.兴趣 } : a)) : undefined,
+    };
+}
+
+export function sanitizeCocSheet(input) {
+    const raw = fromRecord(input);
     if (!raw || typeof raw !== 'object') return null;
     const ra = raw.attrs;
     if (!ra || typeof ra !== 'object') return null;
