@@ -12,7 +12,7 @@ import {
 } from './generation.js';
 import { generateWithRetry } from './generation-retry.js';
 import { attachCardUpgrade, attachLoot, attachPurge, buildCombatReport, COMBAT_SKIP_TEXT, hasLoot, injuryLevel, reportHpLostOf, reportIdFor, reportIdOf } from './report.js';
-import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CARD_IMPLANT_TAG_HASH, CARD_LOST_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, grantGeneratedGear, purgeChance, upgradableRows, upgradeChance } from './ledger.js';
+import { BATTLE_GROWTH_TAG_HASH, BATTLE_POINTS_TAG_HASH, CARD_IMPLANT_TAG_HASH, CARD_LOST_TAG_HASH, CHALLENGE_REWARD_TAG_HASH, CONSUME_TAG_HASH, DAILY_DECK_TAG_HASH, DAILY_LOOT_TAG_HASH, DAILY_PURGE_TAG_HASH, DAILY_UPGRADE_TAG_HASH, DAILY_WIN_TAG_HASH, PROTAGONIST_ALIASES, WOUND_TAG_HASH, attributeViewFor, abilitiesForName, dailyPurgeChance, dailyUpgradableRows, dailyUpgradeChance, grantGeneratedGear, purgeChance, upgradableRows, upgradeChance } from './ledger.js';
 import { battlePoints, battleTierOf, weakBattlePoints } from './points.js';
 import { heldOffCombat, winPointsBonus } from './relics/off-combat.js';
 import { allyTierOf, applyAbilities, characterCombatStats, skillTierFor, vitalsOf } from './vitals.js';
@@ -30,13 +30,14 @@ import { hash32 } from './random.js';
 import { extractCombatStart, extractGrowthDirectives } from '../scene/combat-directives.js';
 import { parseChallengeStart } from '../scene/challenge-directives.js';
 import { chooseAllyPlay } from './policy.js';
-import { buildChallengeSetup, challengeCombatIdFor, challengeOutcomeOf, challengeResultOf } from './challenge-setup.js';
+import { buildChallengeSetup, challengeCombatIdFor, challengeOutcomeOf, challengeResultOf, resolveChallengeDomain } from './challenge-setup.js';
+import { buildChallengeDeck, describeDailyCardSummary, normalizeChallengeDomain } from './challenge-cards.js';
 import { chooseChallengeFoe } from './challenge-foe-pick.js';
 import { eligibleChallengeAllies } from './challenge-allies.js';
 import { challengeHarvest } from './challenge-foes.js';
 import { afterBattleMend } from './mechanics/sanctum.js';
 import { baseMaxHp } from './mechanics/foe-seize.js';
-import { planChallengeReward } from './challenge-reward.js';
+import { applyDailyLootNaming, describePreparedLootCards, planChallengeLootOffer, planPreparedDailyLoot } from './challenge-reward.js';
 import { buildChallengeReport, parseChallengeReport } from './challenge-report.js';
 import { buildIntimateSetup, foldIntimateTrace, initIntimateTrace, replayIntimateTrace } from './intimate-setup.js';
 import { INTIMATE_LEGACY_OUTCOME, intimateEnding, resolveIntimatePosition } from '../scene/intimate-duel.js';
@@ -944,8 +945,8 @@ export function createCombatSession(options = {}) {
         const domain = saved?.domain ?? challenge.domain;
         const ending = saved ? saved.ending : challenge.intimate && end.ending;
         const harvest = ending ? { prize: null, card: false } : challengeHarvest(foe, outcome, tier);
-        const reward = harvest.card ? planChallengeReward({ combatId: session.combatId, ...battleRandomFields(session), outcome, tier, foe, domain }) : null;
-        const value = { outcome, prize: harvest.prize, card: reward?.ok ? reward.card : null, ...(ending ? { ending } : {}) };
+        // 日常挑战胜利的卡牌战利品已统一走三选一翻牌（planChallengeLootOffer），此处仅保留奖金与结局摘要。
+        const value = { outcome, prize: harvest.prize, card: null, ...(ending ? { ending } : {}) };
         summaryCache.set(session.combatId, { end: source, value });
         return value;
     }
@@ -1016,16 +1017,39 @@ export function createCombatSession(options = {}) {
     }
 
     // ---- 翻牌奖励 ----
+    const isIntimateChallenge = (session) => Boolean(session?.record?.setup?.challenge?.intimate || session?.challenge?.intimate || session?.start?.intimate);
     const currentReport = () => current.final || current.report || null;
     const currentResult = () => currentReport()?.result ?? (current.battle?.outcome === 'victory' ? 'win' : null);
     const noLootNow = () => currentReport()?.noLoot === true || current.battle?.noLoot === true;
-    const canFlip = () => !isChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win' && !noLootNow();
-    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: hasLoot(currentReport()?.text), free: context.freeReroll === true }, context.purge, context.upgrade);
+    const canFlip = () => !isIntimateChallenge(current) && (current.status === 'ended' || current.status === 'send-failed') && currentResult() === 'win' && !noLootNow();
+    const flipLocked = (context) => (context?.kind === 'challenge' ? Boolean(currentReport()?.daily?.resolved) : hasLoot(currentReport()?.text));
+    const viewOfFlip = (context) => flipView(context.offer, context.pick, { points: context.points, payer: context.payer, locked: flipLocked(context), free: context.freeReroll === true }, context.purge, context.upgrade);
 
     // 规则 v6 删卡：本场普通胜利正好满 5 场时，结算页给主角一次删牌机会（可跳过）。没到场次时不给字段。
     // cards 按卡组副本逐张列出（同名牌不合并）：已升级的副本给升级后的费用与效果并带 upgraded，成长与刻印原样带出。
     // keywords 为牌面关键字（固有、保留等，只取定义里有的）。
     const PURGE_KEYWORD_KEYS = ['unplayable', 'innate', 'retain', 'ethereal', 'sly', 'replay', 'radiance', 'temp', 'onDiscard'];
+    function purgeCardRows(deckEntries, catalog) {
+        return (deckEntries || []).filter((row) => row.copyId).map((row) => {
+            const definition = catalog?.get?.(row.cardId) || {};
+            const card = row.upgraded ? upgradedCardFace(definition) : definition;
+            const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
+            return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '',
+                effects: card.effects || [], ...(row.upgraded ? { upgraded: true } : {}), ...(row.bonus ? { bonus: row.bonus } : {}),
+                ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
+        });
+    }
+    function upgradeCardRows(rows, catalog) {
+        return (rows || []).map((row) => {
+            const card = catalog?.get?.(row.cardId) || {};
+            const after = upgradedCardFace(card);
+            const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
+            const upKeywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => after[k] !== undefined && after[k] !== false).map((k) => [k, after[k]]));
+            return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', rarity: card.rarity || '',
+                cost: card.cost ?? '', effects: card.effects || [], upCost: after.cost ?? '', upEffects: after.effects || [], upKeywords,
+                ...(row.bonus ? { bonus: row.bonus } : {}), ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
+        });
+    }
     function purgeOfHero(hero, combatId, points) {
         if (hero?.kind !== 'deck-character') return null;
         const chance = purgeChance(hero, reportIdFor(combatId));
@@ -1033,15 +1057,7 @@ export function createCombatSession(options = {}) {
         const short = chance.available && points < chance.cost;
         const base = { battle: chance.battle, cost: chance.cost, available: chance.available && !short, ...(short ? { reason: 'combat-points-insufficient' } : chance.reason ? { reason: chance.reason } : {}) };
         if (!base.available) return base;
-        const cards = (hero.deckEntries || []).filter((row) => row.copyId).map((row) => {
-            const definition = hero.catalog?.get?.(row.cardId) || {};
-            const card = row.upgraded ? upgradedCardFace(definition) : definition;
-            const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
-            return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', cost: card.cost ?? '', rarity: card.rarity || '',
-                effects: card.effects || [], ...(row.upgraded ? { upgraded: true } : {}), ...(row.bonus ? { bonus: row.bonus } : {}),
-                ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
-        });
-        return { ...base, cards };
+        return { ...base, cards: purgeCardRows(hero.deckEntries, hero.catalog) };
     }
 
     // 规则 v6 G3c 升级机会：与删卡同一场次口径，本场普通胜利正好满 5 场时免费升级一张卡组副本（可跳过）。没到场次时不给字段。
@@ -1052,16 +1068,25 @@ export function createCombatSession(options = {}) {
         if (chance.reason === 'combat-card-upgrade-not-due' || chance.reason === 'combat-card-upgrade-kind-mismatch') return null;
         const base = { battle: chance.battle, available: chance.available, ...(chance.reason ? { reason: chance.reason } : {}) };
         if (!base.available) return base;
-        const cards = upgradableRows(hero).map((row) => {
-            const card = hero.catalog?.get?.(row.cardId) || {};
-            const after = upgradedCardFace(card);
-            const keywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => card[k] !== undefined && card[k] !== false).map((k) => [k, card[k]]));
-            const upKeywords = Object.fromEntries(PURGE_KEYWORD_KEYS.filter((k) => after[k] !== undefined && after[k] !== false).map((k) => [k, after[k]]));
-            return { copyId: row.copyId, cardId: row.cardId, name: card.name || row.cardId, type: card.type || '', rarity: card.rarity || '',
-                cost: card.cost ?? '', effects: card.effects || [], upCost: after.cost ?? '', upEffects: after.effects || [], upKeywords,
-                ...(row.bonus ? { bonus: row.bonus } : {}), ...(row.inscription ? { inscription: row.inscription } : {}), ...(Object.keys(keywords).length ? { keywords } : {}) };
-        });
-        return { ...base, cards };
+        return { ...base, cards: upgradeCardRows(upgradableRows(hero), hero.catalog) };
+    }
+
+    // 日常挑战按领域独立胜场触发的免费删卡与免费升级机会（仅作用于该领域已固定牌库）。
+    function dailyPurgeOf(domainView, combatId) {
+        if (domainView?.kind !== 'daily-deck') return null;
+        const chance = dailyPurgeChance(domainView, reportIdFor(combatId));
+        if (chance.reason === 'combat-purge-not-due' || chance.reason === 'combat-purge-kind-mismatch') return null;
+        const base = { battle: chance.battle, cost: 0, available: chance.available, ...(chance.reason ? { reason: chance.reason } : {}) };
+        if (!base.available) return base;
+        return { ...base, cards: purgeCardRows(domainView.deckEntries, domainView.catalog) };
+    }
+    function dailyUpgradeOf(domainView, combatId) {
+        if (domainView?.kind !== 'daily-deck') return null;
+        const chance = dailyUpgradeChance(domainView, reportIdFor(combatId));
+        if (chance.reason === 'combat-card-upgrade-not-due' || chance.reason === 'combat-card-upgrade-kind-mismatch') return null;
+        const base = { battle: chance.battle, available: chance.available, ...(chance.reason ? { reason: chance.reason } : {}) };
+        if (!base.available) return base;
+        return { ...base, cards: upgradeCardRows(dailyUpgradableRows(domainView), domainView.catalog) };
     }
 
     // 读取奖励候选并合并三处来源（内存记录、本地会话、聊天记录）里的已翻结果；同一战斗并发调用共用同一次读取
@@ -1080,6 +1105,50 @@ export function createCombatSession(options = {}) {
 
     async function loadFlipOnce(identity, alive) {
         if (!alive()) return fail('request-stale');
+        const finishWith = (flip, context = null) => {
+            flipContext = context;
+            setState({ ...current, flip });
+            notify();
+            return flip.status === 'error' ? fail(flip.reason) : ok();
+        };
+        if (isChallenge(current)) {
+            if (isIntimateChallenge(current)) return finishWith({ status: 'none' });
+            const challenge = current.record?.setup?.challenge || current.challenge;
+            const parsed = !challenge ? parseChallengeReport(currentReport()?.text) : null;
+            const summary = challengeSummary(current);
+            const outcome = summary?.outcome || parsed?.outcome || '圆满';
+            const tier = challenge?.tier || parsed?.tier || '普通';
+            const domain = challenge?.domain || parsed?.domain || '';
+            const domainKey = normalizeChallengeDomain(domain);
+            const offer = planChallengeLootOffer({
+                combatId: identity.combatId, ...battleRandomFields(identity), outcome, tier, domain: domainKey,
+                preparedOffer: current.record?.dailyLootOffer || current.challengeLootOffer || null,
+            });
+            if (!offer) return finishWith({ status: 'none' });
+            const chatRecord = readChatRecord(identity);
+            if (!chatRecord.ok) return finishWith({ status: 'error', reason: chatRecord.reason });
+            const saved = readSession();
+            const savedFlip = saved.ok && saved.value?.combatId === identity.combatId ? saved.value.flip : undefined;
+            const picks = [current.record?.flip, savedFlip, chatRecord.value?.flip].filter((pick) => pick != null).map((pick) => normalizePick(pick, offer));
+            if (picks.some((pick) => !pick)) return finishWith({ status: 'error', reason: 'combat-flip-corrupt' });
+            let domainView = null;
+            if (typeof ledger?.effectiveState === 'function') {
+                try {
+                    const ledgerState = await ledger.effectiveState();
+                    if (!alive()) return fail('request-stale');
+                    if (ledgerState?.ok) domainView = ledgerState.dailyDecks?.get(domainKey) ?? null;
+                } catch { domainView = null; }
+            }
+            const context = {
+                kind: 'challenge', domain: domainKey, outcome, tier,
+                combatId: identity.combatId, offer, pick: picks.reduce(laterPick, null) || emptyPick(),
+                points: 0, payer: false, character: getUserName(), heroName: getUserName(),
+                purge: domainView ? dailyPurgeOf(domainView, identity.combatId) : null,
+                upgrade: domainView ? dailyUpgradeOf(domainView, identity.combatId) : null,
+                freeReroll: false,
+            };
+            return finishWith(viewOfFlip(context), context);
+        }
         let ledgerState;
         try {
             ledgerState = await ledger.effectiveState();
@@ -1087,12 +1156,6 @@ export function createCombatSession(options = {}) {
             ledgerState = null;
         }
         if (!alive()) return fail('request-stale');
-        const finishWith = (flip, context = null) => {
-            flipContext = context;
-            setState({ ...current, flip });
-            notify();
-            return flip.status === 'error' ? fail(flip.reason) : ok();
-        };
         if (ledgerState?.ok !== true) return finishWith({ status: 'error', reason: ledgerState?.reason || 'combat-ledger-read-failed' });
         const original = ledgerState.offers?.get(identity.combatId);
         if (!original) return finishWith({ status: 'none' });
@@ -1128,7 +1191,7 @@ export function createCombatSession(options = {}) {
     function flipBlockReason() {
         if (!canFlip()) return 'combat-flip-unavailable';
         if (!flipContext || flipContext.combatId !== current.combatId || current.flip?.status !== 'ready') return 'combat-flip-not-ready';
-        return hasLoot(currentReport()?.text) ? 'combat-flip-locked' : null;
+        return flipLocked(flipContext) ? 'combat-flip-locked' : null;
     }
 
     // 保存翻牌选择：战斗还在会话记录里就同时写会话记录（节流）+ 聊天记录；否则只写聊天记录
@@ -1208,6 +1271,53 @@ export function createCombatSession(options = {}) {
         const purged = purgeCard ? attachPurge(looted, { character: flipContext.heroName, reportId: report.reportId, copyId: purgeCard.copyId, name: purgeCard.name }) : looted;
         const text = upgradeCard ? attachCardUpgrade(purged, { character: flipContext.heroName, reportId: report.reportId, copyId: upgradeCard.copyId, name: upgradeCard.name }) : purged;
         return { ok: true, item: { ...report, text } };
+    }
+
+    // 日常挑战发送战报前确认三选一翻牌、免费删卡与免费升级（仅非亲密挑战）；首场完成时一并携带初始 20 张牌组快照以固定领域牌库。
+    async function resolveDailyLoot(report) {
+        if (isIntimateChallenge(current)) return { ok: true, item: report };
+        const initialDeck = report?.daily?.initialDeck || current.record?.initialDailyDeck || current.challengeInitialDeck || null;
+        const challenge = current.record?.setup?.challenge || current.challenge;
+        const parsed = !challenge ? parseChallengeReport(report?.text) : null;
+        const domain = normalizeChallengeDomain(initialDeck?.domain || challenge?.domain || parsed?.domain || '');
+        if (report?.result !== 'win') {
+            if (!initialDeck || report?.daily?.initialDeck) return { ok: true, item: report };
+            return { ok: true, item: { ...report, daily: { domain, initialDeck } } };
+        }
+        if (report?.daily?.resolved === true) return { ok: true, item: report };
+        const loaded = await loadFlip();
+        const flipState = current.flip;
+        if (flipState?.status === 'none') return { ok: true, item: initialDeck ? { ...report, daily: { resolved: true, domain, initialDeck } } : report };
+        if (!loaded.ok || flipState?.status !== 'ready' || !flipContext || flipContext.kind !== 'challenge') {
+            return { ok: false, reason: flipState?.reason || loaded.reason || 'combat-flip-not-ready' };
+        }
+        const loot = lootOf(flipContext.offer, flipContext.pick);
+        if (!loot) return { ok: false, reason: 'combat-flip-required' };
+        if (hasCardChoices(loot.slot) && loot.pick === undefined) return { ok: false, reason: 'combat-flip-card-required' };
+        const purge = flipContext.purge;
+        const purgePick = flipContext.pick.purge;
+        if (purge?.available && purgePick === undefined) return { ok: false, reason: 'combat-purge-required' };
+        const purgeCard = purge?.available && purgePick !== 'skip' ? (purge.cards || []).find((c) => c.copyId === purgePick) : null;
+        if (purge?.available && purgePick !== 'skip' && !purgeCard) return { ok: false, reason: 'combat-purge-copy-missing' };
+        const upgrade = flipContext.upgrade;
+        const upgradePick = flipContext.pick.upgrade;
+        if (upgrade?.available && upgradePick === undefined) return { ok: false, reason: 'combat-card-upgrade-required' };
+        const upgradeCard = upgrade?.available && upgradePick !== 'skip' ? (upgrade.cards || []).find((c) => c.copyId === upgradePick) : null;
+        if (upgrade?.available && upgradePick !== 'skip' && !upgradeCard) return { ok: false, reason: 'combat-card-upgrade-copy-missing' };
+        if (upgradeCard && purgeCard && upgradeCard.copyId === purgeCard.copyId) return { ok: false, reason: 'combat-card-upgrade-purge-conflict' };
+        await flipWriteChain;
+        const pickedCard = loot.pick !== 'skip' && loot.slot?.card ? JSON.parse(JSON.stringify(loot.slot.card)) : null;
+        const daily = {
+            resolved: true,
+            domain: flipContext.domain || domain,
+            outcome: flipContext.outcome || '圆满',
+            tier: flipContext.tier || '普通',
+            ...(initialDeck ? { initialDeck } : {}),
+            ...(pickedCard ? { card: pickedCard } : {}),
+            ...(purgeCard ? { purge: { copyId: purgeCard.copyId, battle: purge.battle } } : {}),
+            ...(upgradeCard ? { upgrade: { copyId: upgradeCard.copyId, battle: upgrade.battle } } : {}),
+        };
+        return { ok: true, item: { ...report, daily } };
     }
 
     // ---- 备战 ----
@@ -1465,18 +1575,69 @@ export function createCombatSession(options = {}) {
         setState({ ...session, status: 'preparing' });
         const challengeState = resolveOption(challengeOptions.state) || null;
         const start = { ...session.start, allowEscape: resolveOption(challengeOptions.allowEscape) !== false };
-        let picked = { foe: '', name: '' };
+        const resolvedDomain = resolveChallengeDomain(start.domain, challengeState?.skills);
+        const domainKey = normalizeChallengeDomain(resolvedDomain);
+        const tier = start.tier || '普通';
+        const prepSeed = session.randomKey ?? session.combatId;
+        // 1. 先查该领域是否已有固定牌库；未固定时由程序先拼合初始牌模板，再交给 LLM 按模板与世界观起名。
+        let fixedDeck = null;
+        if (typeof ledger?.effectiveState === 'function') {
+            try {
+                const ledgerState = await ledger.effectiveState({ throughMessageId: session.anchor.messageId, includePanelBoundary: true });
+                if (!stillWanted()) return fail('request-stale');
+                if (ledgerState?.ok) fixedDeck = ledgerState.dailyDecks?.get(domainKey) ?? null;
+            } catch { fixedDeck = null; }
+        }
+        const rawSkill = challengeState?.skills?.[resolvedDomain]?.value ?? challengeState?.skills?.[domainKey]?.value;
+        const skillValue = Number.isFinite(Number(rawSkill)) ? Number(rawSkill) : 50;
+        const hasFixed = Boolean(fixedDeck && Array.isArray(fixedDeck.deckEntries) && fixedDeck.deckEntries.length);
+        const draftDeck = hasFixed
+            ? null
+            : buildChallengeDeck({ domain: resolvedDomain, skillValue, otherSkills: challengeState?.skills, seed: prepSeed });
+        const deckCardPrompts = draftDeck
+            ? (draftDeck.domainCardIds || []).map((id) => ({
+                id,
+                fallbackName: draftDeck.catalog[id]?.name || '',
+                summary: describeDailyCardSummary(draftDeck.catalog[id]),
+            }))
+            : [];
+        // 2. 程序先从本领域专属池抽取并缝合 3 张战利品候选卡模板，同一次请求交由 LLM 起名与写来历。
+        const preparedLoot = planPreparedDailyLoot({ combatId: session.combatId, ...battleRandomFields(session), tier, domain: domainKey });
+        const lootCardPrompts = describePreparedLootCards(preparedLoot);
+        // 3. 带上当前剧情与世界观上下文，一次请求完成：enemyPool 挑敌起名 + 初始牌/战利品牌按模板起名。
+        const userName = getUserName();
+        const storyNames = [userName, ...(start.counterpart ? [start.counterpart] : [])].filter(Boolean);
+        let storyContext = { encounter: start.event, domain: domainKey, tier, protagonist: userName };
         try {
-            picked = await chooseChallengeFoe({ event: start.event, domain: start.domain, request, llm: resolveOption(options.llm), signal, shouldStart: stillWanted, retryDelays: [], maxRounds: options.generationMaxRounds });
-        } catch { /* 副模型出错时沿用本地难关 */ }
+            storyContext = await withStoryContext(storyContext, options.readStoryContext, { names: storyNames, signal });
+        } catch { /* 读不到剧情上下文时照旧请求 */ }
+        if (!stillWanted()) return fail('request-stale');
+        let picked = { foe: '', name: '', enemyProfile: null, deckCards: [], lootCards: [] };
+        try {
+            picked = await chooseChallengeFoe({
+                event: start.event, domain: domainKey, tier, seed: prepSeed,
+                deckCards: deckCardPrompts, lootCards: lootCardPrompts, context: storyContext,
+                request, llm: resolveOption(options.llm), signal, shouldStart: stillWanted, retryDelays: [], maxRounds: options.generationMaxRounds,
+            });
+        } catch { /* 副模型出错时沿用本地敌人池与默认卡名 */ }
         if (!stillWanted()) return fail('request-stale');
         const challengeStart = { ...start, ...(picked.source === 'llm' ? { foe: picked.foe, foeName: picked.name } : {}) };
-        const built = buildChallengeSetup({ start: challengeStart, state: challengeState, user: { name: getUserName() }, allies: [] });
+        const cardNameMap = Array.isArray(picked.deckCards) && picked.deckCards.length
+            ? Object.fromEntries(picked.deckCards.map((item) => [item.id, item]))
+            : null;
+        const challengeLootOffer = applyDailyLootNaming(preparedLoot, picked.lootCards);
+        const enemyProfile = picked.enemyProfile || null;
+        const built = buildChallengeSetup({
+            start: challengeStart, state: challengeState, user: { name: userName }, allies: [], fixedDeck,
+            enemyProfile, deckSeed: prepSeed, enemySeed: prepSeed, cardNames: cardNameMap,
+        });
         if (!built.ok) return blocked(session, built.reason);
         const candidates = eligibleChallengeAllies({ present: challengeState?.present, favors: challengeState?.favors, exclude: challengeStart.counterpart ? [challengeStart.counterpart] : [] });
         return ok({
             session: setState({
                 ...session, status: 'lobby', challenge: built.setup.challenge, challengeSetup: built.setup, challengeStart, challengeState, challengeCandidates: candidates,
+                challengeFixedDeck: fixedDeck, challengeInitialDeck: built.initialDeck || null,
+                challengeEnemyProfile: enemyProfile, challengeDeckSeed: prepSeed, challengeCardNames: cardNameMap, challengeLootOffer,
                 lobby: { challenge: true, heroId: built.setup.controlledId, controllable: [built.setup.controlledId] }, skipped: [],
             }),
         });
@@ -1485,9 +1646,16 @@ export function createCombatSession(options = {}) {
     // 大厅里挑协助者：只拒收不修正，名单按在场与好感校验后重建建局；最多两名。
     function pickChallengeAllies(names) {
         if (!isChallenge(current) || current.status !== 'lobby' || !current.challengeStart) return fail('combat-session-not-ready');
-        const built = buildChallengeSetup({ start: current.challengeStart, state: current.challengeState, user: { name: getUserName() }, allies: Array.isArray(names) ? names : [] });
+        const built = buildChallengeSetup({
+            start: current.challengeStart, state: current.challengeState, user: { name: getUserName() }, allies: Array.isArray(names) ? names : [],
+            fixedDeck: current.challengeFixedDeck || null,
+            enemyProfile: current.challengeEnemyProfile || null,
+            deckSeed: current.challengeDeckSeed || '',
+            enemySeed: current.challengeDeckSeed || '',
+            cardNames: current.challengeCardNames || null,
+        });
         if (!built.ok) return fail(built.reason);
-        setState({ ...current, challenge: built.setup.challenge, challengeSetup: built.setup });
+        setState({ ...current, challenge: built.setup.challenge, challengeSetup: built.setup, challengeInitialDeck: built.initialDeck || null });
         notify();
         return ok({ rejected: built.allies.rejected });
     }
@@ -1595,7 +1763,11 @@ export function createCombatSession(options = {}) {
         const seed = seedFor(current.randomKey ?? current.combatId);
         const battle = createBattle(setup, seed);
         if (!battle.ok) return fail('combat-setup-invalid', { error: battle.error });
-        const record = { v: SESSION_VERSION, combatId: current.combatId, ...battleRandomFields(current), anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [] };
+        const record = {
+            v: SESSION_VERSION, combatId: current.combatId, ...battleRandomFields(current), anchor: current.anchor, seed, setup, actions: [], encounter: current.start.event, tiers: [], expTargets: [],
+            ...(current.challengeInitialDeck ? { initialDailyDeck: current.challengeInitialDeck } : {}),
+            ...(current.challengeLootOffer ? { dailyLootOffer: current.challengeLootOffer } : {}),
+        };
         if (!writeSession(record)) return fail('combat-session-save-failed');
         const intimateTrace = setup.challenge?.intimate ? foldIntimateTrace(initIntimateTrace(), battle.state, battle.events) : null;
         setState({ ...current, status: 'battle', record, battle: battle.state, events: battle.events, challengeResult: null, ...(intimateTrace ? { intimateTrace } : {}) });
@@ -1642,7 +1814,7 @@ export function createCombatSession(options = {}) {
                 const final = { ...reportItemOf(report), ...usedPart(current), ...woundPart(current) };
                 setState({ ...current, final });
                 finalWrite = saveResult(identityOf(current), final, current.battle);
-                if (final.result === 'win' && final.noLoot !== true && !isChallenge(current)) loadFlip().catch(() => {});
+                if (final.result === 'win' && final.noLoot !== true && !isIntimateChallenge(current)) loadFlip().catch(() => {});
             }
         }
         return ok({ events: end.events });
@@ -1802,12 +1974,54 @@ export function createCombatSession(options = {}) {
             }
         }
         let challengeResult = null;
-        if (isChallenge(session) && Number.isInteger(reportMessageId) && ledger?.append) {
-            const card = challengeSummary(session)?.card;
-            if (card) {
-                const hero = profileIdFor('deck-character', getUserName());
-                const anchor = { messageId: reportMessageId, swipeId: swipeIdOf(getChat()[reportMessageId]), tagHash: CHALLENGE_REWARD_TAG_HASH, occurrence: 0 };
-                try { challengeResult = await appendSettled([{ id: ledgerEntryId('learn', hero, anchor), type: 'learn', character: hero, anchor, payload: { card, merge: true, ...(session.record?.setup?.rulesVersion >= 6 ? { added: true } : {}) }, createdAt: now() }]); } catch { challengeResult = { ok: false, reason: 'combat-challenge-reward-write-failed' }; }
+        if (isChallenge(session) && !intimate && Number.isInteger(reportMessageId) && ledger?.append) {
+            const daily = report.daily || {};
+            const initialDeck = daily.initialDeck || session.record?.initialDailyDeck || session.challengeInitialDeck || null;
+            const challenge = session.record?.setup?.challenge || session.challenge;
+            const parsed = !challenge ? parseChallengeReport(report.text) : null;
+            const domain = normalizeChallengeDomain(daily.domain || initialDeck?.domain || challenge?.domain || parsed?.domain || '');
+            const heroKey = profileIdFor('deck-character', getUserName());
+            const swipeId = reportSwipeId();
+            const dailyEntries = [];
+            if (initialDeck) {
+                const anchor = { messageId: reportMessageId, swipeId, tagHash: DAILY_DECK_TAG_HASH, occurrence: 0 };
+                dailyEntries.push({
+                    id: ledgerEntryId('daily-deck', heroKey, anchor), type: 'daily-deck', character: heroKey, anchor,
+                    payload: { domain, reportId: report.reportId, deck: initialDeck.deck, cards: initialDeck.cards }, createdAt: now(),
+                });
+            }
+            if (report.result === 'win') {
+                const outcome = daily.outcome || challengeSummary(session)?.outcome || parsed?.outcome || '圆满';
+                const tier = daily.tier || challenge?.tier || parsed?.tier || '普通';
+                const winAnchor = { messageId: reportMessageId, swipeId, tagHash: DAILY_WIN_TAG_HASH, occurrence: 0 };
+                dailyEntries.push({
+                    id: ledgerEntryId('daily-win', heroKey, winAnchor), type: 'daily-win', character: heroKey, anchor: winAnchor,
+                    payload: { domain, reportId: report.reportId, outcome, tier }, createdAt: now(),
+                });
+                if (daily.card) {
+                    const lootAnchor = { messageId: reportMessageId, swipeId, tagHash: DAILY_LOOT_TAG_HASH, occurrence: 0 };
+                    dailyEntries.push({
+                        id: ledgerEntryId('daily-loot', heroKey, lootAnchor), type: 'daily-loot', character: heroKey, anchor: lootAnchor,
+                        payload: { domain, combatId: session.combatId, reportId: report.reportId, card: daily.card }, createdAt: now(),
+                    });
+                }
+                if (daily.purge?.copyId && daily.purge?.battle) {
+                    const purgeAnchor = { messageId: reportMessageId, swipeId, tagHash: DAILY_PURGE_TAG_HASH, occurrence: 0 };
+                    dailyEntries.push({
+                        id: ledgerEntryId('daily-purge', heroKey, purgeAnchor), type: 'daily-purge', character: heroKey, anchor: purgeAnchor,
+                        payload: { domain, copyId: daily.purge.copyId, battle: daily.purge.battle, reportId: report.reportId }, createdAt: now(),
+                    });
+                }
+                if (daily.upgrade?.copyId && daily.upgrade?.battle) {
+                    const upAnchor = { messageId: reportMessageId, swipeId, tagHash: DAILY_UPGRADE_TAG_HASH, occurrence: 0 };
+                    dailyEntries.push({
+                        id: ledgerEntryId('daily-upgrade', heroKey, upAnchor), type: 'daily-upgrade', character: heroKey, anchor: upAnchor,
+                        payload: { domain, copyId: daily.upgrade.copyId, battle: daily.upgrade.battle, reportId: report.reportId }, createdAt: now(),
+                    });
+                }
+            }
+            if (dailyEntries.length) {
+                try { challengeResult = await appendSettled(dailyEntries); } catch { challengeResult = { ok: false, reason: 'combat-challenge-reward-write-failed' }; }
             }
         }
         let scan = null;
@@ -1933,7 +2147,7 @@ export function createCombatSession(options = {}) {
         if (finalWrite) await finalWrite;
         if (!resultsSaved.has(combatId) && current.combatId === combatId) await saveResult(identityOf(current), report, current.battle);
         if (current.status !== 'ended' || current.combatId !== combatId) return fail('combat-session-not-ended');
-        const looted = isChallenge(current) ? { ok: true, item: report } : await resolveLoot(report);
+        const looted = isChallenge(current) ? await resolveDailyLoot(report) : await resolveLoot(report);
         if (!looted.ok) return fail(looted.reason);
         if (current.status !== 'ended' || current.combatId !== combatId) return fail('combat-session-not-ended');
         report = looted.item;
@@ -1950,7 +2164,7 @@ export function createCombatSession(options = {}) {
         if (!resultsSaved.has(current.combatId)) await saveResult(identityOf(current), current.report, current.battle);
         if (current.status !== 'send-failed' || !current.report) return fail('combat-nothing-to-send');
         const combatId = current.combatId;
-        const looted = isChallenge(current) ? { ok: true, item: current.report } : await resolveLoot(current.report);
+        const looted = isChallenge(current) ? await resolveDailyLoot(current.report) : await resolveLoot(current.report);
         if (!looted.ok) return fail(looted.reason);
         if (current.status !== 'send-failed' || current.combatId !== combatId) return fail('combat-nothing-to-send');
         if (looted.item !== current.report) {

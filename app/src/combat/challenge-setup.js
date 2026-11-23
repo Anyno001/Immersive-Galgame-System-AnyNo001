@@ -1,19 +1,33 @@
-// 日常挑战适配层：数值侧快照 → 引擎 setup，引擎结局 → 挑战结局。纯函数，不读写存储；引擎本身不改。
+// 日常挑战适配层：数值侧快照 → 引擎 setup，引擎结局 → 挑战结局。纯函数，不读写存储。
+// 支持：
+// 1. 领域固定牌库 + 首次挑战时按本领域专属池拼合并套用 LLM 世界观起名；
+// 2. 专精属性（领域技能值）实时加减值（domainScaling：50 分基准 1.00×，范围 0.70×~1.50×）；
+// 3. 敌人按与战斗模式一致的 enemyPool（原版 + 程序缝合项）物化并校准到日常挑战血量/伤害档位。
 import { COMBAT_RULES, combatSpeedFor, enemySpeedFor, scaleEnemyStats } from './rules.js';
 import { skillFromTemplate } from './card-templates.js';
-import { DOMAIN_CARDS, buildChallengeDeck } from './challenge-cards.js';
+import { enemyArtKeyFor } from './enemy-art.js';
+import { KIN_FIELDS } from './kin.js';
+import { enemyPool, fallbackChoice, materializeChoice } from './enemies/pool.js';
+import {
+    DOMAIN_CARDS,
+    buildChallengeDeck,
+    buildFixedChallengeDeck,
+    createDomainScaling,
+    initialDailyDeckSnapshot,
+    normalizeChallengeDomain,
+} from './challenge-cards.js';
 import { CHALLENGE_FOES, pickFoe } from './challenge-foes.js';
 import { buildChallengeAllies, validateChallengeAllies } from './challenge-allies.js';
 
 export const CHALLENGE_HERO_ID = 'hero';
 export const CHALLENGE_FOE_ID = 'foe';
 
-// 难度档 → 引擎档位、难关校准倍率与回合数（4–6）；倍率按托管策略模拟取值，真人试玩后再调。
+// 难度档 → 引擎档位、难关校准倍率与回合数（4–6）；采用方案 B 偏硬核挑战曲线，略高于普通战斗但保持可攻略。
 // 新建的日常挑战与亲密对决都不写回合数、不设回合上限，只按胜负结算（D16）；回合数只留给带 rounds 的旧记录判定。
 export const CHALLENGE_TIER_RULES = Object.freeze({
-    轻松: Object.freeze({ engineTier: 'normal', rounds: 4, hp: 0.4, damage: 0.45 }),
-    普通: Object.freeze({ engineTier: 'elite', rounds: 5, hp: 0.4, damage: 0.6 }),
-    艰难: Object.freeze({ engineTier: 'boss', rounds: 6, hp: 0.45, damage: 0.85 }),
+    轻松: Object.freeze({ engineTier: 'normal', rounds: 4, hp: 0.9, damage: 0.75 }),
+    普通: Object.freeze({ engineTier: 'elite', rounds: 5, hp: 0.82, damage: 0.88 }),
+    艰难: Object.freeze({ engineTier: 'boss', rounds: 6, hp: 0.55, damage: 0.95 }),
 });
 
 // 意志：基础值按体力、压力各降一档；阈值与 stat-bars.js 的 STAMINA_LOW / STRESS_HIGH 一致。
@@ -42,7 +56,7 @@ export function foeThickness(tier) {
 }
 
 // 领域留空或没有牌组时，取主角技能里最高的有牌组领域（同值按登记顺序）。
-function resolveDomain(domain, skills) {
+export function resolveChallengeDomain(domain, skills) {
     if (domain) return domain;
     let best = null;
     for (const name of Object.keys(DOMAIN_CARDS)) {
@@ -52,17 +66,79 @@ function resolveDomain(domain, skills) {
     return best ? best.name : '';
 }
 
+function buildChallengeEnemyUnit({ enemyProfile, tier, foeKey, foe, foeName, counterpart, seed = '' }) {
+    const rule = CHALLENGE_TIER_RULES[tier] || CHALLENGE_TIER_RULES.普通;
+    const thick = foeThickness(tier);
+    const displayName = counterpart || foeName || foe.name;
+    let profile = enemyProfile || null;
+    if (!profile && seed) {
+        const pool = enemyPool({ tier: rule.engineTier, seed });
+        const picked = fallbackChoice(pool, seed);
+        if (picked) profile = materializeChoice(picked, { id: `${foeKey}-${tier}`, name: displayName });
+    }
+    if (profile && Array.isArray(profile.skills) && profile.skills.length) {
+        const scaled = scaleEnemyStats(profile, 1, 'normal');
+        const maxHp = Math.max(1, Math.min(9999, Math.round(scaled.hp * rule.hp)));
+        const damageScale = Math.min(5, Math.max(0.05, Math.round(scaled.damageScale * rule.damage * 100) / 100));
+        const speed = enemySpeedFor(profile.base?.speed ?? combatSpeedFor({ tier: thick.engineTier, id: foeKey }));
+        const kinFields = Object.fromEntries(KIN_FIELDS.filter((key) => profile[key] !== undefined).map((key) => [key, profile[key]]));
+        if (kinFields.kin) {
+            kinFields.kinScale = Math.max(0.1, Math.min(5, Math.round((profile.kinScale ?? 1) * rule.hp * 100) / 100));
+        }
+        return {
+            id: CHALLENGE_FOE_ID,
+            name: displayName,
+            side: 'enemy',
+            kind: 'skill',
+            maxHp,
+            damageScale,
+            speed,
+            skills: profile.skills,
+            passives: profile.passives || [],
+            phases: profile.phases || [],
+            ...(profile.template ? { template: profile.template } : {}),
+            ...(profile.script ? { script: profile.script } : {}),
+            ...kinFields,
+            art: enemyArtKeyFor({ art: profile.art, name: displayName, tier: rule.engineTier }),
+            ...(rule.engineTier === 'elite' || rule.engineTier === 'boss' ? { tier: rule.engineTier } : {}),
+        };
+    }
+    return {
+        id: CHALLENGE_FOE_ID,
+        name: displayName,
+        side: 'enemy',
+        kind: 'skill',
+        maxHp: thick.hp,
+        damageScale: thick.damageScale,
+        speed: enemySpeedFor(combatSpeedFor({ tier: thick.engineTier, id: foeKey })),
+        skills: foe.skills.map(([name, template], index) => ({ id: `${foeKey}-s${index + 1}`, name, ...skillFromTemplate(template, thick.damageCap) })),
+    };
+}
+
 // state 为数值侧传入的主角快照 { bars: { stamina, stress }, skills: { 技能名: { value } }, present?: 在场人物名, favors?: { 人物名: 好感 } }，user 为 { name }。
 // start.foe / start.foeName 来自副模型选难关（键不在登记表时忽略）；allies 为请求的协助者名，按在场与好感校验后最多取两名。
-export function buildChallengeSetup({ start, state, user, allies = start?.allies } = {}) {
+// fixedDeck 为该领域在首次挑战完成后固定的持久化牌组视图；传入时沿用固定牌组，未传入时按当前技能值与专属池生成并附 initialDeck 供首次完成后固定。
+// enemyProfile 为从 enemyPool 挑选并物化好的敌人档案（原版或程序缝合项）；cardNames 为准备期 LLM 按模板起好的初始牌名称与来历。
+export function buildChallengeSetup({
+    start, state, user, allies = start?.allies, fixedDeck = null,
+    enemyProfile = null, deckSeed = '', enemySeed = '', cardNames = null,
+} = {}) {
     if (!start?.event) return { ok: false, reason: 'challenge-start-missing' };
-    const domain = resolveDomain(start.domain, state?.skills);
-    const skillValue = Number(state?.skills?.[domain]?.value) || 0;
+    const domain = resolveChallengeDomain(start.domain, state?.skills);
+    const domainKey = normalizeChallengeDomain(domain);
+    const rawSkill = state?.skills?.[domain]?.value ?? state?.skills?.[domainKey]?.value;
+    const skillValue = Number.isFinite(Number(rawSkill)) ? Number(rawSkill) : 50;
+    const domainScaling = createDomainScaling(domainKey, skillValue);
     const tier = Object.hasOwn(CHALLENGE_TIER_RULES, start.tier) ? start.tier : '普通';
     const foeKey = Object.hasOwn(CHALLENGE_FOES, start.foe) ? start.foe : pickFoe(start.event, domain);
     const foe = CHALLENGE_FOES[foeKey];
-    const thick = foeThickness(tier);
-    const { deck, catalog } = buildChallengeDeck({ domain, skillValue, otherSkills: state?.skills });
+    const hasFixed = Boolean(fixedDeck && Array.isArray(fixedDeck.deckEntries) && fixedDeck.deckEntries.length);
+    const builtDeck = hasFixed
+        ? buildFixedChallengeDeck({ ...fixedDeck, domain: domainKey })
+        : buildChallengeDeck({ domain, skillValue, otherSkills: state?.skills, seed: deckSeed, cardNames });
+    const initialDeck = hasFixed ? null : initialDailyDeckSnapshot(builtDeck);
+    const deck = [...builtDeck.deck];
+    const catalog = { ...builtDeck.catalog };
     const helpers = validateChallengeAllies(allies, { present: state?.present, favors: state?.favors, exclude: start.counterpart ? [start.counterpart] : [] });
     const extra = buildChallengeAllies(helpers.accepted);
     for (const card of extra.cards) {
@@ -70,21 +146,29 @@ export function buildChallengeSetup({ start, state, user, allies = start?.allies
         deck.push(card.id);
     }
     const will = willFor(state?.bars);
+    const foeUnit = buildChallengeEnemyUnit({
+        enemyProfile, tier, foeKey, foe,
+        foeName: start.foeName, counterpart: start.counterpart, seed: enemySeed,
+    });
     const setup = {
         controlledId: CHALLENGE_HERO_ID,
         canEscape: start.allowEscape !== false,
         units: [
-            { id: CHALLENGE_HERO_ID, name: user?.name || '我', side: 'ally', kind: 'deck', maxHp: will, speed: COMBAT_RULES.defaultSpeed, deck, catalog },
-            ...extra.units,
             {
-                id: CHALLENGE_FOE_ID, name: start.counterpart || start.foeName || foe.name, side: 'enemy', kind: 'skill', maxHp: thick.hp, damageScale: thick.damageScale,
-                speed: enemySpeedFor(combatSpeedFor({ tier: thick.engineTier, id: foeKey })),
-                skills: foe.skills.map(([name, template], index) => ({ id: `${foeKey}-s${index + 1}`, name, ...skillFromTemplate(template, thick.damageCap) })),
+                id: CHALLENGE_HERO_ID, name: user?.name || '我', side: 'ally', kind: 'deck',
+                maxHp: will, speed: COMBAT_RULES.defaultSpeed, deck, catalog, domainScaling,
             },
+            ...extra.units,
+            foeUnit,
         ],
-        challenge: { event: start.event, domain, tier, stake: start.stake || '压力', foe: foeKey, counterpart: start.counterpart || '', allies: helpers.accepted.map((ally) => ally.name) },
+        challenge: {
+            event: start.event, domain, tier, stake: start.stake || '压力', foe: foeKey,
+            counterpart: start.counterpart || '', allies: helpers.accepted.map((ally) => ally.name),
+            skillValue: domainScaling.skillValue, domainMultiplier: domainScaling.multiplier,
+            ...(foeUnit.template ? { enemyTemplate: foeUnit.template } : {}),
+        },
     };
-    return { ok: true, setup, allies: helpers };
+    return { ok: true, setup, allies: helpers, initialDeck };
 }
 
 export function challengeProgress(state) {

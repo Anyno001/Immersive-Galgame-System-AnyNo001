@@ -7,6 +7,7 @@ export const CURRENCY_INITIAL_FACTOR = 10;
 export const CURRENCY_RATE_MIN = 0.01;
 export const CURRENCY_RATE_MAX = 100;
 export const CURRENCY_CATEGORY = '货币';
+export const CURRENCY_DESCRIPTION = '剧情货币';
 
 export const currencyNameKey = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 const NAME_RE = /^[^\s|｜\[\]【】<>]+$/u;

@@ -182,7 +182,10 @@ export function describeKeywords(card) {
 
 export function attributeScalingTip(mark) {
     if (!mark) return '';
-    const head = `${ABILITY_LABELS[mark.ability] || mark.ability} ×${mark.multiplier}${mark.tier === 'support' ? '（保守）' : ''}`;
+    const label = ABILITY_LABELS[mark.ability] || mark.ability;
+    const head = Number.isInteger(mark.skillValue)
+        ? `${label}(${mark.skillValue}) ×${mark.multiplier}`
+        : `${label} ×${mark.multiplier}${mark.tier === 'support' ? '（保守）' : ''}`;
     if (mark.timing === 'deferred') return `${head}，最终效能合计后换算`;
     if (!(mark.base > 0) || !Number.isFinite(mark.value)) return '';
     const delta = mark.value - mark.base;

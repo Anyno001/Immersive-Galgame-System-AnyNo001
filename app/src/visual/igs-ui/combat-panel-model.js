@@ -661,6 +661,8 @@ export function challengeLobbyView(session) {
     if (!challenge || !hero || !foe) return null;
     return {
         challenge: true, encounter: challenge.event, tier: challenge.tier, tierLabel: challenge.tier, domain: challenge.domain, stake: challenge.stake,
+        ...(Number.isInteger(challenge.skillValue) ? { skillValue: challenge.skillValue } : {}),
+        ...(typeof challenge.domainMultiplier === 'number' ? { domainMultiplier: challenge.domainMultiplier } : {}),
         ...(challenge.intimate ? { intimate: { mechanic: challenge.intimate.mechanic, position: challenge.intimate.position } } : {}),
         heroId: hero.id,
         allies: [{ id: hero.id, name: hero.name, level: 0, kind: 'deck', className: '', controllable: true, hp: hero.maxHp, maxHp: hero.maxHp },

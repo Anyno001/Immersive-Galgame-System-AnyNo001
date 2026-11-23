@@ -51,7 +51,7 @@ import {
     buildHeroSkillRequest, buildStartRelationRequest, parseBackfillReply, parseHeroSkillReply, parseSheetReply, parseStartRelationReply, sheetAttributeInput, sheetFromTiers, SKILL_TIERS, bandValue,
 } from '../scene/stats/stat-sheets.js';
 import { parseDiceCommand } from '../choices/dice-check.js';
-import { CURRENCY_CATEGORY, currencyBalanceOf, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement } from '../scene/stats/stat-currency.js';
+import { CURRENCY_CATEGORY, CURRENCY_DESCRIPTION, currencyBalanceOf, normalizeCurrencyConfig, normalizeCurrencyRecord, normalizeCurrencySettlement } from '../scene/stats/stat-currency.js';
 import { buildHeroInitRequest, describeHeroInitFailure, heroInitRequestFailure, parseHeroInitReply } from '../scene/stats/stat-hero-init.js';
 import { currencyEditRecord, normalizeCurrencyEditInput } from '../scene/stats/stat-currency-edit.js';
 import { createCurrencyEditIntents } from '../storage/currency-edit-intents.js';
@@ -422,8 +422,9 @@ export function createStatsRuntime({
         if (!inv) return { ok: false, reason: 'stats-currency-no-inventory' };
         if (!alive()) return { ok: false, reason: 'request-stale' };
         if (typeof inv.ensure === 'function') {
+            const combat = combatOn();
             let made;
-            try { made = await inv.ensure({ shouldStart: alive }); } catch (error) { made = null; }
+            try { made = await inv.ensure({ shouldStart: alive, includeGear: combat, manageInventory: combat }); } catch (error) { made = null; }
             if (!made || made.ok !== true) return { ok: false, reason: (made && made.reason) || 'inventory-ensure-failed' };
         }
         if (!alive()) return { ok: false, reason: 'request-stale' };
@@ -450,7 +451,7 @@ export function createStatsRuntime({
         if (read.balance !== write.before) return { ok: false, reason: 'inventory-quantity-conflict' };
         let result;
         try {
-            result = await inv.changeQuantities([{ name: config.name, delta: write.after - write.before, expectedBefore: write.before, category: CURRENCY_CATEGORY }], { shouldStart: alive });
+            result = await inv.changeQuantities([{ name: config.name, delta: write.after - write.before, expectedBefore: write.before, description: CURRENCY_DESCRIPTION, category: CURRENCY_CATEGORY }], { shouldStart: alive });
         } catch { result = { ok: false, reason: 'inventory-write-failed' }; }
         if (!alive()) return { ok: false, reason: 'request-stale' };
         inv.client?.invalidate?.();

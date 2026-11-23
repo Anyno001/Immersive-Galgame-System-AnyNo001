@@ -67,6 +67,7 @@ export const LEDGER_TYPES = Object.freeze([
     'profile', 'exp', 'learn', 'upgrade', 'class', 'reward', 'deck', 'revoke', 'equip', 'unequip', 'item', 'consume', 'offer',
     'loot', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'wound', 'heal', 'hurt', 'keepsake', 'lose', 'battle-growth', 'inscribe',
     'purge', 'card-upgrade', 'card-draw', 'card-flip', 'card-pick', 'battle-points', 'relic-inscribe', 'card-lost', 'card-implant',
+    'daily-deck', 'daily-win', 'daily-loot', 'daily-purge', 'daily-upgrade',
 ]);
 export const GEAR_SLOTS = Object.freeze(['weapon', 'armor', 'accessory', 'treasure']);
 // 按剧情给的初始装备锚定开战楼、不来自标签，锚点 tagHash 固定为此值。
@@ -1541,6 +1542,58 @@ function validateLedgerPayload(type, payload, path, state) {
             checkKnownFields(payload, ['cardId', 'reportId'], path, state);
             return {
                 cardId: idField(payload.cardId, at('cardId'), state),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+            };
+        }
+        // 日常挑战领域固定卡组：该领域首次挑战完成时写入，后续同领域挑战沿用固定牌库。
+        case 'daily-deck': {
+            checkKnownFields(payload, ['domain', 'reportId', 'deck', 'cards'], path, state);
+            const cards = arrayField(payload.cards, at('cards'), state, 0, COMBAT_RULES.deckSanityMax, (card, cardPath, st) => validateCardEntry(card, cardPath, st));
+            if (Array.isArray(cards)) checkDuplicateIds(cards, at('cards'), state);
+            return {
+                domain: textField(payload.domain, at('domain'), state, 20),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+                deck: arrayField(payload.deck, at('deck'), state, COMBAT_RULES.deckMin, COMBAT_RULES.deckSanityMax, (id, idPath, st) => idField(id, idPath, st)),
+                cards,
+            };
+        }
+        // 日常挑战按领域独立胜场计数：锚定非亲密挑战的胜利战报楼。
+        case 'daily-win': {
+            checkKnownFields(payload, ['domain', 'reportId', 'outcome', 'tier'], path, state);
+            return {
+                domain: textField(payload.domain, at('domain'), state, 20),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+                outcome: enumField(payload.outcome, at('outcome'), state, ['圆满', '勉强']),
+                tier: enumField(payload.tier, at('tier'), state, ['轻松', '普通', '艰难']),
+            };
+        }
+        // 日常挑战胜利三选一翻牌选中的卡牌战利品：加入对应领域的固定牌库。
+        case 'daily-loot': {
+            checkKnownFields(payload, ['domain', 'combatId', 'reportId', 'card'], path, state);
+            return {
+                domain: textField(payload.domain, at('domain'), state, 20),
+                combatId: textField(payload.combatId, at('combatId'), state, 120),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+                card: validateCardEntry(payload.card, at('card'), state),
+            };
+        }
+        // 日常挑战领域删卡：该领域胜场每满 PURGE_EVERY 场免费删去一张副本。
+        case 'daily-purge': {
+            checkKnownFields(payload, ['domain', 'copyId', 'battle', 'reportId'], path, state);
+            return {
+                domain: textField(payload.domain, at('domain'), state, 20),
+                copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN),
+                battle: intField(payload.battle, at('battle'), state, 1, 1e6),
+                reportId: textField(payload.reportId, at('reportId'), state, 40),
+            };
+        }
+        // 日常挑战领域免费升级：该领域胜场每满 UPGRADE_EVERY 场免费升级一张副本。
+        case 'daily-upgrade': {
+            checkKnownFields(payload, ['domain', 'copyId', 'battle', 'reportId'], path, state);
+            return {
+                domain: textField(payload.domain, at('domain'), state, 20),
+                copyId: idField(payload.copyId, at('copyId'), state, LEDGER_ID_PATTERN),
+                battle: intField(payload.battle, at('battle'), state, 1, 1e6),
                 reportId: textField(payload.reportId, at('reportId'), state, 40),
             };
         }

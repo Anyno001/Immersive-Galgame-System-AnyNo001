@@ -391,7 +391,10 @@ function challengeLobbyHtml(v) {
         + `<span class="igs-combat-plate"><span class="igs-combat-plate-row"><b>${esc(hero.name)}</b>${hero.maxHp ? `<small data-hp="">${CHALLENGE_LABELS.hp} ${esc(hero.maxHp)}</small>` : ''}</span></span></figure>`;
     const foeHtml = `<figure class="igs-combat-lobby-figure" data-side="enemy" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}">${portraitHtml(foe.name, 'enemy', '', null)}`
         + `<figcaption class="igs-combat-plate"><b>${esc(foe.name)}</b><small>${CHALLENGE_LABELS.enemy}</small></figcaption></figure>`;
-    const banner = `<div class="igs-combat-lobby-top"><div class="igs-combat-lobby-banner"><b class="igs-combat-lobby-name">${esc(l.encounter || CHALLENGE_LABELS.battle)}</b><span class="igs-combat-lobby-tier">${esc([l.tierLabel, l.domain].filter(Boolean).join(' · '))}</span></div></div>`;
+    const domainBadge = !l.intimate && l.domain && Number.isInteger(l.skillValue) && typeof l.domainMultiplier === 'number'
+        ? `${l.domain} ${l.skillValue} (${l.domainMultiplier >= 1 ? '+' : ''}${Math.round((l.domainMultiplier - 1) * 100)}%)`
+        : l.domain;
+    const banner = `<div class="igs-combat-lobby-top"><div class="igs-combat-lobby-banner"><b class="igs-combat-lobby-name">${esc(l.encounter || CHALLENGE_LABELS.battle)}</b><span class="igs-combat-lobby-tier">${esc([l.tierLabel, domainBadge].filter(Boolean).join(' · '))}</span></div></div>`;
     return `<section class="igs-combat-lobby" data-tier="${esc(CHALLENGE_LOBBY_TIER[l.tier] || 'normal')}"${v.intro ? ' data-intro=""' : ''}>${banner}`
         + '<div class="igs-combat-lobby-stage"><span class="igs-combat-lobby-fx" aria-hidden="true"><i class="is-ally"></i><i class="is-enemy"></i></span>'
         + `<div class="igs-combat-lobby-side is-ally" style="--n:${l.allies.length}">${heroHtml}${helperHtml}</div>`
@@ -594,7 +597,7 @@ function purgeButton(f, pending) {
         return btn('purge-open', p.reason === 'combat-points-insufficient' ? '删牌·积分不足' : full, { disabled: true, full });
     }
     const name = (p.cards || []).find((c) => c.copyId === p.pick)?.name;
-    const label = p.pick === 'skip' ? '删牌：不删' : name ? `删牌：${name}` : `删一张牌（消耗${p.cost}积分）`;
+    const label = p.pick === 'skip' ? '删牌：不删' : name ? `删牌：${name}` : p.cost > 0 ? `删一张牌（消耗${p.cost}积分）` : '删一张牌（免费）';
     const short = p.pick === 'skip' || name ? label : p.cost > 0 ? `删牌·${p.cost}积分` : '删牌·免费';
     return btn('purge-open', short, { primary: f.needPurge === true, disabled: pending, full: label });
 }
@@ -613,7 +616,7 @@ function purgeDetailHtml(c, cost, pending, upgradePick) {
         + (keywords ? `<span class="igs-combat-trait-tip-meta">${esc(keywords)}</span>` : '')
         + `<span class="igs-combat-trait-tip-text">${esc(text || '无效果')}</span>`
         + (marks ? `<span class="igs-combat-trait-tip-origin">${esc(marks)}</span>` : '')
-        + `<div class="igs-combat-actions">${btn('pick-purge', upgradePick === c.copyId ? '已选为升级' : `删除这张（消耗${cost}积分）`, { id: c.copyId, primary: true, disabled: pending || upgradePick === c.copyId })}</div></div>`;
+        + `<div class="igs-combat-actions">${btn('pick-purge', upgradePick === c.copyId ? '已选为升级' : cost > 0 ? `删除这张（消耗${cost}积分）` : '删除这张（免费）', { id: c.copyId, primary: true, disabled: pending || upgradePick === c.copyId })}</div></div>`;
 }
 function purgeSheetHtml(v) {
     const f = v.flip;
@@ -631,7 +634,7 @@ function purgeSheetHtml(v) {
     }).join('');
     const skip = btn('pick-purge', p.pick === 'skip' ? '已选不删' : '不删', { id: 'skip', primary: p.pick === 'skip', disabled: pending });
     return `<div class="igs-combat-purge-sheet" role="dialog" aria-label="删牌"><i class="igs-combat-purge-veil" data-combat-act="purge-close"></i>`
-        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">删一张牌（消耗${esc(p.cost)}积分）</div><div class="igs-combat-purge">${cards}</div>`
+        + `<div class="igs-combat-purge-box"><div class="igs-combat-loot-cap">${p.cost > 0 ? `删一张牌（消耗${esc(p.cost)}积分）` : '删一张牌（免费）'}</div><div class="igs-combat-purge">${cards}</div>`
         + (focus ? purgeDetailHtml(focus, p.cost, pending, upgradePick) : '')
         + `<div class="igs-combat-actions">${skip}${btn('purge-close', '关闭', { disabled: pending })}</div></div></div>`;
 }

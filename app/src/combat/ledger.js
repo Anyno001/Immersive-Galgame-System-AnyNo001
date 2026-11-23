@@ -9,8 +9,9 @@
 //   - 读表只解码账本用到的三种（档案、日志、属性），不解码数值日志。
 // 记忆化返回的对象在所有调用方之间共享，一律视为只读：调用方不得原地修改 read()/effectiveState() 的返回值。
 // 写入（append/useItem/setGear 等）会使表版本号变化，缓存自动作废。
-import { COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardAt, signatureUnlockLevel, validateDeck } from './rules.js';
+import { BASIC_CARDS, COMBAT_RULES, cardCopyLimit, difficultyRule, expProgress, signatureCardAt, signatureUnlockLevel, validateDeck } from './rules.js';
 import { hash32, hashString, randomInt } from './random.js';
+import { normalizeChallengeDomain } from './challenge-cards.js';
 import {
     ABILITY_KEYS, ABILITY_LABELS, ASI_POINTS, DEFAULT_REL_TIER, REL_TIERS, isAsiLevel, parseCombatInit, relOffset,
 } from './abilities.js';
@@ -72,11 +73,18 @@ export const USE_TAG_HASH = 'use';
 // 数值系统的自然回血（按楼/按天/跳过天数）：锚定楼层与 swipe，不需要正文标签。
 export const NATURAL_HEAL_TAG_HASH = 'nat';
 export const ALLOC_TAG_HASH = 'alloc';
-// 日常挑战圆满后的经验牌：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
+// 日常挑战圆满后的经验牌（旧记录兼容）：挂在战报楼上，战报是圆满才有效，不对应正文里的标签。
 export const CHALLENGE_REWARD_TAG_HASH = 'challenge-reward';
+// 日常挑战领域固定牌库、领域独立胜场、三选一卡牌战利品、免费删卡与免费升级：锚定非亲密挑战战报楼。
+export const DAILY_DECK_TAG_HASH = 'daily-deck';
+export const DAILY_WIN_TAG_HASH = 'daily-win';
+export const DAILY_LOOT_TAG_HASH = 'daily-loot';
+export const DAILY_PURGE_TAG_HASH = 'daily-purge';
+export const DAILY_UPGRADE_TAG_HASH = 'daily-upgrade';
+const DAILY_ENTRY_TYPES = new Set(['daily-deck', 'daily-win', 'daily-loot', 'daily-purge', 'daily-upgrade']);
 
 // 不依赖正文标签的记录类型：只要楼层和 swipe 对得上就有效。
-const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'relic-inscribe', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points', 'card-lost', 'card-implant']);
+const FLOOR_ONLY_TYPES = new Set(['deck', 'reward', 'consume', 'offer', 'sell', 'rebuild', 'respec', 'ascend', 'trait', 'trait-pick', 'trait-slot', 'relic-inscribe', 'card-draw', 'card-flip', 'card-pick', 'wound', 'battle-growth', 'battle-points', 'card-lost', 'card-implant', ...DAILY_ENTRY_TYPES]);
 // 不参与重放的记录类型（档案另走索引，撤销只用来标记其他记录）。
 const NON_REPLAY_TYPES = new Set(['profile', 'revoke']);
 // 有独立卡组的角色档案与只有技能的角色档案。
@@ -90,7 +98,8 @@ const isObject = (value) => !!value && typeof value === 'object';
 const TYPE_ORDER = Object.freeze({
     exp: 0, class: 1, learn: 2, upgrade: 3, loot: 4, reward: 5, deck: 6, equip: 7, unequip: 8, item: 9, consume: 10, lose: 10.5,
     offer: 11, sell: 12, rebuild: 13, respec: 14, ascend: 15, trait: 16, 'trait-pick': 17, 'trait-slot': 18, 'relic-inscribe': 18.05,
-    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, 'card-upgrade': 18.65, 'card-lost': 18.68, 'card-implant': 18.69, purge: 18.7, wound: 19, hurt: 19, heal: 19.5,
+    'card-draw': 18.1, 'card-flip': 18.15, 'card-pick': 18.2, 'battle-growth': 18.5, 'battle-points': 18.55, inscribe: 18.6, 'card-upgrade': 18.65, 'card-lost': 18.68, 'card-implant': 18.69, purge: 18.7, wound: 19, hurt: 19,
+    'daily-deck': 19.1, 'daily-win': 19.2, 'daily-loot': 19.3, 'daily-purge': 19.4, 'daily-upgrade': 19.5, heal: 19.6,
 });
 // 面板操作（卖出、改建、转职等）挂的标签，同一楼内排在所有正文记录之后。
 const PANEL_TAG_HASHES = new Set([GEAR_TAG_HASH, SELL_TAG_HASH, REBUILD_TAG_HASH, RESPEC_TAG_HASH, ASCEND_TAG_HASH, TRAIT_TAG_HASH, PANEL_TAG_HASH, USE_TAG_HASH]);
@@ -323,6 +332,11 @@ function inactiveReason(entry, scanFloor) {
     if (entry.type === 'battle-points' && (floor.report?.result !== 'win' || floor.report.reportId !== entry.payload.reportId)) return 'battle-points-report-invalid';
     // 规则 v6 G3d：积分记录的弱敌战标记须与战报一致（防止弱敌战按全额领分）。
     if (entry.type === 'battle-points' && (entry.payload.weak === true) !== (floor.report.weak === true)) return 'battle-points-weak-mismatch';
+    // 日常挑战领域固定牌库 / 胜场 / 三选一卡牌战利品 / 删卡 / 免费升级：只认非亲密挑战战报楼。
+    if (DAILY_ENTRY_TYPES.has(entry.type)) {
+        if (!floor.challenge || floor.challenge.ending || floor.challenge.reportId !== entry.payload.reportId) return 'daily-report-invalid';
+        if (entry.type !== 'daily-deck' && floor.challenge.result !== 'win') return 'daily-not-victory';
+    }
     return null;
 }
 
@@ -1340,6 +1354,146 @@ export function upgradeChance(view, reportId) {
     return { battle, available: reason === null, ...(reason ? { reason } : {}) };
 }
 
+// ---------------------------------------------------------------------------
+// 日常挑战按领域独立固定牌库与胜场计数（不依赖战斗角色档案，纯 daily 模式与 both 模式通用）。
+// ---------------------------------------------------------------------------
+function dailyMintCopy(state, cardId, source) {
+    const seq = state.copySeq;
+    state.copySeq += 1;
+    const copyId = `dd.${hashString(state.domain)}.${hashString(String(source || 'init'))}.${seq}`;
+    state.copies.set(copyId, { cardId, upgraded: false });
+    return copyId;
+}
+
+const dailyHandlers = Object.freeze({
+    'daily-deck'(dailyDecks, payload, { entry }) {
+        const domain = normalizeChallengeDomain(payload.domain);
+        if (dailyDecks.has(domain)) return 'daily-deck-already-fixed';
+        const catalog = new Map(Object.entries(BASIC_CARDS).map(([id, card]) => [id, JSON.parse(JSON.stringify(card))]));
+        for (const card of payload.cards || []) catalog.set(card.id, JSON.parse(JSON.stringify(card)));
+        if ((payload.deck || []).some((id) => !catalog.has(id))) return 'daily-deck-card-missing';
+        const state = { domain, catalog, copies: new Map(), deckCopies: [], wins: new Set(), purges: 0, purgedAt: new Set(), upgradedAt: new Set(), copySeq: 0 };
+        const source = entry?.id || 'init';
+        for (const cardId of payload.deck) state.deckCopies.push(dailyMintCopy(state, cardId, source));
+        dailyDecks.set(domain, state);
+        return null;
+    },
+    'daily-win'(dailyDecks, payload) {
+        const domain = normalizeChallengeDomain(payload.domain);
+        const state = dailyDecks.get(domain);
+        if (!state) return 'daily-deck-missing';
+        if (state.wins.has(payload.reportId)) return 'daily-win-duplicate';
+        state.wins.add(payload.reportId);
+        return null;
+    },
+    'daily-loot'(dailyDecks, payload, { entry }) {
+        const domain = normalizeChallengeDomain(payload.domain);
+        const state = dailyDecks.get(domain);
+        if (!state) return 'daily-deck-missing';
+        if (state.deckCopies.length >= COMBAT_RULES.deckSanityMax) return 'daily-deck-full';
+        const card = payload.card;
+        if (!card?.id) return 'daily-loot-card-invalid';
+        const targetId = card.id;
+        if (!state.catalog.has(targetId)) state.catalog.set(targetId, JSON.parse(JSON.stringify(card)));
+        state.deckCopies.push(dailyMintCopy(state, targetId, entry?.id || 'loot'));
+        return null;
+    },
+    'daily-purge'(dailyDecks, payload) {
+        const domain = normalizeChallengeDomain(payload.domain);
+        const state = dailyDecks.get(domain);
+        if (!state) return 'daily-deck-missing';
+        const battle = state.wins.size;
+        if (!state.wins.has(payload.reportId) || battle !== payload.battle || battle % PURGE_EVERY !== 0) return 'combat-purge-not-due';
+        if (state.purgedAt.has(battle)) return 'combat-purge-used';
+        if (state.deckCopies.length <= COMBAT_RULES.deckMin) return 'combat-purge-deck-min';
+        const at = state.deckCopies.indexOf(payload.copyId);
+        if (at < 0) return 'combat-purge-copy-missing';
+        state.deckCopies.splice(at, 1);
+        state.copies.delete(payload.copyId);
+        state.purges += 1;
+        state.purgedAt.add(battle);
+        return null;
+    },
+    'daily-upgrade'(dailyDecks, payload) {
+        const domain = normalizeChallengeDomain(payload.domain);
+        const state = dailyDecks.get(domain);
+        if (!state) return 'daily-deck-missing';
+        const battle = state.wins.size;
+        if (!state.wins.has(payload.reportId) || battle !== payload.battle || battle % UPGRADE_EVERY !== 0) return 'combat-card-upgrade-not-due';
+        if (state.upgradedAt.has(battle)) return 'combat-card-upgrade-used';
+        if (!state.deckCopies.includes(payload.copyId)) return 'combat-card-upgrade-copy-missing';
+        const copy = state.copies.get(payload.copyId);
+        const card = copy && state.catalog.get(copy.cardId);
+        if (!copy || !card || copy.upgraded || !upgradableCard(card)) return 'combat-card-upgrade-ineligible';
+        copy.upgraded = true;
+        state.upgradedAt.add(battle);
+        return null;
+    },
+});
+
+export function dailyUpgradableRows(view) {
+    if (!view || view.kind !== 'daily-deck') return [];
+    const catalog = view.catalog instanceof Map ? view.catalog : new Map(Object.entries(view.catalog || {}));
+    return (view.deckEntries || []).filter((row) => row?.copyId && !row.upgraded && upgradableCard(catalog.get(row.cardId)));
+}
+
+function presentDailyDomain(state) {
+    const deckEntries = state.deckCopies.map((copyId) => {
+        const copy = state.copies.get(copyId);
+        return { copyId, cardId: copy.cardId, upgraded: copy.upgraded === true };
+    });
+    const deck = deckEntries.map((row) => row.cardId);
+    const wins = [...state.wins];
+    const battle = wins.length;
+    const purgeReason = battle === 0 || battle % PURGE_EVERY !== 0 ? 'combat-purge-not-due'
+        : state.purgedAt.has(battle) ? 'combat-purge-used'
+            : deck.length <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min' : null;
+    const openUpgrade = deckEntries.some((row) => !row.upgraded && upgradableCard(state.catalog.get(row.cardId)));
+    const upgradeReason = battle === 0 || battle % UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
+        : state.upgradedAt.has(battle) ? 'combat-card-upgrade-used'
+            : !openUpgrade ? 'combat-card-upgrade-none' : null;
+    const nextOf = (every) => battle + (every - (battle % every || every)) || every;
+    return {
+        kind: 'daily-deck',
+        domain: state.domain,
+        catalog: new Map([...state.catalog].map(([id, card]) => [id, JSON.parse(JSON.stringify(card))])),
+        deck,
+        deckEntries,
+        wins: battle,
+        winReportIds: wins,
+        purges: state.purges,
+        purge: { battle, cost: 0, available: purgeReason === null, next: purgeReason === 'combat-purge-not-due' ? nextOf(PURGE_EVERY) : battle, ...(purgeReason ? { reason: purgeReason } : {}), wins },
+        upgrade: { battle, available: upgradeReason === null, next: upgradeReason === 'combat-card-upgrade-not-due' ? nextOf(UPGRADE_EVERY) : battle, ...(upgradeReason ? { reason: upgradeReason } : {}), wins },
+    };
+}
+
+export function dailyPurgeChance(view, reportId) {
+    if (view?.kind !== 'daily-deck') return { available: false, reason: 'combat-purge-kind-mismatch' };
+    const p = view.purge;
+    const wins = Array.isArray(p?.wins) ? p.wins : [];
+    const at = reportId ? wins.indexOf(reportId) : -1;
+    const battle = at < 0 ? wins.length + 1 : at + 1;
+    const size = Array.isArray(view.deck) ? view.deck.length : 0;
+    const reason = battle % PURGE_EVERY !== 0 ? 'combat-purge-not-due'
+        : at >= 0 && battle !== wins.length ? 'combat-purge-expired'
+            : at >= 0 && p?.reason === 'combat-purge-used' ? 'combat-purge-used'
+                : size <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min' : null;
+    return { battle, cost: 0, available: reason === null, ...(reason ? { reason } : {}) };
+}
+
+export function dailyUpgradeChance(view, reportId) {
+    if (view?.kind !== 'daily-deck') return { available: false, reason: 'combat-card-upgrade-kind-mismatch' };
+    const u = view.upgrade;
+    const wins = Array.isArray(u?.wins) ? u.wins : [];
+    const at = reportId ? wins.indexOf(reportId) : -1;
+    const battle = at < 0 ? wins.length + 1 : at + 1;
+    const reason = battle % UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
+        : at >= 0 && battle !== wins.length ? 'combat-card-upgrade-expired'
+            : at >= 0 && u?.reason === 'combat-card-upgrade-used' ? 'combat-card-upgrade-used'
+                : !dailyUpgradableRows(view).length ? 'combat-card-upgrade-none' : null;
+    return { battle, available: reason === null, ...(reason ? { reason } : {}) };
+}
+
 // 重放去重键：同一角色同一类型同一标签位置只认一条。
 const entryDedupKey = (characterId, entry) => [characterId, entry.type, entry.anchor.messageId, entry.anchor.swipeId, entry.anchor.tagHash, entry.anchor.occurrence].join('|');
 
@@ -1560,6 +1714,7 @@ export function replayCharacterState(snapshot, chat, options = {}) {
     const seenTags = new Set();
     const offers = new Map();
     const loots = new Map();
+    const dailyDecks = new Map();      // 日常挑战按领域独立固定的牌库与胜场计数
     const looseVitals = new Map();     // 没有档案的角色的受伤状态
     let lastParty = null;
     const userName = options.userName || '';
@@ -1569,6 +1724,12 @@ export function replayCharacterState(snapshot, chat, options = {}) {
     for (const entry of ordered) {
         const reason = revoked.has(entry.id) ? 'revoked' : inactiveReason(entry, scanFloor);
         if (reason) { inactive.push({ id: entry.id, reason }); continue; }
+        if (DAILY_ENTRY_TYPES.has(entry.type)) {
+            const failure = dailyHandlers[entry.type](dailyDecks, entry.payload, { entry, diagnostics });
+            if (failure) { pushDiagnostic(diagnostics, failure, entry); continue; }
+            applied.push(entry.id);
+            continue;
+        }
         const characterId = canonicalCharacterId(index, entry.character);
         if (!FLOOR_ONLY_TYPES.has(entry.type)) {
             const dedupKey = entryDedupKey(characterId ?? entry.character, entry);
@@ -1620,7 +1781,8 @@ export function replayCharacterState(snapshot, chat, options = {}) {
         ...attributeContext, heroId, inactive: folded.inactive,
         revision: `${attributeRows.length}:${attributeRows[attributeRows.length - 1]?.id || ''}`,
     };
-    return { ok: true, characters, classes: index.classes, enemies: index.enemies,
+    const dailyViews = new Map([...dailyDecks].map(([domain, state]) => [domain, presentDailyDomain(state)]));
+    return { ok: true, characters, classes: index.classes, enemies: index.enemies, dailyDecks: dailyViews,
         profileMeta: new Map([...snapshot.profiles].map(([id, meta]) => [id, { version: meta.version, createdAt: meta.createdAt }])),
         unassignedExp, applied, inactive, diagnostics, growth, attributes, offers, loots, lastParty, looseVitals };
 }

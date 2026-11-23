@@ -1300,8 +1300,10 @@ test('P4 主角统一建档（v2 无战斗表）：一次请求补齐六维与�
     const sheetNames = Object.values(db.sheets).map(s => s.name);
     assert.equal(sheetNames.includes('IGS战斗·档案'), false, '纯数值初始化不得建立战斗档案表');
     assert.equal(sheetNames.includes('IGS战斗·日志'), false, '纯数值初始化不得建立战斗日志表');
+    assert.equal(sheetNames.includes('IGS战斗·装配'), false, '纯数值初始化不得建立战斗装配表');
     assert.equal(sheetNames.includes('IGS数值·属性'), true);
     assert.equal(sheetNames.includes('IGS·存储'), true);
+    assert.notEqual(db.sheets.sheet_userbag.updateConfig?.updateFrequency, 0, '未开战斗时不得接管用户物品表');
 });
 
 test('P4 部分补缺、回包前手改防覆盖与分阶段中断冷恢复（不重发模型、不重复发初始金钱）', async t => {
@@ -1396,4 +1398,113 @@ test('P4 部分补缺、回包前手改防覆盖与分阶段中断冷恢复（�
     await rt2.ensureHeroInit({ force: true });
     assert.equal(coldCalls, 0);
     assert.equal(rt2.currencyBalance(), 0, '合法零余额不得触发重复发放初始金钱');
+});
+
+test('回归：物品表描述列 NOT NULL 约束不触发 SQL_CONSTRAINT，且未开战斗时不建 IGS战斗·装配 也不接管物品表', async t => {
+    const { createIgsChatStore } = await import('../src/data/shujuku/igs-chat-store.js');
+    const { createLedgerMockHost } = await import('./helpers/combat-mock-host-ledger.js');
+    const { createMemoryStorage } = await import('../src/storage/preset-store.js');
+    const { readIgsChatEvidence } = await import('../src/storage/igs-chat-evidence.js');
+    const db = createLedgerMockHost({ supportCallbacks: true });
+    // 复刻官方「恋爱Gal_IGS数值系统适配版」物品表：description TEXT NOT NULL CHECK(LENGTH(description) <= 80)
+    db.sheets.sheet_wu_pin_biao = {
+        uid: 'sheet_wu_pin_biao',
+        name: '物品表',
+        orderNo: 0,
+        updateConfig: { updateFrequency: 1 },
+        sourceData: {
+            insertNode: '主角获得新物品时插入。',
+            ddl: [
+                'CREATE TABLE sheet_wu_pin_biao (',
+                '  row_id INTEGER PRIMARY KEY,',
+                '  item_name TEXT NOT NULL UNIQUE CHECK(LENGTH(item_name) <= 15), -- 物品名称',
+                '  quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity >= 0), -- 数量',
+                '  description TEXT NOT NULL CHECK(LENGTH(description) <= 80), -- 描述',
+                '  states_now TEXT -- 状态',
+                ');',
+            ].join('\n'),
+        },
+        content: [['row_id', '物品名称', '数量', '描述', '状态']],
+    };
+    const origInsert = db.api.insertRow;
+    const insertedPayloads = [];
+    db.api.insertRow = (first, second) => {
+        const tableName = first && typeof first === 'object' ? first.tableName : first;
+        const data = first && typeof first === 'object' ? first.data : second;
+        if (tableName === '物品表') {
+            insertedPayloads.push(clone(data));
+            // 严格模拟 SQLite NOT NULL：缺失/undefined/null 直接拒绝
+            for (const required of ['物品名称', '数量', '描述']) {
+                if (!data || !Object.hasOwn(data, required) || data[required] === null || data[required] === undefined) {
+                    return { success: false, error: 'SQL_CONSTRAINT' };
+                }
+            }
+            if (String(data['描述']).length > 80) return { success: false, error: 'SQL_CONSTRAINT' };
+        }
+        return origInsert(first, second);
+    };
+    const storage = createMemoryStorage();
+    const context = {
+        name1: '主角', name2: '小雪', chatId: 'v2-sql-constraint-1', chatMetadata: {},
+        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '开局。', swipe_id: 0 }],
+        getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
+        eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
+        eventSource: { on() {}, removeListener() {} },
+    };
+    const chatStore = createIgsChatStore({
+        api: () => db.api,
+        chatId: () => context.chatId,
+        chat: () => context.chat,
+        userName: () => context.name1,
+        evidence: id => readIgsChatEvidence({ context, chatId: id, storage }),
+        storage,
+    });
+    t.after(() => chatStore.dispose());
+    const requests = [];
+    const rt = createStatsRuntime({
+        getContext: () => context,
+        readSettings: () => ({ enabled: true, ruleset: 'coc7', autoSkill: false, sheetGen: 'off', backfill: 'off', push: { enabled: false } }),
+        combatEnabled: () => false,
+        statsTables: () => chatStore.get().statsAccess,
+        attributeAccess: () => chatStore.get().attributeAccess,
+        currencyInventory: () => chatStore.get().inventory,
+        currencyEditStorage: storage,
+        generationIdentity: () => chatStore.get(),
+        getBackgroundRequest: () => (prompt) => new Promise(resolve => requests.push({ prompt, resolve })),
+    });
+    t.after(() => rt.destroy());
+    rt.sync();
+    for (let i = 0; i < 40 && requests.length === 0; i += 1) await new Promise(r => setTimeout(r, 10));
+    assert.equal(requests.length, 1);
+    requests[0].resolve(JSON.stringify({
+        attributes: { 力量: 12, 敏捷: 13, 体质: 11, 智力: 14, 感知: 12, 魅力: 13 },
+        currency: { name: '日元', initial: 5000, prices: { 少量: 500, 普通: 2000, 昂贵: 8000, 巨额: 30000 }, rate: 10 },
+    }));
+    await rt.whenSaved();
+    assert.equal(rt.heroBasicReady(), true);
+    assert.equal(rt.currencyBalance(), 5000);
+    // 1) 写入边界显式带上非空描述，未触发 SQL_CONSTRAINT
+    assert.equal(insertedPayloads.length, 1);
+    assert.equal(insertedPayloads[0]['物品名称'], '日元');
+    assert.equal(insertedPayloads[0]['描述'], '剧情货币');
+    assert.equal(insertedPayloads[0]['类别'], '货币');
+    // 2) 未开战斗时，严禁插入任何 IGS战斗·* 表，也不得接管/冻结用户物品表
+    const sheetNamesOff = Object.values(db.sheets).map(s => s.name);
+    assert.equal(sheetNamesOff.includes('IGS战斗·装配'), false, '未开战斗不得插入 IGS战斗·装配');
+    assert.equal(sheetNamesOff.includes('IGS战斗·档案'), false, '未开战斗不得插入 IGS战斗·档案');
+    assert.equal(sheetNamesOff.includes('IGS战斗·日志'), false, '未开战斗不得插入 IGS战斗·日志');
+    assert.equal(db.sheets.sheet_wu_pin_biao.updateConfig.updateFrequency, 1, '未开战斗不得关闭用户物品表的自动更新');
+    assert.equal(db.sheets.sheet_wu_pin_biao.sourceData.insertNode, '主角获得新物品时插入。');
+    // 3) 即使业务侧省略 description 新增普通物品，inventory-tables 也在写入边界传 "" 而非省略/NULL
+    const plain = await chatStore.get().inventory.changeQuantities([{ name: '铁钥匙', delta: 1 }]);
+    assert.equal(plain.ok, true, JSON.stringify(plain));
+    assert.equal(insertedPayloads.length, 2);
+    assert.equal(insertedPayloads[1]['描述'], '');
+    assert.equal(insertedPayloads[1]['类别'], '');
+    // 4) 后续开启战斗后，调用默认 inventory.ensure() 才会补建 IGS战斗·装配 并接管物品表
+    const combatEnsure = await chatStore.get().inventory.ensure();
+    assert.equal(combatEnsure.ok, true, JSON.stringify(combatEnsure));
+    const sheetNamesOn = Object.values(db.sheets).map(s => s.name);
+    assert.equal(sheetNamesOn.includes('IGS战斗·装配'), true, '开启战斗后应补建 IGS战斗·装配');
+    assert.equal(db.sheets.sheet_wu_pin_biao.updateConfig.updateFrequency, 0, '开启战斗后应接管物品表');
 });

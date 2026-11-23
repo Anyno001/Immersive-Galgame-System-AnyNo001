@@ -641,7 +641,7 @@ function settleEntity(entity, value, state) {
     if (!isPlainObject(value)) return { ok: false, errors: [errorItem('', 'expected-object')] };
     const context = { key: entity.key, owner: entity.owner, fixed: entity.fixed, input: entity.input };
     if (entity.kind === 'challenge-foe') {
-        const assembled = assembleChallengeFoe(value);
+        const assembled = assembleChallengeFoe(value, entity);
         return assembled.errors ? { ok: false, errors: assembled.errors } : { ok: true, result: { challengeFoe: assembled.value }, diagnostics: assembled.diagnostics };
     }
     if (entity.kind === 'profile-gear') return validateInitialGear(entity, value, context);

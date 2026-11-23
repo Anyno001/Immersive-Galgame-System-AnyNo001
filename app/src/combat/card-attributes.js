@@ -1,5 +1,6 @@
 import { attributeMultiplier, cardAbility, policyOf, scalePositive } from './attribute-policy.js';
 import { cardArchetypeOf } from './card-origin.js';
+import { validDomainScaling } from './challenge-cards.js';
 import { opHandler, validAttributeSpec } from './mechanics/registry.js';
 import { statusAttributeSpec } from './mechanics/apply-status.js';
 
@@ -18,9 +19,40 @@ const scaled = (value, meta) => {
 export const attributeAmount = (effect, value) => effect?._attribute?.timing === 'deferred'
     ? scaled(value, effect._attribute) : value;
 
+function domainCardView(card, domainScaling) {
+    const marks = [];
+    const walk = (effects, path) => (effects || []).map((effect, index) => {
+        const at = `${path}.${index}`;
+        const out = { ...effect };
+        for (const key of ['then', 'a', 'b']) if (Array.isArray(effect[key])) out[key] = walk(effect[key], `${at}.${key}`);
+        if (!['damage', 'block', 'heal'].includes(effect.op) || !Number.isFinite(effect.amount)) return out;
+        const meta = {
+            ability: domainScaling.domain,
+            skillValue: domainScaling.skillValue,
+            key: 'amount',
+            tier: 'normal',
+            timing: 'static',
+            multiplier: domainScaling.multiplier,
+        };
+        const base = effect.amount;
+        out.amount = scaled(base, meta);
+        out._attribute = meta;
+        marks.push({ path: `${at}.amount`, ...meta, base, value: out.amount });
+        return out;
+    });
+    const effects = walk(card.effects, 'effects');
+    const onDiscard = card.onDiscard ? walk(card.onDiscard, 'onDiscard') : null;
+    return { ...card, effects, ...(onDiscard ? { onDiscard } : {}), attributeScaling: marks };
+}
+
 export function attributeCardView(card, unit) {
+    if (card?.attributeScaling) return card;
     const policy = policyOf(unit);
-    if (!policy || card.attributeScaling) return card;
+    if (!policy) {
+        return unit?.domainScaling && validDomainScaling(unit.domainScaling)
+            ? domainCardView(card, unit.domainScaling)
+            : card;
+    }
     const archetype = cardArchetypeOf(card);
     const marks = [];
     const walk = (effects, path) => (effects || []).map((effect, index) => {

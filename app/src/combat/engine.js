@@ -25,6 +25,7 @@ import { GARDENER_FORMATION, validEncounterFormation } from './encounter-formati
 import { APPLY_STATUSES } from './mechanics/apply-status.js';
 import { TRAIT_ACTIVE_MAX, TRAIT_KINDS, TRAIT_SKILL_COSTS, TRAIT_SLOT_MAX } from './traits.js';
 import { canAttributeSift, validAttributePolicy, validAttributeRules } from './attribute-policy.js';
+import { validDomainScaling } from './challenge-cards.js';
 import { attributeAmount } from './card-attributes.js';
 import { powerName, powerCardSource, updatePowerStatuses } from './power-state.js';
 import { CARD_UPGRADE_RULES, upgradedCardFace } from './card-upgrade.js';
@@ -333,6 +334,7 @@ function validateUnit(unit, path, attributeRules) {
     if (unit.template !== undefined && (unit.side !== 'enemy' || unit.kind !== 'skill'
         || !normalizeEnemyTemplate(unit.template).ok)) return fail('invalid-template');
     if (attributeRules && unit.kind === 'deck' && !validAttributePolicy(unit.attributePolicy, attributeRules)) return fail('invalid-attribute-policy');
+    if (unit.domainScaling !== undefined && (unit.kind !== 'deck' || !validDomainScaling(unit.domainScaling))) return fail('invalid-domain-scaling');
     if (!intInRange(unit.maxHp, 1, 9999)) return fail('invalid-hp');
     if (unit.hp !== undefined && !intInRange(unit.hp, 1, unit.maxHp)) return fail('invalid-hp');
     const badScale = unit.damageScale !== undefined && !(typeof unit.damageScale === 'number' && unit.damageScale > 0 && unit.damageScale <= 5);
@@ -2376,6 +2378,7 @@ function buildUnit(def, attributeRules) {
     }
     if (def.kind === 'deck') {
         if (attributeRules) unit.attributePolicy = deepCopy(def.attributePolicy);
+        if (def.domainScaling) unit.domainScaling = deepCopy(def.domainScaling);
         unit.energy = 0;
         unit.energyPerTurn = def.energy ?? COMBAT_RULES.energyPerTurn;
         unit.drawPerTurn = def.draw ?? COMBAT_RULES.drawPerTurn;

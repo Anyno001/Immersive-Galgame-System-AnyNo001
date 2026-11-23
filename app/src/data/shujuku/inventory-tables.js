@@ -179,9 +179,9 @@ const sheetEntries = (template) => Object.entries(template || {}).filter(([, she
 // 背包表是否已经处于 IGS 独占状态。
 const isManaged = (sheet) => sheet.updateConfig?.updateFrequency === 0 && sheet.sourceData?.insertNode === MANAGED_SOURCE_DATA.insertNode;
 
-// 在用户模板上规划需要的改动：补背包表的描述/类别列、接管背包表、缺表时新建背包表与装备定义表。
+// 在用户模板上规划需要的改动：补背包表的描述/类别列、按需接管背包表、缺表时新建背包表，战斗开启时按需补建装备定义表。
 // 返回 { ok, template, changes }；无法安全改动时返回带 reason 的失败结果。
-export function planInventoryTemplate(template, tables) {
+export function planInventoryTemplate(template, tables, { includeGear = true, manageInventory = true } = {}) {
     const next = JSON.parse(JSON.stringify(template || {}));
     const entries = sheetEntries(next);
     let orderNo = entries.reduce((max, [, sheet]) => Math.max(max, Number(sheet.orderNo) || 0), -1);
@@ -211,7 +211,7 @@ export function planInventoryTemplate(template, tables) {
             ];
             changes.push({ kind: 'inventory-columns', added: missingColumns.map((column) => column.header) });
         }
-        if (!isManaged(sheet)) {
+        if (manageInventory && !isManaged(sheet)) {
             sheet.updateConfig = { ...MANAGED_UPDATE_CONFIG };
             sheet.sourceData = { ...(sheet.sourceData || {}), ...MANAGED_SOURCE_DATA };
             changes.push({ kind: 'inventory-managed' });
@@ -229,14 +229,16 @@ export function planInventoryTemplate(template, tables) {
         next[uid] = sheet;
         changes.push({ kind: 'inventory-created' });
     }
-    const hasGearTable = (Array.isArray(tables) ? tables : []).some((table) => table.name === GEAR_TABLE.name)
-        || entries.some(([, sheet]) => sheet.name === GEAR_TABLE.name);
-    if (!hasGearTable) {
-        let uid = GEAR_TABLE.uid;
-        for (let suffix = 2; Object.hasOwn(next, uid); suffix += 1) uid = `${GEAR_TABLE.uid}${suffix}`;
-        orderNo += 1;
-        next[uid] = buildIgsSheet({ name: GEAR_TABLE.name, columns: GEAR_TABLE.columns, note: 'IGS 战斗扩展的装备与道具效果、穿戴状态' }, orderNo, uid);
-        changes.push({ kind: 'gear-created' });
+    if (includeGear) {
+        const hasGearTable = (Array.isArray(tables) ? tables : []).some((table) => table.name === GEAR_TABLE.name)
+            || entries.some(([, sheet]) => sheet.name === GEAR_TABLE.name);
+        if (!hasGearTable) {
+            let uid = GEAR_TABLE.uid;
+            for (let suffix = 2; Object.hasOwn(next, uid); suffix += 1) uid = `${GEAR_TABLE.uid}${suffix}`;
+            orderNo += 1;
+            next[uid] = buildIgsSheet({ name: GEAR_TABLE.name, columns: GEAR_TABLE.columns, note: 'IGS 战斗扩展的装备与道具效果、穿戴状态' }, orderNo, uid);
+            changes.push({ kind: 'gear-created' });
+        }
     }
     if (changes.length) next.mate = { ...(next.mate && typeof next.mate === 'object' ? next.mate : {}), updateConfigUiSentinel: -1 };
     return { ok: true, template: next, changes };
@@ -341,7 +343,7 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
     };
 
     // 缺表缺列时在用户当前模板上补建，建完核对。
-    function ensure({ shouldStart = () => true } = {}) {
+    function ensure({ shouldStart = () => true, includeGear = true, manageInventory = true } = {}) {
         return runSerial(async () => {
             const alive = () => leaseActive(shouldStart);
             if (!alive()) return { ok: false, reason: 'request-stale' };
@@ -354,7 +356,7 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
             const tables = parseTablesMemo(current.data);
             const templateRead = client.getTableTemplate();
             if (!templateRead.ok) return { ok: false, reason: 'inventory-template-unavailable', detail: templateRead.reason };
-            const plan = planInventoryTemplate(templateRead.data, tables);
+            const plan = planInventoryTemplate(templateRead.data, tables, { includeGear, manageInventory });
             if (!plan.ok) return plan;
             if (!plan.changes.length) return { ok: true, changes: [] };
             // 用户模板与已有表集合不一致时不导入，避免覆盖用户的表
@@ -380,9 +382,9 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
             if (!alive()) return { ok: false, reason: 'request-stale' };
             if (!imported.ok) return { ok: false, reason: 'inventory-template-import-failed', detail: imported.message || imported.reason };
             if (imported.result?.runtimeReady === false) return { ok: false, reason: 'inventory-runtime-not-ready', changes: plan.changes };
-            // 导入后重新读取核对：装备表要有效，背包表要补齐新增的列
+            // 导入后重新读取核对：需要装备表时核对有效，背包表要补齐新增的列
             const verified = readInventoryTables(client);
-            if (!verified.ok || !verified.gear || verified.gear.invalid) return { ok: false, reason: 'inventory-ensure-unverified', detail: verified.reason || '' };
+            if (!verified.ok || (includeGear && (!verified.gear || verified.gear.invalid))) return { ok: false, reason: 'inventory-ensure-unverified', detail: verified.reason || '' };
             const stillMissing = Object.keys(INVENTORY_ADDED_COLUMNS).filter((field) => verified.inventory.index[field] < 0);
             return stillMissing.length ? { ok: false, reason: 'inventory-ensure-unverified', missing: stillMissing } : { ok: true, changes: plan.changes };
         });
@@ -434,8 +436,9 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
                 : await client.updateRow(inventory.name, existing.rowIndex, { [columns[inventory.index.quantity]]: String(after) }, BATCH_WRITE_OPTIONS);
         } else {
             const row = { [columns[inventory.index.name]]: String(name).trim(), [columns[inventory.index.quantity]]: String(after) };
-            if (description && inventory.index.description >= 0) row[columns[inventory.index.description]] = String(description);
-            if (category && inventory.index.category >= 0) row[columns[inventory.index.category]] = String(category);
+            // 始终显式写入描述与类别文本列（缺失时写空串而非省略），避免 SQLite NOT NULL 列收到 NULL 触发 SQL_CONSTRAINT。
+            if (inventory.index.description >= 0) row[columns[inventory.index.description]] = String(description ?? '');
+            if (inventory.index.category >= 0) row[columns[inventory.index.category]] = String(category ?? '');
             result = await client.insertRow(inventory.name, row, BATCH_WRITE_OPTIONS);
         }
         if (!alive()) return { ok: false, reason: 'request-stale', name };
