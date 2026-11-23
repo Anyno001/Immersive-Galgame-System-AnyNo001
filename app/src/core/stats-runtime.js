@@ -2857,32 +2857,44 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // 调查员档：先写战斗侧 hero-base 六维（3–18 = 值/5 取整，感知←意志、魅力←外貌），成功后才落 catalog。
+    // 调查员档存在聊天数值存档里，检定只读它；战斗侧六维（3–18 = 值/5 取整，感知←意志、魅力←外貌）随后尽力同步，
+    // 同步失败不挡建档（纯数值聊天可能没有属性表），只把原因带回去提示。
     const COC_TO_SIX = { 力量: '力量', 体质: '体质', 敏捷: '敏捷', 智力: '智力', 感知: '意志', 魅力: '外貌' };
     const cocSheet = () => catalog.protagonistCoc || null;
+    async function syncCocSix(clean, id) {
+        if (!attributeAccess) return { ok: false, reason: 'stats-attribute-unavailable' };
+        const scores = {};
+        for (const [six, coc] of Object.entries(COC_TO_SIX)) scores[abilityKeyOf(six)] = Math.max(3, Math.min(18, Math.round((Number(clean.attrs?.[coc]) || 50) / 5)));
+        const alive = () => loadedChat === id && chatIdOf(ctx()) === id;
+        const heroName = userName() || PROTAGONIST;
+        try {
+            const access = attributeAccess();
+            const read = await ensureHeroAttributeReadable(access, heroName, alive);
+            if (!read.ok) return read;
+            const written = await (read.view.initialized
+                ? access.editHero(heroName, scores, { expectedRevision: read.view.revision, shouldStart: alive })
+                : access.initHero(heroName, scores, { shouldStart: alive }));
+            return written?.ok ? { ok: true } : (written || { ok: false, reason: 'stats-hero-edit-failed' });
+        } catch (error) {
+            return { ok: false, reason: String((error && error.message) || error || 'stats-hero-edit-failed') };
+        }
+    }
     async function applyCocSheet(raw) {
         if (!IS_COC(engineOf())) return { ok: false, reason: 'ruleset' };
         const clean = sanitizeCocSheet(raw);
         if (!clean) return { ok: false, reason: 'invalid' };
-        if (!attributeAccess) return { ok: false, reason: 'stats-attribute-unavailable' };
-        const scores = {};
-        for (const [six, coc] of Object.entries(COC_TO_SIX)) scores[abilityKeyOf(six)] = Math.max(3, Math.min(18, Math.round((Number(clean.attrs?.[coc]) || 50) / 5)));
         const id = chatIdOf(ctx());
-        const access = attributeAccess(), source = access.source();
-        if (!source.ready) return { ok: false, reason: source.reason };
-        const heroName = userName() || PROTAGONIST;
-        const view = source.readAbilities(heroName, { heroPrefs: heroPrefs() });
-        const alive = () => loadedChat === id && chatIdOf(ctx()) === id;
-        const written = await (view?.initialized
-            ? access.editHero(heroName, scores, { expectedRevision: view.revision, shouldStart: alive })
-            : access.initHero(heroName, scores, { shouldStart: alive }));
-        if (!alive()) return { ok: false, reason: 'request-stale' };
-        if (!written?.ok) return written || { ok: false, reason: 'stats-hero-edit-failed' };
+        if (!id || loadedChat !== id) return { ok: false, reason: 'request-stale' };
         catalog = sanitizeCatalog({ ...catalog, protagonistCoc: clean });
         gateMemo = null;
         persist();
         onChange(currentStatsState(ledger), null);
-        return { ok: true };
+        const six = await syncCocSix(clean, id);
+        if (!six.ok) {
+            try { console.warn('[IGS 数值] 调查员档已保存，六维同步失败：', six.reason); } catch { /* */ }
+            return { ok: true, sixSynced: false, sixReason: six.reason || 'stats-hero-edit-failed' };
+        }
+        return { ok: true, sixSynced: true };
     }
     function clearCocSheet() {
         catalog = sanitizeCatalog({ ...catalog, protagonistCoc: null });

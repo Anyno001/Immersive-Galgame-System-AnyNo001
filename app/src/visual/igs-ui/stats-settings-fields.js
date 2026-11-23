@@ -219,37 +219,60 @@ function cocAttrChips(attrs, luck) {
     return `<div class="igs-coc-attrs">${COC_ATTRS.map((k) => `<span>${esc(k)}<b>${esc(attrs[k])}</b></span>`).join('')}<span>幸运<b>${esc(luck)}</b></span></div>`;
 }
 
-// CoC 调查员档子块（仅 coc7）。coc = { sheet, draft, saving, error }：sheet 为已建的档，draft 为界面里的建档草稿（choose / roll / alloc 三步）。
+function cocAllocStatus(draft) {
+    const sh = { attrs: draft.attrs, occFormula: draft.occFormula, occPoints: draft.occPoints };
+    const occMax = occPointsOf(sh);
+    const hobMax = hobbyPointsOf(sh);
+    const sum = (key) => Object.values(draft.alloc || {}).reduce((t, a) => t + (Number(a && a[key]) || 0), 0);
+    const occLeft = occMax - sum('occ');
+    const hobLeft = hobMax - sum('hobby');
+    const over = occLeft < 0 || hobLeft < 0;
+    return { over, text: `职业点剩余 ${occLeft}／${occMax}，兴趣点剩余 ${hobLeft}／${hobMax}${over ? '。已超出可用点数' : ''}` };
+}
+
+const cocRowTotal = (name, draft) => {
+    const a = (draft.alloc && draft.alloc[name]) || {};
+    return Math.min(99, (cocSkillBase(name, draft.attrs) || 0) + (Number(a.occ) || 0) + (Number(a.hobby) || 0));
+};
+
+// 分配点数时只就地改合计与剩余，不重绘整页，输入框保住焦点和表格滚动位置。
+export function refreshCocAlloc(root, draft, skill) {
+    if (!root || !draft || typeof root.querySelector !== 'function') return;
+    const st = cocAllocStatus(draft);
+    const left = root.querySelector('[data-coc-left]');
+    if (left) { left.textContent = st.text; left.classList?.toggle('is-over', st.over); }
+    if (skill == null) return;
+    for (const cell of root.querySelectorAll('[data-coc-total]')) {
+        if (cell.getAttribute('data-coc-total') === skill) cell.textContent = String(cocRowTotal(skill, draft));
+    }
+}
+
+// CoC 调查员档子块（仅 coc7）。coc = { sheet, draft, saving, error, notice }：sheet 为已建的档，draft 为界面里的建档草稿（choose / roll / alloc 三步）。
 export function renderCocInvestigatorBlock(coc, ruleset = 'coc7') {
     if (ruleset !== 'coc7') return '';
-    const { sheet = null, draft = null, saving = false, error = '' } = coc || {};
+    const { sheet = null, draft = null, saving = false, error = '', notice = '' } = coc || {};
     const act = (name, label, extra = '') => `<button class="igs-settings-action" data-action="stats-coc:${name}" type="button"${extra}>${label}</button>`;
-    const note = error ? `<div class="igs-source-filter-note" data-coc-error>保存失败：${esc(error)}</div>` : '';
+    const note = (error ? `<div class="igs-source-filter-note" data-coc-error>保存失败：${esc(error)}</div>` : '')
+        + (notice ? `<div class="igs-source-filter-note" data-coc-notice>${esc(notice)}</div>` : '');
     let body;
     if (draft && draft.stage === 'roll') {
         body = `<div class="igs-source-filter-note">掷出的属性如下，可以重掷，满意后进入点数分配。</div>${cocAttrChips(draft.attrs, draft.luck)}`
             + `<div class="igs-settings-row">${act('roll', '再掷一次')}${act('alloc', '确认并分配点数')}${act('cancel', '取消')}</div>`;
     } else if (draft && draft.stage === 'alloc') {
-        const sh = { attrs: draft.attrs, occFormula: draft.occFormula, occPoints: draft.occPoints };
-        const occMax = occPointsOf(sh);
-        const hobMax = hobbyPointsOf(sh);
-        const sum = (key) => Object.values(draft.alloc || {}).reduce((t, a) => t + (Number(a && a[key]) || 0), 0);
-        const occLeft = occMax - sum('occ');
-        const hobLeft = hobMax - sum('hobby');
-        const over = occLeft < 0 || hobLeft < 0;
+        const st = cocAllocStatus(draft);
         const formulaOpts = COC_OCC_FORMULA_ITEMS.map(([v, l]) => `<option value="${v}"${v === draft.occFormula ? ' selected' : ''}>${l}</option>`).join('');
+        const numInput = (attr, value, label, maxlength = 2) => `<input class="igs-coc-num" type="text" inputmode="numeric" maxlength="${maxlength}" autocomplete="off" placeholder="0" aria-label="${esc(label)}" ${attr} value="${Number(value) > 0 ? Number(value) : ''}">`;
         const rows = Object.keys(COC_SKILLS).map((name) => {
             const base = cocSkillBase(name, draft.attrs) || 0;
             const a = (draft.alloc && draft.alloc[name]) || {};
-            const total = Math.min(99, base + (Number(a.occ) || 0) + (Number(a.hobby) || 0));
-            const input = (kind) => `<input class="igs-coc-num" type="number" min="0" max="99" step="1" data-coc-${kind}="${esc(name)}" value="${Number(a[kind]) || 0}">`;
-            return `<tr><td>${esc(name)}</td><td>${base}</td><td>${input('occ')}</td><td>${input('hobby')}</td><td>${total}</td></tr>`;
+            const input = (kind, label) => numInput(`data-coc-${kind}="${esc(name)}"`, a[kind], `${name}${label}`);
+            return `<tr><td>${esc(name)}</td><td>${base}</td><td>${input('occ', '职业点')}</td><td>${input('hobby', '兴趣点')}</td><td data-coc-total="${esc(name)}">${cocRowTotal(name, draft)}</td></tr>`;
         }).join('');
         body = cocAttrChips(draft.attrs, draft.luck)
             + `<div class="igs-settings-field"><span>职业名</span><input type="text" maxlength="12" data-coc-field="occupation" value="${esc(draft.occupation)}"></div>`
             + `<div class="igs-settings-field"><span>职业点公式</span><select data-coc-field="occFormula">${formulaOpts}</select></div>`
-            + (draft.occFormula === 'custom' ? `<div class="igs-settings-field"><span>职业点数</span><input class="igs-coc-num" type="number" min="0" max="999" step="1" data-coc-field="occPoints" value="${Number(draft.occPoints) || 0}"></div>` : '')
-            + `<div class="igs-source-filter-note" data-coc-left>职业点剩余 ${occLeft}／${occMax}，兴趣点剩余 ${hobLeft}／${hobMax}${over ? '。已超出可用点数' : ''}</div>`
+            + (draft.occFormula === 'custom' ? `<div class="igs-settings-field"><span>职业点数</span>${numInput('data-coc-field="occPoints"', draft.occPoints, '职业点数', 3)}</div>` : '')
+            + `<div class="igs-source-filter-note${st.over ? ' is-over' : ''}" data-coc-left>${st.text}</div>`
             + `<div class="igs-coc-table"><table><thead><tr><th>技能</th><th>基础值</th><th>职业点</th><th>兴趣点</th><th>合计</th></tr></thead><tbody>${rows}</tbody></table></div>`
             + `<div class="igs-settings-row">${act('apply', saving ? '正在保存' : '应用', saving ? ' disabled' : '')}${act('cancel', '取消', saving ? ' disabled' : '')}</div>`;
     } else if (sheet && !(draft && draft.stage === 'choose')) {

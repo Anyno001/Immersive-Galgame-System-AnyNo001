@@ -62,7 +62,7 @@ import { BASE_ATTRIBUTES } from '../../scene/stats/stat-state.js';
 import { describeCurrencyFailure } from '../../scene/stats/stat-currency.js';
 import { getStatusDef } from '../../scene/stats/stat-status-defs.js';
 import { refreshStatsWallets } from './stats-hero-card.js';
-import { refreshStatsBuildStatus } from './stats-settings-fields.js';
+import { refreshCocAlloc, refreshStatsBuildStatus } from './stats-settings-fields.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD, MANUAL_TOTAL } from '../../combat/abilities.js';
 import { BATTLE_MODE_PATH, COMBAT_PRESET_PATH, checkCombatExpansionReady, planBattleMode, planCombatPreset } from './combat-settings.js';
 import { ensureEnemyAtlas } from './combat-enemy-atlas.js';
@@ -857,17 +857,21 @@ export function createSettingsHost(deps) {
         const as = panel.asyncState;
         const redraw = () => { if (state.activeSettings === panel) rerenderSettings(); };
         const save = async (job) => {
-            as.cocSaving = true; as.cocError = '';
+            as.cocSaving = true; as.cocError = ''; as.cocNotice = '';
             redraw();
             let res;
             try { res = await job(); } catch (error) { res = { ok: false, reason: String((error && error.message) || error) }; }
             as.cocSaving = false;
-            if (res && res.ok) delete as.cocDraft; else as.cocError = ({ ruleset: '数值规则不是CoC第七版。', invalid: '车卡数据不完整，请检查八项属性。', 'stats-attribute-conflict': '属性正被其他操作修改，请稍后重试。', 'combat-attribute-table-missing': '战斗属性表尚未建立，暂时无法写入属性。', 'stats-runtime-missing': '数值系统尚未就绪。' })[res && res.reason] || '请稍后重试。';
+            const reasonText = (reason) => ({ ruleset: '数值规则不是CoC第七版。', invalid: '车卡数据不完整，请检查八项属性。', 'request-stale': '聊天已切换或数值存档尚未载入，请回到该聊天后重试。', 'stats-attribute-conflict': '属性正被其他操作修改。', 'combat-attribute-table-missing': '战斗属性表尚未建立。', 'stats-runtime-missing': '数值系统尚未就绪。' })[reason] || `原因：${reason || '未知'}`;
+            if (res && res.ok) {
+                delete as.cocDraft;
+                if (res.sixSynced === false) as.cocNotice = `调查员档已保存，检定按档取值；战斗六维暂未同步（${reasonText(res.sixReason)}）。`;
+            } else as.cocError = reasonText(res && res.reason);
             redraw();
             return res || { ok: false };
         };
-        if (kind === 'redo') { as.cocDraft = { stage: 'choose' }; as.cocError = ''; redraw(); return { ok: true }; }
-        if (kind === 'cancel') { delete as.cocDraft; as.cocError = ''; redraw(); return { ok: true }; }
+        if (kind === 'redo') { as.cocDraft = { stage: 'choose' }; as.cocError = ''; as.cocNotice = ''; redraw(); return { ok: true }; }
+        if (kind === 'cancel') { delete as.cocDraft; as.cocError = ''; as.cocNotice = ''; redraw(); return { ok: true }; }
         if (kind === 'roll') {
             const rolled = rollCocAttributes();
             as.cocDraft = { ...(as.cocDraft || {}), stage: 'roll', attrs: rolled.attrs, luck: rolled.luck };
@@ -1755,6 +1759,26 @@ export function createSettingsHost(deps) {
         root.addEventListener('input', (event) => {
             const target = event.target;
             if (!target || !target.getAttribute) return;
+            const cocDraft = state.activeSettings?.asyncState.cocDraft;
+            if (cocDraft && cocDraft.stage === 'alloc') {
+                const cocField = target.getAttribute('data-coc-field');
+                const cocOcc = target.getAttribute('data-coc-occ');
+                const cocHobby = target.getAttribute('data-coc-hobby');
+                const digits = (max) => {
+                    const clean = String(target.value || '').replace(/\D+/g, '');
+                    if (clean !== target.value) target.value = clean;
+                    return Math.min(max, Number(clean) || 0);
+                };
+                if (cocField === 'occupation') { cocDraft.occupation = String(target.value); return; }
+                if (cocField === 'occPoints') { cocDraft.occPoints = digits(999); refreshCocAlloc(root, cocDraft); return; }
+                if (cocOcc != null || cocHobby != null) {
+                    const skill = cocOcc != null ? cocOcc : cocHobby;
+                    cocDraft.alloc = cocDraft.alloc || {};
+                    cocDraft.alloc[skill] = { occ: 0, hobby: 0, ...cocDraft.alloc[skill], [cocOcc != null ? 'occ' : 'hobby']: digits(99) };
+                    refreshCocAlloc(root, cocDraft, skill);
+                    return;
+                }
+            }
             // 「我对TA」输入：只记在界面草稿里，点「保存」才写进聊天存档。
             const statsNote = target.getAttribute('data-stats-note');
             if (statsNote !== null) {
@@ -1945,19 +1969,11 @@ export function createSettingsHost(deps) {
                 controller.invoke(`stats-op:expenses-save:${encodeURIComponent(JSON.stringify(rows))}`);
                 return;
             }
-            // 调查员档建档草稿：职业名、公式、点数、技能分配，只改草稿并重绘合计。
+            // 调查员档：只有换职业点公式要重绘（自填点数框出现/消失）；点数与职业名在 input 事件里就地更新。
             const cocDraft = state.activeSettings?.asyncState.cocDraft;
             if (cocDraft && cocDraft.stage === 'alloc' && target?.getAttribute) {
-                const cocField = target.getAttribute('data-coc-field');
-                const cocOcc = target.getAttribute('data-coc-occ');
-                const cocHobby = target.getAttribute('data-coc-hobby');
-                if (cocField) cocDraft[cocField] = cocField === 'occPoints' ? Math.max(0, Math.round(Number(target.value) || 0)) : String(target.value);
-                else if (cocOcc != null || cocHobby != null) {
-                    const skill = cocOcc != null ? cocOcc : cocHobby;
-                    cocDraft.alloc = cocDraft.alloc || {};
-                    cocDraft.alloc[skill] = { occ: 0, hobby: 0, ...cocDraft.alloc[skill], [cocOcc != null ? 'occ' : 'hobby']: Math.min(99, Math.max(0, Math.round(Number(target.value) || 0))) };
-                }
-                if (cocField || cocOcc != null || cocHobby != null) { rerenderSettings(); return; }
+                if (target.getAttribute('data-coc-field') === 'occFormula') { cocDraft.occFormula = String(target.value); rerenderSettings(); return; }
+                if (target.getAttribute('data-coc-occ') != null || target.getAttribute('data-coc-hobby') != null || target.getAttribute('data-coc-field') != null) return;
             }
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');
             if (heroSkill != null) {
