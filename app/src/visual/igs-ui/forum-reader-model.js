@@ -542,6 +542,13 @@ export function forumNamePairs(ctx) {
     return pairs;
 }
 
+// AI 回帖里的真名换成代号：楼主自己的回帖里楼主名换「我」，路人回帖里换「楼主」；
+// 引用的正文片段按正文的换法（楼主名换「我」），才能和改写后的正文对上。
+export function forumRepliesNamed(replies, pairs) {
+    const asPasser = pairs.map(([from, to]) => [from, to === '我' ? '楼主' : to]);
+    return replies.map((r) => ({ ...r, text: replaceNames(r.text, r.who === '楼主' ? pairs : asPasser), cite: replaceNames(r.cite, pairs) }));
+}
+
 export function forumRowsOf(rows, ctx) {
     const { poster, alias = {}, userKey = '', userNames = [], namesOf: baseNamesOf = () => [], extraNames = {}, settings } = ctx;
     const namesOf = (key) => [...baseNamesOf(key), ...(extraNames[key] || [])];

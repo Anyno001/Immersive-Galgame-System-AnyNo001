@@ -36,11 +36,13 @@ export function ankeVisibleVotes(count, texts) {
 }
 
 // 暗骰：User 那项占 ANKE_USER_WEIGHT，其余按「1 + 可见票」分给各项；再按种子凑出总票数，胜者严格最多，各项不少于可见票（User 那项 +1）。
-export function ankeVotePlay({ visible, pick, unit = ankeUnit, seed = '' }) {
+// weight：0–1，设置器「多数决User权重」按百分比存，调用方换算后传入。
+export function ankeVotePlay({ visible, pick, unit = ankeUnit, seed = '', weight = ANKE_USER_WEIGHT }) {
     const n = visible.length;
+    const w = Number.isFinite(Number(weight)) ? Math.max(0, Math.min(1, Number(weight))) : ANKE_USER_WEIGHT;
     const base = visible.map((v) => 1 + v);
     const sum = base.reduce((a, b) => a + b, 0);
-    const weights = base.map((v, i) => (i === pick ? ANKE_USER_WEIGHT : 0) + (1 - ANKE_USER_WEIGHT) * v / sum);
+    const weights = base.map((v, i) => (i === pick ? w : 0) + (1 - w) * v / sum);
     let at = unit() * weights.reduce((a, b) => a + b, 0);
     let winner = n - 1;
     for (let i = 0; i < n; i++) { at -= weights[i]; if (at < 0) { winner = i; break; } }
@@ -61,10 +63,14 @@ export function ankeVotePlay({ visible, pick, unit = ankeUnit, seed = '' }) {
 export const ANKE_CRIT_OK = 5;
 export const ANKE_CRIT_FAIL = 96;
 
+// 判定按 CoC：属性加值加在成功线上，1D100 ≤ 成功线算过；≤5 大成功、≥96 大失败。
+// total 仍存「点数 + 加值」（锁的旧字段，加值 = total - die），target 是加值后的成功线；diff = target - die，正数为余量。
+export const ankeCheckTarget = (line, bonus) => Math.max(1, Math.min(99, line + (bonus || 0)));
 export function ankeCheckPlay({ die, bonus, line }) {
     const total = die + (bonus || 0);
-    const tier = die <= ANKE_CRIT_OK ? '大成功' : die >= ANKE_CRIT_FAIL ? '大失败' : total >= line ? '成功' : '失败';
-    return { die, total, tier, diff: total - line };
+    const target = ankeCheckTarget(line, bonus);
+    const tier = die <= ANKE_CRIT_OK ? '大成功' : die >= ANKE_CRIT_FAIL ? '大失败' : die <= target ? '成功' : '失败';
+    return { die, total, target, tier, diff: target - die };
 }
 
 // 已掷过的楼用 lock.value（commit 时冻结），否则用当前值。
@@ -95,8 +101,8 @@ export function ankeFillLine(anke, lock) {
         return `【检定】${anke.actorLabel || anke.actor} ${anke.skill}：1D100=${lock.die}，${line}，${play.tier}${play.ok || /大失败|^失败/.test(play.tier) ? '' : '（没达到难度）'}${anke.code ? ` #${anke.code}` : ''}`;
     }
     const bonus = anke.bonus;
-    const calc = bonus ? `${signed(bonus)}=${lock.total}` : '';
-    return `【判定】${anke.actorLabel || anke.actor}：1D100=${lock.die}${calc}，成功线${anke.line}，${lock.tier}`;
+    const target = bonus ? `${signed(bonus)}=${ankeCheckTarget(anke.line, bonus)}` : '';
+    return `【判定】${anke.actorLabel || anke.actor}：1D100=${lock.die}，成功线${anke.line}${target}，${lock.tier}`;
 }
 
 // 锁里的结果还原成对内置短楼要用的情境参数。
@@ -104,9 +110,9 @@ export function ankeOutcomeOf(anke, lock) {
     if (anke.kind === 'vote' && lock.pick >= 0) {
         const voters = (anke.voters || []).filter((v) => v.n - 1 !== lock.roll);
         const rest = lock.tally.filter((_, i) => i !== lock.roll);
-        return { won: lock.pick === lock.roll, lead: lock.tally[lock.roll] - Math.max(...rest), voters };
+        return { won: lock.pick === lock.roll, lead: lock.tally[lock.roll] - Math.max(...rest), voters, winner: lock.roll + 1 };
     }
-    if (anke.kind === 'check') return { tier: lock.tier, diff: lock.total - anke.line };
+    if (anke.kind === 'check') return { tier: lock.tier, diff: ankeCheckTarget(anke.line, lock.total - lock.die) - lock.die };
     if (anke.kind === 'coc') {
         const play = ankeCocPlay({ die: lock.die, value: ankeCocValueOf(anke, lock), level: anke.level });
         return { tier: play.tier === '大成功' || play.tier === '大失败' ? play.tier : play.ok ? '成功' : '失败', diff: play.need - lock.die };

@@ -1,6 +1,6 @@
 import { ABILITY_LABELS } from '../../combat/abilities.js';
 import { forumHash } from './forum-reader-model.js';
-import { ankeCheckPlay, ankeCocPlay, ankeCocValueOf, ankeFillLine, ankeOutcomeOf, ankeRoll, ankeVotePlay } from './forum-anke-play.js';
+import { ankeCheckPlay, ankeCheckTarget, ankeCocPlay, ankeCocValueOf, ankeFillLine, ankeOutcomeOf, ankeRoll, ankeVotePlay } from './forum-anke-play.js';
 import { ankeReactions } from './forum-anke-react.js';
 
 // 论坛安科楼的 DOM：多数决 / 安价 / 征集 / 判定四种新形式加旧的四选一（pick）。
@@ -190,9 +190,10 @@ function build(overlay, list, view, revealing, d, sig) {
         const bonus = lock.total - lock.die;
         const ok = lock.tier === '成功' || lock.tier === '大成功';
         const big = lock.tier === '大成功' || lock.tier === '大失败';
-        const expr = bonus ? `${lock.die} ${signedText(bonus)} = <b>${lock.total}</b>` : `<b>${lock.die}</b>`;
+        const target = ankeCheckTarget(anke.line, bonus);
+        const line = bonus ? `${anke.line} ${signedText(bonus)} = <b>${target}</b>` : `<b>${anke.line}</b>`;
         ops.innerHTML = `<span class="igs-fm-anke-dice">${ankeDiceSvg(lock.die)}<span>1D${CHECK_SIDES} = ${lock.die}</span></span>`
-            + (big ? '' : `<span class="igs-fm-anke-calc">${expr} ${ok ? '≥' : '<'} ${anke.line}</span>`)
+            + (big ? '' : `<span class="igs-fm-anke-calc"><b>${lock.die}</b> ${ok ? '≤' : '>'} ${line}</span>`)
             + `<b class="igs-fm-anke-res">${d.esc(lock.tier)}</b>`;
     };
     const showReact = (react, animate) => {
@@ -264,7 +265,8 @@ function build(overlay, list, view, revealing, d, sig) {
         if (row) {
             const i = Number(row.dataset.pick);
             if (kind === 'vote') {
-                const play = ankeVotePlay({ visible: anke.visible || Array(n).fill(0), pick: i, seed: `${anke.key}:${i}` });
+                const voteWeight = latest().settings && latest().settings.voteWeight;
+                const play = ankeVotePlay({ visible: anke.visible || Array(n).fill(0), pick: i, seed: `${anke.key}:${i}`, weight: Number.isFinite(voteWeight) ? voteWeight / 100 : undefined });
                 settle({ pick: i, roll: play.winner, tally: play.tally });
             } else settle({ pick: i });
             return;

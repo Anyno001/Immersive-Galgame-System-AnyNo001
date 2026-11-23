@@ -9,7 +9,7 @@ import {
     normalizeForum, parseForumTag, replaceNames, resolvePoster, sendClock, threadAt, titleAt,
 } from '../src/visual/igs-ui/forum-reader-model.js';
 import { normalizeForumReaderSettings } from '../src/visual/igs-ui/forum-reader-settings.js';
-import { FORUM_KAOMOJI } from '../src/visual/igs-ui/forum-reader-lines.js';
+import { FORUM_KAOMOJI, FORUM_LINES } from '../src/visual/igs-ui/forum-reader-lines.js';
 import { ankeCheckPlay, ankeCocPlay, ankeOutcomeOf, ankeFillLine, ankeVisibleVotes, ankeVoteOf, ankeVotePlay } from '../src/visual/igs-ui/forum-anke-play.js';
 import { ANKE_REACT_POOLS, ANKE_REACT_STICKERS, ankeReactions, ankeSituation } from '../src/visual/igs-ui/forum-anke-react.js';
 import { ankeQuotedFloors, createAnkeStore } from '../src/visual/igs-ui/forum-anke-store.js';
@@ -401,7 +401,7 @@ test('附图：换场景附一次场景图，CG 首次出现那行附上且优�
     assert.match(images.get(0).file, /^IMG_\d{4}\.jpg \(\d+KB\)$/);
 
     const plan = forumPlan(rows, { chatId: 'c', messageId: 3, settings: { perPost: 2, replies: 'normal' }, images, posterKind: 'witness' });
-    const lines = ['有图有真相', '原图呢', 'PO主手别抖', '这角度……你在哪拍的', '偷拍的吧', 'PO主危'];
+    const lines = [...FORUM_LINES.image, ...FORUM_LINES.imageWitness];
     for (const reply of plan[0].replies) {
         const face = FORUM_KAOMOJI.find((f) => reply.text.endsWith(f)) || '';
         const word = reply.text.slice(0, reply.text.length - face.length);
@@ -570,13 +570,15 @@ test('多数决：认 投N / N+1 / N！的票，暗骰按权重、票数严格�
     assert.equal(ankeVotePlay({ visible: [0, 0, 0], pick: 1, unit: () => 0.1, seed: 'a' }).tally.join(), low.tally.join());
 });
 
-test('判定与填入行：大成功 / 大失败优先，其余看总值与成功线；各形式的填入文字', () => {
-    assert.equal(ankeCheckPlay({ die: 4, bonus: -5, line: 99 }).tier, '大成功');
-    assert.equal(ankeCheckPlay({ die: 97, bonus: 50, line: 10 }).tier, '大失败');
-    assert.equal(ankeCheckPlay({ die: 51, bonus: 10, line: 60 }).tier, '成功');
-    assert.equal(ankeCheckPlay({ die: 51, bonus: -5, line: 60 }).tier, '失败');
+test('判定与填入行：按 CoC，大成功 / 大失败优先，其余 1D100 ≤ 成功线+加值；各形式的填入文字', () => {
+    assert.equal(ankeCheckPlay({ die: 4, bonus: -5, line: 10 }).tier, '大成功');
+    assert.equal(ankeCheckPlay({ die: 97, bonus: 50, line: 90 }).tier, '大失败');
+    assert.equal(ankeCheckPlay({ die: 30, bonus: 0, line: 50 }).tier, '成功');
+    assert.equal(ankeCheckPlay({ die: 65, bonus: 10, line: 60 }).tier, '成功');
+    assert.equal(ankeCheckPlay({ die: 58, bonus: -5, line: 60 }).tier, '失败');
+    assert.equal(ankeCheckPlay({ die: 58, bonus: -5, line: 60 }).diff, -3);
     const check = { kind: 'check', actor: '楼主', actorLabel: '阿吒', line: 60, bonus: 10 };
-    assert.equal(ankeFillLine(check, { pick: -1, die: 51, total: 61, tier: '成功' }), '【判定】阿吒：1D100=51+10=61，成功线60，成功');
+    assert.equal(ankeFillLine(check, { pick: -1, die: 51, total: 61, tier: '成功' }), '【判定】阿吒：1D100=51，成功线60+10=70，成功');
     assert.equal(ankeFillLine({ ...check, bonus: null }, { pick: -1, die: 3, total: 3, tier: '大成功' }), '【判定】阿吒：1D100=3，成功线60，大成功');
     const opts = ['甲', '乙', '丙'];
     assert.equal(ankeFillLine({ kind: 'vote', options: opts }, { pick: 1, roll: 2, tally: [4, 11, 13] }), '【多数决】投2，3号胜出：丙（4/11/13票）');
@@ -586,10 +588,10 @@ test('判定与填入行：大成功 / 大失败优先，其余看总值与成�
     assert.equal(ankeFillLine({ kind: 'collect', options: opts, floors }, { pick: -1 }), '【征集】');
 });
 
-test('内置短楼：词池 15–25 条且表情包名在目录里，数量按情境，组内不重复、避开 AI 已有句子、同种子同结果', () => {
+test('内置短楼：词池 15–80 条且表情包名在目录里，数量按情境，组内不重复、避开 AI 已有句子、同种子同结果', () => {
     const names = new Set(stickerNames());
     for (const [pool, list] of Object.entries(ANKE_REACT_POOLS)) {
-        if (pool !== 'voter') assert.ok(list.length >= 15 && list.length <= 25, pool);
+        if (pool !== 'voter') assert.ok(list.length >= 15 && list.length <= 80, pool);
         assert.equal(new Set(list).size, list.length, pool);
     }
     for (const list of Object.values(ANKE_REACT_STICKERS)) assert.ok(list.every((n) => names.has(n)));
