@@ -15,12 +15,15 @@ export function normalizeNpcScores(input) {
     return scores;
 }
 
-export function normalizeHeroScores(input) {
+export const HERO_SCORE_UNCAPPED_MAX = 9999;
+
+export function normalizeHeroScores(input, { uncapped = false } = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== ABILITY_KEYS.length) return null;
+    const max = uncapped ? HERO_SCORE_UNCAPPED_MAX : 20;
     const scores = {};
     for (const key of ABILITY_KEYS) {
         const value = input[key];
-        if (!Object.hasOwn(input, key) || !Number.isInteger(value) || value < 1 || value > 20) return null;
+        if (!Object.hasOwn(input, key) || !Number.isInteger(value) || value < 1 || value > max) return null;
         scores[key] = value;
     }
     return scores;

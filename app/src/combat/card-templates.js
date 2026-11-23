@@ -454,29 +454,33 @@ export const templatesFor = (archetype) => Object.fromEntries(Object.entries(CAR
 })();
 
 
-// 给提示词用的模板目录文本（每类一行）。
-export function templateCatalogText() {
+// 给提示词用的模板目录文本（每类一行）；传 sections 可按本次请求按需裁剪，减少无关模板干扰。
+export function templateCatalogText({ card = true, passive = true, flair = true, skill = true, item = true } = {}) {
     const section = (title, templates, prefix) => `${title}：${Object.entries(templates).map(([key, tpl]) => `${key}=${prefix ? prefix(tpl) : ''}${tpl.label}`).join('；')}`;
-    const zeroCost = Object.keys(CARD_TEMPLATES).filter((key) => solveCardTemplate(key, 0, 'common'));
-    const costLimited = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => tpl.costs).map(([key, tpl]) => `${key}=${tpl.costs.join('/')} 费`).join('；');
-    const notHero = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => !isHeroEligible(tpl)).map(([key]) => key).join(',');
-    // 写「从手牌选牌」（choose）的模板：只能作为卡牌，按最小变量值构造后扫描效果树。
-    const usesChoose = (effects) => (effects || []).some((effect) => effect?.mode === 'choose' || effect?.from === 'choose' || ['draw-play', 'transform-minion'].includes(effect?.op) || usesChoose(effect?.then));
-    const chooseKeys = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => {
-        const built = tpl.build(tpl.vars.map(([min]) => min));
-        return usesChoose(Array.isArray(built) ? built : built.effects);
-    }).map(([key]) => key).join(',');
-    const preferred = Object.entries(ARCHETYPE_PREFERRED).map(([key, list]) => `${key}=${list.join(',')}`).join('；');
-    return [
-        section('卡牌模板', CARD_TEMPLATES, (tpl) => `${{ attack: '攻击', skill: '技能', power: '能力' }[tpl.type]}·`),
-        `0 费槽可用的卡牌模板：${zeroCost.join(',')}`,
-        `限定费用的卡牌模板（只放在费用相符的位置；X 费模板可放在 1–3 费的位置，由程序改为 X 费）：${costLimited}`,
-        `不能用作人物技能（skill）的卡牌模板：${notHero}`,
-        `需要选牌的卡牌模板（抽牌堆选择由独立候选列表显示，其余选择手牌；只能作为卡牌；托管及自动打出的内层选牌由程序按策略处理）：${chooseKeys}`,
-        `各职业原型优先选用的卡牌模板（复合效果优先，单一效果补位）：${preferred}`,
-        section('被动模板', PASSIVE_TEMPLATES),
-        section('华而不实被动模板（只用于人物特性与装备被动，名称可起得气派，效果几乎没用）', FLAIR_PASSIVE_TEMPLATES),
-        section('技能模板', SKILL_TEMPLATES),
-        section('道具模板', ITEM_TEMPLATES),
-    ].join('\n');
+    const lines = [];
+    if (card) {
+        const zeroCost = Object.keys(CARD_TEMPLATES).filter((key) => solveCardTemplate(key, 0, 'common'));
+        const costLimited = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => tpl.costs).map(([key, tpl]) => `${key}=${tpl.costs.join('/')} 费`).join('；');
+        const notHero = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => !isHeroEligible(tpl)).map(([key]) => key).join(',');
+        // 写「从手牌选牌」（choose）的模板：只能作为卡牌，按最小变量值构造后扫描效果树。
+        const usesChoose = (effects) => (effects || []).some((effect) => effect?.mode === 'choose' || effect?.from === 'choose' || ['draw-play', 'transform-minion'].includes(effect?.op) || usesChoose(effect?.then));
+        const chooseKeys = Object.entries(CARD_TEMPLATES).filter(([, tpl]) => {
+            const built = tpl.build(tpl.vars.map(([min]) => min));
+            return usesChoose(Array.isArray(built) ? built : built.effects);
+        }).map(([key]) => key).join(',');
+        const preferred = Object.entries(ARCHETYPE_PREFERRED).map(([key, list]) => `${key}=${list.join(',')}`).join('；');
+        lines.push(
+            section('卡牌模板', CARD_TEMPLATES, (tpl) => `${{ attack: '攻击', skill: '技能', power: '能力' }[tpl.type]}·`),
+            `0 费槽可用的卡牌模板：${zeroCost.join(',')}`,
+            `限定费用的卡牌模板（只放在费用相符的位置；X 费模板可放在 1–3 费的位置，由程序改为 X 费）：${costLimited}`,
+            `不能用作人物技能（skill）的卡牌模板：${notHero}`,
+            `需要选牌的卡牌模板（抽牌堆选择由独立候选列表显示，其余选择手牌；只能作为卡牌；托管及自动打出的内层选牌由程序按策略处理）：${chooseKeys}`,
+            `各职业原型优先选用的卡牌模板（复合效果优先，单一效果补位）：${preferred}`,
+        );
+    }
+    if (passive) lines.push(section('被动模板', PASSIVE_TEMPLATES));
+    if (flair) lines.push(section('华而不实被动模板（只用于人物特性与装备被动，名称可起得气派，效果几乎没用）', FLAIR_PASSIVE_TEMPLATES));
+    if (skill) lines.push(section('技能模板', SKILL_TEMPLATES));
+    if (item) lines.push(section('道具模板', ITEM_TEMPLATES));
+    return lines.join('\n');
 }

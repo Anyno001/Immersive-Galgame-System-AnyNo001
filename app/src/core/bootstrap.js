@@ -590,6 +590,7 @@ export function bootstrapIGS(options = {}) {
                 if (!payload?.role) {
                     return Promise.resolve(owner.attributeAccess.editHero(heroName, payload?.scores, {
                         expectedRevision: payload.expectedRevision,
+                        uncapped: payload.uncapped === true,
                         signal: payload.signal,
                         shouldStart: () => !state.destroyed && chatStore.get() === owner,
                     })).then((written) => (written && written.ok === true ? { ok: true } : { ok: false, reason: (written && written.reason) || 'stats-hero-edit-failed' }),

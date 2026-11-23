@@ -25,11 +25,11 @@ import {
     checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe,
 } from '../scene/check-rolls.js';
 import {
-    classTierEntity, deckProfileEntities, drawCardEntity, generationWrites, growthEntity, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, traitEntity,
+    classTierEntity, deckProfileEntities, drawCardEntity, generationWrites, growthEntity, planStarterTemplateDeck, profileGearEntity, profileRecord, resolveCombatLlm, respecClassEntity, starterDeckNamingEntity, traitEntity,
     withCharacterLore, withStoryContext,
 } from '../combat/generation.js';
 import { generateWithRetry } from '../combat/generation-retry.js';
-import { itemIdFor, normalizeProfile, profileIdFor } from '../combat/schema.js';
+import { itemIdFor, normalizeProfile, profileIdFor, validateStarterDeck } from '../combat/schema.js';
 import { COMBAT_RULES } from '../combat/rules.js';
 import { equippedGear } from '../combat/gear-slots.js';
 import { ASCEND_TIERS, CARD_DRAW_COST, REBUILD_COST, RESPEC_COST, TRAIT_DRAW_COST } from '../combat/points.js';
@@ -1355,8 +1355,40 @@ export function createCombatServices(options = {}) {
         if (generated.reason) return { ok: false, reason: generated.reason, ...(generated.missing ? { missing: generated.missing } : {}), requested: true };
         const createdAt = Date.now();
         const writes = generationWrites(generated, { createdAt });
-        if (!writes.profiles.some((profile) => profile.id === characterId)) {
+        const deckRecIndex = writes.profiles.findIndex((profile) => profile.id === characterId);
+        if (deckRecIndex < 0) {
             return { ok: false, reason: generated.requestFailure ? 'combat-llm-request-failed' : 'combat-deck-generation-failed', requested: true, id: characterId };
+        }
+        // 阶段 B：根据确定后的职业从卡牌模板池随机组合 20 张基础模板（按份数），发给 LLM 结合世界书与上下文命名后生成卡组。
+        const deckRec = writes.profiles[deckRecIndex];
+        const deckDef = deckRec?.definition;
+        const resolvedCls = writes.profiles.find((p) => p.kind === 'class' && p.id === deckDef?.classRef)?.definition
+            || state.classes.get(deckDef?.classRef)
+            || null;
+        if (deckDef && resolvedCls) {
+            const blueprint = planStarterTemplateDeck(resolvedCls.archetype, characterId, characterId);
+            if (blueprint) {
+                const namingEntities = await withCharacterLore([
+                    starterDeckNamingEntity({ id: characterId, name: target, className: resolvedCls.className, archetype: resolvedCls.archetype, blueprint, role }),
+                ], readLore);
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                const named = await generateWithRetry(namingEntities, {
+                    request, llm: getLlm(), signal, shouldStart: alive, classes: state.classes, now: Date.now(), context, retryDelays, onRetry, maxRounds: generationMaxRounds,
+                });
+                if (named.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
+                const starterNamed = (named.accepted || []).find((item) => item.kind === 'starter-deck-naming')?.starterDeckNamed;
+                if (starterNamed) {
+                    const candidate = { ...deckDef, personalPool: starterNamed.cards, starterDeck: starterNamed.starterDeck };
+                    const norm = normalizeProfile(candidate);
+                    if (norm.ok && validateStarterDeck(norm.value, resolvedCls).ok) {
+                        writes.profiles[deckRecIndex] = profileRecord(norm.value, { version: deckRec.version || 1, createdAt, className: resolvedCls.className });
+                    } else {
+                        pushDiagnostic('combat-starter-naming-fallback', { id: characterId, reason: 'starter-validate-failed' });
+                    }
+                } else {
+                    pushDiagnostic('combat-starter-naming-fallback', { id: characterId, reason: named.reason || 'starter-naming-empty' });
+                }
+            }
         }
         const gearAccepted = (generated.accepted || []).filter((item) => item.kind === 'profile-gear' && item.gear?.items?.length);
         const floors = getChat();
@@ -1813,7 +1845,7 @@ export function createCombatServices(options = {}) {
 
     function prepareProtagonist({ manual = false, generationHint, materialSelection, materialChatId } = {}) {
         if (disposed) return Promise.resolve({ ok: false, reason: 'request-stale' });
-        if (!settings().enabled) {
+        if (!combatBattleOn(settings())) {
             stopProtagonistTableWatch();
             cancelProtagonist();
             return Promise.resolve({ ok: false, reason: 'combat-disabled' });
@@ -1885,10 +1917,10 @@ export function createCombatServices(options = {}) {
                     return { ok: true, status: 'ready' };
                 };
                 if (facts.contentReady && facts.attributesReady) return await publishReady();
-                // 战斗内容先行：先独立准备职业、卡组与初始装备，不调用数值 build policy 阻断，不等待主角六维。
-                if (facts.contentReady && !facts.attributesReady) {
+                // 严格等待主角初始六维属性生成完毕后，才自动触发主角职业、卡组与初始装备生成。
+                if (!facts.attributesReady) {
                     setProtagonistState({ key, status: 'waiting-attributes', reason: 'combat-attributes-waiting', attempt: 0, requested: false, ...facts });
-                    return { ok: false, status: 'waiting-attributes', reason: 'combat-attributes-waiting', contentReady: true, attributesReady: false };
+                    return { ok: false, status: 'waiting-attributes', reason: 'combat-attributes-waiting', contentReady: facts.contentReady, attributesReady: false };
                 }
                 if (skipRetry && !hasPendingContent) return { ok: false, reason: previous.reason, status: 'failed' };
                 const generated = await generateDeckProfileCore({
@@ -2015,14 +2047,14 @@ export function createCombatServices(options = {}) {
     const INVENTORY_TRANSIENT = new Set(['inventory-table-not-ready', 'inventory-table-read-failed', 'inventory-runtime-not-ready']);
     let inventoryTakeover = null; // { key, promise }
     function takeoverInventory({ attempts = 4, delayMs = 1500 } = {}) {
-        // combat / daily / both 三模式均接管物品表；普通战斗遭遇门禁另由 combatBattleOn 控制。
-        if (!settings().enabled) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        // 仅开启卡片战斗时接管物品表；纯日常挑战或关闭状态不接管。
+        if (!combatBattleOn(settings())) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
         const chatId = getChatId();
         if (!chatId) return Promise.resolve({ ok: false, reason: 'combat-session-unavailable' });
         if (inventoryTakeover?.key === chatId) return inventoryTakeover.promise;
         const run = { key: chatId, promise: null };
         inventoryTakeover = run;
-        const alive = () => inventoryTakeover === run && getChatId() === chatId && settings().enabled;
+        const alive = () => inventoryTakeover === run && getChatId() === chatId && combatBattleOn(settings());
         run.promise = (async () => {
             let result = null;
             for (let attempt = 0; attempt < attempts; attempt += 1) {

@@ -25,7 +25,7 @@ import { combatBodyText, extractGainDirectives, extractGrowthDirectives, extract
 import { combatReportResult } from '../scene/combat-prompt.js';
 import { reportHpLostOf, reportIdFor, reportIdOf, reportWeakOf } from './report.js';
 import { parseChallengeReport } from './challenge-report.js';
-import { ASCEND_TIERS, CARD_DRAW_COST, PURGE_COST_VERSION, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
+import { ASCEND_TIERS, CARD_DRAW_COST, DAILY_PURGE_EVERY, DAILY_UPGRADE_EVERY, PURGE_COST_VERSION, PURGE_EVERY, REBUILD_COST, RESPEC_COST, REROLL_COST, TRAIT_DRAW_COST, UPGRADE_EVERY, purgeCost, sellPrice } from './points.js';
 import { passiveAtTier } from './card-templates.js';
 import { CLASS_PASSIVE_VERSION, fixedClassPassive } from './class-passives.js';
 import { TRAIT_BASE_SLOTS, TRAIT_SLOT_COSTS, nextTraitSlot, traitFits, traitSwap } from './traits.js';
@@ -1403,7 +1403,7 @@ const dailyHandlers = Object.freeze({
         const state = dailyDecks.get(domain);
         if (!state) return 'daily-deck-missing';
         const battle = state.wins.size;
-        if (!state.wins.has(payload.reportId) || battle !== payload.battle || battle % PURGE_EVERY !== 0) return 'combat-purge-not-due';
+        if (!state.wins.has(payload.reportId) || battle !== payload.battle || battle % DAILY_PURGE_EVERY !== 0) return 'combat-purge-not-due';
         if (state.purgedAt.has(battle)) return 'combat-purge-used';
         if (state.deckCopies.length <= COMBAT_RULES.deckMin) return 'combat-purge-deck-min';
         const at = state.deckCopies.indexOf(payload.copyId);
@@ -1419,7 +1419,7 @@ const dailyHandlers = Object.freeze({
         const state = dailyDecks.get(domain);
         if (!state) return 'daily-deck-missing';
         const battle = state.wins.size;
-        if (!state.wins.has(payload.reportId) || battle !== payload.battle || battle % UPGRADE_EVERY !== 0) return 'combat-card-upgrade-not-due';
+        if (!state.wins.has(payload.reportId) || battle !== payload.battle || battle % DAILY_UPGRADE_EVERY !== 0) return 'combat-card-upgrade-not-due';
         if (state.upgradedAt.has(battle)) return 'combat-card-upgrade-used';
         if (!state.deckCopies.includes(payload.copyId)) return 'combat-card-upgrade-copy-missing';
         const copy = state.copies.get(payload.copyId);
@@ -1445,11 +1445,11 @@ function presentDailyDomain(state) {
     const deck = deckEntries.map((row) => row.cardId);
     const wins = [...state.wins];
     const battle = wins.length;
-    const purgeReason = battle === 0 || battle % PURGE_EVERY !== 0 ? 'combat-purge-not-due'
+    const purgeReason = battle === 0 || battle % DAILY_PURGE_EVERY !== 0 ? 'combat-purge-not-due'
         : state.purgedAt.has(battle) ? 'combat-purge-used'
             : deck.length <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min' : null;
     const openUpgrade = deckEntries.some((row) => !row.upgraded && upgradableCard(state.catalog.get(row.cardId)));
-    const upgradeReason = battle === 0 || battle % UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
+    const upgradeReason = battle === 0 || battle % DAILY_UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
         : state.upgradedAt.has(battle) ? 'combat-card-upgrade-used'
             : !openUpgrade ? 'combat-card-upgrade-none' : null;
     const nextOf = (every) => battle + (every - (battle % every || every)) || every;
@@ -1462,8 +1462,8 @@ function presentDailyDomain(state) {
         wins: battle,
         winReportIds: wins,
         purges: state.purges,
-        purge: { battle, cost: 0, available: purgeReason === null, next: purgeReason === 'combat-purge-not-due' ? nextOf(PURGE_EVERY) : battle, ...(purgeReason ? { reason: purgeReason } : {}), wins },
-        upgrade: { battle, available: upgradeReason === null, next: upgradeReason === 'combat-card-upgrade-not-due' ? nextOf(UPGRADE_EVERY) : battle, ...(upgradeReason ? { reason: upgradeReason } : {}), wins },
+        purge: { battle, cost: 0, available: purgeReason === null, next: purgeReason === 'combat-purge-not-due' ? nextOf(DAILY_PURGE_EVERY) : battle, ...(purgeReason ? { reason: purgeReason } : {}), wins },
+        upgrade: { battle, available: upgradeReason === null, next: upgradeReason === 'combat-card-upgrade-not-due' ? nextOf(DAILY_UPGRADE_EVERY) : battle, ...(upgradeReason ? { reason: upgradeReason } : {}), wins },
     };
 }
 
@@ -1474,7 +1474,7 @@ export function dailyPurgeChance(view, reportId) {
     const at = reportId ? wins.indexOf(reportId) : -1;
     const battle = at < 0 ? wins.length + 1 : at + 1;
     const size = Array.isArray(view.deck) ? view.deck.length : 0;
-    const reason = battle % PURGE_EVERY !== 0 ? 'combat-purge-not-due'
+    const reason = battle % DAILY_PURGE_EVERY !== 0 ? 'combat-purge-not-due'
         : at >= 0 && battle !== wins.length ? 'combat-purge-expired'
             : at >= 0 && p?.reason === 'combat-purge-used' ? 'combat-purge-used'
                 : size <= COMBAT_RULES.deckMin ? 'combat-purge-deck-min' : null;
@@ -1487,7 +1487,7 @@ export function dailyUpgradeChance(view, reportId) {
     const wins = Array.isArray(u?.wins) ? u.wins : [];
     const at = reportId ? wins.indexOf(reportId) : -1;
     const battle = at < 0 ? wins.length + 1 : at + 1;
-    const reason = battle % UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
+    const reason = battle % DAILY_UPGRADE_EVERY !== 0 ? 'combat-card-upgrade-not-due'
         : at >= 0 && battle !== wins.length ? 'combat-card-upgrade-expired'
             : at >= 0 && u?.reason === 'combat-card-upgrade-used' ? 'combat-card-upgrade-used'
                 : !dailyUpgradableRows(view).length ? 'combat-card-upgrade-none' : null;

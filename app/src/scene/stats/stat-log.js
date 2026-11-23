@@ -178,6 +178,7 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     for (const [name, value] of Object.entries(clean.protagonistEdit)) map.set(`edit:${name}`, value);
     if (clean.heroAssigned) map.set('hero:assigned', true);
     if (clean.heroPicked) map.set('hero:picked', true);
+    if (clean.heroInitChoice) map.set('hero:initChoice', clean.heroInitChoice);
     if (clean.heroSlots) map.set('hero:slots', clean.heroSlots);
     if (clean.heroBio) map.set('hero:bio', clean.heroBio);
     if (clean.protagonistCoc) map.set('hero:coc', cocSheetRecord(clean.protagonistCoc));
@@ -252,6 +253,7 @@ export function restoreChat(map) {
         else if (prefix === 'edit') raw.protagonistEdit[name] = value;
         else if (prefix === 'hero' && name === 'assigned') raw.heroAssigned = value === true;
         else if (prefix === 'hero' && name === 'picked') raw.heroPicked = value === true;
+        else if (prefix === 'hero' && name === 'initChoice') raw.heroInitChoice = value;
         else if (prefix === 'hero' && name === 'slots') raw.heroSlots = value;
         else if (prefix === 'hero' && name === 'bio') raw.heroBio = value;
         else if (prefix === 'hero' && name === 'coc') raw.protagonistCoc = value;

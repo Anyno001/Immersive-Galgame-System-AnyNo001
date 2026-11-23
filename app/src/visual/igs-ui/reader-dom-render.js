@@ -6,7 +6,7 @@ import { resolveSpeakerMagicHouse } from './magic-house.js';
 import { normalizeSkinDialogScale } from './dialog-skin-frame.js';
 import { RECORD_ICONS } from './record-icons.js';
 import { SETTINGS_NAV_GROUPS } from './settings-pages.js';
-import { normalizeCombatExpansionSettings } from './combat-settings.js';
+import { combatBattleOn, normalizeCombatExpansionSettings } from './combat-settings.js';
 import { resolveOriginBinding } from './origin-panel.js';
 import { ORIGINAL_READER_ICONS, ORIGINAL_READER_TOOLBAR_BUTTONS } from './original-reader-source.js';
 import { DIALOG_ONLY_BUTTONS, TOOLBAR_ACTIONS } from './reader-host-constants.js';
@@ -517,9 +517,8 @@ export function applyToolbarState(root, current) {
     if (!ttsConfig.enabled || (ttsConfig.provider !== 'api' && !ttsConfig.narratorApi.enabled)) hiddenSet.add('tts-reroll');
     // 等待页与工具栏共用独立的小游戏开关。
     if (!getWaitStageGamePack() || readerSettings.waitStage?.games === false) hiddenSet.add('mini-games');
-    // 「人物状态」在卡牌战斗扩展开启时显示；只开数值系统、本聊天为手动建档时也显示（P8c，只有建档页）。用户的排序、隐藏与固定照常生效。
-    const buildEntry = typeof current.buildEntry === 'function' && current.buildEntry() === true;
-    if (!normalizeCombatExpansionSettings(readerSettings.combatExpansion).enabled && !buildEntry) hiddenSet.add('combat-status');
+    // 「人物状态」只在卡牌战斗开启（enabled 且非纯日常模式）时显示。未开启卡片战斗时不显示。
+    if (!combatBattleOn(readerSettings.combatExpansion)) hiddenSet.add('combat-status');
     // 窄屏阅读模式：列表盖住大半画面，「隐藏对话框」总要放出来，才能看清背景和 CG；「自动播放」也总放出来（一批出完、念完再出下一批）。
     if (current.logReaderActive) { hiddenSet.delete('hide'); hiddenSet.delete('auto-play'); }
     // 「连续播放」开关只在窄屏阅读模式出现。
@@ -1067,8 +1066,8 @@ const statusHudKeys = new WeakMap();
 function statusHudKey(root, snapshot, hud, radius) {
     const hudSettings = snapshot && snapshot.readerSettings && snapshot.readerSettings.statusHud;
     const optionsVisible = Boolean(root.classList && root.classList.contains('igs-options-visible'));
-    // 资料菜单的「人物状态」项随扩展开关增减，开关必须进重建签名。
-    const combat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
+    // 资料菜单的「人物状态」项随卡牌战斗开关增减（纯日常模式不显示），必须进重建签名。
+    const combat = combatBattleOn(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion);
     try {
         return JSON.stringify([hud || null, hudSettings ? [hudSettings.collapsed, hudSettings.size, hudSettings.hiddenEntries] : null, optionsVisible, radius, combat]);
     } catch {
@@ -1247,8 +1246,8 @@ export function applyStatusHudToDom(root, snapshot) {
     if (!recordMenuOpen) menu.setAttribute('hidden', '');
     // 好感总览入口：当前 HUD 有好感度条，或本聊天有好感数据可看（hud.favorData：数值系统有已登记角色 / 状态栏已选读取表）。
     const hasFavorBar = Boolean(hud && hud.favorData) || (hasMetrics && hud.metrics.some(metric => /好感/.test(String(metric?.label || ''))));
-    // 「人物状态」项只在卡牌战斗扩展开启时出现。
-    const hasCombat = normalizeCombatExpansionSettings(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion).enabled;
+    // 「人物状态」项只在卡牌战斗开启（enabled 且非纯日常模式）时出现。
+    const hasCombat = combatBattleOn(snapshot && snapshot.readerSettings && snapshot.readerSettings.combatExpansion);
     // 「随身系统」项只在接了引擎且总开关开着时出现，名字跟随设置里的系统名。
     const origin = resolveOriginBinding({});
     const hiddenEntries = Array.isArray(hudSettings?.hiddenEntries) ? hudSettings.hiddenEntries : [];

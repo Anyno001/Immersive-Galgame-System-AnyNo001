@@ -40,7 +40,8 @@ export function createAttributeAccess({ store, read, ensure, inventory, client, 
         return { ok: true, layout: s.layout, view, rows: s.rows, initTime: s.state.attributes.fold.get(view.key)?.initTime ?? -1 };
     }
     async function initHero(name, scores, options = {}) {
-        const base = normalizeHeroScores(scores);
+        const uncapped = options.uncapped === true;
+        const base = normalizeHeroScores(scores, { uncapped });
         if (!base) return { ok: false, reason: 'stats-hero-init-attributes-invalid' };
         const s = readHero(name);
         if (!s.ok) return s;
@@ -57,12 +58,14 @@ export function createAttributeAccess({ store, read, ensure, inventory, client, 
             return { ok: false, reason: 'stats-attribute-conflict' };
         }
         const at = Number.isInteger(options.createdAt) ? Math.max(options.createdAt, s.initTime + 1) : Math.max(Date.now(), s.initTime + 1);
-        const record = { id, type: 'hero-base', character: s.view.key, createdAt: at, anchor: null, change: '初始化', payload: { scores: base } };
+        const payload = uncapped ? { scores: base, uncapped: true } : { scores: base };
+        const record = { id, type: 'hero-base', character: s.view.key, createdAt: at, anchor: null, change: '初始化', payload };
         const written = await store.append(record, { ...options, expectedRows: s.rows });
         return written.ok ? { ...written, record } : written;
     }
     async function editHero(name, scores, options = {}) {
-        const base = normalizeHeroScores(scores);
+        const uncapped = options.uncapped === true;
+        const base = normalizeHeroScores(scores, { uncapped });
         if (!base) return { ok: false, reason: 'stats-hero-edit-invalid' };
         const s = readHero(name);
         if (!s.ok) return s;
@@ -70,8 +73,9 @@ export function createAttributeAccess({ store, read, ensure, inventory, client, 
             return { ok: false, reason: 'stats-attribute-conflict' };
         }
         const at = Math.max(Date.now(), s.initTime + 1);
+        const payload = uncapped ? { scores: base, uncapped: true } : { scores: base };
         const record = { id: `hero-base|${s.view.key}|edit|${at}`, type: 'hero-base', character: s.view.key, createdAt: at,
-            anchor: null, change: INIT_EDIT_CHANGE, payload: { scores: base } };
+            anchor: null, change: INIT_EDIT_CHANGE, payload };
         const written = await store.append(record, { ...options, expectedRows: s.rows });
         return written.ok ? { ...written, record } : written;
     }

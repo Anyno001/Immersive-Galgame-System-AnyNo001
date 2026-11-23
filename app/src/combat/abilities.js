@@ -2,7 +2,7 @@
 // 纯函数，随机性只来自 hash32，同名同输入结果恒定。
 import { hash32 } from './random.js';
 import { COMBAT_RULES } from './rules.js';
-import { ABILITY_KEYS, normalizeHeroScores, normalizeNpcScores } from '../scene/stats/ability-fields.js';
+import { ABILITY_KEYS, HERO_SCORE_UNCAPPED_MAX, normalizeHeroScores, normalizeNpcScores } from '../scene/stats/ability-fields.js';
 export { ABILITY_KEYS, ABILITY_LABELS } from '../scene/stats/ability-fields.js';
 
 // 各能力的可接受写法（小写比较）。
@@ -152,10 +152,11 @@ export function autoAllocate(scores, prefs, asiCount, cap) {
 }
 
 // 推导完整能力：scores、修正、熟练加值、上限。heroBase（纯六维主角建档/手改）与 base（旧手动六维）均优先于偏好。
-export function deriveAbilities({ prefs, name, level = 1, protagonist = false, tier = DEFAULT_REL_TIER, adjustments = [], base = null, heroBase = null, npcBase = null } = {}) {
-    const cap = abilityCap(protagonist);
+export function deriveAbilities({ prefs, name, level = 1, protagonist = false, tier = DEFAULT_REL_TIER, adjustments = [], base = null, heroBase = null, heroUncapped = false, npcBase = null } = {}) {
+    const uncapped = Boolean(protagonist && heroUncapped);
+    const cap = uncapped ? HERO_SCORE_UNCAPPED_MAX : abilityCap(protagonist);
     const manual = base ? normalizeManualScores(base) : null;
-    let scores = (protagonist && normalizeHeroScores(heroBase)) || (!protagonist && normalizeNpcScores(npcBase)) || manual || baseScores(prefs, name);
+    let scores = (protagonist && normalizeHeroScores(heroBase, { uncapped })) || (!protagonist && normalizeNpcScores(npcBase)) || manual || baseScores(prefs, name);
     const initialScores = { ...scores };
     if (!protagonist) {
         const tierMod = (REL_TIERS[tier] || REL_TIERS[DEFAULT_REL_TIER]).mod;

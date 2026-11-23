@@ -365,6 +365,103 @@ function buildFixedStarterDeck(fixedPool, personalPool, seed, archetype) {
     return groups.flatMap(([cards, copies]) => cards.flatMap((card, index) => Array(copies[index]).fill(card.id)));
 }
 
+// 根据职业从卡牌模板池随机组合出 20 张基础卡片模板（按份数凑：攻击 3/3/2、技能 3/3/2、能力/支援 ×2、职业特色 ×2，共 8 种 20 张），
+// 随后交由 LLM 结合世界书与上下文逐一命名。
+export function planStarterTemplateDeck(archetype, seed = '', ownerId = 'hero') {
+    const shape = COMBAT_RULES.starterDeckShapeV6;
+    const rng = { state: hash32(`starter-tpl:${archetype}:${seed}`) };
+    const table = archetypeTable(archetype);
+    const pool = [];
+    for (const [templateKey, tpl] of Object.entries(table)) {
+        const rarity = (hash32(`starter-rar:${seed}:${templateKey}`) % 4 === 0) ? 'uncommon' : 'common';
+        const preferredCost = tpl.costs ? tpl.costs[0] : (tpl.type === 'power' ? 1 : (hash32(`starter-cost:${seed}:${templateKey}`) % 2 === 0 ? 1 : 2));
+        const solvedCost = nearestTemplateCost(templateKey, preferredCost, rarity);
+        if (solvedCost === null) continue;
+        const solved = solveCardTemplate(templateKey, solvedCost, rarity);
+        if (!solved || solved.unplayable) continue;
+        if (solved.effects.some((effect) => effect.op === 'exhaust-other' || (effect.op === 'grant-flag' && effect.flag === 'ethereal'))) continue;
+        if (forbiddenCombos({ cost: solvedCost, effects: solved.effects, onDiscard: solved.onDiscard }).length) continue;
+        const { type, effects, upgraded, ...rest } = solved;
+        pool.push({
+            id: `tpl:${templateKey}`,
+            templateKey,
+            summary: tpl.label || templateKey,
+            name: String(tpl.label || templateKey).slice(0, 20),
+            type,
+            cost: solvedCost,
+            rarity,
+            ...rest,
+            archetype: cardArchetype(templateKey, archetype),
+            effects,
+            ...(upgraded ? { upgraded } : {}),
+        });
+    }
+    const costWeight = (card) => STARTER_COST_WEIGHT[card.cost] ?? 1;
+    const tplWeight = (card) => costWeight(card) * (STARTER_RARITY_WEIGHT[card.rarity] || 1);
+    const engine = STARTER_ENGINES[archetype];
+    const attacks = pickStarterTypes(rng, pool.filter((c) => c.type === 'attack'), shape.attack.length, 'damage', tplWeight, engine?.attack);
+    const skills = pickStarterTypes(rng, pool.filter((c) => c.type === 'skill'), shape.skill.length, 'block', tplWeight, engine?.skill);
+    const taken = new Set([...attacks, ...skills].map((c) => c.id));
+    const remaining = pool.filter((c) => !taken.has(c.id));
+    const powers = remaining.filter((c) => c.type === 'power');
+    const support = engine?.third ? remaining.filter(engine.third) : [];
+    const thirdPool = support.length ? support : (powers.length ? powers : remaining);
+    const third = pickDistinct(rng, thirdPool, shape.third.length, tplWeight);
+    for (const c of third) taken.add(c.id);
+    const restPool = pool.filter((c) => !taken.has(c.id));
+    const fourth = pickDistinct(rng, restPool, shape.personal.length, tplWeight);
+    const groups = [[attacks, shape.attack], [skills, shape.skill], [third, shape.third], [fourth, shape.personal]];
+    if (groups.some(([cards, copies]) => cards.length < copies.length)) return null;
+    const entries = [];
+    let seq = 0;
+    for (const [cards, copies] of groups) {
+        cards.forEach((rawCard, idx) => {
+            seq += 1;
+            const id = `${ownerId}-s${seq}`;
+            const { templateKey, summary, ...cardFields } = rawCard;
+            entries.push({
+                index: seq - 1,
+                id,
+                template: templateKey,
+                summary,
+                copies: copies[idx],
+                card: { ...cardFields, id },
+            });
+        });
+    }
+    return {
+        cards: entries.map((e) => e.card),
+        starterDeck: entries.flatMap((e) => Array(e.copies).fill(e.id)),
+        templates: entries.map((e) => ({
+            index: e.index,
+            template: e.template,
+            type: e.card.type,
+            cost: e.card.cost,
+            rarity: e.card.rarity,
+            copies: e.copies,
+            summary: e.summary,
+        })),
+    };
+}
+
+// 校验并装配 LLM 为 20 张基础模板起好的名称：{ names: [卡名1, ..., 卡名8] }。
+export function assembleStarterDeckNaming(raw, { key, fixed = {} } = {}) {
+    const invalid = expectObject(raw);
+    if (invalid) return invalid;
+    const collector = createCollector(key);
+    const baseCards = Array.isArray(fixed.cards) ? fixed.cards : [];
+    const names = mapList(raw.names, 'names', collector, baseCards.length, baseCards.length, (item, itemPath) => requiredText(item, itemPath, collector, 20));
+    const seen = new Set();
+    (Array.isArray(names) ? names : []).forEach((name, index) => {
+        if (!name) return;
+        if (seen.has(name)) collector.fail(indexPath('names', index), 'name-duplicate');
+        seen.add(name);
+    });
+    if (collector.errors.length) return { errors: collector.errors };
+    const cards = baseCards.map((card, index) => ({ ...card, name: names[index] }));
+    return { value: { cards, starterDeck: [...(fixed.starterDeck || [])] }, diagnostics: collector.diagnostics };
+}
+
 // 起始牌组。传入职业原型且本职业有固定池时按规则 v6 生成（见 buildFixedStarterDeck）；
 // 否则为 v3–v5 形状：基础攻击 + 基础防御 + 职业牌 + 个人牌。
 // 抽取用确定性随机；同一张已抽得越多权重越低，且不超过 perCardLimit。

@@ -1047,8 +1047,31 @@ function starterShapeV6Errors(starterDeck, fixedIds, personalIds) {
     return errors;
 }
 
+// 规则 v7 模板组合起始卡组（20 张均来自程序按职业模板池拼出并由 LLM 命名的 personalPool）：
+// 份数分布与 starterDeckShapeV6 一致（攻击 3/3/2、技能 3/3/2、其余 2/2），至少 3 种攻击与 3 种技能。
+function starterShapeTemplateErrors(starterDeck, personalPool) {
+    const shape = COMBAT_RULES.starterDeckShapeV6;
+    const byId = new Map((personalPool || []).map((card) => [card.id, card]));
+    const counts = new Map();
+    const kinds = { attack: 0, skill: 0 };
+    const errors = [];
+    for (const id of starterDeck) counts.set(id, (counts.get(id) || 0) + 1);
+    for (const id of counts.keys()) {
+        const card = byId.get(id);
+        if (!card) { errors.push({ path: 'starterDeck', reason: 'unknown-card', cardId: id }); continue; }
+        if (Object.hasOwn(kinds, card.type)) kinds[card.type] += 1;
+    }
+    const copies = (list) => [...list].sort((a, b) => b - a).join('/');
+    const expected = copies([...shape.attack, ...shape.skill, ...shape.third, ...shape.personal]);
+    const actual = copies(counts.values());
+    if (expected !== actual) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot: 'templateCopies', expected, actual } });
+    if (kinds.attack < shape.attack.length) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot: 'attackKinds', expected: shape.attack.length, actual: kinds.attack } });
+    if (kinds.skill < shape.skill.length) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot: 'skillKinds', expected: shape.skill.length, actual: kinds.skill } });
+    return errors;
+}
+
 // 校验起始卡组：职业匹配、牌池 id 无冲突、卡组结构符合起始形状、重复张数不超过稀有度限制。
-// 含本职业固定卡 ID 的起始卡组按规则 v6 形状校验；v3–v5 档案不含固定卡 ID，照旧按 starterDeckShape。
+// 含本职业固定卡 ID 的起始卡组按规则 v6 形状校验；全来自个人池（模板组合命名 20 张）按 v7 形状校验；旧档案照旧按 starterDeckShape。
 export function validateStarterDeck(deckCharacter, classProfile) {
     const errors = [];
     if (!classProfile || classProfile.kind !== 'class') return { ok: false, errors: [{ path: 'classRef', reason: 'class-missing' }] };
@@ -1071,7 +1094,9 @@ export function validateStarterDeck(deckCharacter, classProfile) {
         else if (signatureIds.has(id)) errors.push({ path: `starterDeck[${index}]`, reason: 'signature-in-starter', cardId: id });
         else if (!(v6 && fixedIds.has(id))) errors.push({ path: `starterDeck[${index}]`, reason: 'unknown-card', cardId: id });
     });
+    const templateComposed = !v6 && shape.basicAttack === 0 && shape.basicDefend === 0 && shape.classCards === 0 && shape.personalCards === COMBAT_RULES.starterDeckSize;
     if (v6) errors.push(...starterShapeV6Errors(deckCharacter.starterDeck, fixedIds, personalIds));
+    else if (templateComposed) errors.push(...starterShapeTemplateErrors(deckCharacter.starterDeck, deckCharacter.personalPool));
     else {
         for (const [slot, expected] of Object.entries(COMBAT_RULES.starterDeckShape)) {
             if (shape[slot] !== expected) errors.push({ path: 'starterDeck', reason: 'starter-shape', detail: { slot, expected, actual: shape[slot] } });
@@ -1727,10 +1752,12 @@ function validateAttributePayload(type, payload, path, state) {
     const at = (key) => joinPath(path, key);
     switch (type) {
         case 'hero-base': {
-            checkKnownFields(payload, ['scores'], path, state);
-            const scores = normalizeHeroScores(payload.scores);
+            checkKnownFields(payload, ['scores', 'uncapped'], path, state);
+            const uncapped = payload.uncapped === true;
+            if (payload.uncapped !== undefined && typeof payload.uncapped !== 'boolean') addIssue(state, at('uncapped'), 'expected-boolean');
+            const scores = normalizeHeroScores(payload.scores, { uncapped });
             if (!scores) addIssue(state, at('scores'), 'invalid-scores');
-            return { scores };
+            return uncapped ? { scores, uncapped: true } : { scores };
         }
         case 'npc-base': {
             checkKnownFields(payload, ['scores'], path, state);

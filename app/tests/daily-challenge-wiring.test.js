@@ -324,7 +324,7 @@ test('结算前账本读取失败保留待结算记录，重试前不写账本',
     } finally { first.session.dispose(); }
 });
 
-test('纯日常模式无战斗档案：首次完成后按领域固定牌库、三选一纯卡牌翻牌、各领域胜场独立计数、满5胜免费删牌与升级及回退撤销', async (t) => {
+test('纯日常模式无战斗档案：首次完成后按领域固定牌库、三选一纯卡牌翻牌、各领域胜场独立计数、满3胜免费删牌与升级及回退撤销', async (t) => {
     const storage = memoryStorage();
     const chat = [];
     const entries = [];
@@ -437,39 +437,35 @@ test('纯日常模式无战斗档案：首次完成后按领域固定牌库、�
     assert.equal(eff.dailyDecks.get('烹饪').deck.length, 21);
     assert.equal(eff.dailyDecks.get('话术').wins, 2);
 
-    // 5. 话术继续赢第 3、4 场（未满 5 胜不出删卡/升级），再赢第 5 场（满 5 胜触发免费删牌与免费升级）。
-    await playOne('[igs-challenge:三面|话术|轻松|压力]', { flipPos: 0, acceptCard: false });
-    await playOne('[igs-challenge:四面|话术|轻松|压力]', { flipPos: 0, acceptCard: false });
+    // 5. 话术赢第 3 场（按领域独立计满 3 胜触发免费删牌与免费升级；此前第 1、2 胜未触发，烹饪 1 胜互不干扰）。
+    const third = await playOne('[igs-challenge:终面|话术|轻松|压力]', { flipPos: 0, acceptCard: true, purgeIdx: 0, upgradeIdx: 1 });
     eff = await ledger.effectiveState();
-    assert.equal(eff.dailyDecks.get('话术').wins, 4);
-    const fifth = await playOne('[igs-challenge:终面|话术|轻松|压力]', { flipPos: 0, acceptCard: true, purgeIdx: 0, upgradeIdx: 1 });
-    eff = await ledger.effectiveState();
-    const speechAfter5 = eff.dailyDecks.get('话术');
-    assert.equal(speechAfter5.wins, 5);
-    assert.equal(speechAfter5.purges, 1);
-    assert.equal(speechAfter5.deckEntries.some((r) => r.copyId === fifth.purgedCopy), false, '删掉的副本应永久移除');
-    assert.equal(speechAfter5.deckEntries.find((r) => r.copyId === fifth.upgradedCopy)?.upgraded, true, '升级的副本应永久保持升级');
-    assert.equal(speechAfter5.deck.length, 21, '原21张 + 翻牌1张 - 删牌1张 = 21张');
-    assert.equal(eff.dailyDecks.get('烹饪').wins, 1, '话术满5胜不影响烹饪计数');
+    const speechAfter3 = eff.dailyDecks.get('话术');
+    assert.equal(speechAfter3.wins, 3);
+    assert.equal(speechAfter3.purges, 1);
+    assert.equal(speechAfter3.deckEntries.some((r) => r.copyId === third.purgedCopy), false, '删掉的副本应永久移除');
+    assert.equal(speechAfter3.deckEntries.find((r) => r.copyId === third.upgradedCopy)?.upgraded, true, '升级的副本应永久保持升级');
+    assert.equal(speechAfter3.deck.length, 21, '原21张 + 翻牌1张 - 删牌1张 = 21张');
+    assert.equal(eff.dailyDecks.get('烹饪').wins, 1, '话术满3胜不影响烹饪计数');
 
-    // 6. 第 6 场话术开战读到已删牌+已升级的固定牌库。
-    const sixthFloor = chat.length;
-    chat.push({ is_user: false, mes: '第六场。\n[igs-challenge:加面|话术|轻松|压力]', swipe_id: 0 });
-    const sixth = makeDaily();
-    t.after(() => sixth.dispose());
-    assert.equal((await sixth.prepare(sixthFloor)).ok, true);
-    const sixthDeck = sixth.state().challengeSetup.units[0].deck;
-    assert.equal(sixthDeck.some((d) => d.copyId === fifth.purgedCopy), false);
-    assert.equal(sixthDeck.find((d) => d.copyId === fifth.upgradedCopy)?.upgraded, true);
+    // 6. 第 4 场话术开战读到已删牌+已升级的固定牌库。
+    const fourthFloor = chat.length;
+    chat.push({ is_user: false, mes: '第四场。\n[igs-challenge:加面|话术|轻松|压力]', swipe_id: 0 });
+    const fourth = makeDaily();
+    t.after(() => fourth.dispose());
+    assert.equal((await fourth.prepare(fourthFloor)).ok, true);
+    const fourthDeck = fourth.state().challengeSetup.units[0].deck;
+    assert.equal(fourthDeck.some((d) => d.copyId === third.purgedCopy), false);
+    assert.equal(fourthDeck.find((d) => d.copyId === third.upgradedCopy)?.upgraded, true);
 
-    // 7. 回退第 5 场战报楼（swipe 变化）：话术胜场回退为 4、删牌与升级全部撤销。
-    const fifthReportFloor = sixthFloor - 1;
-    chat[fifthReportFloor] = { ...chat[fifthReportFloor], swipe_id: 1 };
+    // 7. 回退第 3 场战报楼（swipe 变化）：话术胜场回退为 2、删牌与升级全部撤销。
+    const thirdReportFloor = fourthFloor - 1;
+    chat[thirdReportFloor] = { ...chat[thirdReportFloor], swipe_id: 1 };
     const rewound = await ledger.effectiveState();
-    assert.equal(rewound.dailyDecks.get('话术').wins, 4);
+    assert.equal(rewound.dailyDecks.get('话术').wins, 2);
     assert.equal(rewound.dailyDecks.get('话术').purges, 0);
-    assert.equal(rewound.dailyDecks.get('话术').deckEntries.some((r) => r.copyId === fifth.purgedCopy), true);
-    assert.equal(rewound.dailyDecks.get('话术').deckEntries.find((r) => r.copyId === fifth.upgradedCopy)?.upgraded, false);
+    assert.equal(rewound.dailyDecks.get('话术').deckEntries.some((r) => r.copyId === third.purgedCopy), true);
+    assert.equal(rewound.dailyDecks.get('话术').deckEntries.find((r) => r.copyId === third.upgradedCopy)?.upgraded, false);
 });
 
 test('日常挑战：敌人池缝合与战斗一致、准备期先拼合模板再由LLM按世界观起名（含首战初始牌与3张战利品）、盲选可放弃', async (t) => {

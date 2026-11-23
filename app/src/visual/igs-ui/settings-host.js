@@ -1103,7 +1103,7 @@ export function createSettingsHost(deps) {
                 else {
                     const draft = panel.asyncState.heroAttributeDraft;
                     const initial = draft?.chatId === attrs.chatId && draft.ownerGeneration === attrs.ownerGeneration ? draft.scores : attrs.base;
-                    const values = await settingsDialogs.numbers(`修改属性（单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计不超过${MANUAL_TOTAL}）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: initial[key], min: MANUAL_BUILD.min, max: MANUAL_BUILD.max })), { okLabel: '保存', total: { max: MANUAL_TOTAL, note: (left, total) => (left < 0 ? `超出 ${-left} 点 · 合计 ${total}/${MANUAL_TOTAL}` : `剩余 ${left} 点 · 合计 ${total}/${MANUAL_TOTAL}`) } });
+                    const values = await settingsDialogs.numbers(`修改属性（常规单项${MANUAL_BUILD.min}–${MANUAL_BUILD.max}，合计≤${MANUAL_TOTAL}；超限将询问是否开挂）`, ABILITY_KEYS.map((key) => ({ key, label: ABILITY_LABELS[key], value: initial[key], min: 1, max: 9999 })), { okLabel: '保存', total: { max: MANUAL_TOTAL, note: (left, total) => (left < 0 ? `! 超出 ${-left} 点 · 合计 ${total}/${MANUAL_TOTAL}（提交时可选择开挂）` : `剩余 ${left} 点 · 合计 ${total}/${MANUAL_TOTAL}`) } });
                     if (state.activeSettings !== panel) return { ok: false, reason: 'request-stale' };
                     if (!values) { delete panel.asyncState.heroAttributeDraft; result = { ok: true, cancelled: true }; }
                     else {
@@ -1111,11 +1111,17 @@ export function createSettingsHost(deps) {
                         const submission = { chatId: attrs.chatId, ownerGeneration: attrs.ownerGeneration, scores };
                         panel.asyncState.heroAttributeDraft = submission;
                         const total = Object.values(scores).reduce((sum, v) => sum + v, 0);
-                        result = total > MANUAL_TOTAL ? { ok: false, reason: 'stats-build-over-total' }
-                            : ABILITY_KEYS.some((key) => !(scores[key] >= MANUAL_BUILD.min && scores[key] <= MANUAL_BUILD.max)) ? { ok: false, reason: 'stats-build-score-range' }
-                                : ABILITY_KEYS.every((key) => scores[key] === attrs.base[key]) ? { ok: true, cancelled: true }
-                                    : await op('attrs', 'set', '', { ...submission, className: attrs.className, role: attrs.hasCombatInit ? attrs.role : undefined,
-                                        expectedRevision: attrs.revision, signal: panel.recoveryController.signal });
+                        const overCap = total > MANUAL_TOTAL || ABILITY_KEYS.some((key) => !(scores[key] >= MANUAL_BUILD.min && scores[key] <= MANUAL_BUILD.max));
+                        let uncapped = Boolean(attrs.uncapped);
+                        if (overCap && !uncapped) {
+                            const allowCheat = await settingsDialogs.confirm('【！】当前属性已超出常规上限（单项 3–18，总分 ≤ 72）。是否需要开挂并解除属性上限？');
+                            if (state.activeSettings !== panel) return { ok: false, reason: 'request-stale' };
+                            if (allowCheat) uncapped = true;
+                        }
+                        result = (overCap && !uncapped) ? { ok: false, reason: total > MANUAL_TOTAL ? 'stats-build-over-total' : 'stats-build-score-range' }
+                            : ABILITY_KEYS.every((key) => scores[key] === attrs.base[key]) && uncapped === Boolean(attrs.uncapped) ? { ok: true, cancelled: true }
+                                : await op('attrs', 'set', '', { ...submission, uncapped, className: attrs.className, role: attrs.hasCombatInit ? attrs.role : undefined,
+                                    expectedRevision: attrs.revision, signal: panel.recoveryController.signal });
                         if (panel.asyncState.heroAttributeDraft === submission && result?.ok) delete panel.asyncState.heroAttributeDraft;
                         if (state.activeSettings === panel && result?.reason === 'stats-attribute-conflict')
                             await settingsDialogs.alert('属性已变化，未覆盖新值。再次打开可复核并提交保留的输入。');

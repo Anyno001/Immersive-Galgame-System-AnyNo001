@@ -14,11 +14,11 @@ import {
 import { hash32 } from '../combat/random.js';
 import { challengeDirectiveOf, parseChallengeReport } from '../combat/challenge-report.js';
 import { battleDirectiveOf, parseBattleReport } from '../combat/battle-report.js';
-import { BUILD_MODES } from '../combat/abilities.js';
+import { ABILITY_KEYS, ABILITY_LABELS, BUILD_MODES, MANUAL_BUILD, MANUAL_TOTAL, abilityKeyOf } from '../combat/abilities.js';
+import { normalizeHeroScores } from '../scene/stats/ability-fields.js';
 import { checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, mergeCheckInputs, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe, checkCorrections } from '../scene/check-rolls.js';
 import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene/stats/stat-coc-checks.js';
 import { combatPartyLines } from '../scene/combat-prompt.js';
-import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
 import { createStatsState, grudgeOfCharacter, heroDimsOf, investigatorView, isRomance } from '../scene/stats/stat-state.js';
 import { applyEvolutions, evolveCandidates, evolveText } from '../scene/stats/stat-trait-evolve.js';
@@ -686,8 +686,25 @@ export function createStatsRuntime({
         return read.ok ? read : { ...read, stage: 'read' };
     }
 
-    // 主角统一初始化（P4）：先恢复未完成意图；否则读取权威六维与货币判定缺项，全缺一次请求、部分已有只补缺项，分阶段保存并读回确认。
-    function ensureHeroInit({ force = false } = {}) {
+    function heroAttributesInitialized() {
+        if (!attributeAccess) return true;
+        const src = attributes();
+        const hero = src?.ready ? src.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }) : null;
+        return Boolean(hero && hero.initialized === true);
+    }
+
+    function needsHeroInitChoice() {
+        if (!active() || !attributeAccess) return false;
+        const chatId = chatIdOf(ctx());
+        if (!chatId) return false;
+        if (catalog.heroInitChoice === 'auto' || catalog.heroInitChoice === 'manual') return false;
+        const saved = heroInitIntents.read(chatId);
+        if (!saved.ok || saved.intent) return false;
+        return !heroAttributesInitialized();
+    }
+
+    // 主角统一初始化（P4）：先恢复未完成意图；若未决定自动/手填则等待玩家选择；否则读取权威六维与货币判定缺项，全缺一次请求、部分已有只补缺项，分阶段保存并读回确认。
+    function ensureHeroInit({ force = false, requireBio = false } = {}) {
         const hasAttr = Boolean(attributeAccess);
         const hasInv = Boolean(inventoryOf());
         if (!active() || (!hasAttr && !hasInv)) return null;
@@ -697,13 +714,14 @@ export function createStatsRuntime({
         const heldIntent = heroInitIntents.read(chatId);
         const hasPendingIntent = !heldIntent.ok || Boolean(heldIntent.intent);
         let attrReady = !hasAttr;
-        if (hasAttr) {
-            const src = attributes();
-            const hero = src?.ready ? src.readAbilities(userName() || PROTAGONIST, { heroPrefs: heroPrefs() }) : null;
-            attrReady = Boolean(hero && hero.initialized === true);
+        if (hasAttr) attrReady = heroAttributesInitialized();
+        if (!force && !hasPendingIntent && !attrReady && !catalog.heroInitChoice) {
+            refreshHeroInitMode();
+            return Promise.resolve({ ok: true, skipped: 'hero-init-awaiting-choice' });
         }
         const currencyReady = !hasInv || Boolean(currency?.seeded);
-        if (!hasPendingIntent && attrReady && currencyReady && !force && !exchangeOf() && !currencyEditPending()) return null;
+        const bioReady = !requireBio || Boolean(String(catalog.heroBio || '').trim());
+        if (!hasPendingIntent && attrReady && currencyReady && bioReady && !force && !exchangeOf() && !currencyEditPending()) return null;
         if (!force && !hasPendingIntent && currencyAsked.has(chatId)) return null;
         const ownerAlive = currencyLease();
         const route = generationRoute();
@@ -847,7 +865,8 @@ export function createStatsRuntime({
             }
             const needAttributes = Boolean(hasAttr && !attrRead.view.initialized);
             const needCurrency = Boolean(hasInv && !currency);
-            if (!needAttributes && !needCurrency) {
+            const needBio = !String(catalog.heroBio || '').trim();
+            if (!needAttributes && !needCurrency && !(requireBio && needBio)) {
                 if (hasInv && currency && !currency.seeded) {
                     progress('currency-seed');
                     const seeded = await seedCurrency(alive);
@@ -880,7 +899,6 @@ export function createStatsRuntime({
                 }
             } catch { extraCtx = {}; }
             if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
-            const needBio = !String(catalog.heroBio || '').trim();
             const prompt = buildHeroInitRequest({
                 protagonist: heroName,
                 worldview: view?.label || '',
@@ -940,7 +958,7 @@ export function createStatsRuntime({
                 if (!latestStats.ok) return latestStats;
                 if (latestStats.currency) finalNeedCurrency = false;
             }
-            if (!finalNeedAttributes && !finalNeedCurrency) {
+            if (!finalNeedAttributes && !finalNeedCurrency && !(needBio && parsed.bio)) {
                 if (hasInv && currency && !currency.seeded) {
                     progress('currency-seed');
                     const seeded = await seedCurrency(alive);
@@ -988,6 +1006,7 @@ export function createStatsRuntime({
                 currencyChanged();
                 if (outcome.ok) {
                     refreshOnboarding();
+                    onBuildPolicyChange();
                     detectNewCharacters();
                     push();
                 }
@@ -2764,12 +2783,23 @@ export function createStatsRuntime({
         Promise.resolve(enableForChat()).catch(() => {});
     }
 
-    // 主角基础初始化确认后再展示技能选择与 NPC 策略/首次询问；已退役旧 onboarding（快速/稍后）和 build-mode（自动/手动）主角门禁。
+    function refreshHeroInitMode() {
+        const offer = needsHeroInitChoice();
+        setNotice('hero-init-mode', offer ? {
+            kind: 'onboarding',
+            order: 0,
+            text: '主角六维属性与擅长项尚未设定：自行填写还是自动生成？',
+            actions: [['manual', '自行填写'], ['auto', '自动生成']],
+        } : null);
+    }
+
+    // 主角基础初始化：先询问自行填写或自动生成；确认后再展示技能选择与 NPC 策略/首次询问。
     function refreshOnboarding() {
         const chatId = chatIdOf(ctx()) || null;
         if (chatId !== modeChat) { modeChat = chatId; modeDefault = 'auto'; modePending = false; askedFill.clear(); }
         if (notices.has('onboarding')) setNotice('onboarding', null);
         if (notices.has('build-mode')) setNotice('build-mode', null);
+        refreshHeroInitMode();
         refreshHeroPick();
         refreshHeroOffer();
         refreshNpcPolicy();
@@ -2833,10 +2863,48 @@ export function createStatsRuntime({
 
     function refreshHeroPick() {
         const chatId = chatIdOf(ctx());
-        const offer = Boolean(chatId) && active() && !heroPickAsked.has(chatId) && needsHeroPick();
+        const offer = Boolean(chatId) && active() && !needsHeroInitChoice() && !heroPickAsked.has(chatId) && needsHeroPick();
         const canAssign = Boolean(requester());
         const actions = canAssign ? [['open', '手动选择'], ['assign', '按人设生成'], ['later', '稍后']] : [['open', '去选择'], ['later', '稍后']];
         setNotice('hero-pick', offer ? { kind: 'onboarding', order: 1, text: '主角擅长技能：请选3项擅长、5项比较擅长，或按人设生成', actions } : null);
+    }
+
+    // 主角开局手动提交六维与擅长项：超出上限时若未确认开挂（uncapped）返回 stats-build-over-cap；
+    // 写入成功后自动补齐简介、初始货币，并唤醒卡片战斗（若开启）生成职业/卡组/初始装备。
+    async function submitManualHero({ scores, uncapped = false, skills, attributes: skillAttrs, slots } = {}) {
+        if (!active()) return { ok: false, reason: 'stats-chat-not-enabled' };
+        const cleanScores = normalizeHeroScores(scores, { uncapped: true });
+        if (!cleanScores) return { ok: false, reason: 'stats-hero-init-attributes-invalid' };
+        if (uncapped !== true) {
+            const total = ABILITY_KEYS.reduce((sum, key) => sum + cleanScores[key], 0);
+            const overSingle = ABILITY_KEYS.some((key) => cleanScores[key] < MANUAL_BUILD.min || cleanScores[key] > MANUAL_BUILD.max);
+            if (overSingle || total > MANUAL_TOTAL) return { ok: false, reason: 'stats-build-over-cap', total, max: MANUAL_TOTAL };
+        }
+        const access = attributeAccess ? attributeAccess() : null;
+        if (!access) return { ok: false, reason: 'combat-attribute-table-missing' };
+        const heroName = userName() || PROTAGONIST;
+        const alive = currencyLease();
+        const read = await ensureHeroAttributeReadable(access, heroName, alive);
+        if (!read.ok) return read;
+        const written = read.view.initialized
+            ? await access.editHero(heroName, cleanScores, { expectedRevision: read.view.revision, uncapped: uncapped === true, shouldStart: alive })
+            : await access.initHero(heroName, cleanScores, { expectedRevision: read.view.revision, uncapped: uncapped === true, shouldStart: alive });
+        if (!written?.ok) return written || { ok: false, reason: 'stats-attribute-write-unverified' };
+        gateMemo = null;
+        if (skills && typeof skills === 'object' && Object.keys(skills).length) {
+            const picked = pickHeroSkills(skills, skillAttrs, slots);
+            if (!picked?.ok) return picked;
+        }
+        catalog = sanitizeCatalog({ ...catalog, heroInitChoice: 'manual' });
+        setNotice('hero-init-mode', null);
+        setNotice('hero-pick', null);
+        persist();
+        onChange(currentStatsState(ledger), null);
+        refreshOnboarding();
+        onBuildPolicyChange();
+        // 简介与初始货币仍然自动生成（六维已就绪，本次请求只补简介与货币）
+        void ensureHeroInit({ force: true, requireBio: true });
+        return { ok: true, uncapped: uncapped === true, scores: cleanScores };
     }
 
     // 建卡里玩家自定义的技能：注册表认不得的名字按所选六维登记成剧情技能；已认得的（内置或已登记）沿用原条目。
@@ -3641,6 +3709,7 @@ export function createStatsRuntime({
         if (op === 'pick') return pickHeroSkills(payload.skills, payload.attributes, payload.slots);
         if (op === 'slot') return setHeroSlot(name, payload);
         if (op === 'attrs') return { ok: true, attrs: heroAttrs() };
+        if (op === 'manual-init') return submitManualHero(payload);
         if (op === 'assign') return assignHeroSkills({ overwrite: payload.overwrite === true });
         return { ok: false, reason: 'stats-hero-op-unknown' };
     }
@@ -3742,6 +3811,21 @@ export function createStatsRuntime({
             refreshBuildAsk();
             onBuildPolicyChange();
             return { ok: true, choice: action };
+        }
+        if (id === 'hero-init-mode') {
+            if (action === 'manual') return { ok: true, openPanel: 'hero-manual-setup' };
+            if (action === 'auto') {
+                catalog = sanitizeCatalog({ ...catalog, heroInitChoice: 'auto' });
+                setNotice('hero-init-mode', null);
+                persist();
+                refreshOnboarding();
+                const initPromise = ensureHeroInit({ force: true });
+                return Promise.resolve(initPromise || { ok: true }).then((res) => {
+                    if (res?.ok !== false && needsHeroPick() && requester()) void assignHeroSkills({ overwrite: true });
+                    return { ok: res?.ok !== false, choice: 'auto', result: res };
+                });
+            }
+            return { ok: false, reason: 'stats-notice-action-unknown' };
         }
         if (id === 'hero-pick') {
             heroPickAsked.add(chatIdOf(ctx()));
@@ -4978,6 +5062,7 @@ export function createStatsRuntime({
             return snap.ready && Number.isSafeInteger(snap.balance) && snap.balance >= 0 ? snap.balance : null;
         },
         enableForChat: ev(enableForChat),
+        submitManualHero: ev(submitManualHero),
         // 本聊天关闭：数值冻结，不清存档（§10A）。战斗开启时锁定为启用。
         disableForChat: ev(() => {
             ensureLoaded(true);

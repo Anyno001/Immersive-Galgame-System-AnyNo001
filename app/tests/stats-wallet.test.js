@@ -584,7 +584,8 @@ test('bootstrap 货币接线：公开设置动作单飞，慢状态局部刷新�
     h.game.ctx.getCurrentChatId = () => h.game.ctx.chatId;
     h.game.ctx.setExtensionPrompt = () => {};
     assert.equal((await h.tables.append('stats', [initRecord(createStatsState()),
-        { id: 'chat-enabled', type: 'chat', character: '主角', anchor: null, createdAt: 1, change: '启用', payload: { key: 'chat:enabled', value: true } }])).ok, true);
+        { id: 'chat-enabled', type: 'chat', character: '主角', anchor: null, createdAt: 1, change: '启用', payload: { key: 'chat:enabled', value: true } },
+        { id: 'hero-init-auto', type: 'chat', character: '主角', anchor: null, createdAt: 2, change: '自动', payload: { key: 'hero:initChoice', value: 'auto' } }])).ok, true);
     const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://igs.invalid/' });
     const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({ stats: {
         enabled: true, newChat: 'ask', ruleset: 'coc7', autoSkill: false, sheetGen: 'off', backfill: 'off', push: { enabled: false },
@@ -700,7 +701,7 @@ test('bootstrap 生命周期：聊天与API替换、关闭和销毁隔离迟到�
         assert.equal((await tables.ensure()).ok, true);
         assert.equal((await createInventoryTables({ api: db.api, client: tables.client, serial: tables.serial }).ensure()).ok, true);
         assert.equal((await tables.append('stats', [initRecord(createStatsState()),
-            ...diffChatRecords(chatEntries(), chatEntries({ chatEnabled: true }), { tag: 'lifecycle' })])).ok, true);
+            ...diffChatRecords(chatEntries(), chatEntries({ chatEnabled: true, catalog: { heroInitChoice: 'auto' } }), { tag: 'lifecycle' })])).ok, true);
     }
     const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://igs.invalid/' });
     const handlers = new Map();
@@ -1276,8 +1277,12 @@ test('P4 主角统一建档（v2 无战斗表）：一次请求补齐六维与�
     });
     t.after(() => rt.destroy());
     rt.sync();
+    for (let i = 0; i < 40 && !rt.notices().some(n => n.id === 'hero-init-mode'); i += 1) await new Promise(r => setTimeout(r, 10));
+    assert.equal(rt.notices().some(n => n.id === 'hero-init-mode'), true, '开局先询问自行填写还是自动生成，不抢跑请求模型');
+    assert.equal(requests.length, 0);
+    void rt.noticeAction('hero-init-mode', 'auto');
     for (let i = 0; i < 40 && requests.length === 0; i += 1) await new Promise(r => setTimeout(r, 10));
-    assert.equal(requests.length, 1, '全缺时仅发一次统一主角初始化请求');
+    assert.equal(requests.length, 1, '选择自动生成后仅发一次统一主角初始化请求');
     assert.equal(rt.heroBasicReady(), false, '主角基础确认前不就绪');
     assert.equal(rt.notices().some(n => n.id === 'hero-pick'), true, '主角擅长技能与 NPC 建档策略提示可并发出现');
     assert.equal(rt.notices().some(n => n.id === 'npc-policy'), true, 'NPC 建档策略提示与主角建档并发出现');
@@ -1288,7 +1293,6 @@ test('P4 主角统一建档（v2 无战斗表）：一次请求补齐六维与�
         bio: '出身港城的年轻调查员，做事谨慎且善于观察细节。',
     }));
     await rt.whenSaved();
-    assert.equal(requests.length, 1);
     assert.equal(rt.heroBasicReady(), true);
     assert.equal(rt.currencyBalance(), 50);
     assert.equal(rt.archive().heroBio, '出身港城的年轻调查员，做事谨慎且善于观察细节。');
@@ -1351,6 +1355,8 @@ test('P4 部分补缺、回包前手改防覆盖与分阶段中断冷恢复（�
     });
     t.after(() => rt1.destroy());
     rt1.sync();
+    for (let i = 0; i < 40 && !rt1.notices().some(n => n.id === 'hero-init-mode'); i += 1) await new Promise(r => setTimeout(r, 10));
+    void rt1.noticeAction('hero-init-mode', 'auto');
     for (let i = 0; i < 40 && reqs.length === 0; i += 1) await new Promise(r => setTimeout(r, 10));
     assert.equal(reqs.length, 1);
     // 在模型返回之前，用户手改补足主角六维
@@ -1474,6 +1480,8 @@ test('回归：物品表描述列 NOT NULL 约束不触发 SQL_CONSTRAINT，且�
     });
     t.after(() => rt.destroy());
     rt.sync();
+    for (let i = 0; i < 40 && !rt.notices().some(n => n.id === 'hero-init-mode'); i += 1) await new Promise(r => setTimeout(r, 10));
+    void rt.noticeAction('hero-init-mode', 'auto');
     for (let i = 0; i < 40 && requests.length === 0; i += 1) await new Promise(r => setTimeout(r, 10));
     assert.equal(requests.length, 1);
     requests[0].resolve(JSON.stringify({

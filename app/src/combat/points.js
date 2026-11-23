@@ -14,10 +14,13 @@ export const ASCEND_TIERS = Object.freeze({
 export const TRAIT_DRAW_COST = 100;
 // 规则 v6 积分抽卡（D-09）：3 张本职业候选（固定 2 + 随机 1），选一张进卡组或放弃，放弃不退款；单价不递增。
 export const CARD_DRAW_COST = 150;
-// 规则 v6 删卡：每五胜一次机会，费用 min(500, 75 + 50 × 已删次数)；历史记录按原费用策略重放。
+// 规则 v6 删卡：常规战斗每五胜一次机会，费用 min(500, 75 + 50 × 已删次数)；历史记录按原费用策略重放。
 export const PURGE_EVERY = 5;
-// 规则 v6 G3c 升级机会：与删卡共用普通胜场计数，每满 UPGRADE_EVERY 场给一次免费升级，过期作废，与删卡互不占用。
+// 规则 v6 G3c 升级机会：与删卡共用常规战斗胜场计数，每满 UPGRADE_EVERY 场给一次免费升级，过期作废，与删卡互不占用。
 export const UPGRADE_EVERY = 5;
+// 日常挑战删卡与升级：按对应领域胜场单独计数，与常规战斗分开，每满 3 胜在战利品胜利结算界面给一次免费删卡与免费升级机会。
+export const DAILY_PURGE_EVERY = 3;
+export const DAILY_UPGRADE_EVERY = 3;
 export const PURGE_BASE_COST = 75;
 export const PURGE_STEP_COST = 50;
 export const PURGE_MAX_COST = 500;

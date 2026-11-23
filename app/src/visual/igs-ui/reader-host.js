@@ -16,7 +16,8 @@ import { creatureVoiceKind, creatureVoiceText } from './creature-voice.js';
 import { createSettingsHost } from './settings-host.js';
 import { createCombatPanelController } from './combat-panel.js';
 import { createCombatDeckPanelController } from './combat-deck-panel.js';
-import { normalizeCombatExpansionSettings } from './combat-settings.js';
+import { createHeroManualModal } from './hero-manual-modal.js';
+import { combatBattleOn, normalizeCombatExpansionSettings } from './combat-settings.js';
 import { growthTagsByPage, planGrowthFx } from './combat-growth-fx-model.js';
 import { cancelGrowthFx } from './combat-growth-fx.js';
 import { cancelCheckBadges, checksByPage } from './combat-check-badge.js';
@@ -195,7 +196,7 @@ const logWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 盖住舞台的面板（地图、资料、战斗、卡组构筑）同一时刻只开一个。
 const anyPanelOpen = (dom) => Boolean(dom && (dom.mapController?.isOpen() || dom.recordController?.isOpen()
-    || dom.combatController?.isOpen() || dom.combatDeckController?.isOpen() || dom.originPageController?.isOpen()));
+    || dom.combatController?.isOpen() || dom.combatDeckController?.isOpen() || dom.originPageController?.isOpen() || dom.heroManualModal?.isOpen()));
 
 // 翻页时设置没变就复用上次整理好的阅读器设置：每次整份深拷贝再跑几十项整理，是翻页最大的一块 JS 开销。
 // 存储配置是共享只读的，改设置会换新引用，按引用判断即可。返回浅拷贝：调用方只改顶层字段，下层对象只读。
@@ -354,11 +355,17 @@ export function createIgsReaderHost(options = {}) {
                 try { console.warn('[IGS 数值提示条] 操作未完成', id, act, result.reason); } catch { /* */ }
             }
             if (result && result.openSettings) openSettings({ tab: result.openSettings, mode: state.activeReader ? state.activeReader.mode : undefined });
-            // 手动建档逐角色询问「填写」（P8c）：打开人物状态面板并定位到这位角色的建档页；已有面板打开时不叠开。
+            // 主角开局「自行填写」独立弹窗（不依赖人物状态页，未开启卡片战斗也可填）。
+            if (result && result.openPanel === 'hero-manual-setup') {
+                const current = state.activeReader;
+                const overlay = current?.dom?.overlay;
+                if (overlay && current.dom.heroManualModal && !anyPanelOpen(current.dom)) current.dom.heroManualModal.open(overlay);
+            }
+            // 手动建档逐角色询问「填写」（P8c）：仅在卡片战斗开启时打开人物状态面板。
             if (result && result.openPanel === 'build') {
                 const current = state.activeReader;
                 const overlay = current?.dom?.overlay;
-                if (overlay && current.dom.combatDeckController && !anyPanelOpen(current.dom)) current.dom.combatDeckController.open(overlay, { build: result.name });
+                if (overlay && current.dom.combatDeckController && combatBattleOn(current.snapshot?.readerSettings?.combatExpansion) && !anyPanelOpen(current.dom)) current.dom.combatDeckController.open(overlay, { build: result.name });
             }
         },
     });
@@ -2628,7 +2635,7 @@ export function createIgsReaderHost(options = {}) {
             }
             if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'favor' && !hud.favorData && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
-            if (normalizedAction === 'combat' && !normalizeCombatExpansionSettings(settings?.combatExpansion).enabled) return { ok: false, reason: 'combat-disabled' };
+            if (normalizedAction === 'combat' && !combatBattleOn(settings?.combatExpansion)) return { ok: false, reason: 'combat-disabled' };
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             if (!menu.hasAttribute('hidden')) {
                 menu.setAttribute('hidden', '');
@@ -2713,10 +2720,10 @@ export function createIgsReaderHost(options = {}) {
         if (normalizedAction === 'consistency-cg') {
             return redrawCurrentConsistency();
         }
-        // 工具栏「人物状态」：战斗扩展开启时打开人物状态面板（与资料菜单「人物状态」项同一面板）；已有面板打开时不叠开。
+        // 工具栏「人物状态」：仅在卡牌战斗开启（非纯日常模式）时打开人物状态面板；未开启卡片战斗时不显示、不打开。
         if (normalizedAction === 'combat-status') {
             const current = state.activeReader;
-            if (!normalizeCombatExpansionSettings(current.snapshot?.readerSettings?.combatExpansion).enabled && !current.buildEntry?.()) return { ok: false, reason: 'combat-disabled' };
+            if (!combatBattleOn(current.snapshot?.readerSettings?.combatExpansion)) return { ok: false, reason: 'combat-disabled' };
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
             const overlay = current.dom?.overlay;
             if (!overlay || !current.dom?.combatDeckController) return { ok: false, reason: 'combat-entry-missing' };
@@ -6019,6 +6026,11 @@ ${row.key}`;
             getTheme: () => readSettingsTheme(),
             setTheme: (settingsTheme) => saveBridgePatch({ settingsTheme }),
         });
+        const heroManualModal = createHeroManualModal(doc, {
+            onSubmit: (payload) => (typeof options.statsOp === 'function'
+                ? Promise.resolve(options.statsOp('hero', 'manual-init', '', payload)).finally(() => statsChip.sync())
+                : Promise.resolve({ ok: false, reason: 'stats-runtime-missing' })),
+        });
         const domState = {
             root,
             doc,
@@ -6028,6 +6040,7 @@ ${row.key}`;
             combatController,
             combatDeckController,
             originPageController,
+            heroManualModal,
             embeddedMount,
             dispose() {
                 if (typeof doc.removeEventListener === 'function') {
@@ -6041,6 +6054,7 @@ ${row.key}`;
                 combatController.dispose();
                 combatDeckController.dispose();
                 originPageController.dispose();
+                heroManualModal.close();
                 dbController.close();
                 teardownEmbeddedMount(domState.embeddedMount);
                 domState.embeddedMount = null;

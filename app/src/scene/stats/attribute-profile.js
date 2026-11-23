@@ -6,7 +6,7 @@ export const INIT_EDIT_CHANGE = '手改';
 const order = { rel: 0, story: 1, reward: 2, alloc: 3 };
 const byId = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const isBase = row => row.type === 'init' || row.type === 'hero-base' || row.type === 'npc-base';
-const empty = () => ({ init: null, initId: null, heroBase: null, heroBaseId: null, initTime: -1, rel: [], story: [], reward: [], alloc: [] });
+const empty = () => ({ init: null, initId: null, heroBase: null, heroBaseId: null, heroUncapped: false, initTime: -1, rel: [], story: [], reward: [], alloc: [] });
 
 export function foldAttributes(records, actorKey, scanFloor, diagnostics) {
     const fold = new Map(), inactive = [];
@@ -26,6 +26,7 @@ export function foldAttributes(records, actorKey, scanFloor, diagnostics) {
                 diagnostics.push({ code: 'combat-attribute-init-duplicate', id: row.id, character: row.character });
             } else {
                 bucket.heroBase = row.payload.scores;
+                bucket.heroUncapped = row.payload.uncapped === true;
                 bucket.heroBaseId = row.id;
                 bucket.initTime = row.createdAt;
             }
@@ -34,6 +35,7 @@ export function foldAttributes(records, actorKey, scanFloor, diagnostics) {
         } else {
             bucket.init = row.payload;
             bucket.heroBase = null;
+            bucket.heroUncapped = false;
             bucket.heroBaseId = null;
             delete bucket.npcBase;
             delete bucket.npcBaseId;
@@ -61,6 +63,7 @@ export function computeAttributes({ key, name, protagonist, exp = 0, archetype, 
     const bucket = context.fold.get(key) || empty();
     const init = bucket.init;
     const heroBase = protagonist && bucket.heroBase ? bucket.heroBase : null;
+    const heroUncapped = Boolean(protagonist && bucket.heroUncapped);
     const role = init?.role ?? roleFor(name, archetype);
     const prefs = heroBase ? prefsFromScores(heroBase) : init ? { major: init.major, minor: init.minor, weak: init.weak } : normalizePrefs(fallbackPrefs) || defaultPrefs(role);
     const relation = protagonist ? null : bucket.rel.at(-1)?.payload;
@@ -75,7 +78,7 @@ export function computeAttributes({ key, name, protagonist, exp = 0, archetype, 
     const ownBase = !protagonist && bucket.npcBase && !context.baseDrops?.has(bucket.npcBaseId) ? bucket.npcBase : null;
     const legacyBase = !protagonist && !init && !ownBase ? context.sheetBases?.get(name) : null;
     const npcBase = !protagonist && (ownBase || legacyBase);
-    const input = { prefs, name, level, protagonist, tier: tier ?? DEFAULT_REL_TIER, base: init?.scores, heroBase, npcBase, adjustments };
+    const input = { prefs, name, level, protagonist, tier: tier ?? DEFAULT_REL_TIER, base: init?.scores, heroBase, heroUncapped, npcBase, adjustments };
     const permanent = deriveAbilities(input);
     const effective = gearBonuses.length ? deriveAbilities({ ...input, adjustments: [...adjustments, ...gearBonuses] }) : permanent;
     const free = grants.reduce((n, item) => n + (item.ability === 'free' ? item.amount : 0), 0);
@@ -85,6 +88,6 @@ export function computeAttributes({ key, name, protagonist, exp = 0, archetype, 
     const revision = JSON.stringify([key, bucket.initId, level, ...(heroBase ? [bucket.heroBaseId] : []), ...(npcBase ? [baseId || legacyBase] : []), ...[...bucket.rel, ...bucket.story, ...bucket.reward, ...bucket.alloc].map(row => row.id)]);
     const initialized = !!(init || heroBase || npcBase);
     const source = initialized ? 'formal' : (protagonist ? 'default' : 'relative');
-    return { key, className: className || init?.className || '', role, prefs, initialized, source, protagonist: !!protagonist,
+    return { key, className: className || init?.className || '', role, prefs, initialized, uncapped: heroUncapped, source, protagonist: !!protagonist,
         tier, relTagged: !!relation, level, ...effective, permanentScores: permanent.scores, balance, table: context.table, revision, baseId };
 }
