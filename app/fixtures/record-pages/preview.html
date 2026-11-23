@@ -209,7 +209,7 @@ let current = null;
 let settingsVn = null;
 function openSettingsScene() {
   const q = new URLSearchParams(location.search);
-  const statsPreview = (q.get('page') || '').startsWith('stats') ? createStatsPreview({ retry: q.get('currency') === 'retry' }) : null;
+  const statsPreview = (q.get('page') || '').startsWith('stats') ? createStatsPreview({ retry: q.get('currency') === 'retry', coc: q.get('coc') || '' }) : null;
   const img = new URL('./assets/scene-demo-clean-night.png', location.href).href;
   const mem = createMemoryStorage();
   // ?card=卡名：模拟打开了一张角色卡，小雪和睡衣提示词放在这张卡里，其余在全局。

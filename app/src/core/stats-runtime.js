@@ -20,7 +20,7 @@ import { cocCheckCorrections, cocCheckRollsFor, replayCocChecks } from '../scene
 import { combatPartyLines } from '../scene/combat-prompt.js';
 import { ABILITY_LABELS, abilityKeyOf } from '../combat/abilities.js';
 import { readStatsSettings } from '../scene/stats/stat-settings.js';
-import { createStatsState, grudgeOfCharacter, heroDimsOf, isRomance } from '../scene/stats/stat-state.js';
+import { createStatsState, grudgeOfCharacter, heroDimsOf, investigatorView, isRomance } from '../scene/stats/stat-state.js';
 import { applyEvolutions, evolveCandidates, evolveText } from '../scene/stats/stat-trait-evolve.js';
 import { aptitudeLevel, applyTraitChange, getTraitDef, hasTrait, isComboKey, listTraits, setTraitAttrReader, slotUsage, traitCatalogOf, withAptitude } from '../scene/stats/stat-traits.js';
 import { buildStatsPrompt, mandatesFromFlags } from '../scene/stats/stat-prompt.js';
@@ -41,7 +41,8 @@ import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, regi
 import { worldSkillNames } from '../scene/stats/stat-world-skills.js';
 import { applyTidy, buildTidyPrompt, parseTidyReply } from '../scene/stats/stat-story-tidy.js';
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
-import { COC_ATTRS, sanitizeCocSheet } from '../scene/stats/coc-investigator.js';
+import { COC_ATTRS, cocModeOf, cocSkillTotals, normalizeCocMode, sanitizeCocSheet } from '../scene/stats/coc-investigator.js';
+import { NPC_COC_BATCH_MAX, buildNpcCocModuleRequest, buildNpcCocRequest, parseNpcCocReply } from '../scene/stats/stat-coc-npc.js';
 import {
     PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, cocSheetOf, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
     gateAttributes, isSocialSkill, modifiersOf, profileOf, protagonistVitals, resolveCheck, resolveDiceRequest, withAbilityMemo, withoutHeroBonus,
@@ -268,7 +269,7 @@ export function createStatsRuntime({
         return forced;
     };
     const active = () => Boolean(settings().enabled && chatEnabled && ledger);
-    const VISIBLE_BUSY_TASKS = new Set(['sheets', 'hero-skills', 'start-relations']);
+    const VISIBLE_BUSY_TASKS = new Set(['sheets', 'hero-skills', 'start-relations', 'npc-coc']);
     const generationTasks = createGenerationTasks({
         capture: () => {
             const owner = ctx();
@@ -323,7 +324,7 @@ export function createStatsRuntime({
     const attributes = () => attributeAccess ? attributeAccess().source() : life();
     const heroSkillValue = (skill) => {
         const own = ledger && currentStatsState(ledger).protagonist.skills[skill];
-        const v = heroSkillLevel(engineOf(), own, skill);
+        const v = heroSkillLevel(dailyEngineOf(), own, skill);
         return v > 0 ? v : null;
     };
     const heroPrefs = () => (ledger && currentStatsState(ledger).protagonist.prefs) || null;
@@ -1039,6 +1040,14 @@ export function createStatsRuntime({
     const engineOf = (ruleset) => engineFor(catalog, settings(), ruleset === undefined ? settings().ruleset : ruleset, readers);
     // 一次注入或结算内用：读数按名字记忆化，避免同一名字反复折叠战斗账本。
     const memoEngineOf = (ruleset) => withAbilityMemo(engineOf(ruleset));
+    // 调查员模式下主角技能读 state.investigator 分支，日常技能不参与。
+    const heroView = (state, engine = engineOf()) => (cocSheetOf(engine) ? investigatorView(state) : state);
+    // 日常引擎：关掉调查员档，我的角色页与日常数值只读它。
+    let dailyCatalogOf = null;
+    const dailyEngineOf = () => {
+        if (!dailyCatalogOf || dailyCatalogOf.src !== catalog) dailyCatalogOf = { src: catalog, cat: { ...catalog, cocMode: 'daily' } };
+        return engineFor(dailyCatalogOf.cat, settings(), settings().ruleset, readers);
+    };
     // 特质门槛读六维：同一同步段内按名字记忆化，下一个微任务清空，hasTrait 高频调用不重算。
     let gateMemo = null;
     let gateCatalog = null;
@@ -1626,15 +1635,18 @@ export function createStatsRuntime({
 
     function skillValuesOf(state) {
         const engine = memoEngineOf();
+        state = heroView(state, engine);
         const out = {};
         const hero = {};
         const source = attributes();
-        if (source && source.ready === true) {
-            for (const name of (cocSheetOf(engine) ? [...COC_ATTRS, '幸运'] : BASE_ATTRIBUTES)) hero[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
+        const sheet = cocSheetOf(engine);
+        // 调查员档的属性直接取档，不依赖战斗属性表是否就绪。
+        if (sheet || (source && source.ready === true)) {
+            for (const name of (sheet ? [...COC_ATTRS, '幸运'] : BASE_ATTRIBUTES)) hero[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
         }
         const owned = state.protagonist.skills || {};
         const bonusNames = heroBonusSkillNames(engine);
-        const names = new Set([...Object.keys(owned), ...Object.keys(engine.protagonistBase || {}), ...Object.keys(engine.protagonistEdit || {}), ...bonusNames]);
+        const names = new Set([...Object.keys(owned), ...Object.keys(engine.protagonistBase || {}), ...Object.keys(engine.protagonistEdit || {}), ...(sheet ? Object.keys(cocSkillTotals(sheet)) : []), ...bonusNames]);
         for (const name of names) {
             if (isSixAttribute(name)) continue;
             // 写回表格的是生效值（含随身系统加成）。
@@ -1673,6 +1685,8 @@ export function createStatsRuntime({
         const state = currentStatsState(ledger);
         const read = readSkillAdoptions(client, skillValuesOf(state), { overridesByFingerprint: settings().push.mappings, characterKey: pushOptions.characterKey, isHero, canon: skillCanon });
         if (!read.ok) { diag(read.reason, { detail: read.detail }); return none; }
+        // 调查员模式下主角行写的是调查员值，不能当成日常手改采纳。
+        if (cocSheetOf(memoEngineOf())) { read.fresh = read.fresh.filter((i) => i.key !== '主角'); read.changed = read.changed.filter((i) => i.key !== '主角'); }
         if (!read.fresh.length && !read.changed.length) return none;
         const done = { fresh: [], changed: [] };
         for (const item of read.fresh) {
@@ -1739,7 +1753,7 @@ export function createStatsRuntime({
         const run = () => {
             if (!alive()) return { ok: false, reason: 'request-stale', wrote: 0 };
             collectOriginSkills();
-            const state = currentStatsState(ledger);
+            const state = heroView(currentStatsState(ledger));
             writingTable = true;
             const heroAtPush = { ...(skillValuesOf(state)['主角'] || {}) };
             return pushStats(client, state, { ...pushOptions, overridesByFingerprint: settings().push.mappings, baseAttributes: baseAttributesOf(state), currency: currencySnapshot(), walletExtra: combatPoints(), isHero, skillValues: () => skillValuesOf(state), heroName: userName(), skillCanon, shouldStart: alive }).then((r) => {
@@ -1776,7 +1790,7 @@ export function createStatsRuntime({
 
     // 本聊天可匹配的技能（v2 §5.3）：基础属性、默认特有技能、核心技能、已有技能与剧情技能；世界观技能只在已有时匹配。
     function matchable(state) {
-        return [...new Set([...BASE_ATTRIBUTES, ...DEFAULT_SPECIAL_SKILLS, ...CORE_SKILL_NAMES, ...Object.keys(state.protagonist.skills), ...catalog.story.map((s) => s.name)])];
+        return [...new Set([...BASE_ATTRIBUTES, ...DEFAULT_SPECIAL_SKILLS, ...CORE_SKILL_NAMES, ...Object.keys(heroView(state).protagonist.skills), ...catalog.story.map((s) => s.name)])];
     }
     function storyLexicon() {
         return Object.fromEntries(catalog.story.map((s) => [s.name, { solo: [s.name, ...(s.aliases || [])] }]));
@@ -1835,6 +1849,7 @@ export function createStatsRuntime({
         const source = attributes();
         if (attributeAccess && !source?.ready) return { ok: false, reason: source?.reason || 'stats-attribute-read-failed' };
         const coc = IS_COC(engine);
+        state = heroView(state, engine);
         const resolveName = (raw) => engine.registry.resolve(raw) || String(raw || '').trim();
         const modsFor = (skill, ability) => modifiersOf(engine, state, { actor: PROTAGONIST, skill: skill ? resolveName(skill) : ABILITY_LABELS[ability] });
         if (coc) {
@@ -1888,7 +1903,8 @@ export function createStatsRuntime({
     }
 
     // 正文检定结果 → 结算用的 storyChecks（只收主角的，用于成长打勾与社交暴击）。
-    function storyChecksOf(results, engine, state) {
+    function storyChecksOf(results, engine, rawState) {
+        const state = heroView(rawState, engine);
         return (results || []).filter((r) => isHero(r.actor)).map((r) => {
             const skill = r.skill ? engine.registry.resolve(r.skill) || r.skill : ABILITY_LABELS[r.ability];
             const p = profileOf(engine, state, PROTAGONIST, skill);
@@ -1916,8 +1932,8 @@ export function createStatsRuntime({
         const list = messages(c);
         const ordinal = upcomingCheckOrdinal(list, type);
         if (!ordinal) return null;
-        const state = type === 'continue' ? stateBefore(ledger, list.length - 1) : currentStatsState(ledger);
         const engine = memoEngineOf();
+        const state = heroView(type === 'continue' ? stateBefore(ledger, list.length - 1) : currentStatsState(ledger), engine);
         const coc = IS_COC(engine);
         const rolls = rollsFor(coc, chatIdOf(c), ordinal, upcomingCheckSwipe(list, type));
         if (!rolls) return null;
@@ -2026,7 +2042,7 @@ export function createStatsRuntime({
             worlds: worldsNow(), nsfw: isNsfw(), intimacyGate: s.intimacyGate, intimateCost: s.intimateCost, forcedNames: catalog.intimacyForced, prompts: s.prompts, check: g.check || g.display || null, stageText: s.stageText, stageTextPlatonic: s.stageTextPlatonic, traits: catalog.traits, romanceSeen: catalog.romanceSeen,
             heroNotes: s.heroNotePrompt && !s.heroFeelings ? catalog.heroNotes : null, heroFeelings: s.heroFeelings === true,
             disabled: Object.entries(s.segments || {}).filter(([, on]) => on === false).map(([id]) => id),
-            perceptionLine: perceptionLineOf(engine, state),
+            perceptionLine: perceptionLineOf(engine, heroView(state, engine)),
             manualRoll: Boolean(g.manual), dice, cocDice: coc ? own : null,
             combatOn: combatOnNow, partyLines: combatOnNow && combat.party ? combatPartyLines(combat.party) : [], combatRule: combatOnNow ? combat.rule || null : null,
         });
@@ -2069,16 +2085,18 @@ export function createStatsRuntime({
     const TRAIT_IDS = TRAIT_DEFS.map((d) => d.id);
     let reviewing = false;
     // 检定的特质与恩仇奖惩骰（只对主角发起的检定；rev ≥ 2 的楼才用）。
-    function traitEdgeFor(state, { skill, toward = null, engine = null } = {}) {
+    function traitEdgeFor(state, { skill, toward = null, engine = null, viewed = false } = {}) {
         const eng = engine || memoEngineOf();
         const cat = traitCatalogOf(catalog.traits, isNsfw());
-        return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, state, PROTAGONIST, skill).value) || 0, present: present(state), heroSide: settings().heroFeelings === true, skillOf: (name) => { const p = profileOf(eng, state, name, skill); return p && p.kind === 'skill' && p.learned && !p.provisional ? Number(p.value) || 0 : 0; } });
+        const view = viewed ? state : heroView(state, eng);
+        return traitEdgeOf(state, cat, { actor: PROTAGONIST, skill, toward, social: isSocialSkill(eng, skill), skillValue: Number(profileOf(eng, view, PROTAGONIST, skill).value) || 0, present: present(state), heroSide: settings().heroFeelings === true, skillOf: (name) => { const p = profileOf(eng, view, name, skill); return p && p.kind === 'skill' && p.learned && !p.provisional ? Number(p.value) || 0 : 0; } });
     }
     // 主角检定带特质：万事通技能下限、贵人相助失败重掷；favorFrom 随结果一并带上。
     function resolveHeroCheck(engine, state, request) {
         const te = traitEdgeFor(state, { skill: request.skill, toward: request.toward || request.against || null, engine });
         const req = { ...request, edge: te.edge, floor: te.floor };
-        const check = luckyReroll(state, traitCatalogOf(catalog.traits, isNsfw()), resolveCheck(engine, state, req, cryptoRandom), () => resolveCheck(engine, state, req, cryptoRandom));
+        const view = heroView(state, engine);
+        const check = luckyReroll(state, traitCatalogOf(catalog.traits, isNsfw()), resolveCheck(engine, view, req, cryptoRandom), () => resolveCheck(engine, view, req, cryptoRandom));
         return { ...check, ...(te.favorFrom ? { favorFrom: te.favorFrom } : {}) };
     }
     const applyCatalog = (next) => { catalog = sanitizeCatalog({ ...next, intimacyForced: [] }); };
@@ -2415,7 +2433,7 @@ export function createStatsRuntime({
             }
             const r = settleFloorText(before, body, {
                 env: traitEnvOf(body, previousBodies(c, messageId)), bondEvents: priorMeta.bondEvents || takeBondEvents(), reviewEvents: priorMeta.reviewEvents || takeReviewEvents(),
-                traitEdge: strengthRev >= 2 ? (st, req) => traitEdgeFor(st, { ...req, engine }) : null,
+                traitEdge: strengthRev >= 2 ? (st, req) => traitEdgeFor(st, { ...req, engine, viewed: true }) : null,
                 check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), currency: available, extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(canonPersonName(catalog.renames, name), before), engine,
                 expenses: catalog.expenses, heroSide,
@@ -2797,7 +2815,7 @@ export function createStatsRuntime({
     function hasLearnedHeroSkill() {
         if (!ledger) return false;
         const state = currentStatsState(ledger);
-        const engine = memoEngineOf();
+        const engine = dailyEngineOf();
         const own = state.protagonist.skills || {};
         const names = [...new Set([...Object.keys(own), ...Object.keys(catalog.protagonistBase), ...Object.keys(catalog.protagonistEdit)])];
         return names.some((name) => {
@@ -2808,7 +2826,7 @@ export function createStatsRuntime({
     }
 
     function needsHeroPick() {
-        if (!ledger || catalog.heroPicked) return false;
+        if (!ledger || catalog.heroPicked || cocSheetOf(engineOf())) return false;
         if (catalog.heroSlots && Object.values(catalog.heroSlots).some(Boolean)) return false;
         return !hasLearnedHeroSkill();
     }
@@ -2832,7 +2850,7 @@ export function createStatsRuntime({
     function pickHeroSkills(skills, attributes, slots) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         registerCustomSkills(attributes);
-        const engine = engineOf();
+        const engine = dailyEngineOf();
         // 自定义技能（带所属六维的）只认同名，不按别名落到内置技能上。
         const own = (name) => (attributes && Object.hasOwn(attributes, name) && engine.registry.has(name) ? name : null);
         // 只收注册表里认得的技能（内置或自定义已登记的）；自定义新名先登记成剧情技能。
@@ -2858,27 +2876,15 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // 调查员档存在聊天数值存档里，检定只读它；战斗侧六维（3–18 = 值/5 取整，感知←意志、魅力←外貌）随后尽力同步，
-    // 同步失败不挡建档（纯数值聊天可能没有属性表），只把原因带回去提示。
-    const COC_TO_SIX = { 力量: '力量', 体质: '体质', 敏捷: '敏捷', 智力: '智力', 感知: '意志', 魅力: '外貌' };
+    // 调查员档存在聊天数值存档里，检定只读它；与日常数值二选一生效（catalog.cocMode），不再同步战斗六维。
     const cocSheet = () => catalog.protagonistCoc || null;
-    async function syncCocSix(clean, id) {
-        if (!attributeAccess) return { ok: false, reason: 'stats-attribute-unavailable' };
-        const scores = {};
-        for (const [six, coc] of Object.entries(COC_TO_SIX)) scores[abilityKeyOf(six)] = Math.max(3, Math.min(18, Math.round((Number(clean.attrs?.[coc]) || 50) / 5)));
-        const alive = () => loadedChat === id && chatIdOf(ctx()) === id;
-        const heroName = userName() || PROTAGONIST;
-        try {
-            const access = attributeAccess();
-            const read = await ensureHeroAttributeReadable(access, heroName, alive);
-            if (!read.ok) return read;
-            const written = await (read.view.initialized
-                ? access.editHero(heroName, scores, { expectedRevision: read.view.revision, shouldStart: alive })
-                : access.initHero(heroName, scores, { shouldStart: alive }));
-            return written?.ok ? { ok: true } : (written || { ok: false, reason: 'stats-hero-edit-failed' });
-        } catch (error) {
-            return { ok: false, reason: String((error && error.message) || error || 'stats-hero-edit-failed') };
-        }
+    function commitCocCatalog(patch) {
+        catalog = sanitizeCatalog({ ...catalog, ...patch });
+        gateMemo = null;
+        persist();
+        onChange(currentStatsState(ledger), null);
+        refreshHeroPick();
+        refreshHeroOffer();
     }
     async function applyCocSheet(raw) {
         if (!IS_COC(engineOf())) return { ok: false, reason: 'ruleset' };
@@ -2886,38 +2892,189 @@ export function createStatsRuntime({
         if (!clean) return { ok: false, reason: 'invalid' };
         const id = chatIdOf(ctx());
         if (!id || loadedChat !== id) return { ok: false, reason: 'request-stale' };
-        catalog = sanitizeCatalog({ ...catalog, protagonistCoc: clean });
-        gateMemo = null;
-        persist();
-        onChange(currentStatsState(ledger), null);
-        // 没开战斗时检定与人物卡都直接读调查员档，不碰战斗属性表。
-        if (!combatOn()) return { ok: true, sixSynced: null };
-        const six = await syncCocSix(clean, id);
-        if (!six.ok) {
-            try { console.warn('[IGS 数值] 调查员档已保存，六维同步失败：', six.reason); } catch { /* */ }
-            return { ok: true, sixSynced: false, sixReason: six.reason || 'stats-hero-edit-failed' };
-        }
-        return { ok: true, sixSynced: true };
+        commitCocCatalog({ protagonistCoc: clean, cocMode: 'investigator' });
+        return { ok: true };
     }
     function clearCocSheet() {
-        catalog = sanitizeCatalog({ ...catalog, protagonistCoc: null });
-        gateMemo = null;
-        persist();
-        onChange(currentStatsState(ledger), null);
+        commitCocCatalog({ protagonistCoc: null, cocMode: 'daily' });
         return Promise.resolve({ ok: true });
+    }
+    function setCocMode(mode) {
+        const next = normalizeCocMode(mode);
+        if (!next) return { ok: false, reason: 'invalid' };
+        if (!IS_COC(engineOf())) return { ok: false, reason: 'ruleset' };
+        if (next === 'investigator' && !catalog.protagonistCoc) return { ok: false, reason: 'no-sheet' };
+        if (cocModeOf(catalog) === next) return { ok: true };
+        commitCocCatalog({ cocMode: next });
+        return { ok: true };
+    }
+    // 调查员页的当前值：理智与各技能（档内合计并上调查员账本），带成长勾。
+    function cocLive() {
+        if (!ledger) return null;
+        const engine = engineOf();
+        const sheet = cocSheetOf(engine);
+        if (!sheet) return null;
+        const state = investigatorView(currentStatsState(ledger));
+        const owned = state.protagonist.skills;
+        const skip = new Set([...COC_ATTRS, '幸运', SAN_ATTRIBUTE]);
+        const names = [...new Set([...Object.keys(cocSkillTotals(sheet)), ...Object.keys(owned)])].filter((n) => !skip.has(n));
+        const skills = names.map((name) => ({ name, value: Number(profileOf(engine, state, PROTAGONIST, name).value) || 0, marked: Boolean(owned[name] && owned[name].marked) }))
+            .filter((row) => row.value > 0).sort((x, y) => y.value - x.value);
+        const mythos = Number(profileOf(engine, state, PROTAGONIST, '克苏鲁神话').value) || 0;
+        return { san: { value: Number(profileOf(engine, state, PROTAGONIST, SAN_ATTRIBUTE).value) || 0, max: Math.max(1, 99 - mythos) }, skills };
     }
     // 论坛安科用：coc7 有档才返回主角该技能的生效值。
     function cocSkillOf(skill) {
         const engine = engineOf();
         if (!cocSheetOf(engine)) return null;
-        const v = Number(profileOf(engine, currentStatsState(ledger), PROTAGONIST, String(skill || '')).value);
+        const v = Number(profileOf(engine, investigatorView(currentStatsState(ledger)), PROTAGONIST, String(skill || '')).value);
         return Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+    }
+
+    // ---- NPC 调查员档：调查员模式下 NPC 读它；没有档的 NPC 由引擎按日常数值临时换算 ----
+    const npcCocNames = () => (ledger ? Object.keys(currentStatsState(ledger).characters || {}).filter((n) => n !== PROTAGONIST && !isHero(n)) : []);
+    function npcCocSnapshot(name) {
+        const sheet = catalog.npcCoc && catalog.npcCoc[String(name || '').trim()];
+        if (!sheet) return null;
+        return { ...structuredClone(sheet), totals: cocSkillTotals(sheet) };
+    }
+    function applyNpcCoc(name, raw) {
+        if (!IS_COC(engineOf())) return { ok: false, reason: 'ruleset' };
+        const key = String(name || '').trim();
+        const clean = sanitizeCocSheet(raw, { npc: true });
+        if (!key || key.length > 20 || !clean || clean.source === 'roll') return { ok: false, reason: 'invalid' };
+        const id = chatIdOf(ctx());
+        if (!id || loadedChat !== id) return { ok: false, reason: 'request-stale' };
+        commitCocCatalog({ npcCoc: { ...catalog.npcCoc, [key]: clean } });
+        return { ok: true };
+    }
+    function clearNpcCoc(name) {
+        const key = String(name || '').trim();
+        if (!catalog.npcCoc || !catalog.npcCoc[key]) return { ok: true };
+        const next = { ...catalog.npcCoc };
+        delete next[key];
+        commitCocCatalog({ npcCoc: next });
+        return { ok: true };
+    }
+    // 其他角色页用：调查员模式下每个角色的属性、理智与技能（有档读档，没档为临时换算）。
+    function npcCocModel() {
+        if (!ledger) return null;
+        const engine = engineOf();
+        if (!cocSheetOf(engine)) return null;
+        const state = currentStatsState(ledger);
+        const roster = new Set(npcCocNames());
+        const rows = [...new Set([...roster, ...Object.keys(catalog.npcCoc || {})])].map((name) => {
+            const own = catalog.npcCoc[name] || null;
+            const read = (skill) => Math.round(Number(profileOf(engine, state, name, skill).value) || 0);
+            const attrs = Object.fromEntries(COC_ATTRS.map((k) => [k, read(k)]));
+            const daily = catalog.sheets[name] || null;
+            const skillNames = own ? Object.keys(cocSkillTotals(own)) : Object.keys((daily && daily.skills) || {});
+            const skills = skillNames.map((skill) => ({ name: skill, value: read(skill) })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value).slice(0, 12);
+            return { name, inRoster: roster.has(name), source: own ? own.source : 'temp', occupation: own ? own.occupation : '', attrs, luck: own ? own.luck : 50, san: read(SAN_ATTRIBUTE), skills };
+        });
+        return { rows, canGenerate: Boolean(requester()), busy: Boolean(generationTasks.get('npc-coc')) };
+    }
+    // AI 生成与模组导入共用：分批请求、解析、逐批落库。batch = { names: 名单或 null, prompt: async () => ({ ok, value|reason }) }。
+    // sameJob：同一请求（同名单或同文本）并发时复用进行中的任务；内容不同则回 busy，不能把模组文本悄悄并进别的任务。
+    let npcCocJobKey = '';
+    function runNpcCocJob({ batches, source, label, sameJob = '' }) {
+        const pending = generationTasks.get('npc-coc');
+        if (pending) return npcCocJobKey === sameJob ? pending.promise : Promise.resolve({ ok: false, reason: 'busy', created: [], skipped: [] });
+        const recovery = pendingGenerationSave('npc-coc', () => runNpcCocJob({ batches, source, label, sameJob }));
+        if (recovery) return recovery;
+        if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive', created: [], skipped: [] });
+        if (!IS_COC(engineOf())) return Promise.resolve({ ok: false, reason: 'ruleset', created: [], skipped: [] });
+        const request = requester();
+        if (!request) {
+            setNotice('npc-coc', { kind: 'sheets', text: '生成调查员档需要可用的辅助模型（自动插图设置里的写词模型）', actions: [['dismiss', '知道了']] });
+            return Promise.resolve({ ok: false, reason: 'no-model', created: [], skipped: [] });
+        }
+        setNotice('npc-coc', { kind: 'busy', text: `正在${label}` });
+        npcCocJobKey = sameJob;
+        return generationTasks.start('npc-coc', async (job) => {
+            const created = [];
+            const skipped = [];
+            let failure = '';
+            const fail = (reason) => {
+                failure = reason;
+                diag(reason);
+                setNotice('npc-coc', { kind: 'sheets', text: `${label}失败（${reason}），可重试`, actions: [['dismiss', '知道了']] });
+                return { ok: false, reason, created, skipped };
+            };
+            job.onFinish(() => {
+                if (job.alive() && notices.get('npc-coc')?.kind === 'busy') {
+                    const code = failure || 'stats-npc-coc-unfinished';
+                    diag(code);
+                    setNotice('npc-coc', { kind: 'sheets', text: `${label}未完成（${code}），可重试`, actions: [['dismiss', '知道了']] });
+                }
+            });
+            try {
+                await tail;
+                job.check();
+                for (const batch of batches) {
+                    const known = () => JSON.stringify(batch.names ? batch.names.map((n) => catalog.npcCoc[n] || null) : Object.keys(catalog.npcCoc));
+                    job.conflictSnapshot = known();
+                    job.conflictCheck = () => known() === job.conflictSnapshot;
+                    const prompt = await batch.prompt();
+                    checkGeneration(job);
+                    if (!prompt.ok) return fail(prompt.reason);
+                    let parsed;
+                    try { parsed = parseNpcCocReply(await ask(request, prompt.value, BACKGROUND_TIMEOUT_MS * 2, job), { names: batch.names, source, at: Date.now() }); }
+                    catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-npc-coc-request-failed', skipped: [] }; }
+                    checkGeneration(job);
+                    skipped.push(...(parsed.skipped || []));
+                    if (!parsed.ok) return fail(parsed.reason);
+                    const saved = await stageGeneration(job, () => {
+                        catalog = { ...catalog, npcCoc: { ...catalog.npcCoc, ...parsed.sheets } };
+                        return { result: { ok: true } };
+                    });
+                    if (!saved?.ok) return { ...saved, created, skipped };
+                    created.push(...Object.keys(parsed.sheets));
+                }
+                setNotice('npc-coc', { kind: 'info', text: `已生成调查员档：${created.join('、')}`, ttl: true });
+                return { ok: true, created, skipped };
+            } catch (error) {
+                failure = error?.reason || error?.message || 'stats-npc-coc-threw';
+                throw error;
+            }
+        });
+    }
+    function generateNpcCoc(names = null) {
+        const targets = [...new Set((Array.isArray(names) && names.length ? names : npcCocNames().filter((n) => !catalog.npcCoc[n])).map((n) => String(n || '').trim()).filter(Boolean))];
+        if (!targets.length) return Promise.resolve({ ok: true, created: [], skipped: [] });
+        const batches = [];
+        for (let i = 0; i < targets.length; i += NPC_COC_BATCH_MAX) {
+            const group = targets.slice(i, i + NPC_COC_BATCH_MAX);
+            batches.push({
+                names: group,
+                prompt: async () => {
+                    let context = { people: group.map((name) => ({ name, summary: '' })), history: '' };
+                    if (typeof readSheetContext === 'function') {
+                        let resolved;
+                        try { resolved = await readSheetContext({ names: group, protagonists: [], protagonistCards: [] }); }
+                        catch (error) { resolved = { ok: false, reason: 'stats-sheet-context-failed' }; }
+                        if (!resolved || resolved.ok === false) return { ok: false, reason: resolved?.reason || 'stats-sheet-context-failed' };
+                        context = { ...context, ...resolved };
+                    }
+                    return { ok: true, value: buildNpcCocRequest(context.people, { worldview: worldviewOf(), history: context.history, settings: [context.settings, context.worldInfo].filter(Boolean).join('\n\n') }) };
+                },
+            });
+        }
+        return runNpcCocJob({ batches, source: 'ai', label: `生成调查员档：${targets.join('、')}`, sameJob: `ai:${targets.join('|')}` });
+    }
+    // 模组文本提取：回复里的全部人物都收，不要求已在 characters 里。
+    function importNpcCocText(text) {
+        if (!IS_COC(engineOf())) return Promise.resolve({ ok: false, reason: 'ruleset', created: [], skipped: [] });
+        const body = String(text || '').trim().slice(0, 60000);
+        if (!body) return Promise.resolve({ ok: false, reason: 'empty', created: [], skipped: [] });
+        if (!requester()) return Promise.resolve({ ok: false, reason: 'no-model', created: [], skipped: [] });
+        return runNpcCocJob({ batches: [{ names: null, prompt: async () => ({ ok: true, value: buildNpcCocModuleRequest(body) }) }], source: 'module', label: '导入模组人物', sameJob: `module:${body}` });
     }
 
     // CoC 且主角已跳过/无需 3+5 选格但尚未分配过技能时，每个聊天提示一次（避免与 hero-pick 重复打扰）。
     function refreshHeroOffer() {
         const chatId = chatIdOf(ctx());
-        const offer = Boolean(chatId) && heroBasicReady() && !heroAsked.has(chatId) && !catalog.heroAssigned && !catalog.heroPicked && !needsHeroPick() && IS_COC(engineOf()) && Boolean(requester());
+        const offer = Boolean(chatId) && !cocSheetOf(engineOf()) && heroBasicReady() && !heroAsked.has(chatId) && !catalog.heroAssigned && !catalog.heroPicked && !needsHeroPick() && IS_COC(engineOf()) && Boolean(requester());
         const current = notices.get('hero-skills');
         if (!offer && current && (current.kind === 'busy' || current.kind === 'info' || current.retry === true)) return;
         setNotice('hero-skills', offer ? { kind: 'onboarding', order: 2, text: '主角技能：按人设分配一次？', actions: [['assign', '分配'], ['later', '稍后']] } : null);
@@ -3356,7 +3513,7 @@ export function createStatsRuntime({
     // 记下改动当时账本里的值作为 from，之后的成长叠加在手改值上。
     function setHeroSkill(name, raw) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
-        const engine = engineOf();
+        const engine = dailyEngineOf();
         const skill = engine.registry.resolve(name);
         const entry = skill ? engine.registry.get(skill) : null;
         if (!entry || entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-skill-unknown' };
@@ -3383,7 +3540,7 @@ export function createStatsRuntime({
     // 旧存档（v0.39.60 前选过技能）没有 heroSlots，每次按数值回填，删掉或改动一项后其余技能会换格。
     // 第一次读到时把回填结果固定进目录，之后增删都在这份格位上做；随下一次保存写入存档。
     const currentSlots = () => {
-        const slots = resolveHeroSlots(engineOf(), currentStatsState(ledger), catalog);
+        const slots = resolveHeroSlots(dailyEngineOf(), currentStatsState(ledger), catalog);
         if (!catalog.heroSlots) catalog = { ...catalog, heroSlots: slots };
         return slots;
     };
@@ -3402,7 +3559,7 @@ export function createStatsRuntime({
         if (!BUILD_PICK_SLOTS.includes(slot)) return { ok: false, reason: 'stats-hero-edit-invalid' };
         const typed = String(payload.skill || '').trim();
         if (!typed) return { ok: false, reason: 'stats-hero-edit-invalid' };
-        const engine = engineOf();
+        const engine = dailyEngineOf();
         // custom：玩家自定义的技能名，只认同名，不按别名归并到内置技能。
         const custom = payload.custom === true;
         let name = custom ? (engine.registry.has(typed) ? typed : null) : engine.registry.resolve(typed);
@@ -3446,7 +3603,7 @@ export function createStatsRuntime({
         const typed = String(rawName || '').trim();
         const tier = String(rawTier || '').trim();
         if (!typed || !tier) return { ok: false, reason: 'stats-hero-edit-invalid' };
-        const engine = engineOf();
+        const engine = dailyEngineOf();
         let skill = engine.registry.resolve(typed);
         const entry = skill ? engine.registry.get(skill) : null;
         if (entry && entry.kind !== 'skill') return { ok: false, reason: 'stats-hero-edit-attribute' };
@@ -3494,7 +3651,7 @@ export function createStatsRuntime({
         const engine = engineOf();
         const skill = engine.registry.resolve(pr.skill) || pr.skill;
         let pct = '';
-        try { pct = ` 约 ${Math.round(chanceOf(engine, entry.before, { actor: PROTAGONIST, skill, difficulty: pr.difficulty, against: pr.against }) * 100)}%`; } catch (error) { pct = ''; }
+        try { pct = ` 约 ${Math.round(chanceOf(engine, heroView(entry.before, engine), { actor: PROTAGONIST, skill, difficulty: pr.difficulty, against: pr.against }) * 100)}%`; } catch (error) { pct = ''; }
         setNotice('roll', { kind: 'roll', messageId: entry.messageId, text: `${skill}·${pr.difficulty}${pct}`, actions: [['roll', '掷骰']] });
     }
 
@@ -3520,10 +3677,10 @@ export function createStatsRuntime({
         collectOriginSkills();
         const command = parseDiceCommand(raw);
         if (command.kind !== 'check' && command.kind !== 'contest') return null;
-        const state = currentStatsState(ledger);
+        const engine = memoEngineOf();
+        const state = heroView(currentStatsState(ledger), engine);
         const c = ctx();
         const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles, tableNameSet(), isHero);
-        const engine = memoEngineOf();
         const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(canonPersonName(catalog.renames, name), state) });
         if (!req) return null;
         const ensure = (skill) => (BUILTIN_SKILLS[skill] || engine.registry.has(skill) ? skill : commitSkill(skill) || skill);
@@ -3546,8 +3703,8 @@ export function createStatsRuntime({
         if (!active() || !settings().optionChance) return null;
         const command = parseDiceCommand(raw);
         if (command.kind !== 'check') return null;
-        const state = currentStatsState(ledger);
         const engine = memoEngineOf();
+        const state = heroView(currentStatsState(ledger), engine);
         const req = resolveDiceRequest(engine, state, command, {});
         if (!req || !isProtagonist(req.actor)) return null;
         try { return { skill: req.skill, difficulty: req.difficulty, chance: chanceOf(engine, state, req) }; } catch (error) { return null; }
@@ -4573,7 +4730,7 @@ export function createStatsRuntime({
     // 设置页「存档」区用：只用缓存（总开关关闭时不读表），暂停的聊天也显示冻结的数值。
     function archiveModel() {
         ensureLoaded();
-        const model = ledger ? statsArchiveModel(ledger, { catalog, engine: memoEngineOf(), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot(), isHero, heroName: userName() }) : null;
+        const model = ledger ? statsArchiveModel(ledger, { catalog, engine: withAbilityMemo(dailyEngineOf()), heroSkills: heroSkillNames(), hasBackup: store.read().hasBackup, walletExtra: combatPoints(), currency: currencySnapshot(), isHero, heroName: userName() }) : null;
         const npcRelative = {};
         if (model) {
             const attrSrc = attributes();
@@ -4592,14 +4749,23 @@ export function createStatsRuntime({
         cocSheet,
         applyCocSheet,
         clearCocSheet,
+        setCocMode,
+        cocLive,
+        cocMode: () => cocModeOf(catalog),
         cocSkillOf,
+        npcCocSnapshot,
+        npcCocModel,
+        applyNpcCoc,
+        clearNpcCoc,
+        generateNpcCoc,
+        importNpcCocText,
         // 只读：调查员快照；没开数值、规则不是 coc7 返回 null，每次全新对象。
         investigatorSnapshot() {
             try {
                 if (!ledger) return null;
                 const engine = engineOf();
                 if (!IS_COC(engine)) return null;
-                const state = currentStatsState(ledger);
+                const state = heroView(currentStatsState(ledger), engine);
                 const hero = skillValuesOf(state)['主角'] || {};
                 const attrs = {};
                 for (const name of COC_ATTRS) attrs[name] = Math.round(Number(profileOf(engine, state, PROTAGONIST, name).value) || 0);
@@ -4778,9 +4944,9 @@ export function createStatsRuntime({
         // 日常挑战建局与额度门禁用的只读快照：生活条、技能值与时钟；没有启用时为 null。
         challengeSnapshot: () => {
             if (!active()) return null;
-            const state = currentStatsState(ledger);
-            const names = present(state);
             const engine = memoEngineOf();
+            const state = heroView(currentStatsState(ledger), engine);
+            const names = present(state);
             const skills = Object.fromEntries([...new Set([...BASE_ATTRIBUTES, ...DEFAULT_SPECIAL_SKILLS, ...CORE_SKILL_NAMES,
                 ...Object.keys(state.protagonist.skills), ...Object.keys(engine.protagonistBase), ...Object.keys(engine.protagonistEdit)])]
                 .map((name) => [name, { ...state.protagonist.skills[name], value: profileOf(engine, state, PROTAGONIST, name).value }]));

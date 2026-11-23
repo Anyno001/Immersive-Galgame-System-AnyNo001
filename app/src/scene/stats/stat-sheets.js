@@ -114,7 +114,7 @@ function balancedEnd(text, start) {
 }
 
 // 回复里取第一个能解析的 JSON 对象：去掉思考块与代码块标记，按括号配对截取，前后的说明文字不影响；多余的尾逗号容忍。
-function extractJson(reply) {
+export function extractJson(reply) {
     const text = String((reply && typeof reply === 'object' ? reply.text : reply) ?? '')
         .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
         .replace(/```[a-z]*\n?|```/gi, '');

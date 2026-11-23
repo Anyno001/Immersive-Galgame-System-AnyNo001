@@ -83,6 +83,21 @@ export function withSkills(state, skills) {
     return skills === state.protagonist.skills ? state : { ...state, protagonist: { ...state.protagonist, skills } };
 }
 
+// 调查员模式的技能账本：state.investigator.skills 与日常 protagonist.skills 并行，各算各的。
+export function investigatorView(state) {
+    const skills = (state.investigator && state.investigator.skills) || {};
+    return skills === state.protagonist.skills ? state : { ...state, protagonist: { ...state.protagonist, skills } };
+}
+
+export function fromInvestigatorView(after, before) {
+    const dailySkills = before.protagonist.skills;
+    const skills = after.protagonist.skills;
+    const prev = before.investigator && before.investigator.skills;
+    const restored = { ...after.protagonist, skills: dailySkills };
+    if (skills === prev || (!prev && !Object.keys(skills).length)) return { ...after, protagonist: restored };
+    return { ...after, investigator: { ...after.investigator, skills }, protagonist: restored };
+}
+
 export function withClock(state, patch) {
     return { ...state, clock: { ...state.clock, ...patch } };
 }

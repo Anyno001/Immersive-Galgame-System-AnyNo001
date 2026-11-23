@@ -5,7 +5,7 @@ import { STATS_LOG_MAX, createStatsLedger, ledgerKey, stateBefore } from './stat
 import { BASE_ATTRIBUTES } from './stat-state.js';
 import { sheetAbilityScores } from './ability-fields.js';
 import * as registry from './stat-registry.js';
-import { sanitizeCocSheet } from './coc-investigator.js';
+import { normalizeCocMode, sanitizeCocSheet } from './coc-investigator.js';
 import { sanitizeFameBars } from './stat-fame.js';
 import { sanitizeCycles, sanitizeStatuses } from './stat-status.js';
 import { WORLD_GENRES } from './stat-status-defs.js';
@@ -105,7 +105,7 @@ export function sheetDropsOf(records) {
 }
 
 export function emptyCatalog() {
-    return { story: [], merged: {}, attributes: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, heroBio: '', protagonistCoc: null, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, expenses: [] };
+    return { story: [], merged: {}, attributes: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, heroPicked: false, heroSlots: null, heroBio: '', protagonistCoc: null, cocMode: null, npcCoc: {}, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, landmineKnown: {}, softKnown: {}, statuses: {}, cycles: {}, worlds: [], worldsManual: [], renames: {}, expenses: [] };
 }
 
 // 悟性档（平庸为默认不存）、角色标记勾选、「我对TA」备注、演出层记录过的恋爱对象：都是聊天级设置，写法同 intimacyForced。
@@ -144,6 +144,11 @@ export function sanitizeCatalog(raw) {
     out.heroPicked = raw.heroPicked === true;
     out.heroBio = typeof raw.heroBio === 'string' ? raw.heroBio.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').trim().slice(0, 240) : '';
     out.protagonistCoc = sanitizeCocSheet(raw.protagonistCoc);
+    out.cocMode = normalizeCocMode(raw.cocMode);
+    for (const [name, sheet] of Object.entries(plainObject(raw.npcCoc) ? raw.npcCoc : {}).slice(0, SHEET_MAX * 2)) {
+        const clean = name && name.length <= 20 ? sanitizeCocSheet(sheet, { npc: true }) : null;
+        if (clean && clean.source !== 'roll') out.npcCoc[name] = clean;
+    }
     // 3+5 每格占的技能 { strong1: 名, … good5: 名 }；旧存档没有该字段（null），由运行时按已学技能回填。
     if (plainObject(raw.heroSlots)) {
         out.heroSlots = {};

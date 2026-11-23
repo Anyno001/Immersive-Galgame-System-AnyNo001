@@ -1,4 +1,7 @@
 import { cryptoRandom } from './stat-rng.js';
+import { COC_OCCUPATIONS } from './coc-occupations.js';
+
+export { COC_OCCUPATIONS };
 
 export const COC_ATTRS = ['力量', '体质', '体型', '敏捷', '外貌', '智力', '意志', '教育'];
 
@@ -13,9 +16,75 @@ export const COC_SKILLS = {
     催眠: 1, 炮术: 1,
 };
 
-const PARENT_EXTRA = { 格斗: 20, 射击: 20 };
+const PARENT_EXTRA = { 格斗: 20, 射击: 20, 驾驶: 1 };
 
-const OCC_FORMULAS = ['edu4', 'edu2dex2', 'edu2str2', 'edu2app2', 'edu2pow2', 'custom'];
+// 职业点公式：教育×倍数 + 若干组「取其中最高的属性×2」。
+const FORMULAS = {
+    edu4: { label: '教育×4', edu: 4, pick: [] },
+    edu2dex2: { label: '教育×2+敏捷×2', edu: 2, pick: [['敏捷']] },
+    edu2str2: { label: '教育×2+力量×2', edu: 2, pick: [['力量']] },
+    edu2app2: { label: '教育×2+外貌×2', edu: 2, pick: [['外貌']] },
+    edu2pow2: { label: '教育×2+意志×2', edu: 2, pick: [['意志']] },
+    edu2strdex2: { label: '教育×2+（力量或敏捷）×2', edu: 2, pick: [['力量', '敏捷']] },
+    edu2appdex2: { label: '教育×2+（外貌或敏捷）×2', edu: 2, pick: [['外貌', '敏捷']] },
+    edu2apppow2: { label: '教育×2+（外貌或意志）×2', edu: 2, pick: [['外貌', '意志']] },
+    edu2dexpow2: { label: '教育×2+（敏捷或意志）×2', edu: 2, pick: [['敏捷', '意志']] },
+    edu2appdexstr2: { label: '教育×2+（外貌、敏捷或力量）×2', edu: 2, pick: [['外貌', '敏捷', '力量']] },
+};
+const OCC_FORMULAS = [...Object.keys(FORMULAS), 'custom'];
+export const COC_OCC_FORMULA_ITEMS = Object.freeze([...Object.entries(FORMULAS).map(([k, v]) => [k, v.label]), ['custom', '自填']]);
+const OCC_BY_ID = new Map(COC_OCCUPATIONS.map((o) => [o.id, o]));
+const CREDIT = '信用评级';
+// 「任选」槽可选的技能：内置技能表，去掉信用评级与克苏鲁神话。
+export const COC_PICKABLE_SKILLS = Object.freeze(Object.keys(COC_SKILLS).filter((k) => k !== CREDIT && k !== '克苏鲁神话'));
+
+export const cocOccupation = (id) => (id && OCC_BY_ID.get(String(id))) || null;
+
+// 职业的自选位，按出现顺序展开：「多选一」一位，「任选 N 项」N 位。picks[i] 对应第 i 位。
+export function cocOccSlots(occ) {
+    const out = [];
+    for (const s of (occ && occ.skills) || []) {
+        if (typeof s === 'string') continue;
+        if (s.one) out.push({ label: s.one.join('、'), options: s.one });
+        else for (let i = 0; i < s.any; i++) out.push({ label: s.text, options: COC_PICKABLE_SKILLS, n: i + 1, of: s.any });
+    }
+    return out;
+}
+
+// 本职技能（含信用评级）；自填职业返回 null，表示不限。
+export function cocOccSkills(occ, picks = []) {
+    if (!occ) return null;
+    const set = new Set([CREDIT]);
+    for (const s of occ.skills) if (typeof s === 'string') set.add(s);
+    cocOccSlots(occ).forEach((slot, i) => {
+        const p = picks && picks[i];
+        if (p && slot.options.includes(p)) set.add(p);
+    });
+    return set;
+}
+
+// 分配是否合规：超出职业点或兴趣点、职业点用在非本职技能上、信用评级不在职业范围内，都不能应用。
+export function cocAllocCheck(draft) {
+    const sh = { attrs: draft.attrs, occFormula: draft.occFormula, occPoints: draft.occPoints };
+    const occMax = occPointsOf(sh);
+    const hobMax = hobbyPointsOf(sh);
+    const alloc = draft.alloc || {};
+    const sum = (key) => Object.values(alloc).reduce((t, a) => t + (Number(a && a[key]) || 0), 0);
+    const occ = cocOccupation(draft.occId);
+    const own = cocOccSkills(occ, draft.occPicks);
+    const problems = [];
+    const occLeft = occMax - sum('occ');
+    const hobLeft = hobMax - sum('hobby');
+    if (occLeft < 0) problems.push('职业点超出');
+    if (hobLeft < 0) problems.push('兴趣点超出');
+    if (own) {
+        const stray = Object.entries(alloc).filter(([k, a]) => (Number(a && a.occ) || 0) > 0 && !own.has(k)).map(([k]) => k);
+        if (stray.length) problems.push(`${stray.join('、')}不是本职技能，不能用职业点`);
+        const credit = (Number(alloc[CREDIT] && alloc[CREDIT].occ) || 0) + (Number(alloc[CREDIT] && alloc[CREDIT].hobby) || 0);
+        if (credit < occ.cr[0] || credit > occ.cr[1]) problems.push(`信用评级须在${occ.cr[0]}–${occ.cr[1]}（现为${credit}）`);
+    }
+    return { occMax, hobMax, occLeft, hobLeft, problems, ok: problems.length === 0 };
+}
 
 const clampInt = (v, lo, hi, fallback) => {
     const n = Math.round(Number(v));
@@ -85,15 +154,9 @@ export function cocDerived(attrs = {}, skills = null) {
 
 export function occPointsOf(sheet) {
     const a = (sheet && sheet.attrs) || {};
-    const edu = Number(a.教育) || 0;
-    switch (sheet && sheet.occFormula) {
-        case 'edu2dex2': return edu * 2 + (Number(a.敏捷) || 0) * 2;
-        case 'edu2str2': return edu * 2 + (Number(a.力量) || 0) * 2;
-        case 'edu2app2': return edu * 2 + (Number(a.外貌) || 0) * 2;
-        case 'edu2pow2': return edu * 2 + (Number(a.意志) || 0) * 2;
-        case 'custom': return Math.max(0, Math.round(Number(sheet.occPoints) || 0));
-        default: return edu * 4;
-    }
+    if (sheet && sheet.occFormula === 'custom') return Math.max(0, Math.round(Number(sheet.occPoints) || 0));
+    const f = FORMULAS[sheet && sheet.occFormula] || FORMULAS.edu4;
+    return (Number(a.教育) || 0) * f.edu + f.pick.reduce((t, group) => t + Math.max(...group.map((k) => Number(a[k]) || 0)) * 2, 0);
 }
 
 export function hobbyPointsOf(sheet) {
@@ -102,7 +165,7 @@ export function hobbyPointsOf(sheet) {
 
 export function cocSkillTotals(sheet) {
     if (!sheet) return {};
-    if (sheet.source === 'paste') {
+    if (sheet.source === 'paste' || sheet.source === 'ai' || sheet.source === 'module') {
         const out = {};
         for (const [k, v] of Object.entries(sheet.totals || {})) out[k] = clampInt(v, 1, 99, 1);
         return out;
@@ -141,7 +204,7 @@ export function rollCocAttributes(random = cryptoRandom) {
     return { attrs, luck: three() };
 }
 
-const ATTR_ALIAS = {
+export const ATTR_ALIAS = {
     力量: '力量', str: '力量',
     体质: '体质', con: '体质',
     体型: '体型', 体形: '体型', siz: '体型',
@@ -166,7 +229,7 @@ const SKILL_ALIAS = {
 const TOKEN_RE = /([A-Za-z一-龥]+(?:[(（][^)）\s\d]+[)）]|[:：][A-Za-z一-龥]+)?)[\s:：=,，;；]*(\d{1,3})(?!\d)/g;
 const NOISE_RE = /^(st|\.st|\.coc|coc|coc7|\.|\/|hp|mp)$/i;
 
-const normSkillName = (raw) => {
+export const normSkillName = (raw) => {
     let name = String(raw).trim();
     const sp = splitSpecialty(name);
     if (sp && sp.spec) {
@@ -217,19 +280,22 @@ export function parseCocSheet(text) {
     return { attrs, luck, skills, san, unknown, missing, legacy6 };
 }
 
-const FORMULA_LABELS = { edu4: '教育×4', edu2dex2: '教育×2+敏捷×2', edu2str2: '教育×2+力量×2', edu2app2: '教育×2+外貌×2', edu2pow2: '教育×2+意志×2', custom: '自填' };
+const FORMULA_LABELS = Object.fromEntries(COC_OCC_FORMULA_ITEMS);
 const FORMULA_OF_LABEL = Object.fromEntries(Object.entries(FORMULA_LABELS).map(([k, v]) => [v, k]));
+const SOURCE_LABEL = { paste: '粘贴', ai: 'AI生成', module: '模组', roll: '掷骰' };
+const SOURCE_OF_LABEL = Object.fromEntries(Object.entries(SOURCE_LABEL).map(([k, v]) => [v, k]));
 const mapObject = (obj, fn) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fn(v)]));
 
 // 数据库里的调查员档一律用中文字段名；读档同时认旧版英文字段。
-export function cocSheetRecord(sheet) {
-    const clean = sanitizeCocSheet(sheet);
+export function cocSheetRecord(sheet, opts) {
+    const clean = sanitizeCocSheet(sheet, opts);
     if (!clean) return null;
     const out = {
         版本: clean.v, 属性: clean.attrs, 幸运: clean.luck, 理智: clean.san, 职业: clean.occupation,
         职业点公式: FORMULA_LABELS[clean.occFormula], 职业点: clean.occPoints,
-        来源: clean.source === 'paste' ? '粘贴' : '掷骰', 时间: clean.at,
+        来源: SOURCE_LABEL[clean.source] || '掷骰', 时间: clean.at,
     };
+    if (clean.occId) { out.职业编号 = clean.occId; out.本职自选 = clean.occPicks; }
     if (clean.totals) out.技能 = clean.totals;
     if (clean.alloc) out.技能分配 = mapObject(clean.alloc, (a) => ({ 职业: a.occ, 兴趣: a.hobby }));
     return out;
@@ -239,14 +305,15 @@ function fromRecord(raw) {
     if (!raw || typeof raw !== 'object' || !raw.属性) return raw;
     return {
         v: raw.版本, attrs: raw.属性, luck: raw.幸运, san: raw.理智, occupation: raw.职业,
-        occFormula: FORMULA_OF_LABEL[raw.职业点公式], occPoints: raw.职业点,
-        source: raw.来源 === '粘贴' ? 'paste' : 'roll', at: raw.时间,
+        occFormula: FORMULA_OF_LABEL[raw.职业点公式], occPoints: raw.职业点, occId: raw.职业编号, occPicks: raw.本职自选,
+        source: SOURCE_OF_LABEL[raw.来源] || 'roll', at: raw.时间,
         totals: raw.技能,
         alloc: raw.技能分配 && typeof raw.技能分配 === 'object' ? mapObject(raw.技能分配, (a) => (a && typeof a === 'object' ? { occ: a.职业, hobby: a.兴趣 } : a)) : undefined,
     };
 }
 
-export function sanitizeCocSheet(input) {
+// npc 为真时额外认 ai / module 来源（NPC 技能只存合计）；主角档仍只有粘贴与掷骰。
+export function sanitizeCocSheet(input, { npc = false } = {}) {
     const raw = fromRecord(input);
     if (!raw || typeof raw !== 'object') return null;
     const ra = raw.attrs;
@@ -257,7 +324,7 @@ export function sanitizeCocSheet(input) {
         if (n === null || ra[k] === null || ra[k] === '' || ra[k] === undefined) return null;
         attrs[k] = n;
     }
-    const source = raw.source === 'paste' ? 'paste' : 'roll';
+    const source = raw.source === 'paste' || (npc && (raw.source === 'ai' || raw.source === 'module')) ? raw.source : 'roll';
     const out = {
         v: 1,
         attrs,
@@ -269,8 +336,13 @@ export function sanitizeCocSheet(input) {
         source,
         at: Number.isFinite(Number(raw.at)) ? Number(raw.at) : 0,
     };
+    const occ = cocOccupation(raw.occId);
+    if (occ) {
+        out.occId = occ.id;
+        out.occPicks = (Array.isArray(raw.occPicks) ? raw.occPicks : []).slice(0, cocOccSlots(occ).length).map((p) => String(p || '').slice(0, 24));
+    }
     const cleanName = (k) => String(k).trim().slice(0, 24);
-    if (source === 'paste') {
+    if (source !== 'roll') {
         const totals = {};
         for (const [k, v] of Object.entries(raw.totals || {})) {
             const name = cleanName(k);
@@ -288,3 +360,8 @@ export function sanitizeCocSheet(input) {
     }
     return out;
 }
+
+export const COC_MODES = Object.freeze(['daily', 'investigator']);
+export const normalizeCocMode = (mode) => (COC_MODES.includes(mode) ? mode : null);
+// 未存过模式时：有档按调查员，没有按日常。
+export const cocModeOf = (catalog) => (catalog && catalog.protagonistCoc ? (normalizeCocMode(catalog.cocMode) || 'investigator') : 'daily');

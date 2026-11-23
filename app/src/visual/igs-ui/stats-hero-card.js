@@ -53,7 +53,7 @@ export function refreshStatsWallets(root, model) {
     wallet.outerHTML = renderStatsWallets(model);
 }
 
-export function renderStatsHeroDashboard(model, cocSheet = null) {
+export function renderStatsHeroDashboard(model) {
     if (!model) return '<div class="igs-stats-empty">暂无数值存档</div>';
     const bars = model.bars || {};
     const life = model.vitals && Number(model.vitals.maxHp) > 0
@@ -63,5 +63,5 @@ export function renderStatsHeroDashboard(model, cocSheet = null) {
     const day = model.day != null ? `<span class="igs-stats-day">第 ${number(model.day)} 天</span>` : '';
     return `<div class="igs-stats-dash">`
         + `<div class="igs-stats-overview"><div class="igs-stats-condition"><div class="igs-stats-resources"><h4 class="igs-stats-resources-head">当前状态${day}</h4>${life}${meter('体力', bars.stamina, 100, 'stamina')}${meter('压力', bars.stress, 100, 'stress')}${wallet}</div></div>`
-        + `<div class="igs-stats-radar-panel">${cocSheet && cocSheet.attrs && model.ruleset === 'coc7' ? `<h4>调查员属性</h4><div class="igs-coc-attrs">${[...Object.entries(cocSheet.attrs), ['幸运', cocSheet.luck]].map(([k, v]) => `<span>${esc(k)}<b>${number(v)}</b></span>`).join('')}</div>` : `<h4>六维属性</h4>${renderStatsRadar(model.attributes)}`}</div></div></div>`;
+        + `<div class="igs-stats-radar-panel"><h4>六维属性</h4>${renderStatsRadar(model.attributes)}</div></div></div>`;
 }

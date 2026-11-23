@@ -6,7 +6,7 @@ import { BUILTIN_SKILLS, COMBAT_SKILLS, baseValueOf, createSkillRegistry, guessA
 import { BASE_ATTRIBUTES, SKILL_MAX, clamp, withSkills } from './stat-state.js';
 
 const BASE_ATTRIBUTE_SET = new Set(BASE_ATTRIBUTES);
-import { COC_ATTRS, cocSkillBase, cocSkillTotals } from './coc-investigator.js';
+import { COC_ATTRS, cocModeOf, cocSkillBase, cocSkillTotals } from './coc-investigator.js';
 import { stageOf } from './stat-favor.js';
 import { checkModifiers } from './stat-bars.js';
 import { ABILITY_KEYS, ABILITY_LABELS, deriveAbilities } from '../../combat/abilities.js';
@@ -24,7 +24,7 @@ const SOCIAL_SKILLS = new Set(['话术', '魅惑', '恐吓', '魅力']);
 const USER_NAME = /^(?:<user>|\{\{user\}\}|主角|我|user)$/i;
 
 const EMPTY = Object.freeze({});
-// coc7 且有调查员档时返回档，否则 null。
+// coc7 且有调查员档且处于调查员模式时返回档，否则 null。
 export function cocSheetOf(engine) {
     return engine && engine.ruleset && engine.ruleset.ID === 'coc7' && engine.protagonistCoc ? engine.protagonistCoc : null;
 }
@@ -34,13 +34,17 @@ const readerOf = (fn) => (typeof fn === 'function' ? fn : null);
 
 function buildEngine(catalog, settings, ruleset, readers) {
     const { readAbilities = null, readVitals = null, readBonus = null, userName = '' } = readers || {};
+    const rules = getRuleset(ruleset);
+    // 调查员模式下日常的底数与手改暂停，主角技能只认调查员档与调查员账本。
+    const investigator = rules.ID === 'coc7' && catalog.protagonistCoc && typeof catalog.protagonistCoc === 'object' && cocModeOf(catalog) === 'investigator';
     return {
-        ruleset: getRuleset(ruleset),
+        ruleset: rules,
         registry: createSkillRegistry(catalog),
         sheets: catalog.sheets && typeof catalog.sheets === 'object' ? catalog.sheets : {},
-        protagonistBase: catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
-        protagonistEdit: catalog.protagonistEdit && typeof catalog.protagonistEdit === 'object' ? catalog.protagonistEdit : {},
-        protagonistCoc: catalog.protagonistCoc && typeof catalog.protagonistCoc === 'object' ? catalog.protagonistCoc : null,
+        protagonistBase: !investigator && catalog.protagonistBase && typeof catalog.protagonistBase === 'object' ? catalog.protagonistBase : {},
+        protagonistEdit: !investigator && catalog.protagonistEdit && typeof catalog.protagonistEdit === 'object' ? catalog.protagonistEdit : {},
+        protagonistCoc: investigator ? catalog.protagonistCoc : null,
+        npcCoc: investigator && catalog.npcCoc && typeof catalog.npcCoc === 'object' ? catalog.npcCoc : {},
         // 自然 20 / 1 常开（v0.39 起不再有开关）。
         natural: true,
         readAbilities: readerOf(readAbilities),
@@ -282,11 +286,36 @@ function heroBaseOf(engine, entry, skill, attrs) {
 }
 const COC_ATTR_SET = new Set([...COC_ATTRS, '幸运']);
 
+// 调查员模式下的 NPC：有调查员档读档，没有就把日常数值临时换算（力量、体质、敏捷、智力照搬，意志取感知，外貌取魅力，其余 50）。
+// 不读成长：调查员模式不给 NPC 记成长。
+function cocNpcProfile(engine, actor, skill, entry, san) {
+    const own = engine.npcCoc && engine.npcCoc[actor];
+    const daily = engine.sheets[actor] || null;
+    let attrs;
+    if (own) attrs = { ...own.attrs, 感知: own.attrs.意志, 魅力: own.attrs.外貌, 幸运: own.luck };
+    else {
+        const p = npcAttributes(engine, daily, actor);
+        if (!p) return { skill, kind: entry.kind, entry, learned: false, value: null, attributeValue: null, unavailable: true };
+        attrs = { 力量: p.力量, 体质: p.体质, 敏捷: p.敏捷, 智力: p.智力, 意志: p.感知, 外貌: p.魅力, 体型: 50, 教育: 50, 幸运: 50, 感知: p.感知, 魅力: p.魅力 };
+    }
+    const rank = (daily && daily.rank) || RANKS[0];
+    if (san) { const value = own ? own.san : sanOf(attrs, null, daily); return { skill, kind: 'attribute', value, learned: true, attributeValue: value, rank, entry, provisional: !own }; }
+    if (entry.kind === 'attribute') return { skill, kind: 'attribute', value: attrs[skill], learned: true, attributeValue: attrs[skill], rank, entry, provisional: !own };
+    const given = own ? Number(cocSkillTotals(own)[skill]) : Number(daily && daily.skills && daily.skills[skill]);
+    const attributeValue = attrs[entry.attribute];
+    if (given > 0) return { skill, kind: 'skill', value: given, learned: true, attributeValue, rank, entry, provisional: !own };
+    const base = cocSkillBase(skill, attrs);
+    if (base !== null) return { skill, kind: 'skill', value: base, learned: false, attributeValue, rank, entry, provisional: !own };
+    const fallback = baseValueOf(entry, attrs);
+    const value = provisionalSkillValue(attributeValue, fallback);
+    return { skill, kind: 'skill', value, learned: value !== fallback, attributeValue, rank, entry, provisional: true };
+}
+
 // 返回 { skill, kind, value, learned, attributeValue, rank, entry, provisional }。
 export function profileOf(engine, state, actor, rawSkill) {
     // 旧属性名（健康 / 观察，D&D 下的理智）先归一成六维，否则会被当成未登记的自定义技能。
     const skill = BASE_ATTRIBUTE_SET.has(rawSkill) || isSan(engine, rawSkill) ? rawSkill : (normalizeAttribute(rawSkill) || rawSkill);
-    const cocAttr = cocSheetOf(engine) && isProtagonist(actor) && COC_ATTR_SET.has(skill);
+    const cocAttr = cocSheetOf(engine) && COC_ATTR_SET.has(skill);
     const entry = cocAttr ? { kind: 'attribute', attribute: skill, category: 'general', aliases: [], origin: 'builtin' } : entryOf(engine, skill);
     const san = isSan(engine, skill);
     if (isProtagonist(actor)) {
@@ -309,6 +338,7 @@ export function profileOf(engine, state, actor, rawSkill) {
         const seed = plain === null && owned ? 0 : plain !== null ? plain : heroBaseOf(engine, entry, skill, plainAttrs);
         return { skill, kind: 'skill', value, seed, learned: Boolean(owned) || level !== null || bonus > 0, attributeValue: attrs[entry.attribute], rank, entry };
     }
+    if (cocSheetOf(engine)) return cocNpcProfile(engine, actor, skill, entry, san);
     const sheet = engine.sheets[actor] || null;
     const attrs = npcAttributes(engine, sheet, actor);
     if (!attrs) return { skill, kind: entry.kind, entry, learned: false, value: null, attributeValue: null, unavailable: true };

@@ -59,7 +59,9 @@ function build(overlay, list, view, revealing, d, sig) {
     const q = d.el(doc, 'div', 'igs-fm-anke-q');
     const tag = d.el(doc, 'b', 'igs-fm-anke-tag');
     tag.textContent = KIND_TAG[kind];
-    q.append(tag, doc.createTextNode(anke.question));
+    const qText = d.el(doc, 'span');
+    qText.innerHTML = d.textHtml(anke.question, view, `${anke.key}:q`);
+    q.append(tag, qText);
     body.append(q);
 
     const picks = [];
@@ -74,7 +76,7 @@ function build(overlay, list, view, revealing, d, sig) {
             no.textContent = `${i + 1}`;
             no.append(tickNode());
             const label = d.el(doc, 'span', 'igs-fm-anke-text');
-            label.textContent = text;
+            label.innerHTML = d.textHtml(text, view, `${anke.key}:o${i}`);
             row.append(no, label);
             body.append(row);
             picks.push(row);
@@ -93,7 +95,7 @@ function build(overlay, list, view, revealing, d, sig) {
         no.textContent = `${i + 1}`;
         no.append(tickNode());
         const label = d.el(doc, 'span', 'igs-fm-anke-text');
-        label.textContent = f.text;
+        label.innerHTML = d.textHtml(f.text, view, `${anke.key}:f${i}`);
         text.append(no, label);
         row.append(head, text);
         return row;

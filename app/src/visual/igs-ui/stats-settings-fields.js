@@ -3,7 +3,7 @@
 import { DEFAULT_STAGE_TEXT, DEFAULT_STAT_PROMPTS, STAT_PROMPT_SEGMENTS } from '../../scene/stats/stat-prompt.js';
 import { BUILD_ABILITY_OPTIONS, BUILD_CUSTOM_MAX, BUILD_CUSTOM_OPTION, BUILD_PREF_FIELDS, BUILD_PREF_LABELS, BUILD_ROLE_OPTIONS, BUILD_GOOD_VALUE, BUILD_PICK_SLOTS, BUILD_STRONG_VALUE, buildSummary, manualBuildSummary, groupPickCandidates, normalizeBuild, pickCandidates, pickSummary } from '../../scene/stats/stat-build.js';
 import { ABILITY_KEYS, ABILITY_LABELS, MANUAL_BUILD } from '../../combat/abilities.js';
-import { COC_ATTRS, COC_SKILLS, cocDerived, cocSkillBase, cocSkillTotals, hobbyPointsOf, occPointsOf } from '../../scene/stats/coc-investigator.js';
+import { COC_ATTRS, COC_OCCUPATIONS, COC_OCC_FORMULA_ITEMS, COC_SKILLS, cocAllocCheck, cocDerived, cocOccSkills, cocOccSlots, cocOccupation, cocSkillBase, cocSkillTotals } from '../../scene/stats/coc-investigator.js';
 import { rulesetOptions } from '../../scene/stats/rulesets/index.js';
 import { checkbox, field, hiddenAttr, numberInput, segmentedInput, selectInput, textInput, textareaInput } from './settings-fields.js';
 import { esc } from './reader-value-utils.js';
@@ -213,21 +213,24 @@ export function renderStatsBuildModeField(mode) {
     return field('', '建档方式', segmentedInput('', mode || 'auto', STATS_BUILD_MODE_ITEMS, '建档方式', { action: 'stats-build-mode' }));
 }
 
-export const COC_OCC_FORMULA_ITEMS = Object.freeze([['edu4', '教育×4'], ['edu2dex2', '教育×2+敏捷×2'], ['edu2str2', '教育×2+力量×2'], ['edu2app2', '教育×2+外貌×2'], ['edu2pow2', '教育×2+意志×2'], ['custom', '自填']]);
-
 function cocAttrChips(attrs, luck) {
     return `<div class="igs-coc-attrs">${COC_ATTRS.map((k) => `<span>${esc(k)}<b>${esc(attrs[k])}</b></span>`).join('')}<span>幸运<b>${esc(luck)}</b></span></div>`;
 }
 
 function cocAllocStatus(draft) {
-    const sh = { attrs: draft.attrs, occFormula: draft.occFormula, occPoints: draft.occPoints };
-    const occMax = occPointsOf(sh);
-    const hobMax = hobbyPointsOf(sh);
-    const sum = (key) => Object.values(draft.alloc || {}).reduce((t, a) => t + (Number(a && a[key]) || 0), 0);
-    const occLeft = occMax - sum('occ');
-    const hobLeft = hobMax - sum('hobby');
-    const over = occLeft < 0 || hobLeft < 0;
-    return { over, text: `职业点剩余 ${occLeft}／${occMax}，兴趣点剩余 ${hobLeft}／${hobMax}${over ? '。已超出可用点数' : ''}` };
+    const c = cocAllocCheck(draft);
+    return { over: !c.ok, text: `职业点剩余${c.occLeft}／${c.occMax}，兴趣点剩余${c.hobLeft}／${c.hobMax}${c.ok ? '' : `。${c.problems.join('；')}`}` };
+}
+
+// 选职业的下拉：按类别分组，首项为自定义职业。
+function cocOccupationSelect(occId) {
+    const groups = new Map();
+    for (const o of COC_OCCUPATIONS) {
+        if (!groups.has(o.cat)) groups.set(o.cat, []);
+        groups.get(o.cat).push(`<option value="${esc(o.id)}"${o.id === occId ? ' selected' : ''}>${esc(o.name)}</option>`);
+    }
+    return `<select data-coc-field="occId" aria-label="职业"><option value=""${occId ? '' : ' selected'}>自定义职业</option>`
+        + [...groups].map(([cat, opts]) => `<optgroup label="${esc(cat)}">${opts.join('')}</optgroup>`).join('') + '</select>';
 }
 
 const cocRowTotal = (name, draft) => {
@@ -241,6 +244,8 @@ export function refreshCocAlloc(root, draft, skill) {
     const st = cocAllocStatus(draft);
     const left = root.querySelector('[data-coc-left]');
     if (left) { left.textContent = st.text; left.classList?.toggle('is-over', st.over); }
+    const apply = root.querySelector('[data-coc-apply]');
+    if (apply) apply.disabled = st.over;
     if (skill == null) return;
     for (const cell of root.querySelectorAll('[data-coc-total]')) {
         if (cell.getAttribute('data-coc-total') === skill) cell.textContent = String(cocRowTotal(skill, draft));
@@ -248,7 +253,7 @@ export function refreshCocAlloc(root, draft, skill) {
 }
 
 // CoC 调查员档子块（仅 coc7）。coc = { sheet, draft, saving, error, notice }：sheet 为已建的档，draft 为界面里的建档草稿（choose / roll / alloc 三步）。
-export function renderCocInvestigatorBlock(coc, ruleset = 'coc7') {
+export function renderCocInvestigatorBlock(coc, ruleset = 'coc7', { hideTotals = false } = {}) {
     if (ruleset !== 'coc7') return '';
     const { sheet = null, draft = null, saving = false, error = '', notice = '' } = coc || {};
     const act = (name, label, extra = '') => `<button class="igs-settings-action" data-action="stats-coc:${name}" type="button"${extra}>${label}</button>`;
@@ -260,21 +265,38 @@ export function renderCocInvestigatorBlock(coc, ruleset = 'coc7') {
             + `<div class="igs-settings-row">${act('roll', '再掷一次')}${act('alloc', '确认并分配点数')}${act('cancel', '取消')}</div>`;
     } else if (draft && draft.stage === 'alloc') {
         const st = cocAllocStatus(draft);
+        const occ = cocOccupation(draft.occId);
+        const own = cocOccSkills(occ, draft.occPicks);
         const formulaOpts = COC_OCC_FORMULA_ITEMS.map(([v, l]) => `<option value="${v}"${v === draft.occFormula ? ' selected' : ''}>${l}</option>`).join('');
-        const numInput = (attr, value, label, maxlength = 2) => `<input class="igs-coc-num" type="text" inputmode="numeric" maxlength="${maxlength}" autocomplete="off" placeholder="0" aria-label="${esc(label)}" ${attr} value="${Number(value) > 0 ? Number(value) : ''}">`;
-        const rows = Object.keys(COC_SKILLS).map((name) => {
+        const numInput = (attr, value, label, maxlength = 2, disabled = false) => `<input class="igs-coc-num" type="text" inputmode="numeric" maxlength="${maxlength}" autocomplete="off" placeholder="${disabled ? '' : '0'}" aria-label="${esc(label)}" ${attr} value="${Number(value) > 0 ? Number(value) : ''}"${disabled ? ' disabled' : ''}>`;
+        // 本职技能排在最前；职业指定的专精（如科学(生物学)）不在内置表里时也单列一行。
+        const names = [...new Set([...(own ? [...own] : []), ...Object.keys(COC_SKILLS)])];
+        const rows = names.map((name) => {
             const base = cocSkillBase(name, draft.attrs) || 0;
             const a = (draft.alloc && draft.alloc[name]) || {};
-            const input = (kind, label) => numInput(`data-coc-${kind}="${esc(name)}"`, a[kind], `${name}${label}`);
-            return `<tr><td>${esc(name)}</td><td>${base}</td><td>${input('occ', '职业点')}</td><td>${input('hobby', '兴趣点')}</td><td data-coc-total="${esc(name)}">${cocRowTotal(name, draft)}</td></tr>`;
+            const mine = own && own.has(name);
+            const input = (kind, label, disabled) => numInput(`data-coc-${kind}="${esc(name)}"`, a[kind], `${name}${label}`, 2, disabled);
+            return `<tr${mine ? ' class="is-own"' : ''}><td>${esc(name)}${mine ? '<em>本职</em>' : ''}</td><td>${base}</td><td>${input('occ', '职业点', Boolean(own) && !mine)}</td><td>${input('hobby', '兴趣点', false)}</td><td data-coc-total="${esc(name)}">${cocRowTotal(name, draft)}</td></tr>`;
         }).join('');
+        const slots = occ ? cocOccSlots(occ) : [];
+        const slotFields = slots.map((slot, i) => {
+            const cur = (draft.occPicks && draft.occPicks[i]) || '';
+            const taken = new Set(occ.skills.filter((s) => typeof s === 'string'));
+            const opts = slot.options.filter((o) => o === cur || !taken.has(o)).map((o) => `<option value="${esc(o)}"${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
+            const label = slot.of ? `${slot.label}（${slot.n}/${slot.of}）` : `${slot.label}选一`;
+            return `<div class="igs-settings-field"><span>本职自选</span><select data-coc-pick="${i}" aria-label="${esc(label)}" title="${esc(label)}"><option value="">${esc(label)}</option>${opts}</select></div>`;
+        }).join('');
+        const occFields = occ
+            ? `<div class="igs-source-filter-note">职业点公式：${esc(COC_OCC_FORMULA_ITEMS.find(([k]) => k === occ.f)?.[1] || '')}；信用评级${occ.cr[0]}–${occ.cr[1]}，须用职业点或兴趣点加到这个范围内。</div>${slotFields}`
+            : `<div class="igs-settings-field"><span>职业名</span><input type="text" maxlength="12" data-coc-field="occupation" value="${esc(draft.occupation)}"></div>`
+                + `<div class="igs-settings-field"><span>职业点公式</span><select data-coc-field="occFormula">${formulaOpts}</select></div>`
+                + (draft.occFormula === 'custom' ? `<div class="igs-settings-field"><span>职业点数</span>${numInput('data-coc-field="occPoints"', draft.occPoints, '职业点数', 3)}</div>` : '');
         body = cocAttrChips(draft.attrs, draft.luck)
-            + `<div class="igs-settings-field"><span>职业名</span><input type="text" maxlength="12" data-coc-field="occupation" value="${esc(draft.occupation)}"></div>`
-            + `<div class="igs-settings-field"><span>职业点公式</span><select data-coc-field="occFormula">${formulaOpts}</select></div>`
-            + (draft.occFormula === 'custom' ? `<div class="igs-settings-field"><span>职业点数</span>${numInput('data-coc-field="occPoints"', draft.occPoints, '职业点数', 3)}</div>` : '')
+            + `<div class="igs-settings-field"><span>职业</span>${cocOccupationSelect(draft.occId || '')}</div>`
+            + occFields
             + `<div class="igs-source-filter-note${st.over ? ' is-over' : ''}" data-coc-left>${st.text}</div>`
             + `<div class="igs-coc-table"><table><thead><tr><th>技能</th><th>基础值</th><th>职业点</th><th>兴趣点</th><th>合计</th></tr></thead><tbody>${rows}</tbody></table></div>`
-            + `<div class="igs-settings-row">${act('apply', saving ? '正在保存' : '应用', saving ? ' disabled' : '')}${act('cancel', '取消', saving ? ' disabled' : '')}</div>`;
+            + `<div class="igs-settings-row">${act('apply', saving ? '正在保存' : '应用', saving || st.over ? ' disabled data-coc-apply' : ' data-coc-apply')}${act('cancel', '取消', saving ? ' disabled' : '')}</div>`;
     } else if (sheet && !(draft && draft.stage === 'choose')) {
         const d = cocDerived(sheet.attrs, cocSkillTotals(sheet));
         const totals = Object.entries(cocSkillTotals(sheet));
@@ -282,18 +304,46 @@ export function renderCocInvestigatorBlock(coc, ruleset = 'coc7') {
         body = `<div class="igs-source-filter-note">${sheet.occupation ? `${esc(sheet.occupation)}，` : ''}${sheet.source === 'paste' ? '粘贴车卡' : '掷骰建档'}</div>`
             + cocAttrChips(sheet.attrs, sheet.luck)
             + `<div class="igs-source-filter-note">${derived}</div>`
-            + `<div class="igs-source-filter-note">${totals.length ? totals.map(([k, v]) => `${esc(k)} ${v}`).join('，') : '尚未分配技能'}</div>`
+            + (hideTotals ? '' : `<div class="igs-source-filter-note">${totals.length ? totals.map(([k, v]) => `${esc(k)} ${v}`).join('，') : '尚未分配技能'}</div>`)
             + `<div class="igs-settings-row">${act('redo', '重新建档')}${act('clear', saving ? '正在保存' : '清除调查员档', saving ? ' disabled' : '')}</div>`;
     } else {
         body = `<div class="igs-source-filter-note">${sheet ? '重新建档会在应用后替换现有调查员档。' : '尚未建档。可以粘贴车卡，也可以直接掷属性。'}</div>`
-            + `<div class="igs-settings-row">${act('paste', saving ? '正在保存' : '粘贴车卡', saving ? ' disabled' : '')}${act('roll', '掷属性')}${sheet ? act('cancel', '取消') : ''}</div>`;
+            + `<div class="igs-settings-row">${act('paste', saving ? '正在保存' : '粘贴车卡', saving ? ' disabled' : '')}${act('roll', '掷属性')}${act('cancel', '取消')}</div>`;
     }
     return `<div class="igs-settings-section igs-coc-sheet" data-coc-sheet><div class="igs-source-filter-title">调查员档</div>${body}${note}</div>`;
 }
 
+// 日常 / 调查员二选一生效：调查员模式下日常数值暂停结算，页面只读日常档。
+export const COC_MODE_ITEMS = Object.freeze([['daily', '日常'], ['investigator', '调查员']]);
+
+// 「我的角色」接管：CoC 下正在建档，或有档且选了调查员时，整页换成调查员内容。
+export const cocTakesOver = (ruleset, coc) => ruleset === 'coc7' && Boolean(coc && (coc.draft || (coc.sheet && coc.mode === 'investigator')));
+
+// 「我的角色」顶部：CoC 下没档时给建档入口；有档后是「当前使用」开关。
+export function renderCocModeBar(ruleset, coc) {
+    if (ruleset !== 'coc7' || !coc || coc.draft) return '';
+    if (!coc.sheet) {
+        return '<div class="igs-settings-row" data-coc-mode-bar><button class="igs-settings-action" data-action="stats-coc:redo" type="button">建立调查员档</button></div>';
+    }
+    return `<div class="igs-settings-section" data-coc-mode-bar>${field('', '当前使用', segmentedInput('', coc.mode || 'daily', COC_MODE_ITEMS, '当前使用', { action: 'stats-coc:mode' }))}`
+        + '<div class="igs-source-filter-note">同一时间只有一边生效：调查员模式下检定、理智与成长都按调查员档，日常数值暂停结算。</div></div>';
+}
+
+// 调查员内容：调查员档（建档 / 查看 / 清除）与调查员模式下的当前理智、技能值。
+export function renderCocHeroView(ruleset, coc) {
+    const { sheet = null, mode = 'daily', live = null } = coc || {};
+    let liveBlock = '';
+    if (sheet && mode === 'investigator' && live) {
+        const cells = [statCell('理智', `${Math.round(live.san.value)}／${Math.round(live.san.max)}`), ...live.skills.map((k) => statCell(`${k.name}${k.marked ? ' ✓' : ''}`, String(Math.round(k.value))))].join('');
+        liveBlock = `<div class="igs-settings-section igs-stats-sec" data-coc-live>${sectionHead('当前数值', `<em class="is-inline">${live.skills.length}</em>`, '✓ 表示已记成长机会')}<div class="igs-stats-hero-grid is-skills">${cells}</div></div>`;
+    }
+    // 调查员模式下技能看「当前数值」，档案摘要不再重复列一遍。
+    return renderCocInvestigatorBlock(coc, ruleset, { hideTotals: Boolean(liveBlock) }) + liveBlock;
+}
+
 // 建卡（§6、§10A）：默认折叠。自动/相对数值选六维倾向；手动建档填职业与六维加点（总分 72 以内）。
 // 超分或多选时「按分配启用」禁用并说明原因。
-export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null, ruleset = 'coc7', coc = null } = {}) {
+export function renderStatsBuildFields(build, advancedOpen = () => '', { worldview, mode = null, ruleset = 'coc7' } = {}) {
     const b = normalizeBuild(build);
     const manual = mode === 'manual';
     const st = statsBuildStatus(b, worldview, manual ? 'manual' : null);
@@ -316,7 +366,6 @@ export function renderStatsBuildFields(build, advancedOpen = () => '', { worldvi
         + `<div class="igs-source-filter-grid">${base}</div>`
         + renderSkillPicks(b, ruleset)
         + customRow
-        + renderCocInvestigatorBlock(coc, ruleset)
         + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-chat-enable-build" type="button"${st.ok ? '' : ' disabled'}>按分配启用</button></div>`
         + '</details>';
 }
@@ -346,7 +395,7 @@ export function renderStatsMappingFields(described, advancedOpen = () => '', { p
 }
 
 // 「我的角色」已开始时的角色卡：新聊天先选擅长技能；数值区为六维雷达、生命/体力/压力条与积分、剧情货币分栏；技能与六维同一种数值格。
-export function renderStatsHeroCard(model, advancedOpen = () => '', build = null, coc = null) {
+export function renderStatsHeroCard(model, advancedOpen = () => '', build = null) {
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     // 新聊天还没选擅长技能：选择区放在最前，同时提供「按人设自动生成」，确定或生成后不再显示。
     const pick = model.needsPick
@@ -364,7 +413,7 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
     // 技能与六维同一种数值格；编辑全部收在下方「高级」里。✓ 表示今天有成长机会，提示放在标题的 title 里。
     const skillHead = sectionHead('技能', `<em class="is-inline">${model.skills.length}</em>`,`✓ 表示今天有成长机会${d20 ? `。${d20}` : ''}`);
     const bio = model.heroBio ? `<div class="igs-source-filter-note" data-stats-hero-bio>${esc(model.heroBio)}</div>` : '';
-    return pick + `<div class="igs-settings-section igs-stats-sec" data-stats-numbers>${sectionHead('数值')}${bio}${renderStatsHeroDashboard(model, coc && coc.sheet)}</div>`
+    return pick + `<div class="igs-settings-section igs-stats-sec" data-stats-numbers>${sectionHead('数值')}${bio}${renderStatsHeroDashboard(model)}</div>`
         + `<div class="igs-settings-section igs-stats-sec" data-stats-skills>${skillHead}${skills}</div>`;
 }
 
@@ -424,11 +473,11 @@ function renderFameEdit(list, owner = '', total = list.length) {
 }
 
 // 「我的角色」技能下方的「高级」折叠：擅长技能八格（选完后）、编辑技能、检定记录。
-export function renderStatsHeroMore(model, advancedOpen = () => '', build = null, coc = null) {
+export function renderStatsHeroMore(model, advancedOpen = () => '', build = null) {
     if (!model) return '';
     const live = model.needsPick ? '' : renderHeroSlots(build, model.heroSlots, model.ruleset);
     return `<details class="igs-settings-sub igs-settings-advanced" data-advanced="stats-hero-more"${advancedOpen('stats-hero-more')}><summary>高级</summary>`
-        + live + renderCocInvestigatorBlock(coc, model.ruleset) + renderSkillEditor(model, advancedOpen) + renderStatsHeroRecords(model, advancedOpen) + '</details>';
+        + live + renderSkillEditor(model, advancedOpen) + renderStatsHeroRecords(model, advancedOpen) + '</details>';
 }
 
 const SKILL_TIER_ITEMS = Object.freeze(['未学', '入门', '熟练', '精通', '大师']);
@@ -545,12 +594,39 @@ function personEdit(name, model, drafts, lead = '', advancedOpen = () => '') {
 }
 
 // 「其他角色」：每人一张卡，人际数值在上，角色卡折叠在下。
-export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts = null } = {}) {
+const COC_NPC_SOURCE = Object.freeze({ ai: 'AI生成', paste: '粘贴车卡', module: '模组导入', temp: '临时换算' });
+
+// 调查员模式下「其他角色」的数值面板：八项属性、理智与技能；没有档时显示临时换算值并说明。
+function renderCocNpcPart(row, npc) {
+    const id = esc(encodeURIComponent(row.name));
+    const has = row.source !== 'temp';
+    const blocked = !npc.canGenerate ? '需要可用的辅助模型' : npc.busy ? '正在生成' : '';
+    const btn = (op, label, off = '') => `<button class="igs-settings-action" data-action="stats-coc:npc-${op}:${id}" type="button"${off ? ` disabled title="${esc(off)}"` : ''}>${label}</button>`;
+    const cells = [statCell('理智', String(row.san)), ...row.skills.map((k) => statCell(k.name, String(k.value)))].join('');
+    return `<div class="igs-stats-sec" data-coc-npc="${esc(row.name)}">${sectionHead('调查员档', `<em class="is-inline">${esc(COC_NPC_SOURCE[row.source] || '')}${row.occupation ? ` · ${esc(row.occupation)}` : ''}</em>`)}`
+        + cocAttrChips(row.attrs, row.luck)
+        + `<div class="igs-stats-hero-grid is-skills">${cells}</div>`
+        + (has ? '' : '<div class="igs-source-filter-note">还没有调查员档，检定时按日常数值临时换算。</div>')
+        + `<div class="igs-stats-hero-actions">${btn('paste', '粘贴车卡')}${btn('gen', 'AI生成', blocked)}${has ? btn('clear', '清除') : ''}</div></div>`;
+}
+
+// 调查员模式下的页首：一句说明加批量生成入口。
+function renderCocNpcBar(npc) {
+    const missing = npc.rows.filter((r) => r.inRoster && r.source === 'temp').length;
+    const blocked = !npc.canGenerate ? '需要可用的辅助模型（自动插图设置里的写词模型）' : npc.busy ? '正在生成' : !missing ? '所有角色都已有调查员档' : '';
+    return '<div class="igs-settings-section" data-coc-npc-bar><div class="igs-source-filter-note">调查员模式下，其他角色的检定按调查员档；没有档的角色按日常数值临时换算。</div>'
+        + `<div class="igs-settings-row"><button class="igs-settings-action" data-action="stats-coc:npc-gen-all" type="button"${blocked ? ` disabled title="${esc(blocked)}"` : ''}>为缺调查员档的角色生成</button></div>`
+        + (blocked && !npc.busy && missing ? `<div class="igs-source-filter-note">${esc(blocked)}</div>` : '') + '</div>';
+}
+
+export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts = null, cocNpc = null } = {}) {
     if (!model) return NO_ARCHIVE;
     const n = roundText;
     const sheetOf = new Map((model.sheets || []).map((s) => [s.name, s]));
     const heroOn = model.heroFeelings === true;
     const heroDims = model.heroDims || {};
+    const cocRows = new Map(cocNpc ? cocNpc.rows.map((r) => [r.name, r]) : []);
+    const cocRow = (name) => cocRows.get(name) || null;
     const people =model.characters.map((c) => {
         const cells = Object.entries(c.dims).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v))
             .map(([k, v]) => statCell(k, k === '芥蒂' ? grudgeTier(v) : n(v))).join('');
@@ -564,14 +640,14 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
         const editKey = `stats-edit-${c.name}`;
         const mine = heroDims[c.name] || {};
         const mineVals = ['好感', '信任', '了解', '芥蒂', ...(Object.hasOwn(mine, '欲望') ? ['欲望'] : [])].map((k) => n(mine[k])).join(',');
-        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${!sheet ? `<span>${esc(choice === 'defer' ? '暂不建档·相对值' : '未建档·相对值')}</span>` : ''}${heroOn ? `<span>主角：${esc(stageOf(mine.好感).name)}</span>` : ''}${renderNameStatus(c.name, model) || renderPersonChips(c.name, c.stage, model)}</summary>`
+        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(c.name)}</b><span>${esc(c.stage)}</span>${!sheet && !cocRow(c.name) ? `<span>${esc(choice === 'defer' ? '暂不建档·相对值' : '未建档·相对值')}</span>` : ''}${heroOn ? `<span>主角：${esc(stageOf(mine.好感).name)}</span>` : ''}${renderNameStatus(c.name, model) || renderPersonChips(c.name, c.stage, model)}</summary>`
             + (heroOn && (model.confessed || {})[c.name] ? '<div class="igs-source-filter-note">TA已表白，主角未回应</div>' : '')
             + (heroOn ? '<div class="igs-source-filter-note">TA对主角</div>' : '')
             + `<div class="igs-stats-hero-grid">${cells}</div>`
             + (heroOn ? `<div class="igs-source-filter-note">主角对TA</div><div class="igs-stats-hero-grid">${Object.entries(heroDims[c.name] || {}).filter(([k, v]) => k !== '芥蒂' || grudgeTier(v)).map(([k, v]) => statCell(k, k === '芥蒂' ? grudgeTier(v) : n(v))).join('')}</div>` : '')
             + renderTraitView(c.name, model)
             + personFameView(c.name, model)
-            + (sheet ? renderSheetPart(sheet) : renderRelativePart(rel, choice))
+            + (cocRow(c.name) ? renderCocNpcPart(cocRow(c.name), cocNpc) : sheet ? renderSheetPart(sheet) : renderRelativePart(rel, choice))
             + editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(c.name, model, noteDrafts, `<div class="igs-stats-hero-actions">`
                 + `<button class="igs-settings-action" data-action="stats-op:relation-set:${id}|${['好感', '信任', '了解', ...(Object.hasOwn(c.dims, '欲望') ? ['欲望'] : [])].map((k) => n(c.dims[k])).join(',')}" type="button">修改数值</button>`
                 + (heroOn ? `<button class="igs-settings-action" data-action="stats-op:hero-dims:${id}|${mineVals}" type="button">修改主角态度</button><button class="igs-settings-action" data-action="stats-op:hero-estimate:${id}|${mineVals}" type="button">按剧情估算</button>` : '')
@@ -586,10 +662,17 @@ export function renderStatsPeople(model, advancedOpen = () => '', { noteDrafts =
         return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(s.name)}</b>${renderPersonChips(s.name, '', model)}</summary>${personFameView(s.name, model)}${renderSheetPart(s)}`
             + `${editFold(editKey, advancedOpen, advancedOpen(editKey) ? personEdit(s.name, model, noteDrafts, `<div class="igs-stats-hero-actions">${sheetOps(s.name, true)}${renameOps(s.name, model)}</div>`, advancedOpen) : '')}</details>`;
     });
-    const list = [...people, ...sheetOnly].join('') || '<div class="igs-source-filter-note">还没有登记的角色。</div>';
+
+    const moduleOnly = cocNpc ? cocNpc.rows.filter((r) => !r.inRoster && !(model.characters || []).some((c) => c.name === r.name)) : [];
+    const moduleBlock = moduleOnly.length ? `<div class="igs-source-filter-title">模组人物</div>${moduleOnly.map((r) => {
+        const key = `stats-person-${r.name}`;
+        return `<details class="igs-settings-advanced igs-stats-person" data-advanced="${esc(key)}"${advancedOpen(key)}><summary class="igs-stats-person-head"><b>${esc(r.name)}</b><span>${esc(COC_NPC_SOURCE[r.source] || '')}</span></summary>${renderCocNpcPart(r, cocNpc)}</details>`;
+    }).join('')}` : '';
+    const list = [...people, ...sheetOnly].join('') || (moduleBlock ? '' : '<div class="igs-source-filter-note">还没有登记的角色。</div>');
     const pending = (model.pendingPeople || []).length ? `<div class="igs-source-filter-note">待生成角色卡：${model.pendingPeople.map(esc).join('、')}</div>` : '';
     // 全员类操作（导入、补填关系、生成数值、补全技能与特质）在「设置 › 登记与补全」。
-    return renderNpcPolicyBar(model) + list + pending;
+    // 建档策略管的是日常角色卡，调查员模式下不显示。
+    return (cocNpc ? renderCocNpcBar(cocNpc) : renderNpcPolicyBar(model)) + list + moduleBlock + pending;
 }
 
 // 「我的角色」下方：检定记录（折叠）。
@@ -679,7 +762,7 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         : chat.blocked ? `存档读取失败：${chat.blocked}`
             : chat.enabled && archiveError ? `存档读取出错：${archiveError}` : '';
     const buildOpen = (key) => (key === 'stats-build' && manual ? ' open' : advancedOpen(key));
-    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode, ruleset: stats.ruleset, coc });
+    const build = (open) => renderStatsBuildFields(stats.build, open, { worldview, mode, ruleset: stats.ruleset });
     return {
         statsToggle: checkbox('bridge.stats.enabled', statsOn, '启用数值系统'),
         statsHidden: hiddenAttr(!statsOn),
@@ -691,11 +774,11 @@ export function buildStatsPageValues({ stats, chat = null, combatOn = false, arc
         statsMainBuildHidden: hiddenAttr(!manual),
         statsMainBuildFields: manual ? build(buildOpen) : '',
         statsHeroHidden: hiddenAttr(!started),
-        get statsHeroCard() { return renderStatsHeroCard(archive, advancedOpen, stats.build, coc); },
+        get statsHeroCard() { return renderCocModeBar(stats.ruleset, coc) + (cocTakesOver(stats.ruleset, coc) ? renderCocHeroView(stats.ruleset, coc) : renderStatsHeroCard(archive, advancedOpen, stats.build)); },
         get statsHeroActions() { return renderStatsHeroActions(archive); },
-        get statsHeroMore() { return renderStatsHeroMore(archive, advancedOpen, stats.build, coc); },
-        get statsHeroTail() { return renderStatsHeroTail(archive, advancedOpen); },
-        get statsPeopleFields() { return renderStatsPeople(archive, advancedOpen, { noteDrafts }); },
+        get statsHeroMore() { return cocTakesOver(stats.ruleset, coc) ? '' : renderStatsHeroMore(archive, advancedOpen, stats.build); },
+        get statsHeroTail() { return cocTakesOver(stats.ruleset, coc) ? '' : renderStatsHeroTail(archive, advancedOpen); },
+        get statsPeopleFields() { return renderStatsPeople(archive, advancedOpen, { noteDrafts, cocNpc: stats.ruleset === 'coc7' && coc && !coc.draft && coc.sheet && coc.mode === 'investigator' ? coc.npc || null : null }); },
         get statsCodexFields() { return renderStatsCodex(archive, advancedOpen); },
         diceFeelField: renderStatsRulesetField(stats.ruleset),
         storyCheckField: field('bridge.stats.storyCheck', '剧情中的检定', segmentedInput('bridge.stats.storyCheck', stats.storyCheck, [['preroll', '自动'], ['manual', '手动掷骰'], ['off', '关闭']], '剧情中的检定')),

@@ -61,6 +61,21 @@ export function createPublicApi(app) {
                 return snap && typeof snap === 'object' ? JSON.parse(JSON.stringify(snap)) : null;
             } catch (error) { return null; }
         },
+        // NPC 调查员档只读快照：{ attrs, luck, san, occupation, source, totals, ... }；没有档、出错返回 null。
+        npcCoc(name) {
+            try {
+                const snap = app.statsReaders && typeof app.statsReaders.npcCoc === 'function' ? app.statsReaders.npcCoc(String(name || '')) : null;
+                return snap && typeof snap === 'object' ? JSON.parse(JSON.stringify(snap)) : null;
+            } catch (error) { return null; }
+        },
+        // 从模组文本提取 NPC 调查员档（需辅助模型）：成功 { ok, created, skipped }，失败 { ok:false, reason, created, skipped }；reason 含 ruleset（非 coc7）、no-model、empty、stats-inactive、busy（另一项档任务进行中）、stats-runtime-missing、unavailable，另有生成失败原因码。
+        async importNpcCocText(text) {
+            try {
+                const read = app.statsReaders && app.statsReaders.importNpcCocText;
+                const res = typeof read === 'function' ? await read(String(text ?? '')) : null;
+                return res && typeof res === 'object' ? JSON.parse(JSON.stringify({ created: [], skipped: [], ...res })) : { ok: false, reason: 'unavailable', created: [], skipped: [] };
+            } catch (error) { return { ok: false, reason: 'unavailable', created: [], skipped: [] }; }
+        },
         // 角色对主角的好感快照：[{ name, aliases, value(好感), dims:{好感,信任,了解,芥蒂,欲望}, stage, romance }]；出错、未启用数值系统返回 []。
         favor() {
             try {

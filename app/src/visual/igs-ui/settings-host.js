@@ -1,5 +1,5 @@
 import { ensureAliases, forumPoFromText } from './forum-reader-model.js';
-import { parseCocSheet, rollCocAttributes } from '../../scene/stats/coc-investigator.js';
+import { cocAllocCheck, cocOccSkills, cocOccupation, parseCocSheet, rollCocAttributes } from '../../scene/stats/coc-investigator.js';
 import { clearNaiQuota, syncNaiQuota, querySettingsNaiQuota, renderNaiQuota } from './settings-nai-quota.js';
 import { recoverOperation, createOperationCheckpoint, checkpointService, wakeRecoveringOperations } from '../../storage/automatic-recovery.js';
 // 设置器的打开 / 关闭、挂载、事件委托、草稿写入与保存。reader-host 只负责把阅读器侧的依赖交进来。
@@ -856,20 +856,25 @@ export function createSettingsHost(deps) {
         if (!panel || !coc) return { ok: false, reason: 'stats-runtime-missing' };
         const as = panel.asyncState;
         const redraw = () => { if (state.activeSettings === panel) rerenderSettings(); };
+        const reasonText = (reason) => ({ ruleset: '数值规则不是CoC第七版。', invalid: '车卡数据不完整，请检查八项属性。', 'request-stale': '聊天已切换或数值存档尚未载入，请回到该聊天后重试。', 'stats-attribute-conflict': '属性正被其他操作修改。', 'no-sheet': '尚未建立调查员档。', 'stats-runtime-missing': '数值系统尚未就绪。', 'no-model': '需要可用的辅助模型（自动插图设置里的写词模型）。', 'stats-inactive': '本聊天的数值系统尚未启用。', busy: '另一项调查员档任务正在进行，结束后再试。' })[reason] || `原因：${reason || '未知'}`;
         const save = async (job) => {
             as.cocSaving = true; as.cocError = ''; as.cocNotice = '';
             redraw();
             let res;
             try { res = await job(); } catch (error) { res = { ok: false, reason: String((error && error.message) || error) }; }
             as.cocSaving = false;
-            const reasonText = (reason) => ({ ruleset: '数值规则不是CoC第七版。', invalid: '车卡数据不完整，请检查八项属性。', 'request-stale': '聊天已切换或数值存档尚未载入，请回到该聊天后重试。', 'stats-attribute-conflict': '属性正被其他操作修改。', 'combat-attribute-table-missing': '战斗属性表尚未建立。', 'stats-runtime-missing': '数值系统尚未就绪。' })[reason] || `原因：${reason || '未知'}`;
             if (res && res.ok) {
                 delete as.cocDraft;
-                if (res.sixSynced === false) as.cocNotice = `调查员档已保存，检定按档取值；战斗六维暂未同步（${reasonText(res.sixReason)}）。`;
             } else as.cocError = reasonText(res && res.reason);
             redraw();
             return res || { ok: false };
         };
+        if (kind.startsWith('mode:')) {
+            const res = coc('setMode', kind.slice(5));
+            as.cocError = res && res.ok ? '' : reasonText(res && res.reason);
+            redraw();
+            return res || { ok: false };
+        }
         if (kind === 'redo') { as.cocDraft = { stage: 'choose' }; as.cocError = ''; as.cocNotice = ''; redraw(); return { ok: true }; }
         if (kind === 'cancel') { delete as.cocDraft; as.cocError = ''; as.cocNotice = ''; redraw(); return { ok: true }; }
         if (kind === 'roll') {
@@ -881,34 +886,58 @@ export function createSettingsHost(deps) {
         if (kind === 'alloc') {
             const d = as.cocDraft;
             if (!d || !d.attrs) return { ok: false };
-            as.cocDraft = { occupation: '', occFormula: 'edu4', occPoints: 0, alloc: {}, ...d, stage: 'alloc' };
+            as.cocDraft = { occupation: '', occId: '', occPicks: [], occFormula: 'edu4', occPoints: 0, alloc: {}, ...d, stage: 'alloc' };
             redraw();
             return { ok: true };
         }
         if (kind === 'clear') {
-            if (!await settingsDialogs.confirm('清除调查员档？属性、技能分配都会删除，之后检定回到六维算法。', { okLabel: '清除' })) return { ok: true, cancelled: true };
+            if (!await settingsDialogs.confirm('清除调查员档？属性、技能分配都会删除，并回到日常模式。', { okLabel: '清除' })) return { ok: true, cancelled: true };
             return save(() => coc('clear'));
         }
         if (kind === 'apply') {
             const d = as.cocDraft;
             if (!d || d.stage !== 'alloc') return { ok: false };
-            return save(() => coc('apply', { v: 1, attrs: d.attrs, luck: d.luck, occupation: d.occupation, occFormula: d.occFormula, occPoints: d.occPoints, alloc: d.alloc, san: d.attrs.意志, source: 'roll', at: Date.now() }));
+            if (!cocAllocCheck(d).ok) return { ok: false, reason: 'stats-coc-alloc-invalid' };
+            return save(() => coc('apply', { v: 1, attrs: d.attrs, luck: d.luck, occupation: d.occupation, occId: d.occId, occPicks: d.occPicks, occFormula: d.occFormula, occPoints: d.occPoints, alloc: d.alloc, san: d.attrs.意志, source: 'roll', at: Date.now() }));
         }
-        if (kind === 'paste') {
-            const text = await settingsDialogs.edit('粘贴车卡文本（骰娘 .st 格式或属性列表）：', '', { okLabel: '解析' });
-            if (text == null || !String(text).trim()) return { ok: true, cancelled: true };
+        // 粘贴车卡：解析、第六版换算、预览确认；返回档或 null（取消）。主角与 NPC 共用。
+        const pasteSheet = async (who) => {
+            const text = await settingsDialogs.edit(who ? `粘贴${who}的车卡文本（骰娘 .st 格式或属性列表）：` : '粘贴车卡文本（骰娘 .st 格式或属性列表）：', '', { okLabel: '解析' });
+            if (text == null || !String(text).trim()) return null;
             const p = parseCocSheet(text);
             const list = (obj) => Object.entries(obj).map(([k, v]) => `${k}${v}`).join('，');
             let attrs = p.attrs; let luck = p.luck;
             const preview = () => `属性：${list(attrs) || '无'}\n幸运：${luck ?? '未给出（按 50）'}\n理智：${p.san ?? '未给出（按意志）'}\n技能（${Object.keys(p.skills).length} 项）：${list(p.skills) || '无'}\n认不出的片段：${p.unknown.length ? p.unknown.join('、') : '无'}`;
-            if (p.missing.length) { await settingsDialogs.alert(`${preview()}\n缺少属性：${p.missing.join('、')}，补全后才能应用。`); return { ok: true, cancelled: true }; }
+            if (p.missing.length) { await settingsDialogs.alert(`${preview()}\n缺少属性：${p.missing.join('、')}，补全后才能应用。`); return null; }
             if (p.legacy6) {
-                if (!await settingsDialogs.confirm('可能是第六版车卡（属性 3–18），是否按×5换算为 1–99？选「取消」则不应用。', { okLabel: '按×5换算' })) return { ok: true, cancelled: true };
+                if (!await settingsDialogs.confirm('可能是第六版车卡（属性 3–18），是否按×5换算为 1–99？选「取消」则不应用。', { okLabel: '按×5换算' })) return null;
                 attrs = Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, Math.min(99, v * 5)]));
                 if (luck != null && luck <= 18) luck *= 5;
             }
-            if (!await settingsDialogs.confirm(preview(), { okLabel: '应用' })) return { ok: true, cancelled: true };
-            return save(() => coc('apply', { v: 1, attrs, luck: luck ?? 50, occupation: '', occFormula: 'edu4', occPoints: 0, totals: p.skills, san: p.san ?? attrs.意志, source: 'paste', at: Date.now() }));
+            if (!await settingsDialogs.confirm(preview(), { okLabel: '应用' })) return null;
+            return { v: 1, attrs, luck: luck ?? 50, occupation: '', occFormula: 'edu4', occPoints: 0, totals: p.skills, san: p.san ?? attrs.意志, source: 'paste', at: Date.now() };
+        };
+        if (kind === 'paste') {
+            const sheet = await pasteSheet('');
+            return sheet ? save(() => coc('apply', sheet)) : { ok: true, cancelled: true };
+        }
+        if (kind.startsWith('npc-')) {
+            const [op, enc = ''] = kind.slice(4).split(':');
+            const name = enc ? decodeURIComponent(enc) : '';
+            if (op === 'paste') {
+                const sheet = await pasteSheet(`「${name}」`);
+                return sheet ? save(() => coc('npcApply', { name, sheet })) : { ok: true, cancelled: true };
+            }
+            if (op === 'clear') {
+                if (!await settingsDialogs.confirm(`清除「${name}」的调查员档？清除后检定改按日常数值临时换算。`, { okLabel: '清除' })) return { ok: true, cancelled: true };
+                return save(() => coc('npcClear', name));
+            }
+            if (op === 'gen' || op === 'gen-all') {
+                const res = await save(() => coc('npcGenerate', op === 'gen' ? [name] : null));
+                if (res && res.ok && !(res.created || []).length) { as.cocNotice = (res.skipped || []).length ? '模型没有给出可用的调查员档。' : '没有需要生成的角色。'; redraw(); }
+                return res;
+            }
+            return { ok: false, reason: 'stats-coc-unknown' };
         }
         return { ok: false, reason: 'stats-coc-unknown' };
     }
@@ -1973,6 +2002,27 @@ export function createSettingsHost(deps) {
             const cocDraft = state.activeSettings?.asyncState.cocDraft;
             if (cocDraft && cocDraft.stage === 'alloc' && target?.getAttribute) {
                 if (target.getAttribute('data-coc-field') === 'occFormula') { cocDraft.occFormula = String(target.value); rerenderSettings(); return; }
+                // 换职业：公式跟职业走，自选与已加的职业点清零，避免旧职业的点数留在非本职技能上。
+                if (target.getAttribute('data-coc-field') === 'occId') {
+                    const occ = cocOccupation(target.value);
+                    cocDraft.occId = occ ? occ.id : '';
+                    cocDraft.occupation = occ ? occ.name : '';
+                    cocDraft.occFormula = occ ? occ.f : 'edu4';
+                    cocDraft.occPicks = [];
+                    for (const a of Object.values(cocDraft.alloc || {})) if (a) a.occ = 0;
+                    rerenderSettings();
+                    return;
+                }
+                const pickIndex = target.getAttribute('data-coc-pick');
+                if (pickIndex != null) {
+                    const picks = [...(cocDraft.occPicks || [])];
+                    picks[Number(pickIndex)] = String(target.value);
+                    cocDraft.occPicks = picks;
+                    const own = cocOccSkills(cocOccupation(cocDraft.occId), picks);
+                    if (own) for (const [k, a] of Object.entries(cocDraft.alloc || {})) if (a && !own.has(k)) a.occ = 0;
+                    rerenderSettings();
+                    return;
+                }
                 if (target.getAttribute('data-coc-occ') != null || target.getAttribute('data-coc-hobby') != null || target.getAttribute('data-coc-field') != null) return;
             }
             const heroSkill = target?.getAttribute?.('data-stats-hero-skill');

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    cocDerived, cocSkillBase, occPointsOf, hobbyPointsOf, cocSkillTotals, parseCocSheet, sanitizeCocSheet,
+    cocAllocCheck, cocDerived, cocOccupation, cocSheetRecord, cocSkillBase, occPointsOf, hobbyPointsOf, cocSkillTotals, parseCocSheet, sanitizeCocSheet,
 } from '../src/scene/stats/coc-investigator.js';
 
 const attrs = { 力量: 60, 体质: 50, 体型: 65, 敏捷: 70, 外貌: 50, 智力: 80, 意志: 55, 教育: 70 };
@@ -19,6 +19,18 @@ test('派生值与伤害加值边界', () => {
     assert.equal(cocDerived({ ...attrs, 力量: 80, 体型: 85 }).db, '+1D6');
     assert.equal(cocDerived({ ...attrs, 力量: 60, 体型: 80, 敏捷: 50 }).mov, 7);
     assert.equal(cocDerived(attrs, { 克苏鲁神话: 10 }).sanMax, 89);
+});
+
+test('选职业后职业点只能加本职技能，信用评级须在职业范围内', () => {
+    const occ = cocOccupation('doctor');
+    assert.equal(occPointsOf({ attrs, occFormula: 'edu2strdex2' }), 280);
+    const draft = { attrs, occId: 'doctor', occFormula: occ.f, occPicks: ['侦查'], alloc: { 信用评级: { occ: 40 }, 医学: { occ: 60 }, 侦查: { occ: 20 } } };
+    assert.equal(cocAllocCheck(draft).ok, true);
+    assert.equal(cocAllocCheck({ ...draft, alloc: { ...draft.alloc, 聆听: { occ: 10 } } }).ok, false);
+    assert.equal(cocAllocCheck({ ...draft, alloc: { ...draft.alloc, 信用评级: { occ: 20 } } }).ok, false);
+    assert.equal(cocAllocCheck({ ...draft, occId: '', alloc: { 聆听: { occ: 10 } } }).ok, true);
+    const back = sanitizeCocSheet(cocSheetRecord({ ...draft, source: 'roll', luck: 50 }));
+    assert.deepEqual([back.occId, back.occPicks], ['doctor', ['侦查']]);
 });
 
 test('技能基础值与点数', () => {

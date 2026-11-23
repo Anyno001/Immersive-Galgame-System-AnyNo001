@@ -487,6 +487,7 @@ const STATS_NPC_TEMPLATE = `
 </div>
 `.trim();
 
+
 const STATS_CODEX_TEMPLATE = `
 <div class="igs-settings-grid" data-settings-pane="stats-codex">
   <div class="igs-source-filter-note"{{statsOffNoteHidden}}>未启用数值系统，可在「我的角色」页开启。</div>

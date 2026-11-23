@@ -113,7 +113,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.18';
+const IGS_VERSION = '0.41.19';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -432,6 +432,8 @@ export function bootstrapIGS(options = {}) {
         statsReaders: {
             fame: () => (app.statsRuntime && typeof app.statsRuntime.fameSnapshot === 'function' ? app.statsRuntime.fameSnapshot() : []),
             investigator: () => (app.statsRuntime && typeof app.statsRuntime.investigatorSnapshot === 'function' ? app.statsRuntime.investigatorSnapshot() : null),
+            npcCoc: (name) => (app.statsRuntime && typeof app.statsRuntime.npcCocSnapshot === 'function' ? app.statsRuntime.npcCocSnapshot(name) : null),
+            importNpcCocText: (text) => (app.statsRuntime && typeof app.statsRuntime.importNpcCocText === 'function' ? app.statsRuntime.importNpcCocText(text) : Promise.resolve({ ok: false, reason: 'stats-runtime-missing', created: [], skipped: [] })),
             favor: () => (app.statsRuntime && typeof app.statsRuntime.favorSnapshot === 'function' ? app.statsRuntime.favorSnapshot() : []),
         },
         // 公开接口 IGS.api.notify 的播放回调；igsUi 在 app 之后挂载，调用时再取。
@@ -608,7 +610,14 @@ export function bootstrapIGS(options = {}) {
         statsCoc: (kind, payload) => {
             const rt = app.statsRuntime;
             if (kind === 'sheet') return rt && typeof rt.cocSheet === 'function' ? rt.cocSheet() : null;
+            if (kind === 'mode') return rt && typeof rt.cocMode === 'function' ? rt.cocMode() : 'daily';
+            if (kind === 'live') return rt && typeof rt.cocLive === 'function' ? rt.cocLive() : null;
+            if (kind === 'npc') return rt && typeof rt.npcCocModel === 'function' ? rt.npcCocModel() : null;
             if (!rt || typeof rt.applyCocSheet !== 'function') return { ok: false, reason: 'stats-runtime-missing' };
+            if (kind === 'npcApply') return rt.applyNpcCoc(payload && payload.name, payload && payload.sheet);
+            if (kind === 'npcClear') return rt.clearNpcCoc(payload);
+            if (kind === 'npcGenerate') return rt.generateNpcCoc(payload);
+            if (kind === 'setMode') return rt.setCocMode(payload);
             return kind === 'clear' ? rt.clearCocSheet() : rt.applyCocSheet(payload);
         },
         statsChatAction: (kind, payload) => {

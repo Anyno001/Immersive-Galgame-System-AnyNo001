@@ -16,6 +16,9 @@ export const STATS_HERO_CARD_STYLE_TEXT = `
 #igs-unified-settings .igs-coc-num:focus{border-bottom-color:var(--igs-settings-accent);background:var(--igs-settings-highlight)}
 #igs-unified-settings .igs-settings-field .igs-coc-num{width:72px}
 #igs-unified-settings [data-coc-left].is-over{color:var(--igs-settings-danger)}
+#igs-unified-settings .igs-coc-table tr.is-own td{background:var(--igs-settings-highlight)}
+#igs-unified-settings .igs-coc-table td>em{margin-left:6px;font-style:normal;font-size:11px;color:var(--igs-settings-accent)}
+#igs-unified-settings .igs-coc-num:disabled{background:transparent;border-bottom-color:transparent;cursor:not-allowed}
 #igs-unified-settings .igs-stats-dash{display:grid;gap:10px;min-width:0}
 #igs-unified-settings .igs-stats-day{font-size:11px;color:var(--igs-settings-ink-3);font-variant-numeric:tabular-nums}
 #igs-unified-settings .igs-stats-overview{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(220px,1fr);gap:12px;align-items:stretch}

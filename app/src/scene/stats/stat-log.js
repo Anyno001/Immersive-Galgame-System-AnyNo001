@@ -7,7 +7,7 @@ import { STATS_LOG_MAX, createStatsLedger, currentStatsState, ledgerKey } from '
 import { deserializeLedger, sanitizeCatalog, sanitizeLearned } from './stat-persist.js';
 import { currencyRecordValue, normalizeCurrencyRecord } from './stat-currency.js';
 import { normalizeCurrencyEdit } from './stat-currency-edit.js';
-import { cocSheetRecord } from './coc-investigator.js';
+import { cocSheetRecord, normalizeCocMode } from './coc-investigator.js';
 import { LEGACY_SKILL_MAP, mergeLegacyValue } from './stat-registry.js';
 
 export { BUILD_CHOICES, BUILD_MODES };
@@ -42,7 +42,7 @@ export const STAT_LOG_CHARACTER = '主角';
 const TAG_PATTERN = /[\[【]\s*igs\s*-?\s*stat\s*[:：][^\]】]*[\]】]|\[igs-check:[^\]\n]*\]/gi;
 // currency：本楼剧情货币增减（{ delta, balance }），重算同一楼时按新旧差额补写物品表。
 const META_KEYS = Object.freeze(['check', 'checks', 'preroll', 'note', 'flags', 'pendingRoll', 'favorMode', 'favorTier', 'strengthRev', 'intimateCost', 'manual', 'bondEvents', 'reviewEvents', 'currency', 'heroSide']);
-const TYPE_OF_PREFIX = Object.freeze({ chat: 'chat', skill: 'skill-def', merge: 'skill-merge', sheet: 'sheet', drop: 'sheet', base: 'base', edit: 'base', hero: 'base', queue: 'queue', notified: 'notified', learned: 'learned', force: 'force', aptitude: 'aptitude', trait: 'trait', counter: 'counter', heronote: 'heronote', romance: 'romance', fame: 'fame', traitinit: 'trait', traitnote: 'trait', status: 'status', cycle: 'status', landmine: 'trait', soft: 'trait', rename: 'trait' });
+const TYPE_OF_PREFIX = Object.freeze({ chat: 'chat', skill: 'skill-def', merge: 'skill-merge', sheet: 'sheet', npccoc: 'sheet', drop: 'sheet', base: 'base', edit: 'base', hero: 'base', queue: 'queue', notified: 'notified', learned: 'learned', force: 'force', aptitude: 'aptitude', trait: 'trait', counter: 'counter', heronote: 'heronote', romance: 'romance', fame: 'fame', traitinit: 'trait', traitnote: 'trait', status: 'status', cycle: 'status', landmine: 'trait', soft: 'trait', rename: 'trait' });
 export const STAT_CHAT_RECORD_TYPES = Object.freeze(Object.values(TYPE_OF_PREFIX));
 // 旧存档的六个属性名 → 战斗六维名（含原样保留的三项），用来从旧百分制属性反推六维倾向。
 const LEGACY_SCORE_NAMES = Object.freeze({ 健康: '体质', 力量: '力量', 敏捷: '敏捷', 理智: '智力', 观察: '感知', 魅力: '魅力' });
@@ -173,6 +173,7 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     for (const [from, to] of Object.entries(clean.merged)) map.set(`merge:${from}`, to);
     for (const [name, sheet] of Object.entries(clean.sheets)) map.set(`sheet:${name}`, sheet);
     for (const [name, id] of Object.entries(clean.sheetDrops)) map.set(`drop:${name}`, id);
+    for (const [name, sheet] of Object.entries(clean.npcCoc || {})) map.set(`npccoc:${name}`, cocSheetRecord(sheet, { npc: true }));
     for (const [name, value] of Object.entries(clean.protagonistBase)) map.set(`base:${name}`, value);
     for (const [name, value] of Object.entries(clean.protagonistEdit)) map.set(`edit:${name}`, value);
     if (clean.heroAssigned) map.set('hero:assigned', true);
@@ -180,6 +181,7 @@ export function chatEntries({ chatEnabled = false, catalog = null, learned = {},
     if (clean.heroSlots) map.set('hero:slots', clean.heroSlots);
     if (clean.heroBio) map.set('hero:bio', clean.heroBio);
     if (clean.protagonistCoc) map.set('hero:coc', cocSheetRecord(clean.protagonistCoc));
+    if (clean.cocMode) map.set('hero:mode', clean.cocMode);
     // 豁免亲密门槛已并入 trait:名（键 forced）；force: 键只在读档时兼容旧记录，不再写。
     for (const [name, level] of Object.entries(clean.aptitude)) map.set(`aptitude:${name}`, level);
     for (const [name, marks] of Object.entries(clean.traits)) map.set(`trait:${name}`, marks);
@@ -220,7 +222,7 @@ export function diffChatRecords(baseline, entries, { tag = '', createdAt = 0 } =
 
 // 键值表 → 聊天级设置对象（diffChatRecords 的逆过程）。
 export function restoreChat(map) {
-    const raw = { story: [], merged: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {}, landmineKnown: {}, softKnown: {}, renames: {} };
+    const raw = { story: [], merged: {}, npcCoc: {}, sheets: {}, sheetDrops: {}, protagonistBase: {}, protagonistEdit: {}, heroAssigned: false, intimacyForced: [], aptitude: {}, traits: {}, counters: {}, heroNotes: {}, romanceSeen: [], fameBars: [], queue: { skills: [], people: [] }, notified: [], traitInit: [], traitNotes: {}, statuses: {}, cycles: {}, landmineKnown: {}, softKnown: {}, renames: {} };
     const learned = {};
     let chatEnabled = false;
     let buildMode = null;
@@ -245,6 +247,7 @@ export function restoreChat(map) {
         else if (prefix === 'merge') raw.merged[name] = value;
         else if (prefix === 'sheet') raw.sheets[name] = value;
         else if (prefix === 'drop') raw.sheetDrops[name] = value;
+        else if (prefix === 'npccoc') raw.npcCoc[name] = value;
         else if (prefix === 'base') raw.protagonistBase[name] = value;
         else if (prefix === 'edit') raw.protagonistEdit[name] = value;
         else if (prefix === 'hero' && name === 'assigned') raw.heroAssigned = value === true;
@@ -252,6 +255,7 @@ export function restoreChat(map) {
         else if (prefix === 'hero' && name === 'slots') raw.heroSlots = value;
         else if (prefix === 'hero' && name === 'bio') raw.heroBio = value;
         else if (prefix === 'hero' && name === 'coc') raw.protagonistCoc = value;
+        else if (prefix === 'hero' && name === 'mode') raw.cocMode = normalizeCocMode(value);
         else if (prefix === 'queue' && (name === 'skills' || name === 'people')) raw.queue[name] = value;
         else if (prefix === 'notified') raw.notified = value;
         else if (prefix === 'traitinit') raw.traitInit = value;

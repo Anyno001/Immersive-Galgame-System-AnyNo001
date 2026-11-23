@@ -9,10 +9,10 @@ import { DEFAULT_MONEY_TABLE, STRESS_DELTA, applyBarDirective, applyCurrencyDire
 import { SOFT_DAY_FLOORS, aptitudeTier, detectDayAdvance, fallbackDirectives, growthGain, isLateHour, narrationOf, settleDay, settleRest, settleSkip, settleSoftDay } from './stat-day.js';
 import { SKIP_DAYS_MAX, SKIP_DAYS_MAX_LEGACY } from './stat-duration.js';
 import { DATE_REGEX_INVALID, TIME_REGEX_INVALID, captureFirst, compileCaptureRegex, judgeDateAdvance, parseHour } from './stat-date.js';
-import { DIM_MAX, SKILL_MAX, barsOf, clamp, createCharacter, dimMin, heroDimsOf, isRomance, withBars, withCharacter, withClock, withSkills } from './stat-state.js';
+import { DIM_MAX, SKILL_MAX, barsOf, clamp, createCharacter, dimMin, fromInvestigatorView, heroDimsOf, investigatorView, isRomance, withBars, withCharacter, withClock, withSkills } from './stat-state.js';
 import { rollDie } from './stat-rng.js';
 import { settleCombat } from './stat-battle.js';
-import { PROTAGONIST, createEngine, keyEventSkill, skillCapOf, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
+import { PROTAGONIST, cocSheetOf, createEngine, keyEventSkill, skillCapOf, markCheckOpponents, markGrowth, markNpcGrowth, profileOf, resolveCheck } from './stat-engine.js';
 import { registerStorySkill } from './stat-registry.js';
 import { driftFame, fameMandates, sanitizeFameBars, settleFameTags } from './stat-fame.js';
 import { applyBreak, markFixations, shiftStress, trackStressPeak } from './stat-strain.js';
@@ -186,6 +186,7 @@ function settleInsight(before, directives, ctx) {
             state = { ...state, protagonist: { ...state.protagonist, insights: { ...(state.protagonist.insights || {}), [skill]: day } } };
             continue;
         }
+        if (cocSheetOf(ctx.engine)) continue;
         const character = state.characters[d.target] || createCharacter(day, { nsfw: ctx.nsfw });
         const growth = character.skillGrowth || {};
         const own = growth[skill] || {};
@@ -207,6 +208,7 @@ function settleGrowTags(before, directives, ctx) {
         const skill = ctx.engine.registry.resolve(d.skill);
         const entry = skill && ctx.engine.registry.get(skill);
         if (!skill || !entry || entry.kind === 'attribute') { ctx.diagnostics.push({ code: 'stat-grow-unknown-skill', name: d.skill }); continue; }
+        if (cocSheetOf(ctx.engine)) continue;
         const day = state.clock.day;
         const character = state.characters[d.target] || createCharacter(day, { nsfw: ctx.nsfw });
         const growth = character.skillGrowth || {};
@@ -916,7 +918,7 @@ function checkFromRollTag(before, tag, raw, opts, ctx) {
 // npcChecks：正文检定里 NPC 作为一方的 [{ actor, skill }]，用到的技能给 NPC 打成长勾。
 // noBattle：战斗扩展接管战斗时为真，丢弃 battle 标签。
 // extraDirectives：由战报楼合成的 challenge 指令与卡牌战斗战报指令（kind: battle, fromReport），不经 AI 标签解析，不受 noBattle 影响。
-export function settleFloorText(before, text, opts = {}) {
+function settleFloorTextCore(before, text, opts = {}) {
     const { random, nsfw = false, resolveCharacter, moneyTable = DEFAULT_MONEY_TABLE } = opts;
     // favorTier（vivid / normal / hard）优先；没有时按旧 favorMode 还原为 legacy（旧普通）或 legacyHard（旧困难），保证旧楼重算不变。
     const tier = FAVOR_TIERS.includes(opts.favorTier) ? opts.favorTier : legacyTierOf(opts.favorMode);
@@ -1024,8 +1026,10 @@ export function settleFloorText(before, text, opts = {}) {
     if (rev >= 2) state = settleHero(state, directives);
     state = markGrowth(state, check);
     for (const item of storyChecks) state = markGrowth(state, item);
-    state = markCheckOpponents(state, check);
-    for (const item of Array.isArray(opts.npcChecks) ? opts.npcChecks : []) state = markNpcGrowth(state, resolve(item.actor), item.skill);
+    if (!cocSheetOf(engine)) {
+        state = markCheckOpponents(state, check);
+        for (const item of Array.isArray(opts.npcChecks) ? opts.npcChecks : []) state = markNpcGrowth(state, resolve(item.actor), item.skill);
+    }
     state = settleStartRelations(state, directives, ctx);
     state = settleStartFix(state, directives, ctx);
     if (rev >= 2) state = unlockKinGates(state, ctx);
@@ -1128,4 +1132,11 @@ export function settleFloorText(before, text, opts = {}) {
     if (intimateCost && nsfw) meta.intimateCost = intimateCost;
     if (ctx.currency?.ready) meta.currency = { delta: ctx.currency.delta, balance: ctx.currency.balance };
     return { state, changes: ctx.changes, meta };
+}
+
+// 调查员模式：技能账本换成 state.investigator.skills 结算，日常技能原样冻结。
+export function settleFloorText(before, text, opts = {}) {
+    if (!cocSheetOf(opts.engine)) return settleFloorTextCore(before, text, opts);
+    const result = settleFloorTextCore(investigatorView(before), text, opts);
+    return { ...result, state: fromInvestigatorView(result.state, before) };
 }

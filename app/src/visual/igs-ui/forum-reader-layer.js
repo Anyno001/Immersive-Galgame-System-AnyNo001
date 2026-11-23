@@ -350,7 +350,13 @@ function replyNode(doc, reply, view, live) {
     return node;
 }
 
-const ANKE_DEPS = { el, esc, winOf, reducedMotion, stateOf, replyNode, headHtml, scrollEnd };
+// 安科的问题、选项、候选楼里可能夹表情包标签：原位换成行内图。
+function ankeTextHtml(text, view, seed) {
+    const sticker = stickerOf(view);
+    return inlineReplyHtml(stripTextFxMarkup(String(text || '')), (n) => ({ ...sticker.opts, seed: `${seed}:${n}`, cls: 'igs-fm-sticker' })).trim();
+}
+
+const ANKE_DEPS = { el, esc, winOf, reducedMotion, stateOf, replyNode, headHtml, scrollEnd, textHtml: ankeTextHtml };
 
 // 建一行，挂进它所在的楼；该楼最后一行到齐后再接点缀回帖。
 function buildRow(overlay, list, i, view, live) {

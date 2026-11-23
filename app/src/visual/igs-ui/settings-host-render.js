@@ -317,6 +317,9 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
             return buildStatsPageValues({
                 stats, chat, archive, archiveError, mappings, advancedOpen, coc: {
                     sheet: (() => { try { return typeof options.statsCoc === 'function' && !idx ? options.statsCoc('sheet') : null; } catch (error) { return null; } })(),
+                    mode: (() => { try { return typeof options.statsCoc === 'function' && !idx ? options.statsCoc('mode') : 'daily'; } catch (error) { return 'daily'; } })(),
+                    live: (() => { try { return typeof options.statsCoc === 'function' && !idx ? options.statsCoc('live') : null; } catch (error) { return null; } })(),
+                    npc: (() => { try { return typeof options.statsCoc === 'function' && !idx ? options.statsCoc('npc') : null; } catch (error) { return null; } })(),
                     draft: asyncState.cocDraft || null, saving: Boolean(asyncState.cocSaving), error: asyncState.cocError || '', notice: asyncState.cocNotice || '',
                 }, noteDrafts: asyncState.statsNoteDrafts || null,
                 combatOn: Boolean(reader && reader.combatExpansion && reader.combatExpansion.enabled === true),
