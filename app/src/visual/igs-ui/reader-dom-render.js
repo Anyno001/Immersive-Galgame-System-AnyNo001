@@ -2183,7 +2183,8 @@ export function applyReaderSnapshotToDom(root, snapshot, current, ctx = {}) {
             const plateParts = rgba(plateRaw);
             const plateAlpha = plateParts.length > 3 ? plateParts[3] : (plateParts.length ? 1 : 0);
             const lightInk = (r * 299 + g * 587 + b * 114) / 1000 > 140;
-            const plate = plateAlpha >= 0.15 ? `rgb(${plateParts.slice(0, 3).join(',')})` : (lightInk ? 'rgb(18,18,20)' : 'rgb(246,244,240)');
+            const plateLight = plateParts.length >= 3 && (plateParts[0] * 299 + plateParts[1] * 587 + plateParts[2] * 114) / 1000 > 140;
+            const plate = plateAlpha >= 0.15 && plateLight !== lightInk ? `rgb(${plateParts.slice(0, 3).join(',')})` : (lightInk ? 'rgb(18,18,20)' : 'rgb(246,244,240)');
             if (ink) root.style.setProperty('--igs-bar-ink', ink);
             root.style.setProperty('--igs-bar-plate', plate);
             // 展开工具栏的羽化底板也跟对话框的毛玻璃走：有就照搬（封顶 10px 保持轻量），没有用 6px。
