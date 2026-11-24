@@ -44,9 +44,17 @@ export function createStatsGenerationSave({ intents, tables, chatId }) {
         const held = pending();
         if (!held.ok || held.intent) return held.ok ? fail('stats-generation-save-pending') : held;
         if (!Array.isArray(beforeRows)) return fail('stats-generation-base-unavailable');
+        let resolvedLayout = layout === 'v2' || layout === 'legacy' ? layout : null;
+        if (!resolvedLayout) {
+            try {
+                const db = tables();
+                const probe = db?.ok ? db.read({ kinds: ['stats'] }) : null;
+                if (probe?.ok && (probe.layout === 'v2' || probe.layout === 'legacy')) resolvedLayout = probe.layout;
+            } catch { /* 无可用布局时按缺省省略 */ }
+        }
         const bases = [...new Set(records.map(slot))].map(key => [key, beforeRows.filter(row => slot(row) === key).at(-1)?.id || null]);
         const intent = JSON.parse(JSON.stringify({ version: 1, id: `sg-${records[0].id}`,
-            chatId: chatId(), ...(layout === 'v2' || layout === 'legacy' ? { layout } : {}), key, records, bases, result }));
+            chatId: chatId(), ...(resolvedLayout ? { layout: resolvedLayout } : {}), key, records, bases, result }));
         if (!alive()) return fail('request-stale');
         const saved = intents.save(intent.chatId, intent);
         return saved.ok ? { ok: true, intent } : saved;

@@ -50,19 +50,43 @@ export function createIgsChatStore({ api, chatId, chat = () => [], userName = ()
         const marker = createCombatTables({ api: host, client, serial, cellMax, specs: IGS_MARKER_SPECS });
         held.readiness = createTableReadiness({ client, chatId: id, generation, serial, isCurrent: valid });
         let confirmedLayout = null;
+        // 宿主切聊天或重载数据库时会先把运行时表清空为 {} 并通知回调；收到空快照时立刻释放旧内存锁存，
+        // 避免切聊天瞬间读到上一聊天的旧表后把新聊天永久锁死在 igs-layout-conflict。
+        const onHostTableUpdated = (data) => {
+            if (!valid()) return;
+            if (data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0) {
+                confirmedLayout = null;
+            }
+        };
+        try {
+            if (client.registerCallback(onHostTableUpdated)) {
+                subscriptions.add(() => client.unregisterCallback(onHostTableUpdated));
+            }
+        } catch { /* 无回调宿主走 not-ready / cleanEmpty 路径重置 */ }
         function layout(recoveryRecords = []) {
             if (!valid()) return stale();
             const loaded = client.readSheets();
             if (!valid()) return stale();
-            if (!loaded.ok) return stateOf(loaded);
+            if (!loaded.ok) {
+                if (loaded.reason === 'not-ready') confirmedLayout = null;
+                return stateOf(loaded);
+            }
             let proof;
             try { proof = evidence(id); } catch { proof = { ok: false, reason: 'igs-legacy-evidence-read-failed' }; }
             const result = resolveIgsLayout(loaded.sheets, proof, { recoveryRecords, cellMax });
             if (!result.ok) return result;
+            const writingAny = legacy.isWriting() || modern.isWriting() || marker.isWriting();
+            // 若当前所有 IGS 新旧表均无数据行、无布局标记、无旧聊天证据且非写入中，说明聊天处于干净空档
+            //（例如切聊天窗口曾误读上一聊天旧表后已切回空档，或首楼被重摇/清表回到空白态）；释放旧内存锁存，允许按空白 v2 重建。
+            // 若 v2 业务表仍有数据却缺标记，resolveIgsLayout 已返回 igs-layout-marker-missing；若新旧布局真冲突则仍由下方拦截。
+            const cleanEmpty = result.layout === 'v2' && !result.marked && !result.hasRecords && !result.hasEvidence && !result.markerPending;
+            if (confirmedLayout && cleanEmpty && !writingAny) {
+                confirmedLayout = null;
+            }
             if (confirmedLayout && (result.layout !== confirmedLayout || (confirmedLayout === 'v2' && !result.marked))) {
                 return { ok: false, status: 'failed', reason: 'igs-layout-conflict' };
             }
-            if (result.layout === 'legacy' || result.marked) confirmedLayout = result.layout;
+            if ((result.layout === 'legacy' && result.hasRecords) || result.marked) confirmedLayout = result.layout;
             return result;
         }
         const storageFor = state => state.layout === 'legacy' ? legacy : modern;
@@ -141,7 +165,11 @@ export function createIgsChatStore({ api, chatId, chat = () => [], userName = ()
                 if (!alive()) return stale();
                 if (!state.ok) return state;
                 const result = await storageFor(state).ensure({ kinds: [...new Set(selected.map(kind => mapped(kind, state)))],
-                    shouldStart: () => alive() && layout(proof).layout === state.layout });
+                    shouldStart: () => {
+                        if (!alive()) return false;
+                        const next = layout(proof);
+                        return next.ok && next.layout === state.layout && (state.layout === 'legacy' || next.marked);
+                    } });
                 return alive() ? stateOf(result) : stale();
             }
             async function append(kind, records, options = {}) {

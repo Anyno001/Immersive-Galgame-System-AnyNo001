@@ -593,3 +593,233 @@ test('需求4：旁白按句分页与对白/心理话按句分页默认勾选，
     assert.equal(appFreshRestarted.getUnifiedSettings().bridge.sentencePaging, false);
     assert.equal(appFreshRestarted.getUnifiedSettings().bridge.dialogueSentencePaging, true);
 });
+
+test('回归：切聊天与 shujuku 重载竞态、igs_stats_declined 与并发生成不报 igs-layout-conflict，并正常建表落盘', async (t) => {
+    const createStatsFixture = ({ chatId: initialChatId, chatMetadata = {}, chat, llmHandler }) => {
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        db.sheets.sheet_userbag = userInventorySheet();
+        const tableCallbacks = new Set();
+        const origRegister = db.api.registerTableUpdateCallback;
+        const origUnregister = db.api.unregisterTableUpdateCallback;
+        db.api.registerTableUpdateCallback = (cb) => { tableCallbacks.add(cb); origRegister?.(cb); };
+        db.api.unregisterTableUpdateCallback = (cb) => { tableCallbacks.delete(cb); origUnregister?.(cb); };
+        const notifyTable = (data) => { for (const cb of [...tableCallbacks]) cb(data); };
+        const storage = createMemoryStorage();
+        let chatId = initialChatId;
+        const listeners = new Map();
+        const emit = (k, ...args) => { for (const fn of [...(listeners.get(k) || [])]) fn(...args); };
+        const ctx = {
+            name1: '阿不思',
+            name2: '小雪',
+            chat: chat || [{ is_user: false, mes: '[igs-scene:山脉|傍晚]\n铅灰色的云层压在苍白山脉南麓。', swipe_id: 0 }],
+            chatMetadata,
+            extensionPrompts: {},
+            saveMetadata() {},
+            getCurrentChatId: () => chatId,
+            eventTypes: {
+                CHAT_CHANGED: 'cc', GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', GENERATION_STOPPED: 'gx',
+                MESSAGE_SWIPED: 'ms', MESSAGE_DELETED: 'md', MESSAGE_UPDATED: 'mu', MESSAGE_EDITED: 'me',
+            },
+            eventSource: {
+                on(k, fn) { if (!listeners.has(k)) listeners.set(k, new Set()); listeners.get(k).add(fn); },
+                removeListener(k, fn) { listeners.get(k)?.delete(fn); },
+            },
+            setExtensionPrompt(k, value) { ctx.extensionPrompts[k] = { value }; },
+        };
+        const host = { AutoCardUpdaterAPI: db.api, SillyTavern: { getContext: () => ctx } };
+        const chatStore = createIgsChatStore({
+            storage,
+            api: () => host.AutoCardUpdaterAPI,
+            chatId: () => chatId,
+            userName: () => '阿不思',
+            sourceFilter: () => undefined,
+            chat: () => ctx.chat,
+            evidence: (id) => readIgsChatEvidence({ context: ctx, chatId: id, storage }),
+        });
+        const rt = createStatsRuntime({
+            getContext: () => ctx,
+            storage,
+            generationIdentity: () => chatStore.get(),
+            attributeAccess: () => chatStore.get().attributeAccess,
+            statsTables: () => chatStore.get().statsAccess,
+            currencyInventory: () => chatStore.get().inventory,
+            currencyEditStorage: storage,
+            getPushClient: () => ({
+                readTables: () => ({ ok: true, data: db.api.exportTableAsJson() }),
+                registerCallback: (cb) => db.api.registerTableUpdateCallback(cb),
+                unregisterCallback: (cb) => db.api.unregisterTableUpdateCallback(cb),
+            }),
+            readSettings: () => ({ enabled: true, ruleset: 'coc7', sheetGen: 'auto', backfill: 'off', autoSkill: false }),
+            getBackgroundRequest: () => llmHandler || (async (prompt) => {
+                const text = `${prompt?.system || ''}\n${prompt?.user || ''}`;
+                if (text.includes('可分配技能')) {
+                    return JSON.stringify({ 侦查: '精通', 聆听: '熟练', 图书馆: '熟练', 潜行: '入门', 闪避: '入门' });
+                }
+                return JSON.stringify({
+                    attributes: { 力量: 12, 敏捷: 13, 体质: 11, 智力: 15, 感知: 14, 魅力: 12 },
+                    bio: '行于苍白山脉的旅人。',
+                    currency: { name: '银币', initial: 80, prices: { 少量: 5, 普通: 20, 昂贵: 80, 巨额: 400 }, rate: 1 },
+                });
+            }),
+        });
+        t.after(() => { rt.destroy(); chatStore.dispose(); });
+        const sheetNames = () => Object.values(db.sheets).map((s) => s.name);
+        return {
+            db, storage, ctx, chatStore, rt, emit, sheetNames, notifyTable,
+            setChat(nextId, nextChat, nextMeta = {}) {
+                chatId = nextId;
+                ctx.chat = nextChat;
+                ctx.chatMetadata = nextMeta;
+            },
+        };
+    };
+
+    // 1) CHAT_CHANGED 竞态：Chat A 已有 v2 标记与数据；切到新聊天 Chat B 时 IGS 先于 shujuku 读到 Chat A 的旧表，
+    // 随后 shujuku 先清空为 {} 并通知回调，再延迟加载 Chat B 空白表；Chat B 不得报 igs-layout-conflict，且生成后正常建表落盘。
+    {
+        const f = createStatsFixture({ chatId: 'chat-race-a' });
+        f.rt.sync();
+        const resA = await f.rt.noticeAction('hero-init-mode', 'auto');
+        assert.equal(resA.ok, true, JSON.stringify(resA));
+        await f.rt.whenSaved();
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.layout.name), 'Chat A 已写入 v2 标记表');
+
+        // 切换到 Chat B：此时 db.sheets 仍是 Chat A 的旧表（模拟 shujuku CHAT_CHANGED 还没跑）
+        f.setChat('chat-race-b', [{ is_user: false, mes: '[igs-scene:山脉|傍晚]\n新开局第一层。', swipe_id: 0 }], {});
+        f.chatStore.reset();
+        f.emit('cc');
+
+        // 1ms 后 shujuku 执行 clearDerivedRuntimeState_ACU + notifyRuntimeTableCleared_ACU({})
+        const savedSheets = f.db.sheets;
+        const origExport = f.db.api.exportTableAsJson;
+        let runtimeCleared = true;
+        f.db.api.exportTableAsJson = () => (runtimeCleared ? {} : origExport());
+        f.notifyTable({});
+
+        // 1200ms 后 shujuku 完成 Chat B 的空白模板加载并通知回调
+        for (const k of Object.keys(savedSheets)) delete savedSheets[k];
+        savedSheets.sheet_userbag = userInventorySheet();
+        runtimeCleared = false;
+        f.db.api.exportTableAsJson = origExport;
+        f.notifyTable(f.db.api.exportTableAsJson());
+
+        // Chat B 点击自动生成 + 按人设生成：均不得报 igs-layout-conflict，且必须正常建表与落盘
+        const resB = await f.rt.noticeAction('hero-init-mode', 'auto');
+        assert.equal(resB.ok, true, `Chat B 自动生成失败：${JSON.stringify(resB)}`);
+        await f.rt.whenSaved();
+        const noticesB = f.rt.notices();
+        assert.equal(noticesB.some((n) => String(n.text || '').includes('igs-layout-conflict')), false, JSON.stringify(noticesB));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.layout.name), 'Chat B 必须创建 IGS·存储');
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.attribute.name), 'Chat B 必须创建 IGS数值·属性');
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.stats.name), 'Chat B 必须创建 IGS数值·日志');
+    }
+
+    // 2) 历史聊天带 igs_stats_declined = true 且无旧表记录：延迟建表下启用后删除 declined 标记不得触发 igs-layout-conflict
+    {
+        const f = createStatsFixture({ chatId: 'chat-declined-v2', chatMetadata: { igs_stats_declined: true } });
+        f.rt.sync();
+        assert.equal(f.rt.isChatEnabled(), true);
+        assert.equal(f.ctx.chatMetadata.igs_stats_declined, undefined, '启用后旧 declined 标记已清除');
+        assert.equal(f.sheetNames().includes(IGS_TABLE_SPECS.layout.name), false, '延迟建表：未生成前不提前建表');
+
+        const res = await f.rt.noticeAction('hero-init-mode', 'auto');
+        assert.equal(res.ok, true, `declined 聊天自动生成失败：${JSON.stringify(res)}`);
+        await f.rt.whenSaved();
+        const notices = f.rt.notices();
+        assert.equal(notices.some((n) => String(n.text || '').includes('igs-layout-conflict')), false, JSON.stringify(notices));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.layout.name));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.attribute.name));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.stats.name));
+    }
+
+    // 3) 空白聊天并发执行 ensureHeroInit 与 assignHeroSkills（双方均在零表状态下并发起请求，且技能先回包）：
+    //    不得产生 igs-layout-conflict 或 stats-generation-log-conflict，两份生成结果均建表落盘。
+    {
+        let releaseHeroInit;
+        const heroInitGate = new Promise((resolve) => { releaseHeroInit = resolve; });
+        const f = createStatsFixture({
+            chatId: 'chat-concurrent-fresh',
+            llmHandler: async (prompt) => {
+                const text = `${prompt?.system || ''}\n${prompt?.user || ''}`;
+                if (text.includes('可分配技能')) {
+                    return JSON.stringify({ 侦查: '精通', 聆听: '熟练', 图书馆: '熟练', 潜行: '入门', 闪避: '入门' });
+                }
+                await heroInitGate;
+                return JSON.stringify({
+                    attributes: { 力量: 14, 敏捷: 12, 体质: 12, 智力: 13, 感知: 11, 魅力: 10 },
+                    bio: '并发测试主角。',
+                    currency: { name: '金币', initial: 120, prices: { 少量: 5, 普通: 20, 昂贵: 100, 巨额: 500 }, rate: 1 },
+                });
+            },
+        });
+        f.rt.sync();
+        const heroPromise = f.rt.noticeAction('hero-init-mode', 'auto');
+        const skillPromise = f.rt.noticeAction('hero-pick', 'assign');
+        const skillRes = await skillPromise;
+        assert.equal(skillRes.ok, true, `并发 assignHeroSkills 失败：${JSON.stringify(skillRes)}`);
+        releaseHeroInit();
+        const heroRes = await heroPromise;
+        assert.equal(heroRes.ok, true, `并发 ensureHeroInit 失败：${JSON.stringify(heroRes)}`);
+        await f.rt.whenSaved();
+        const notices = f.rt.notices();
+        assert.equal(notices.some((n) => String(n.text || '').includes('igs-layout-conflict')), false, JSON.stringify(notices));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.layout.name));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.attribute.name));
+        assert.ok(f.sheetNames().includes(IGS_TABLE_SPECS.stats.name));
+        assert.equal(f.rt.currencyBalance(), 120);
+        assert.equal(f.rt.archive()?.currency?.ready, true);
+        assert.equal(f.rt.getCatalog().heroAssigned, true);
+    }
+
+    // 4) 首楼重摇/清表回到干净空白态可恢复重建；真正的布局冲突与缺标记业务行仍必须 fail-closed 拦截
+    {
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        db.sheets.sheet_userbag = userInventorySheet();
+        const storage = createMemoryStorage();
+        const ctx = { chatId: 'chat-conflict-guard', chat: [], chatMetadata: {}, getCurrentChatId: () => 'chat-conflict-guard' };
+        const chatStore = createIgsChatStore({
+            storage,
+            api: () => db.api,
+            chatId: () => ctx.chatId,
+            chat: () => ctx.chat,
+            evidence: (id) => readIgsChatEvidence({ context: ctx, chatId: id, storage }),
+        });
+        t.after(() => chatStore.dispose());
+        const owner = chatStore.get();
+        // 先确认 v2 并写入标记与属性表
+        assert.equal((await owner.attributes.ensure()).ok, true);
+        assert.equal(owner.layout().marked, true);
+
+        // 4a) 若完全清空 IGS 表（模拟首楼被重摇/清表或无空回调的切聊天），回到干净空白态可恢复重建
+        for (const k of Object.keys(db.sheets)) if (k !== 'sheet_userbag') delete db.sheets[k];
+        owner.client.invalidate();
+        const recoveredEmpty = owner.layout();
+        assert.equal(recoveredEmpty.ok, true);
+        assert.equal(recoveredEmpty.layout, 'v2');
+        assert.equal(recoveredEmpty.marked, false);
+        assert.equal((await owner.attributes.ensure()).ok, true);
+        assert.equal(owner.layout().marked, true);
+
+        // 4b) 真正冲突 1：v2 已确认后，标记丢失但 v2 业务表仍有数据行 -> 必须拦截 igs-layout-marker-missing
+        const attrKey = Object.keys(db.sheets).find((k) => db.sheets[k].name === IGS_TABLE_SPECS.attribute.name);
+        const layoutKey = Object.keys(db.sheets).find((k) => db.sheets[k].name === IGS_TABLE_SPECS.layout.name);
+        db.sheets[attrKey].content.push(['r1', 'hero-base|x', 'x', 'hero-base', '', '1', '初始化', '1/1', '{"scores":{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10}}']);
+        db.sheets[layoutKey].content = [db.sheets[layoutKey].content[0]];
+        owner.client.invalidate();
+        assert.equal(owner.layout().reason, 'igs-layout-marker-missing');
+
+        // 4c) 真正冲突 2：v2 已确认后，标记丢失且出现旧表数据行 -> 必须拦截 igs-layout-conflict
+        delete db.sheets[attrKey];
+        delete db.sheets[layoutKey];
+        db.sheets[COMBAT_TABLE_SPECS.stats.uid] = {
+            uid: COMBAT_TABLE_SPECS.stats.uid,
+            name: COMBAT_TABLE_SPECS.stats.name,
+            content: [
+                ['row_id', ...COMBAT_TABLE_SPECS.stats.columns],
+                ['r1', 'init-1', '', 'init', '', '1', '', '1/1', '{"state":{"protagonist":{"skills":{}},"characters":{}}}'],
+            ],
+        };
+        owner.client.invalidate();
+        assert.equal(owner.layout().reason, 'igs-layout-conflict');
+    }
+});

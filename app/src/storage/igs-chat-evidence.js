@@ -5,7 +5,7 @@ import { attributeIntentKey, validAttributeIntent } from './attribute-intent.js'
 import { heroInitKey, validHeroInitIntent } from './hero-init-intents.js';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const metadataKeys = ['igs_stats', 'igs_stats_v1_backup', 'igs_stats_declined', 'igsCombatTraitSeed', 'origin_v2', 'origin'];
+const metadataKeys = ['igs_stats', 'igs_stats_v1_backup', 'igsCombatTraitSeed', 'origin_v2', 'origin'];
 const floorKeys = ['igsCombat', 'originBlocks', 'originBase', 'igs_points_uid'];
 
 export function readIgsChatEvidence({ context, chatId, storage }) {

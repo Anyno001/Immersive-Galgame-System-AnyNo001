@@ -829,6 +829,8 @@ export function createStatsRuntime({
             // 阶段 3：货币定义写入/确认
             if (intent.needCurrency && intent.stage !== 'currency-seed' && intent.stage !== 'done') {
                 progress('currency-config');
+                if (generationCommitActive > 0) await generationCommitTail;
+                if (!alive()) return { ok: false, stage: 'currency-config', reason: 'request-stale' };
                 const statsRead = readAuthoritativeStatsCurrency(alive, { allowMissing: true });
                 if (!statsRead.ok) return { ...statsRead, stage: 'currency-config' };
                 const existing = statsRead.currency;
@@ -865,6 +867,7 @@ export function createStatsRuntime({
                 if (!adv.ok) return adv;
             }
             // 阶段 4.5：写入主角简介（不覆盖已有简介，独立键值不锁 NPC 或技能写入）；若尚有未落盘的初始账本也一并落地。
+            if (generationCommitActive > 0) await generationCommitTail;
             if (intent.bio && !String(catalog.heroBio || '').trim() && alive()) {
                 catalog = sanitizeCatalog({ ...catalog, heroBio: intent.bio });
                 persist([], { shouldStart: alive });
@@ -994,12 +997,14 @@ export function createStatsRuntime({
                 const access = attributeAccess();
                 const latestAttr = readHeroAttributeState(access, heroName, alive);
                 if (!latestAttr.ok) return latestAttr;
+                if (latestAttr.layout === 'v2' || latestAttr.layout === 'legacy') layout = latestAttr.layout;
                 if (latestAttr.view.initialized) finalNeedAttributes = false;
                 else heroKey = latestAttr.view.key;
             }
             if (finalNeedCurrency) {
                 const latestStats = readAuthoritativeStatsCurrency(alive, { allowMissing: true });
                 if (!latestStats.ok) return latestStats;
+                if (latestStats.layout === 'v2' || latestStats.layout === 'legacy') layout = latestStats.layout;
                 if (latestStats.currency) finalNeedCurrency = false;
             }
             if (!finalNeedAttributes && !finalNeedCurrency && !(needBio && parsed.bio)) {
@@ -1243,13 +1248,28 @@ export function createStatsRuntime({
         for (const item of read.items) diag('stats-table-manual-adopted', { name: item.name, key: item.key, from: item.from, to: item.shown });
         return { ok: true, adopted: read.items, skills };
     }
-    const onTableUpdated = () => {
+    let awaitingTableReload = false;
+    const onTableUpdated = (data) => {
         tableCache = null;
         managedCache = null;
-        if (settings().enabled && !ledger
-            && ['combat-table-not-ready', 'combat-table-runtime-not-ready', 'not-ready', 'missing-api'].includes(blocked || unavailable)) {
+        const payload = data !== undefined ? data : (() => { try { const r = getPushClient()?.readTables?.(); return r?.ok ? r.data : undefined; } catch { return undefined; } })();
+        const emptyData = payload != null && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+        if (emptyData) {
+            if (inflight === 0 && currencyBusy === 0 && generationCommitActive === 0) {
+                awaitingTableReload = true;
+                loadedKey = '';
+            }
+            return;
+        }
+        const waitingState = ['combat-table-not-ready', 'combat-table-runtime-not-ready', 'not-ready', 'missing-api', 'igs-layout-conflict'].includes(blocked || unavailable);
+        if (settings().enabled && !generating
+            && ((awaitingTableReload && inflight === 0 && currencyBusy === 0 && generationCommitActive === 0)
+                || (!ledger && waitingState))) {
+            const reloadedAfterClear = awaitingTableReload;
+            awaitingTableReload = false;
             load();
             autoEnable();
+            if (reloadedAfterClear) onChange(ledger ? currentStatsState(ledger) : null, null, { chatChanged: true });
             refreshOnboarding();
             if (active()) refreshLife();
             ensureCurrency();
@@ -2783,6 +2803,7 @@ export function createStatsRuntime({
     }
 
     function onChatChanged() {
+        awaitingTableReload = false;
         invalidateGenerations();
         invalidateCurrencyJob();
         sheetsDeferredByGenerating = false;
@@ -2800,6 +2821,7 @@ export function createStatsRuntime({
     }
 
     function detach() {
+        awaitingTableReload = false;
         invalidateGenerations();
         invalidateCurrencyJob();
         sheetsDeferredByGenerating = false;
@@ -2862,10 +2884,12 @@ export function createStatsRuntime({
         if (blocked) return { ok: false, reason: blocked };
         const chatId = chatIdOf(ctx());
         if (!chatId) return { ok: false, reason: 'stats-no-chat' };
+        let tableReady = ledgerPersisted;
         if (!ledger) {
             const t = tables();
             const rows = t.ok ? t.read({ kinds: ['stats'] }) : t;
             if (!rows || rows.ok !== true) return { ok: false, reason: (rows && rows.reason) || 'stats-log-read-failed' };
+            tableReady = Array.isArray(rows.stats) && !rows.layoutPending;
             // 直接启用（快速开始、自动启用）不送技能，「我的角色」里提示选擅长技能（3+5）。
             ledger = createStatsLedger(chatId, initial || createStatsState({ skills: [] }));
             ledgerPersisted = false;
@@ -2877,8 +2901,8 @@ export function createStatsRuntime({
         if (!buildMode && mode) buildMode = mode;
         modePending = false;
         if (declined) { store.setDeclined(false); declined = false; }
-        // 仅在已有已落盘账本（如暂停后重新启用）时立即写回启用标记；全新未落盘账本等待实际数据写入再建表与落盘。
-        if (ledgerPersisted) persist();
+        // 若数值日志表尚不存在或布局未确认（延迟建表），等待实际数据生成成功后随数据一并建表落盘；若表已就绪则立即落盘启用与初始账本。
+        if (ledgerPersisted || tableReady) persist();
         onChange(currentStatsState(ledger), null);
         refreshOnboarding();
         onBuildPolicyChange();

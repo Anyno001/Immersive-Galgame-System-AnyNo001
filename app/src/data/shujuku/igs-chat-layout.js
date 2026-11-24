@@ -54,5 +54,5 @@ export function resolveIgsLayout(sheets, evidence, { recoveryRecords = [], cellM
     const hasRecords = sheets.some(sheet => legacy.some(([, spec]) => spec.name === sheet.name) && sheet.rows.length);
     if (markerPending && (hasRecords || evidence.exists)) return fail('igs-layout-conflict');
     return { ok: true, status: 'ready', layout: hasRecords || evidence.exists ? 'legacy' : 'v2',
-        marked: false, markerPending, id: IGS_LAYOUT_ID };
+        marked: false, markerPending, hasRecords, hasEvidence: Boolean(evidence.exists), id: IGS_LAYOUT_ID };
 }
