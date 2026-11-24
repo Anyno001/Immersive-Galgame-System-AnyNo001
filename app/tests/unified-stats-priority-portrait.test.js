@@ -692,8 +692,13 @@ test('主角擅长技能单批容错解析与并发完成不误报 stats-generat
 
     const heroRun = rt.noticeAction('hero-init-mode', 'auto');
     const pickNotice = rt.notices().find((n) => n.id === 'hero-pick');
-    assert.ok(pickNotice, '初始化期间仍允许手动选择覆盖');
-    assert.equal(pickNotice.actions.some(([act]) => act === 'assign'), false, '主角初始化已在单批生成技能时，hero-pick 不应展示重复的「按人设生成」按钮');
+    assert.ok(pickNotice, '初始化期间应询问是否同意自动填写或手动填写');
+    assert.match(pickNotice.text, /是否同意自动填写/, '提示语应明确询问是否同意自动填写');
+    assert.deepEqual(pickNotice.actions, [['agree', '是'], ['open', '手动填写']], '选项应为「是」与「手动填写」，不出现易误解的「稍后」');
+    const agreeRes = rt.noticeAction('hero-pick', 'agree');
+    assert.equal(agreeRes.ok, true);
+    assert.equal(agreeRes.agreed, true);
+    assert.equal(rt.notices().some((n) => n.id === 'hero-pick'), false, '选「是」后提示条直接结束关闭');
 
     // 即使外部/旧路径并发触发了 assignHeroSkills，且 heroInit 先落库技能：
     const skillRun = rt.heroOp('assign', '', { overwrite: false });

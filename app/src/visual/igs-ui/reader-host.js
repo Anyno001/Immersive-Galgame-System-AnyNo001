@@ -354,7 +354,7 @@ export function createIgsReaderHost(options = {}) {
             if (result && result.ok === false && result.reason && result.reason !== 'stats-notice-gone' && result.reason !== 'request-stale') {
                 try { console.warn('[IGS 数值提示条] 操作未完成', id, act, result.reason); } catch { /* */ }
             }
-            if (result && result.openSettings) openSettings({ tab: result.openSettings, mode: state.activeReader ? state.activeReader.mode : undefined });
+            if (result && result.openSettings) openSettings({ page: result.openSettings, tab: result.openSettings, mode: state.activeReader ? state.activeReader.mode : undefined });
             // 主角开局「自行填写」独立弹窗（不依赖人物状态页，未开启卡片战斗也可填）。
             if (result && result.openPanel === 'hero-manual-setup') {
                 const current = state.activeReader;

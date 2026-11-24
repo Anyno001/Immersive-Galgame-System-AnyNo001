@@ -3453,11 +3453,11 @@ export function createStatsRuntime({
         const heroInitGeneratingSkills = Boolean(currencyJob && currencyJob.chatId === chatId && currencyJob.epoch === currencyEpoch && currencyJob.wantSkills && currencyJob.alive());
         const canAssign = Boolean(requester()) && !heroInitGeneratingSkills;
         const text = heroInitGeneratingSkills
-            ? '正在随主角初始化一并生成擅长技能；也可手动选择覆盖'
-            : '主角擅长技能：请选3项擅长、5项比较擅长，或按人设生成';
+            ? '主角擅长技能正在自动生成，是否同意自动填写？'
+            : (canAssign ? '主角擅长技能尚未设定，是否同意自动填写？' : '主角擅长技能尚未设定，请手动填写');
         const actions = heroInitGeneratingSkills
-            ? [['open', '手动选择'], ['later', '稍后']]
-            : (canAssign ? [['open', '手动选择'], ['assign', '按人设生成'], ['later', '稍后']] : [['open', '去选择'], ['later', '稍后']]);
+            ? [['agree', '是'], ['open', '手动填写']]
+            : (canAssign ? [['assign', '是'], ['open', '手动填写']] : [['open', '手动填写'], ['later', '暂不填写']]);
         setNotice('hero-pick', offer ? { kind: 'onboarding', order: 1, text, actions } : null);
     }
 
@@ -4640,6 +4640,7 @@ export function createStatsRuntime({
             heroPickAsked.add(cid);
             setNotice('hero-pick', null);
             if (action === 'assign') { heroManualPickOpen.delete(cid); return assignHeroSkills({ overwrite: false }); }
+            if (action === 'agree') { heroManualPickOpen.delete(cid); refreshOnboarding(); return { ok: true, agreed: true }; }
             if (action === 'open' && cid) heroManualPickOpen.add(cid);
             refreshOnboarding();
             return action === 'open' ? { ok: true, openSettings: 'stats' } : { ok: true };
