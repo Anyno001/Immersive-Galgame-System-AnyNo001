@@ -743,3 +743,22 @@ test('安科楼：判定掷骰后算式、结果与填入行一致，落定后�
     assert.equal(locks.length, 1);
     assert.equal(overlay.querySelector('.igs-fm-anke-dice').textContent, rolled);
 });
+
+test('线程别名合并：names 里的别名作为独立条目出现时并入主名，楼主键改成主名', async () => {
+    const { cleanThread, mergeThreadNames } = await import('../src/visual/igs-ui/forum-reader-model.js');
+    const t = cleanThread({
+        id: 't1', po: { kind: 'char', key: '哪吒' },
+        alias: { 哪吒: '龙崽', 李哪吒: '小龙' },
+        names: { 李哪吒: ['哪吒', '三太子'] },
+        manual: { alias: { 哪吒: true }, asked: { 哪吒: true } },
+    });
+    assert.deepEqual(Object.keys(t.alias), ['李哪吒']);
+    assert.equal(t.alias['李哪吒'], '小龙');
+    assert.deepEqual(t.names['李哪吒'], ['哪吒', '三太子']);
+    assert.deepEqual(t.po, { kind: 'char', key: '李哪吒' });
+    assert.equal(t.manual.alias['哪吒'], undefined);
+    assert.equal(t.manual.asked['哪吒'], undefined);
+    const moved = mergeThreadNames(cleanThread({ id: 't2', alias: { 哪吒: '龙崽' }, names: { 李哪吒: ['哪吒'] } }));
+    assert.equal(moved.alias['李哪吒'], '龙崽');
+    assert.equal(moved.alias['哪吒'], undefined);
+});

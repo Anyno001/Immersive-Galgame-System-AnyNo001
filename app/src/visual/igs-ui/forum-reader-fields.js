@@ -36,8 +36,11 @@ export function renderForumRegistryFields(data) {
             const code = (t.alias || {})[key];
             const names = (t.names || {})[key] || [];
             const summary = [label, code || (t.po && t.po.kind === 'char' && t.po.key === key ? '楼主' : ''), names.length ? `别名 ${names.join('、')}` : ''].filter(Boolean).join(' · ');
+            const isPo = t.po && t.po.kind === 'char' && t.po.key === key;
+            const drop = isPo ? '' : `<div class="igs-mood-word-tag">${esc(label)}<button type="button" class="igs-mood-word-del" data-action="forum-drop:${esc(t.id)}:${encKey(key)}" title="删除这个角色条目">×</button></div>`;
             return fold(`forum-${t.id}-${encKey(key)}`, summary, (code ? field(path, '代号', textInput(path, code, '留空恢复自动')) : '')
-                + field(namesPath, '别名', textInput(namesPath, names.join('、'), '用顿号分隔'), '正文与台词里的别名也按代号显示'));
+                + field(namesPath, '别名', textInput(namesPath, names.join('、'), '用顿号分隔'), '正文与台词里的别名也按代号显示')
+                + drop);
         }).join('');
         const title = titleAt(t, Infinity);
         const summary = [`帖子 ${i + 1}`, poLabel(t.po), title ? `《${title}》` : '', keys.length ? `${keys.length} 人` : ''].filter(Boolean).join(' · ');

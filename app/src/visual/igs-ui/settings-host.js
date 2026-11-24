@@ -574,7 +574,7 @@ export function createSettingsHost(deps) {
         }
 
         // 论坛登记（标题、板块、代号）随聊天存在 chatMetadata，不进设置草稿：虚拟 path 直接写登记。
-        const forumField = /^forum\.(title|board|alias|names|add|po)(?:\.(t\d+))?(?:\.(.+))?$/.exec(path);
+        const forumField = /^forum\.(title|board|alias|names|add|po|drop)(?:\.(t\d+))?(?:\.(.+))?$/.exec(path);
         if (forumField && forumRegistry) {
             const registry = forumRegistry;
             const data = registry.read();
@@ -591,6 +591,16 @@ export function createSettingsHost(deps) {
                 const key = decodeURIComponent(forumField[3] || '');
                 next.alias = { ...thread.alias };
                 if (text) { next.alias[key] = text; manual.alias[key] = true; } else { delete next.alias[key]; delete manual.alias[key]; }
+            } else if (forumField[1] === 'drop') {
+                const key = decodeURIComponent(forumField[3] || '');
+                if (thread.po && thread.po.kind === 'char' && thread.po.key === key) return { ok: true };
+                const without = (obj) => { const o = { ...obj }; delete o[key]; return o; };
+                next.alias = without(thread.alias);
+                next.names = without(thread.names);
+                manual.alias = without(manual.alias);
+                manual.asked = without(manual.asked);
+                registry.commit({ ...data, threads: data.threads.map((t) => (t.id === thread.id ? next : t)) });
+                return rerenderSettings();
             } else if (forumField[1] === 'po') {
                 const po = forumPoFromText(text);
                 if (!po) return { ok: true };
@@ -1339,6 +1349,10 @@ export function createSettingsHost(deps) {
 
     function handleSettingsAction(action) {
         if (action === 'query-nai-quota') return querySettingsNaiQuota({ state, options, rerenderSettings });
+        if (String(action).startsWith('forum-drop:')) {
+            const [, tid, ...rest] = String(action).split(':');
+            return Promise.resolve(updateSettingsValue(`forum.drop.${tid}.${rest.join(':')}`, ''));
+        }
         if (action === 'anchor-cg-viewport') return Promise.resolve(anchorCgViewport());
         if (String(action).startsWith('origin-op:')) return runOriginOp(String(action).slice('origin-op:'.length));
         if (action === 'origin-chat-pause') return runOriginOp('pause');

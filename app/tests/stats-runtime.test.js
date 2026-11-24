@@ -1017,3 +1017,16 @@ test('新聊天第0层并发：重要角色表人物在选自动生成时立即�
 });
 
 
+
+test('场景角色别名归到主名：正文标签写别名时记在主名名下，不另起一人', () => {
+    const f = setup(true, { favorMode: 'hard' });
+    f.rt.destroy();
+    const rt = f.make({ characterAliases: () => ({ 小雪: ['雪儿'] }) });
+    rt.sync();
+    rt.enableForChat();
+    generate(f.host, '她笑了。[igs-stat:favor|雪儿|开心]');
+    const names = Object.keys(rt.getState().characters);
+    assert.equal(names.includes('雪儿'), false);
+    assert.ok(rt.getState().characters.小雪.dims.好感 >= 1);
+    rt.destroy();
+});

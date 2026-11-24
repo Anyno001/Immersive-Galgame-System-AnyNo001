@@ -1082,6 +1082,18 @@ export function createStatsRuntime({
     const traitSwitchModel = (traits) => Object.fromEntries(Object.entries(traits).map(([n, marks]) => [n, Object.fromEntries(Object.entries(marks).filter(([, e]) => e && e.on === true).map(([k]) => [k, true]))]));
     // 默认在场判定：用户输入与最近两条 AI 回复里点到名字（含场景素材别名）的已建档角色。
     const PRESENT_SCAN_AI = 2;
+    // 先按改名表归名，再把场景素材别名（精确匹配）归到主名，「哪吒」与「李哪吒」按同一人处理。
+    const canonName = (name) => {
+        const base = canonPersonName(catalog.renames, name);
+        if (!base) return base;
+        let aliases = {};
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        if (Array.isArray(aliases[base])) return base;
+        for (const main of Object.keys(aliases)) {
+            if (Array.isArray(aliases[main]) && aliases[main].includes(base)) return canonPersonName(catalog.renames, main);
+        }
+        return base;
+    };
     const mentionedRecently = (state) => {
         const chat = messages(ctx());
         const ai = chat.filter((m) => m && !m.is_user && !m.is_system).slice(-PRESENT_SCAN_AI).map((m) => String(m.mes ?? ''));
@@ -1122,7 +1134,7 @@ export function createStatsRuntime({
         try { rows = tablePeople() || []; } catch (error) { rows = []; }
         const c = ctx();
         const skip = new Set([userName(), c && c.name1, PROTAGONIST].filter(Boolean));
-        const names = [...new Set(rows.map((row) => String((row && typeof row === 'object' ? row.name : row) || '').trim()))]
+        const names = [...new Set(rows.map((row) => canonName(String((row && typeof row === 'object' ? row.name : row) || '').trim())))]
             .filter((name) => name && !skip.has(name) && !isHero(name));
         tableCache = { at: Date.now(), names };
         return names;
@@ -1137,7 +1149,7 @@ export function createStatsRuntime({
             .map((n) => String(n || '').trim()).filter((n) => n && !isHero(n) && n !== PROTAGONIST);
         if (!names.length) return [];
         const text = messages(c).slice(0, upTo === Infinity ? undefined : upTo + 1).map((m) => String((m && m.mes) || '')).join('\n');
-        return [...new Set(names)].filter((n) => text.includes(n));
+        return [...new Set(names)].filter((n) => text.includes(n)).map((n) => canonName(n)).filter((n, i, all) => n && all.indexOf(n) === i);
     };
     const tableSeedOf = (state, upTo = Infinity) => {
         const fresh = [...new Set([...tableNames(), ...rosterNames(upTo)])].filter((name) => !state.characters[name] && !Object.hasOwn(catalog.renames, name));
@@ -2454,7 +2466,7 @@ export function createStatsRuntime({
                 env: traitEnvOf(body, previousBodies(c, messageId)), bondEvents: priorMeta.bondEvents || takeBondEvents(), reviewEvents: priorMeta.reviewEvents || takeReviewEvents(),
                 traitEdge: strengthRev >= 2 ? (st, req) => traitEdgeFor(st, { ...req, engine, viewed: true }) : null,
                 check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), currency: available, extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
-                random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(canonPersonName(catalog.renames, name), before), engine,
+                random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(canonName(name), before), engine,
                 expenses: catalog.expenses, heroSide,
                 seedCharacters: autoTable ? tableSeedOf(before, messageId) : null, fameBars: catalog.fameBars,
             });
@@ -2821,7 +2833,7 @@ export function createStatsRuntime({
         if (!active() || settings().sheetGen === 'off' || npcPolicy !== 'per-npc') return null;
         const state = currentStatsState(ledger);
         for (const rawName of Object.keys(state.characters || {})) {
-            const name = canonPersonName(catalog.renames, rawName);
+            const name = canonName(rawName);
             if (!name || isHero(name)) continue;
             if (catalog.sheets[name] || Object.hasOwn(npcChoices, name)) continue;
             return name;
@@ -3184,7 +3196,7 @@ export function createStatsRuntime({
             ...Object.keys(state.characters || {}),
             ...(triggerExisting || sheetsDeferredByGenerating ? (catalog.queue.people || []) : []),
         ];
-        const candidates = [...new Set(rawNames.map((n) => canonPersonName(catalog.renames, n)))]
+        const candidates = [...new Set(rawNames.map((n) => canonName(n)))]
             .filter((n) => n && !isHero(n) && !catalog.sheets[n] && npcChoices[n] !== 'defer');
         if (!candidates.length) { refreshNpcAsk(); return; }
         if (!npcPolicy) {
@@ -3196,7 +3208,7 @@ export function createStatsRuntime({
                 ? candidates
                 : candidates.filter((n) => !catalog.notified.includes(n));
             const deferred = !fresh.length && sheetsDeferredByGenerating && !generating
-                ? (catalog.queue.people || []).map((n) => canonPersonName(catalog.renames, n)).filter((n) => candidates.includes(n))
+                ? (catalog.queue.people || []).map((n) => canonName(n)).filter((n) => candidates.includes(n))
                 : [];
             const targets = fresh.length ? fresh : deferred;
             if (!targets.length) return;
@@ -3750,7 +3762,7 @@ export function createStatsRuntime({
         const state = heroView(currentStatsState(ledger), engine);
         const c = ctx();
         const resolve = resolveCharacter || defaultResolver(c, settings().register, worldRoles, tableNameSet(), isHero);
-        const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(canonPersonName(catalog.renames, name), state) });
+        const req = resolveDiceRequest(engine, state, command, { resolveCharacter: (name) => resolve(canonName(name), state) });
         if (!req) return null;
         const ensure = (skill) => (BUILTIN_SKILLS[skill] || engine.registry.has(skill) ? skill : commitSkill(skill) || skill);
         if (req.kind === 'check') {
@@ -4747,7 +4759,7 @@ export function createStatsRuntime({
         if (unavailable) return { ok: false, reason: unavailable };
         if (blocked) return { ok: false, reason: blocked };
         if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
-        const key = canonPersonName(catalog.renames, String(name || '').trim());
+        const key = canonName(String(name || '').trim());
         if (!key || key.length > 40 || isHero(key)) return { ok: false, reason: 'stats-npc-choice-invalid' };
         const normalized = choice === null ? null : normalizeNpcChoice(choice);
         if (choice !== null && !normalized) return { ok: false, reason: 'stats-npc-choice-invalid' };
@@ -4796,7 +4808,7 @@ export function createStatsRuntime({
         ensureLoaded(true);
         if (unavailable) return { ok: false, reason: unavailable };
         if (blocked) return { ok: false, reason: blocked };
-        const key = canonPersonName(catalog.renames, String(name || '').trim());
+        const key = canonName(String(name || '').trim());
         if (!key || key.length > 40) return { ok: false, reason: 'stats-build-choice-invalid' };
         if (choice !== null && !BUILD_CHOICES.includes(choice)) return { ok: false, reason: 'stats-build-choice-invalid' };
         if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };

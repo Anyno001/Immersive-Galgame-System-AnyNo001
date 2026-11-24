@@ -110,6 +110,38 @@ function cleanPo(value) {
 
 const wholeFrom = (value) => Math.max(0, Math.round(Number(value) || 0));
 
+// 同一线程里，names[主名] 列出的别名若又作为独立条目出现（代号、手动标记、已询问、别的主名、楼主），并入主名。
+export function mergeThreadNames(thread) {
+    const { alias, names, manual } = thread;
+    const asked = manual.asked;
+    for (const main of Object.keys(names)) {
+        if (!names[main]) continue;
+        for (const a of [...names[main]]) {
+            if (a === main) continue;
+            if (names[a]) {
+                names[main] = [...new Set([...names[main], ...names[a]])].filter((n) => n !== main).slice(0, 8);
+                delete names[a];
+            }
+            if (Object.hasOwn(alias, a)) {
+                if (!alias[main]) { alias[main] = alias[a]; if (manual.alias[a]) manual.alias[main] = manual.alias[a]; }
+                delete alias[a];
+            }
+            if (asked[a] && !asked[main]) asked[main] = asked[a];
+            delete manual.alias[a];
+            delete asked[a];
+            if (thread.po && thread.po.kind === 'char' && thread.po.key === a) thread.po = { kind: 'char', key: main };
+        }
+    }
+    return thread;
+}
+
+// 名字归到所在线程里的主名（names 反查）；不是别名就原样返回。
+export function threadMainName(thread, name) {
+    if (!thread || !thread.names || Object.hasOwn(thread.names, name)) return name;
+    for (const [main, list] of Object.entries(thread.names)) if (list.includes(name)) return main;
+    return name;
+}
+
 export function cleanThread(value) {
     const src = plain(value);
     const alias = {};
@@ -129,7 +161,7 @@ export function cleanThread(value) {
         .map((t) => ({ from: wholeFrom(plain(t).from), title: String(plain(t).title || '').trim().slice(0, 80), ...(plain(t).fb === true ? { fb: true } : {}) }))
         .filter((t) => t.title)
         .sort((x, y) => x.from - y.from);
-    return {
+    return mergeThreadNames({
         id: String(src.id || ''),
         po: cleanPo(src.po),
         poId: String(src.poId || '').slice(0, 8),
@@ -138,7 +170,7 @@ export function cleanThread(value) {
         names,
         seq: Math.max(0, Math.round(Number(src.seq) || 0)),
         manual: { title: manual.title === true, alias: { ...plain(manual.alias) }, asked: { ...plain(manual.asked) } },
-    };
+    });
 }
 
 function cleanTailItem(value) {
@@ -445,7 +477,7 @@ export function applyFloorTags(data, messageId, tags, opts = {}) {
         for (const [name, code] of tag.alias) {
             const key = keyOfName(name);
             if (!key && /^\{\{\s*user\s*\}\}$/i.test(name)) { dropped.push(name); continue; }
-            const aliasKey = key || name;
+            const aliasKey = threadMainName(thread, key || name);
             if (thread.manual.alias[aliasKey]) continue;
             thread.alias[aliasKey] = code.slice(0, 24);
         }
