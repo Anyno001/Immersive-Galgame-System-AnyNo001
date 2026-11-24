@@ -525,10 +525,33 @@ function applyDockReaderRuntime(root, runtime) {
     const doc = runtime.doc;
     if (!doc || !root || !root.style) return;
     const form = typeof doc.getElementById === 'function' ? doc.getElementById('form_sheld') : null;
+    const edgeIds = ['form_sheld', 'send_form', 'qr--bar', 'nonQRFormItems', 'leftSendForm'];
+    const measureTop = (viewH) => {
+        let top = viewH;
+        for (const id of edgeIds) {
+            const el = typeof doc.getElementById === 'function' ? doc.getElementById(id) : null;
+            const rect = el && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+            if (rect && rect.height > 0 && rect.top > 0 && rect.top < top) top = rect.top;
+        }
+        return top;
+    };
+    const liftIds = ['form_sheld', 'options', 'extensionsMenu'];
+    for (const id of liftIds) {
+        const el = typeof doc.getElementById === 'function' ? doc.getElementById(id) : null;
+        if (!el || !el.style) continue;
+        const saved = { z: el.style.zIndex, pos: el.style.position };
+        let pos = '';
+        try { pos = win.getComputedStyle ? win.getComputedStyle(el).position : ''; } catch { pos = ''; }
+        if (!pos || pos === 'static') el.style.position = 'relative';
+        el.style.zIndex = '2147483001';
+        addRuntimeCleanup(runtime, () => {
+            el.style.zIndex = saved.z;
+            el.style.position = saved.pos;
+        });
+    }
     const sync = () => {
         const viewH = Number(win.visualViewport && win.visualViewport.height) || Number(win.innerHeight) || 0;
-        const rect = form && typeof form.getBoundingClientRect === 'function' ? form.getBoundingClientRect() : null;
-        const formTop = rect && rect.height > 0 && rect.top > 0 ? rect.top : viewH;
+        const formTop = measureTop(viewH);
         const height = Math.max(0, Math.round(Math.min(formTop, viewH || formTop)));
         if (height > 0) root.style.height = `${height}px`;
         syncOrientationClass(root, win);

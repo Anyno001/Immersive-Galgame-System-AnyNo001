@@ -178,7 +178,7 @@ function cleanTailItem(value) {
     if (!r.no || !r.id) return null;
     return {
         k: wholeFrom(r.k), no: String(r.no).slice(0, 16), id: String(r.id).slice(0, 12), po: r.po === true, time: String(r.time || '').slice(0, 8),
-        text: String(r.text || '').slice(0, 600), quote: String(r.quote || '').slice(0, 80), ref: wholeFrom(r.ref),
+        text: String(r.text || ''), quote: String(r.quote || '').slice(0, 80), ref: wholeFrom(r.ref),
     };
 }
 
@@ -292,7 +292,7 @@ export function forumAnkeOf(source) {
         const kind = ANKE_KINDS[fields[0]];
         if (!kind) {
             if (fields.length < 3) continue;
-            found = { kind: 'pick', question: fields[0].slice(0, 80), options: fields.slice(1, 9).map((o) => o.slice(0, 120)) };
+            found = { kind: 'pick', question: fields[0], options: fields.slice(1, 9) };
             continue;
         }
         const rest = fields.slice(1);
@@ -301,18 +301,18 @@ export function forumAnkeOf(source) {
             const [actor, skill, value, level, code] = rest.slice(1);
             const v = Number(value);
             if (!skill || !(v >= 1 && v <= 99)) continue;
-            found = { kind, question: rest[0].slice(0, 80), options: [], actor: (actor || '楼主').slice(0, 20), skill: skill.slice(0, 12), value: Math.round(v), level: COC_LEVELS.includes(level) ? level : '普通', code: /^#?[A-Za-z][\w-]{0,40}$/.test(code || '') ? code.replace(/^#/, '') : '' };
+            found = { kind, question: rest[0], options: [], actor: (actor || '楼主').slice(0, 20), skill: skill.slice(0, 12), value: Math.round(v), level: COC_LEVELS.includes(level) ? level : '普通', code: /^#?[A-Za-z][\w-]{0,40}$/.test(code || '') ? code.replace(/^#/, '') : '' };
             continue;
         }
         if (kind === 'check') {
             const extra = rest.slice(1);
             const num = extra.find((f) => /^\d{1,2}$/.test(f) && Number(f) >= 1);
             const words = extra.filter((f) => !/^\d+$/.test(f));
-            found = { kind, question: rest[0].slice(0, 80), options: [], actor: (words[0] || '楼主').slice(0, 20), ability: abilityKeyOf(words[1]) || null, abilityText: (words[1] || '').slice(0, 12), line: num ? Number(num) : ANKE_CHECK_LINE };
+            found = { kind, question: rest[0], options: [], actor: (words[0] || '楼主').slice(0, 20), ability: abilityKeyOf(words[1]) || null, abilityText: (words[1] || '').slice(0, 12), line: num ? Number(num) : ANKE_CHECK_LINE };
             continue;
         }
         if (rest.length < 3) continue;
-        found = { kind, question: rest[0].slice(0, 80), options: rest.slice(1, 9).map((o) => o.slice(0, 120)) };
+        found = { kind, question: rest[0], options: rest.slice(1, 9) };
     }
     return found;
 }
