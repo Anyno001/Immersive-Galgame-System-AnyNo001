@@ -744,22 +744,20 @@ export function createAssetGenerationService(deps) {
         return records;
     }
 
-    // 数据库生图：本楼缺的立绘一次写完，再按份出图。超过 8 张均分成两批，一批写完并出完再写下一批。
+    // 数据库生图：本楼缺的立绘按批并发写词与出图，不再人为串行等待上一批画完。
     async function generateSpriteBatch(items, s, floor, floorKey) {
-        // 非人角色按形态、体型、落地、画布分批：固定词与取景因档案而异；人类角色全部落在同一组，流程不变。
+        // 非人角色按形态、体型、落地、画布分组并发处理：固定词与取景因档案而异；人类角色全部落在同一组。
         const profileKey = item => { const p = creatureOf(item.need.dna); return p ? [p.form, p.size, p.anchor, p.canvas].join('|') : ''; };
         if (new Set(items.map(profileKey)).size > 1) {
             const groups = new Map();
             for (const item of items) groups.set(profileKey(item), [...(groups.get(profileKey(item)) || []), item]);
-            const merged = [];
-            for (const group of groups.values()) merged.push(...await generateSpriteBatch(group, s, floor, floorKey));
-            return merged;
+            const results = await Promise.all([...groups.values()].map(group => generateSpriteBatch(group, s, floor, floorKey)));
+            return results.flat();
         }
         const profile = creatureOf(items[0]?.need.dna), creature = Boolean(profile);
-        const records = [];
         const guardOf = item => s.spriteShouldStart?.forCharacter?.(item.need.name) || s.spriteShouldStart;
         const itemCurrent = item => !guardOf(item) || guardOf(item)();
-        let stopError = '';
+        let loreStopError = '';
         const template = items.every(item => usesCharacterTemplates(taskBackend(s.taskSignal), item.need.dna));
         const paintMeta = template ? expressionPaintMeta({ template: true, signal: s.taskSignal, creature: profile }) : null;
         const transparent = template ? paintMeta.transparent : spriteTransparent(s);
@@ -774,7 +772,7 @@ export function createAssetGenerationService(deps) {
                     { includeWorldInfo: creature });
                 if (!Array.isArray(lore)) throw new Error('invalid-lore');
             } catch {
-                stopError = '角色设定读取失败，未发送自动立绘请求';
+                loreStopError = '角色设定读取失败，未发送自动立绘请求';
             }
         }
         // 整次点击先冻结全部身份；下一批不重新读取已改变的资料。
@@ -851,18 +849,20 @@ export function createAssetGenerationService(deps) {
             emit({ chatId: floor.chatId, messageId: floor.messageId, swipeId: floor.swipeId, key, reason: 'generated' });
             return record;
         };
-        for (const group of splitWriteBatches(items)) {
+        const batchResults = await Promise.all(splitWriteBatches(items).map(async (group) => {
+            const batchRecords = [];
             const batch = [];
             for (const item of group) {
                 if (itemCurrent(item)) batch.push(item);
-                else records.push(await putSpriteRecord(item, staleSprite(guardOf(item))));
+                else batchRecords.push(await putSpriteRecord(item, staleSprite(guardOf(item))));
             }
-            if (!batch.length) continue;
+            if (!batch.length) return batchRecords;
             const batchCurrent = () => batch.map(itemCurrent).some(Boolean);
-            if (s.spriteShouldStart && !s.spriteShouldStart()) stopError = '角色或 DNA 开关已变化，已停止';
-            if (stopError) {
-                for (const item of batch) records.push(await putSpriteRecord(item, { ok: false, error: stopError }));
-                continue;
+            let batchStopError = loreStopError;
+            if (s.spriteShouldStart && !s.spriteShouldStart()) batchStopError = '角色或 DNA 开关已变化，已停止';
+            if (batchStopError) {
+                for (const item of batch) batchRecords.push(await putSpriteRecord(item, { ok: false, error: batchStopError }));
+                return batchRecords;
             }
             let written;
             const context = template ? [...new Map(batch.map((item) => {
@@ -896,15 +896,15 @@ export function createAssetGenerationService(deps) {
             if (!batchCurrent()) written = staleSprite(s.spriteShouldStart);
             const captions = written && written.ok && Array.isArray(written.captions) ? written.captions : [];
             if (!written || !written.ok) {
-                stopError = written && written.error ? written.error : '写提示词失败';
-                for (const item of batch) records.push(await putSpriteRecord(item, { ok: false, error: stopError }));
-                continue;
+                const errText = written && written.error ? written.error : '写提示词失败';
+                for (const item of batch) batchRecords.push(await putSpriteRecord(item, { ok: false, error: errText }));
+                return batchRecords;
             }
             for (let index = 0; index < batch.length; index += 1) {
                 const item = batch[index];
                 const spriteGuard = guardOf(item);
                 if (!itemCurrent(item)) {
-                    records.push(await putSpriteRecord(item, staleSprite(spriteGuard)));
+                    batchRecords.push(await putSpriteRecord(item, staleSprite(spriteGuard)));
                     continue;
                 }
                 const found = bindAutoSpriteOutfitNames(captions.find((entry) => Number(entry.slotId) === index + 1),
@@ -956,10 +956,11 @@ export function createAssetGenerationService(deps) {
                 }
                 if (!itemCurrent(item)) result = staleSprite(spriteGuard);
                 if (builtinSeeds(s.taskSignal) && result?.ok) result = { ...result, seed: resolveImageSeed(result.seed ?? seed) };
-                records.push(await putSpriteRecord(item, result, profileWrite));
+                batchRecords.push(await putSpriteRecord(item, result, profileWrite));
             }
-        }
-        return records;
+            return batchRecords;
+        }));
+        return batchResults.flat();
     }
 
     function releaseDayBases(floorKey) {
@@ -1265,16 +1266,15 @@ export function createAssetGenerationService(deps) {
             if (batchSprites && item.need && item.need.type === 'sprite') return false;
             return true;
         });
-        if (batchBackgrounds) {
-            for (const record of await generateBackgroundBatch(backgrounds, s, floor, key)) {
-                if (record.status === 'review') count += 1;
-                else errors.push(`「${record.name}」${record.error}`);
-            }
-        }
-        if (batchSprites) {
-            for (const record of await generateSpriteBatch(sprites, s, floor, key)) {
-                if (record.status === 'review') count += 1;
-                else errors.push(`「${record.name}」${record.error}`);
+        const batchTasks = [];
+        if (batchBackgrounds) batchTasks.push(generateBackgroundBatch(backgrounds, s, floor, key));
+        if (batchSprites) batchTasks.push(generateSpriteBatch(sprites, s, floor, key));
+        if (batchTasks.length) {
+            for (const batchRecords of await Promise.all(batchTasks)) {
+                for (const record of batchRecords) {
+                    if (record.status === 'review') count += 1;
+                    else errors.push(`「${record.name}」${record.error}`);
+                }
             }
         }
         for (const item of queue) {

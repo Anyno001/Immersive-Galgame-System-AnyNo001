@@ -131,6 +131,68 @@ export function buildCombatSheet(kind, orderNo, uid, specs = COMBAT_TABLE_SPECS)
 }
 
 const isSheetEntry = ([, value]) => value && typeof value === 'object' && typeof value.uid === 'string';
+const sameSheetHeader = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length
+    && a.every((col, index) => String(col ?? '').trim() === String(b[index] ?? '').trim());
+
+// 协调聊天模板与当前活跃表：当角色卡在首楼强行覆盖数据库预设或数据时，getTableTemplate 与 exportTableAsJson
+// 往往表集合或表头不同步。完全一致时原样克隆模板；发生分歧时以当前活跃表（liveRawData）为准保留角色卡的全部表结构
+// （同名同表头沿用原模板配置/DDL，角色卡新增或换表头的表直接用活跃表头与自身配置），丢弃模板中已被角色卡移除的旧表，
+// 避免导入覆盖角色卡数据或因 diverged/mismatch 阻塞建表。
+export function reconcileTemplateWithLive(templateData, liveRawData) {
+    const liveEntries = Object.entries(liveRawData && typeof liveRawData === 'object' ? liveRawData : {}).filter(isSheetEntry);
+    if (!liveEntries.length) return { ok: false, reason: 'live-empty' };
+    const liveNames = new Set();
+    for (const [, sheet] of liveEntries) {
+        const name = String(sheet.name || '').trim();
+        const header = Array.isArray(sheet.content?.[0]) ? sheet.content[0] : null;
+        if (!name || !header || !header.length || liveNames.has(name)) {
+            return { ok: false, reason: 'live-invalid' };
+        }
+        liveNames.add(name);
+    }
+    const tplEntries = Object.entries(templateData && typeof templateData === 'object' ? templateData : {}).filter(isSheetEntry);
+    const tplByName = new Map();
+    const tplDupNames = new Set();
+    for (const [, sheet] of tplEntries) {
+        const name = String(sheet.name || '').trim();
+        if (!name) continue;
+        if (tplByName.has(name)) tplDupNames.add(name);
+        else tplByName.set(name, sheet);
+    }
+    const exactMatch = tplEntries.length === liveEntries.length
+        && tplDupNames.size === 0
+        && liveEntries.every(([, live]) => {
+            const tpl = tplByName.get(String(live.name || '').trim());
+            return tpl && sameSheetHeader(tpl.content?.[0], live.content?.[0]);
+        });
+    if (exactMatch) {
+        return { ok: true, template: JSON.parse(JSON.stringify(templateData)), reconciled: false };
+    }
+    const next = {};
+    const mateSource = (liveRawData?.mate && typeof liveRawData.mate === 'object' && !Array.isArray(liveRawData.mate))
+        ? liveRawData.mate
+        : (templateData?.mate && typeof templateData.mate === 'object' && !Array.isArray(templateData.mate) ? templateData.mate : null);
+    if (mateSource) next.mate = JSON.parse(JSON.stringify(mateSource));
+    const sortedLive = [...liveEntries].sort(([, a], [, b]) => (Number(a.orderNo) || 0) - (Number(b.orderNo) || 0));
+    for (const [key, live] of sortedLive) {
+        const name = String(live.name || '').trim();
+        const tpl = !tplDupNames.has(name) ? tplByName.get(name) : null;
+        const header = JSON.parse(JSON.stringify(live.content[0]));
+        let base;
+        if (tpl && sameSheetHeader(tpl.content?.[0], live.content?.[0])) {
+            base = JSON.parse(JSON.stringify(tpl));
+            base.uid = live.uid;
+            base.content = [header];
+            if (live.orderNo !== undefined) base.orderNo = live.orderNo;
+        } else {
+            base = JSON.parse(JSON.stringify(live));
+            base.content = [header];
+        }
+        const targetKey = typeof base.uid === 'string' && base.uid ? base.uid : key;
+        next[targetKey] = base;
+    }
+    return { ok: true, template: next, reconciled: true };
+}
 
 // 在用户当前模板上补齐缺的战斗表，返回新模板（不改入参）与新增的种类。
 // 整体 JSON 克隆只在建表时跑一次，不在热路径上。
@@ -509,55 +571,70 @@ export function createCombatTables({ api, cellMax = DEFAULT_COMBAT_CELL_MAX, cli
         return !!parts && parts.size > 0 && parts.size < encode(kind, record).rows.length;
     }
 
-    // 缺表时在用户当前模板上补建，建完核对。
+    // 缺表时在用户当前模板上补建，建完核对；若角色卡首楼覆盖造成模板与活跃表分歧或导入中途被覆写，先按活跃表协调再最多重试一次。
     function ensure({ shouldStart = () => true, kinds = Object.keys(specs) } = {}) {
         if (!Array.isArray(kinds) || kinds.some(kind => !Object.hasOwn(specs, kind))) return Promise.resolve({ ok: false, reason: 'combat-table-unknown-kind' });
         return serial(async () => {
-            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
             const support = probe();
             if (!support.ok) return support;
-            const loaded = loadSheets(client);
-            if (!loaded.ok) return loaded;
-            const summary = summarizeSheets(client, loaded.sheets, [], specs);
-            const wanted = [...summary.missing, ...summary.optionalMissing].filter(kind => kinds.includes(kind));
-            if (!wanted.length) return { ok: true, created: [] };
-            const templateRead = client.getTableTemplate();
-            if (!templateRead.ok) return { ok: false, reason: 'combat-table-template-unavailable', detail: templateRead.reason };
-            const planned = withCombatSheets(templateRead.data, { specs, kinds });
-            if (!planned.added.length) return { ok: false, reason: 'combat-table-template-mismatch', missing: wanted };
-            // 用户模板与已有表集合不一致时不导入，避免覆盖用户的表。
-            const existingNames = new Set(loaded.sheets.map((sheet) => sheet.name));
-            const addedNames = new Set(planned.added.map((kind) => specs[kind].name));
-            const templateNames = parseTables(planned.template).map((sheet) => sheet.name);
-            const hidden = [...existingNames].filter((name) => !templateNames.includes(name));
-            const extra = templateNames.filter((name) => !existingNames.has(name) && !addedNames.has(name));
-            if (hidden.length || extra.length) {
-                return {
-                    ok: false, reason: 'combat-table-template-diverged', missing: wanted,
-                    ...(hidden.length && { hidden }), ...(extra.length && { extra }),
-                };
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+                client.invalidate?.();
+                const rawRead = client.readTables();
+                if (!rawRead.ok) return { ok: false, reason: 'combat-table-read-failed', detail: rawRead.reason };
+                const liveRaw = rawRead.data;
+                if (!liveRaw || typeof liveRaw !== 'object' || !Object.keys(liveRaw).length) return { ok: false, reason: 'combat-table-not-ready' };
+                const loaded = loadSheets(client);
+                if (!loaded.ok) return loaded;
+                const summary = summarizeSheets(client, loaded.sheets, [], specs);
+                const wanted = [...summary.missing, ...summary.optionalMissing].filter(kind => kinds.includes(kind));
+                if (!wanted.length) return { ok: true, created: [] };
+                const templateRead = client.getTableTemplate();
+                if (!templateRead.ok && templateRead.reason === 'missing-api') {
+                    return { ok: false, reason: 'combat-table-template-unavailable', detail: templateRead.reason };
+                }
+                const reconciled = reconcileTemplateWithLive(templateRead.ok ? templateRead.data : {}, liveRaw);
+                if (!templateRead.ok && !reconciled.ok) {
+                    return { ok: false, reason: 'combat-table-template-unavailable', detail: templateRead.reason };
+                }
+                const baseTemplate = reconciled.ok ? reconciled.template : templateRead.data;
+                const planned = withCombatSheets(baseTemplate, { specs, kinds });
+                if (!planned.added.length) return { ok: false, reason: 'combat-table-template-mismatch', missing: wanted };
+                // 用户模板与已有表集合不一致时不导入，避免覆盖用户的表。
+                const existingNames = new Set(loaded.sheets.map((sheet) => sheet.name));
+                const addedNames = new Set(planned.added.map((kind) => specs[kind].name));
+                const templateNames = parseTables(planned.template).map((sheet) => sheet.name);
+                const hidden = [...existingNames].filter((name) => !templateNames.includes(name));
+                const extra = templateNames.filter((name) => !existingNames.has(name) && !addedNames.has(name));
+                if (hidden.length || extra.length) {
+                    return {
+                        ok: false, reason: 'combat-table-template-diverged', missing: wanted,
+                        ...(hidden.length && { hidden }), ...(extra.length && { extra }),
+                    };
+                }
+                if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+                writing = true;
+                let imported;
+                try {
+                    imported = await client.importTemplate(planned.template, { scope: 'chat', dataMode: 'seed' });
+                } finally {
+                    writing = false;
+                }
+                if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+                if (!imported.ok) return { ok: false, reason: 'combat-table-create-failed', detail: imported.message || imported.reason };
+                if (imported.result?.runtimeReady === false) {
+                    return {
+                        ok: false, reason: 'combat-table-runtime-not-ready', created: planned.added,
+                        detail: String(imported.result.postCommitWarning || imported.result.message || ''),
+                    };
+                }
+                const after = readSnapshot({ kinds: [] });
+                const stillMissing = after.ok ? [...after.missing, ...after.optionalMissing].filter(kind => kinds.includes(kind)) : wanted;
+                if (after.ok && !stillMissing.length) return { ok: true, created: planned.added };
+                if (attempt === 0 && after.ok && stillMissing.length && shouldStart()) continue;
+                return { ok: false, reason: 'combat-table-create-unverified', missing: stillMissing };
             }
-            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-            writing = true;
-            let imported;
-            try {
-                imported = await client.importTemplate(planned.template, { scope: 'chat', dataMode: 'seed' });
-            } finally {
-                writing = false;
-            }
-            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-            if (!imported.ok) return { ok: false, reason: 'combat-table-create-failed', detail: imported.message || imported.reason };
-            if (imported.result?.runtimeReady === false) {
-                return {
-                    ok: false, reason: 'combat-table-runtime-not-ready', created: planned.added,
-                    detail: String(imported.result.postCommitWarning || imported.result.message || ''),
-                };
-            }
-            const after = readSnapshot({ kinds: [] });
-            const stillMissing = after.ok ? [...after.missing, ...after.optionalMissing].filter(kind => kinds.includes(kind)) : wanted;
-            return !after.ok || stillMissing.length
-                ? { ok: false, reason: 'combat-table-create-unverified', missing: stillMissing }
-                : { ok: true, created: planned.added };
+            return { ok: false, reason: 'combat-table-create-unverified', missing: kinds };
         });
     }
 

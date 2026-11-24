@@ -286,46 +286,105 @@ test('gate:llm-retry:随身系统酒馆后台通道失败时默认延迟 3 秒�
     assert.equal(calls, 1);
 });
 
-test('gate:llm-tavern:原生 ctx.generateRaw 并发调用串行排队避免互相顶掉，世界书超时不死锁后续扫描', async () => {
+test('gate:llm-tavern:原生 ctx.generateRaw 与世界书扫描支持并发，超时不阻塞后续扫描，备用模型日志即时记录 messages 摘要与字数', async () => {
     const { createImageWorldInfoSource } = await import('../src/host/image-world-info.js');
     let active = 0;
     let maxActive = 0;
-    const order = [];
+    let wiActive = 0;
+    let wiMaxActive = 0;
+    const handlers = new Map();
+    const eventSource = {
+        on(name, fn) { handlers.set(name, (handlers.get(name) || []).concat([fn])); },
+        removeListener(name, fn) { handlers.set(name, (handlers.get(name) || []).filter(h => h !== fn)); },
+        emit(name, arg) { for (const fn of handlers.get(name) || []) fn(arg); },
+        count(name) { return (handlers.get(name) || []).length; },
+    };
+    const originalNote = { value: 'keep-me' };
     const ctx = {
+        eventSource,
+        eventTypes: { WORLDINFO_ENTRIES_LOADED: 'wi_loaded' },
         async generateRaw({ prompt }) {
             active += 1;
             maxActive = Math.max(maxActive, active);
-            order.push(`start:${prompt}`);
             await new Promise((r) => setTimeout(r, 20));
-            order.push(`end:${prompt}`);
             active -= 1;
             return `ok:${prompt}`;
         },
-        extensionPrompts: {},
+        extensionPrompts: { '2_floating_prompt': originalNote },
         async getWorldInfoPrompt(scan) {
-            if (String(scan[0] || '').includes('hang')) return new Promise(() => {});
-            return { worldInfoString: `wi:${scan[0] || ''}` };
+            wiActive += 1;
+            wiMaxActive = Math.max(wiMaxActive, wiActive);
+            const lore = { globalLore: [{ world: 'Blocked', uid: 1 }, { world: 'Keep', uid: 2 }] };
+            eventSource.emit('wi_loaded', lore);
+            ctx.extensionPrompts['2_floating_prompt'] = { value: 'mutated-during-dry-run' };
+            try {
+                if (String(scan[0] || '').includes('hang')) return await new Promise(() => {});
+                await new Promise((r) => setTimeout(r, 10));
+                return { worldInfoString: `wi:${scan[0] || ''}:${lore.globalLore.map(x => x.world).join(',')}` };
+            } finally {
+                wiActive -= 1;
+            }
         },
     };
     const host = { SillyTavern: { getContext: () => ctx } };
-    const llm = createSecondaryLlm(host, { retries: 0 });
+    const logs = [];
+    const llm = createSecondaryLlm(host, { retries: 0, log: { add(level, text) { logs.push({ level, text }); } } });
     const [a, b] = await Promise.all([
         llm.request({ system: 's', user: 'first' }, { source: 'tavern' }),
         llm.request({ system: 's', user: 'second' }, { source: 'tavern' }),
     ]);
     assert.equal(a, 'ok:first');
     assert.equal(b, 'ok:second');
-    assert.equal(maxActive, 1, '原生 ctx.generateRaw 回退通道应串行避免酒馆单飞锁冲突');
-    assert.deepEqual(order, ['start:first', 'end:first', 'start:second', 'end:second']);
+    assert.equal(maxActive, 2, '原生 ctx.generateRaw 不应被人为锁死为单并发');
 
-    const wi = createImageWorldInfoSource(host, { readIncludeNames: async () => false, timeoutMs: 30 });
-    const [r1, r2] = await Promise.all([
-        wi({ description: 'hang' }),
-        wi({ description: 'normal' }),
-    ]);
+    // 验证 ordered messages 请求：发出瞬间即写 info 日志，并正确提取任务摘要与发送总字数
+    let resolveOrdered;
+    const orderedHost = {
+        TavernHelper: {
+            generateRaw() {
+                return new Promise((resolve) => { resolveOrdered = resolve; });
+            },
+        },
+        SillyTavern: { getContext: () => ctx },
+    };
+    const orderedLogs = [];
+    const orderedLlm = createSecondaryLlm(orderedHost, { retries: 0, log: { add(level, text) { orderedLogs.push({ level, text }); } } });
+    const pendingOrdered = orderedLlm.request({
+        messages: [
+            { role: 'system', content: '通用绘图提示词框架' },
+            { role: 'system', content: '完成角色默认立绘任务：小雪' },
+            { role: 'user', content: '正文字数测试12345' },
+        ],
+    }, { source: 'tavern' });
+    assert.equal(orderedLogs.length, 1, '发出瞬间应立即记录一条进行中日志');
+    assert.equal(orderedLogs[0].level, 'info');
+    assert.match(orderedLogs[0].text, /完成角色默认立绘任务：小雪/);
+    assert.match(orderedLogs[0].text, /已发出/);
+    assert.match(orderedLogs[0].text, /发送33字/);
+    resolveOrdered('slotid: 1\n1girl');
+    assert.equal(await pendingOrdered, 'slotid: 1\n1girl');
+    assert.equal(orderedLogs.length, 2);
+    assert.equal(orderedLogs[1].level, 'success');
+    assert.match(orderedLogs[1].text, /完成角色默认立绘任务：小雪/);
+    assert.match(orderedLogs[1].text, /发送33字/);
+
+    const wi = createImageWorldInfoSource(host, {
+        readIncludeNames: async () => false,
+        readExclude: () => ({ books: ['Blocked'] }),
+        timeoutMs: 30,
+    });
+    const t0 = Date.now();
+    let r2DoneAt = 0;
+    const p1 = wi({ description: 'hang' });
+    const p2 = wi({ description: 'normal' }).then((res) => { r2DoneAt = Date.now() - t0; return res; });
+    const [r1, r2] = await Promise.all([p1, p2]);
     assert.equal(r1.ok, false);
     assert.equal(r1.reason, 'WORLDINFO_TIMEOUT');
     assert.equal(r2.ok, true);
-    assert.equal(r2.text, 'wi:normal');
+    assert.equal(r2.text, 'wi:normal:Keep');
+    assert.ok(wiMaxActive >= 2, '世界书扫描应并发执行，不被前一个卡住的扫描阻塞');
+    assert.ok(r2DoneAt < 30 || r2.ok, '快速扫描无需等待超时任务结束');
+    assert.deepEqual(ctx.extensionPrompts['2_floating_prompt'], originalNote, '全部并发扫描结束后应恢复作者注释');
+    assert.equal(eventSource.count('wi_loaded'), 0, '全部并发扫描结束后应解绑排除监听');
 });
 

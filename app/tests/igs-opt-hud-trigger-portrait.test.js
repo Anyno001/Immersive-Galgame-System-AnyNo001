@@ -823,3 +823,248 @@ test('回归：切聊天与 shujuku 重载竞态、igs_stats_declined 与并发�
         assert.equal(owner.layout().reason, 'igs-layout-conflict');
     }
 });
+
+test('回归：支持数据库的角色卡在第一楼用户输入触发时强制覆盖表模板与数据，不报错、不丢失角色卡数据且自动重建恢复 IGS 表', async (t) => {
+    const waitTicks = async (n = 8) => {
+        for (let i = 0; i < n; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    const makeCardPreset = () => ({
+        mate: { type: 'chatSheets', version: 1, updateConfigUiSentinel: -1 },
+        sheet_card_story: {
+            uid: 'sheet_card_story',
+            name: '卡片剧情表',
+            content: [['row_id', '章节', '摘要'], ['1', '序章', '角色卡初始剧情']],
+            sourceData: { note: '角色卡内置剧情表' },
+            updateConfig: { updateFrequency: 1 },
+            exportConfig: {},
+            orderNo: 0,
+        },
+        sheet_card_npc: {
+            uid: 'sheet_card_npc',
+            name: '卡片角色表',
+            content: [['row_id', '姓名', '身份'], ['1', '小兰', '向导']],
+            sourceData: { note: '角色卡内置角色表' },
+            updateConfig: { updateFrequency: 1 },
+            exportConfig: {},
+            orderNo: 1,
+        },
+        sheet_card_bag: {
+            uid: 'sheet_card_bag',
+            name: '卡片物品表',
+            content: [['row_id', '物品名称', '数量', '描述'], ['1', '青铜钥匙', '1', '开局道具']],
+            sourceData: { note: '角色卡内置物品表' },
+            updateConfig: { updateFrequency: 1 },
+            exportConfig: {},
+            orderNo: 2,
+        },
+    });
+
+    // 场景 A：角色卡覆盖活跃表数据但 getTableTemplate 仍停留在旧全局模板（且残留已被清掉的 IGS·存储 定义），
+    // ensure() 必须以活跃表协调模板，不报 diverged/mismatch，不复活旧表，保留角色卡全部表与数据。
+    {
+        const cardData = makeCardPreset();
+        const staleGlobalTemplate = {
+            mate: { type: 'chatSheets', version: 1 },
+            sheet_old_global: { uid: 'sheet_old_global', name: '旧全局恋爱表', content: [['row_id', '名字']], orderNo: 0 },
+            sheet_old_bag: { uid: 'sheet_old_bag', name: '卡片物品表', content: [['row_id', '物品名称', '旧列']], orderNo: 1 },
+            [IGS_TABLE_SPECS.layout.uid]: {
+                uid: IGS_TABLE_SPECS.layout.uid,
+                name: IGS_TABLE_SPECS.layout.name,
+                content: [['row_id', ...IGS_TABLE_SPECS.layout.columns]],
+                orderNo: 2,
+            },
+        };
+        let liveTables = JSON.parse(JSON.stringify(cardData));
+        let chatTemplate = JSON.parse(JSON.stringify(staleGlobalTemplate));
+        const api = {
+            exportTableAsJson: () => JSON.parse(JSON.stringify(liveTables)),
+            getTableTemplate: () => JSON.parse(JSON.stringify(chatTemplate)),
+            async importTemplateFromData(tpl) {
+                const nextLive = {};
+                if (tpl.mate) nextLive.mate = JSON.parse(JSON.stringify(tpl.mate));
+                for (const [key, sheet] of Object.entries(tpl)) {
+                    if (key === 'mate' || !sheet || typeof sheet.uid !== 'string') continue;
+                    const prev = Object.values(liveTables).find((s) => s && s.name === sheet.name);
+                    const cloned = JSON.parse(JSON.stringify(sheet));
+                    if (prev && Array.isArray(prev.content) && prev.content.length > 1) {
+                        const header = cloned.content[0];
+                        const oldHeader = prev.content[0];
+                        const keptRows = prev.content.slice(1).map((row) => header.map((col) => {
+                            const idx = oldHeader.indexOf(col);
+                            return idx >= 0 && idx < row.length ? row[idx] : '';
+                        }));
+                        cloned.content = [header, ...keptRows];
+                    }
+                    nextLive[key] = cloned;
+                }
+                liveTables = nextLive;
+                chatTemplate = JSON.parse(JSON.stringify(tpl));
+                return { success: true };
+            },
+            async insertRow(opts) {
+                const sheet = Object.values(liveTables).find((s) => s && s.name === opts.tableName);
+                if (!sheet) return -1;
+                const row = sheet.content[0].map((col) => (col === 'row_id' ? String(sheet.content.length) : String(opts.data[col] ?? '')));
+                sheet.content.push(row);
+                return sheet.content.length - 1;
+            },
+            async updateRow() { return true; },
+            async deleteRow() { return true; },
+            async refreshDataAndWorldbook() { return true; },
+        };
+        const storage = createMemoryStorage();
+        const ctx = { chatId: 'chat-card-diverge', chat: [], chatMetadata: {}, getCurrentChatId: () => 'chat-card-diverge' };
+        const store = createIgsChatStore({
+            storage,
+            api: () => api,
+            chatId: () => ctx.chatId,
+            chat: () => ctx.chat,
+            evidence: (id) => readIgsChatEvidence({ context: ctx, chatId: id, storage }),
+        });
+        t.after(() => store.dispose());
+        const owner = store.get();
+        assert.equal((await owner.stats.ensure()).ok, true);
+        assert.equal((await owner.attributes.ensure()).ok, true);
+        assert.equal((await owner.inventory.ensure({ includeGear: true, manageInventory: false })).ok, true);
+        const names = Object.values(liveTables).filter((s) => s && s.uid).map((s) => s.name);
+        assert.equal(names.includes('旧全局恋爱表'), false, '不得复活被角色卡替换掉的旧全局表');
+        assert.ok(names.includes('卡片剧情表') && names.includes('卡片角色表') && names.includes('卡片物品表'), '角色卡表必须完整保留');
+        assert.ok(names.includes(IGS_TABLE_SPECS.layout.name) && names.includes(IGS_TABLE_SPECS.stats.name) && names.includes(IGS_TABLE_SPECS.attribute.name));
+        const bag = Object.values(liveTables).find((s) => s && s.name === '卡片物品表');
+        assert.equal(bag.content.length, 2, '角色卡物品表的原始行必须保留');
+        assert.equal(bag.content[1][1], '青铜钥匙');
+    }
+
+    // 场景 B & C：开场白已建表落盘（并带有 v2 运行期元数据/楼层标记），随后第一楼用户输入触发角色卡强制覆盖全部表模板与数据
+    //（含静态覆写与生成中途覆写），IGS 必须零报错自动恢复 IGS 表、保留角色卡数据，且冷重载后全部 IGS 数据完好。
+    {
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        db.sheets.sheet_userbag = userInventorySheet();
+        const storage = createMemoryStorage();
+        const chatId = 'chat-card-overwrite-f1';
+        const handlers = new Map();
+        const ctx = {
+            chatId,
+            name1: '阿不思',
+            name2: '小雪',
+            chat: [{ is_user: false, mes: '[igs-scene:山脉|傍晚]\n开场白。', swipe_id: 0 }],
+            chatMetadata: {},
+            getCurrentChatId: () => chatId,
+            eventTypes: {
+                GENERATION_STARTED: 'gs',
+                GENERATION_ENDED: 'ge',
+                GENERATION_STOPPED: 'gp',
+                MESSAGE_SWIPED: 'ms',
+                MESSAGE_DELETED: 'md',
+                MESSAGE_UPDATED: 'mu',
+                MESSAGE_EDITED: 'me',
+                CHAT_CHANGED: 'cc',
+            },
+            eventSource: {
+                on(name, fn) { handlers.set(name, (handlers.get(name) || []).concat([fn])); },
+                removeListener(name, fn) { handlers.set(name, (handlers.get(name) || []).filter((h) => h !== fn)); },
+            },
+        };
+        const emit = (name, ...args) => { for (const fn of handlers.get(name) || []) fn(...args); };
+        const chatStore = createIgsChatStore({
+            storage,
+            api: () => db.api,
+            chatId: () => ctx.chatId,
+            chat: () => ctx.chat,
+            userName: () => ctx.name1,
+            evidence: (id) => readIgsChatEvidence({ context: ctx, chatId: id, storage }),
+        });
+        let releaseNpcSheet = null;
+        const makeRuntime = () => createStatsRuntime({
+            getContext: () => ctx,
+            readSettings: () => ({ enabled: true, sheetGen: 'auto', backfill: 'off', hudEnabled: true }),
+            generationIdentity: () => chatStore.get(),
+            generationRoute: () => 'route-1',
+            statsTables: () => chatStore.get().statsAccess,
+            attributeAccess: () => chatStore.get().attributeAccess,
+            currencyInventory: () => chatStore.get().inventory,
+            currencyEditStorage: storage,
+            getPushClient: () => chatStore.get().client,
+            getBackgroundRequest: () => async (prompt) => {
+                const text = `${prompt?.system || ''}\n${prompt?.user || ''}`;
+                if (text.includes('可分配技能')) {
+                    return JSON.stringify({ 侦查: '精通', 聆听: '熟练', 图书馆: '熟练', 潜行: '入门', 闪避: '入门' });
+                }
+                if (text.includes('小雪')) {
+                    return await new Promise((resolve) => {
+                        releaseNpcSheet = () => resolve(JSON.stringify({ 小雪: { 属性: { 力量: '普通', 敏捷: '出众' }, 技能: { 侦查: '熟练' } } }));
+                    });
+                }
+                return JSON.stringify({
+                    attributes: { 力量: 14, 敏捷: 13, 体质: 12, 智力: 15, 感知: 13, 魅力: 11 },
+                    bio: '苍白山脉的旅人。',
+                    currency: { name: '银币', initial: 60, prices: { 少量: 5, 普通: 20, 昂贵: 80, 巨额: 400 }, rate: 1 },
+                });
+            },
+        });
+        const rt = makeRuntime();
+        t.after(() => { rt.destroy(); chatStore.dispose(); });
+        rt.sync();
+
+        // 开场白：完成主角自动初始化并落盘（v2 布局），并写入 v2 运行期元数据与楼层积分标记
+        const initRes = await rt.noticeAction('hero-init-mode', 'auto');
+        assert.equal(initRes.ok, true, JSON.stringify(initRes));
+        await rt.whenSaved();
+        assert.equal(chatStore.get().layout().layout, 'v2');
+        assert.equal(chatStore.get().layout().marked, true);
+        assert.equal(rt.abilitiesOf('阿不思')?.permanentScores?.str, 14);
+        assert.equal(rt.getCatalog().heroBio, '苍白山脉的旅人。');
+        ctx.chatMetadata.igsCombatTraitSeed = 'v2-runtime-seed';
+        ctx.chat[0].extra = { igs_points_uid: 'floor-0' };
+
+        // 模拟第一楼用户输入触发 -> 角色卡强制覆盖全部表模板与数据（清光所有 IGS 表）
+        const forceCardOverwrite = () => {
+            const preset = makeCardPreset();
+            for (const k of Object.keys(db.sheets)) delete db.sheets[k];
+            Object.assign(db.sheets, preset);
+            db.fireTableUpdated(db.api.exportTableAsJson());
+        };
+        ctx.chat.push({ is_user: true, mes: '你好，开始冒险！' });
+        forceCardOverwrite();
+        await waitTicks(12);
+        await rt.whenSaved();
+        await waitTicks(8);
+
+        const noticesAfterOverwrite = rt.notices();
+        assert.equal(noticesAfterOverwrite.some((n) => /igs-layout-conflict|diverged|mismatch|失败/.test(String(n.text || ''))), false, JSON.stringify(noticesAfterOverwrite));
+        const namesAfterB = Object.values(db.sheets).filter((s) => s && s.uid).map((s) => s.name);
+        assert.ok(namesAfterB.includes('卡片剧情表') && namesAfterB.includes('卡片物品表'), '角色卡表必须完好');
+        assert.equal(db.sheets.sheet_card_story.content[1][2], '角色卡初始剧情', '角色卡初始数据不得被清空');
+        assert.ok(namesAfterB.includes(IGS_TABLE_SPECS.layout.name) && namesAfterB.includes(IGS_TABLE_SPECS.stats.name) && namesAfterB.includes(IGS_TABLE_SPECS.attribute.name));
+        assert.equal(rt.abilitiesOf('阿不思')?.permanentScores?.str, 14, '主角六维应自动恢复');
+
+        // 场景 C：NPC 角色卡生成在途 + 第一楼 AI 正文生成期间再次发生角色卡强行覆盖表模板与数据
+        const sheetJob = rt.generateSheets(['小雪']);
+        await waitTicks(6);
+        assert.equal(typeof releaseNpcSheet, 'function', 'NPC 生成请求应已发出');
+        emit('gs', 'normal', {}, false);
+        forceCardOverwrite();
+        ctx.chat.push({ is_user: false, mes: '[igs-scene:营地|夜晚]\n小雪微笑着点点头。[igs-stat:小雪|好感+5]', swipe_id: 0 });
+        emit('ge');
+        await waitTicks(8);
+        releaseNpcSheet();
+        const sheetRes = await sheetJob;
+        assert.equal(sheetRes.ok, true, `生成中途被角色卡覆盖后仍应正常保存：${JSON.stringify(sheetRes)}`);
+        await rt.whenSaved();
+
+        const noticesAfterC = rt.notices();
+        assert.equal(noticesAfterC.some((n) => /igs-layout-conflict|stats-generation-log-conflict|diverged|mismatch/.test(String(n.text || ''))), false, JSON.stringify(noticesAfterC));
+
+        // 冷重载验证：重置 chatStore 与 runtime 后，从数据库读回全部 IGS 数值与主角六维完好，角色卡数据完好
+        rt.destroy();
+        chatStore.reset();
+        const cold = makeRuntime();
+        t.after(() => cold.destroy());
+        cold.sync();
+        assert.equal(cold.isActive(), true, '冷重载后数值账本必须保持完整可恢复');
+        assert.equal(cold.getCatalog().heroBio, '苍白山脉的旅人。');
+        assert.ok(cold.getCatalog().sheets['小雪'], '冷重载后 NPC 角色卡必须存在');
+        assert.equal(cold.abilitiesOf('阿不思')?.permanentScores?.str, 14, '冷重载后主角六维必须存在');
+        assert.equal(db.sheets.sheet_card_bag.content[1][1], '青铜钥匙', '角色卡物品数据始终完好');
+    }
+});

@@ -87,12 +87,6 @@ function safeDetail(value, apiKey) {
 export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
     const fetchImpl = deps.fetch || (typeof globalObject.fetch === 'function' ? globalObject.fetch.bind(globalObject) : null);
     const createAbort = () => new (globalObject.AbortController || globalThis.AbortController)();
-    let nativeTavernTail = Promise.resolve();
-    const serialNativeTavern = (fn) => {
-        const run = nativeTavernTail.then(fn, fn);
-        nativeTavernTail = run.then(() => {}, () => {});
-        return run;
-    };
 
     async function postToTavern(route, body, llm, signal, label) {
         if (!fetchImpl) throw new Error('当前环境无法发起网络请求');
@@ -150,11 +144,8 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
                 error.reason = 'ordered-messages-unsupported';
                 throw error;
             }
-            // 原生 ctx.generateRaw 在酒馆侧通常为单飞锁，串行排队避免主角/NPC 并发互相顶掉；独立 API 与酒馆助手不受此限。
-            return serialNativeTavern(async () => {
-                if (shouldStop()) throw Object.assign(new Error('副 LLM 任务已取消；上游可能仍在执行'), { reason: 'request-stale' });
-                return String(await ctx.generateRaw({ systemPrompt: messages[0].content, prompt: messages[1].content }) || '');
-            });
+            if (shouldStop()) throw Object.assign(new Error('副 LLM 任务已取消；上游可能仍在执行'), { reason: 'request-stale' });
+            return String(await ctx.generateRaw({ systemPrompt: messages[0].content, prompt: messages[1].content }) || '');
         }
         throw new Error('当前酒馆不支持 generateRaw，请在设置中改用独立 API');
     }
@@ -249,14 +240,34 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         return text.length > max ? `${text.slice(0, max)}…` : text;
     }
 
+    function describeRequest(req) {
+        if (req && Array.isArray(req.messages)) {
+            let chars = 0;
+            let first = '';
+            for (const item of req.messages) {
+                const text = String(item?.content ?? '');
+                chars += text.length;
+                if (!first && text.trim()) first = text;
+            }
+            const task = req.messages.length >= 2 && req.messages[1]?.role === 'system' && String(req.messages[1].content || '').trim()
+                ? req.messages[1].content
+                : first;
+            return { purpose: clip(task, 24), chars };
+        }
+        const sys = String(req?.system ?? '');
+        const usr = String(req?.user ?? '');
+        return { purpose: clip(sys || usr, 24), chars: sys.length + usr.length };
+    }
+
     async function request(req, llm = {}) {
         const log = deps.log;
         if (!log || typeof log.add !== 'function') return execute(req, llm);
         const startedAt = Date.now();
         const model = llm.source === 'openai' ? (String(llm.model || '').trim() || '未填模型') : '酒馆当前连接';
-        const purpose = clip(req && (req.system || req.user), 24);
+        const { purpose, chars } = describeRequest(req);
         const head = `${model} · ${purpose || '未命名请求'}`;
-        const sizes = `发送${String(req && req.system || '').length + String(req && req.user || '').length}字`;
+        const sizes = `发送${chars}字`;
+        try { log.add('info', `${head} · 已发出 · ${sizes}`); } catch { /* 日志不影响请求 */ }
         const traced = { ...llm, onRetry: (info) => {
             try { log.add('warn', `${head} · 第${info.attempt}/${info.maxRetries}次重试${info.status ? `（HTTP ${info.status}）` : ''}${info.reason ? ` ${info.reason}` : ''}`); } catch { /* 日志不影响请求 */ }
             llm.onRetry?.(info);

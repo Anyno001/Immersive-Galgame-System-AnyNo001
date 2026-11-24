@@ -22,7 +22,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ## 当前状态
 
-当前版本：`0.41.31`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
+当前版本：`0.41.32`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
 
 ### 未发布 / 版本不详
 
@@ -35,6 +35,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ### 0.41.x
 
+- `0.41.32`：移除生图世界书扫描、原生酒馆 `ctx.generateRaw` 回退及背景/立绘/立绘多批写词链上不必要的串行并发上限（保留 NovelAI 同 API Key 官方防 429 串行生图队列与退避冷却）；修复备用模型日志对 `messages` 数组记录 `未命名请求 · 发送0字` 及进行中不即时显示 `已发出` 的问题；修复支持数据库的角色卡在第一楼用户输入触发时强制覆盖表模板与数据导致的 `combat-table-template-diverged` / `inventory-template-diverged` / `igs-layout-conflict` / `stats-generation-log-conflict` 报错，按活跃表协调模板保留角色卡数据并自动重建恢复 IGS 表与首楼状态。未真机验证。
 - `0.41.31`：修复数值与主角初始化等生成功能全面报 `igs-layout-conflict` 且无法建表插数的问题（解决切聊天与 shujuku 重载竞态锁死旧布局、`igs_stats_declined` 清除后与旧布局锁存冲突、首楼重摇/清表回到空白态卡死，以及零表状态下主角初始化与擅长技能并发提交冲突）；同步修复已有表下显式启用不落盘 `init` 的回归。未真机验证。
 - `0.41.30`：「数据 › 日志」新增「备用模型日志」，记录每次发给备用模型的请求（模型、用途、耗时、重试、结果），API Key 不写入；清理规则与生图日志相同。未真机验证。
 - `0.41.29`：「全屏留输入框」下阅读器底边取酒馆输入区各部件中最靠上的一个，并把输入区与选项、魔法棒菜单抬到阅读器之上，避免挡住输入框左侧两个按钮；安科、安价、征集楼的问题与候选、论坛回帖不再有字数上限，长文不会被截断。未真机验证。
@@ -1103,6 +1104,22 @@ projects/Immersive Galgame System/
 ### v0.34.73 - 新手引导新增工具栏按钮管理（内测）
 
 - **新手引导**：「对话框外观」之后新增「工具栏按钮管理」一步，带你到「阅读器 › 界面」的按钮管理列表；觉得哪个图标累赘就关掉它的眼睛隐藏，也能调整顺序。引导步骤总数从 10 步变为 11 步。
+
+### v0.41.32 - 2026-11-24
+
+- **移除不必要的写词/LLM 并发上限**：
+  - `app/src/host/image-world-info.js`：移除全局单并发 FIFO 串行锁，改为按上下文引用计数的并发扫描守卫（共享 `WORLDINFO_ENTRIES_LOADED` 排除过滤，待全部并发扫描结束后统一解绑并恢复作者注释，并缓存 `readIncludeNames`），避免一个慢扫描阻塞其它写词请求。
+  - `app/src/host/secondary-llm.js`：移除原生 `ctx.generateRaw` 回退通道的人为串行锁，允许并发派发。
+  - `app/src/generated-images/illustration/asset-generation-service.js`：同一楼的背景批次与立绘批次改为并发执行，立绘按体型/形态分组与 `splitWriteBatches` 多批写词亦改为并发执行，立绘写词不再被上一批背景或立绘的出图排队卡住。
+  - 保留 `nai-request-queue.js`（NovelAI 官方按 API Key 串行防 HTTP 429 队列）与 `retry-policy.js`（429 冷却退避）。
+- **修复备用模型日志（`secondary-llm.js`）**：
+  - 兼容内置立绘/CG/背景/服装/差分等采用 `req.messages` 数组发送的请求，正确提取具体任务摘要与发送总字数，不再误记为 `未命名请求 · 发送0字`。
+  - 在请求发出瞬间立即追加一条 `已发出`（`info`）日志，在途写词请求可实时在「数据 › 日志 › 备用模型日志」中查看。
+- **修复数据库角色卡首楼强制覆盖表模板与数据引起的报错**：
+  - `combat-tables.js` / `inventory-tables.js`：新增 `reconcileTemplateWithLive` 并在 `ensure()` 前强制刷新读表缓存；当角色卡首楼覆写导致 `getTableTemplate` 与 `exportTableAsJson` 的表集合或表头不一致（或模板残留已被清掉的 IGS 表定义）时，以当前活跃表协调模板并仅补建所需 IGS 表，不复活旧全局表、不覆写角色卡表与数据，导入中途被覆写时自动有限重试一次。
+  - `igs-chat-store.js`：本会话已确认 `v2` 后所有 IGS 表被外部清空时（即便带有 `igsCombatTraitSeed` / `igs_points_uid` 等 `v2` 运行期标记）不再误判回 `legacy` 或锁死在 `igs-layout-conflict`；标记写入中途被覆写时自动有限重试一次，同时保留缺标记业务行（`igs-layout-marker-missing`）与旧表数据冲突（`igs-layout-conflict`）拦截。
+  - `stats-runtime.js` / `stats-generation-save.js` / `attribute-store.js` / `combat-services.js`：检测到同一聊天内 IGS 表被角色卡强制清空时，自动重建 IGS 表并以完整快照恢复内存账本与主角六维（不写出缺 `init` 的残缺日志、不把角色卡初始表误采纳为用户手改、生成中途覆写后不报 `stats-generation-log-conflict`）；同时修正 `onTableUpdated` 对仅传空占位对象 `{}` 的回调误判为空快照的问题，并将瞬态覆写未核实纳入战斗服务瞬态原因避免永久记住失败。
+- **验证边界**：已完成 16 组定向/回归单测（207/207 通过）与 `combat-tables-behavior` 存储/结构回归（68/68 通过）、本地打包与 bundle 冷启动验证；真实酒馆（TT 酒馆）、真实数据库角色卡首楼覆写及手机端待实机复验。
 
 ### v0.41.31 - 2026-11-24
 

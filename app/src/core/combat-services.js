@@ -53,8 +53,12 @@ import { createModelRouteIdentity } from '../host/model-route-identity.js';
 import { hash32 } from '../combat/random.js';
 import { createGenerationTasks } from '../host/generation-tasks.js';
 
-// 建表失败里「表还没就绪/读失败」属于暂时性原因，不记成该聊天的建表失败
-const TRANSIENT_TABLE_REASONS = new Set(['combat-table-not-ready', 'combat-table-read-failed']);
+// 建表失败里「表还没就绪/读失败/外部覆写瞬态未核实」属于暂时性原因，不记成该聊天的永久建表失败
+const TRANSIENT_TABLE_REASONS = new Set([
+    'combat-table-not-ready', 'combat-table-read-failed',
+    'combat-table-runtime-not-ready', 'combat-table-create-unverified',
+    'igs-layout-write-unverified', 'igs-layout-unconfirmed',
+]);
 // 会话处于这些状态时牌组/装备只读
 const BUSY_STATUSES = Object.freeze(['preparing', 'battle', 'ended', 'send-failed']);
 // 自动备战要避让的会话状态 / 已有结果的状态
@@ -286,7 +290,14 @@ export function createCombatServices(options = {}) {
                     if (ensured?.ok !== true) return { ok: false, reason: ensured?.reason || 'combat-table-create-failed' };
                 }
             }
-            return raw.append(kind, records, appendOptions);
+            const first = await raw.append(kind, records, appendOptions);
+            if (!first?.ok && chatKey
+                && (first?.reason === 'combat-table-missing' || first?.reason === 'igs-layout-unconfirmed')
+                && !(ensureFailure && ensureFailure.key === chatKey)) {
+                const ensured = await ensureOnce(wrapped, chatKey);
+                if (ensured?.ok === true) return raw.append(kind, records, appendOptions);
+            }
+            return first;
         }
         return wrapped;
     }

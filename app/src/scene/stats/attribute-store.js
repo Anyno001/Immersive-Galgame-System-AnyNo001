@@ -61,23 +61,45 @@ export function createAttributeStore({ tables, chatId, journal, isCurrent, onCon
     }
     async function finish(intent, options, recovery) {
         const alive = () => current(options);
-        if (!alive()) return stale();
         const proof = recovery ? intent.records : [];
-        const before = compare(inspect(proof), intent);
-        if (!before.ok) return before;
-        let result = { ok: true, written: [], rejected: [], pending: [] };
-        if (before.missing.length) result = await tables.append('attribute', before.missing, {
-            shouldStart: alive, signal: options?.signal, retainOnFailure: false, recoverSegments: recovery,
-            recoveryRecords: proof.map(record => ({ kind: 'attribute', record })),
-        });
-        if (!alive()) return stale();
-        const after = compare(inspect(), intent);
-        if (!after.ok || after.missing.length) return !result.ok ? result : !after.ok ? after : fail('stats-attribute-write-unverified');
-        if (!alive()) return stale();
-        const cleared = journal.replace(intent, null);
-        if (!cleared.ok) return cleared;
-        if (alive()) onConfirmed?.();
-        return { ...result, ok: true, present: before.present };
+        const ensureMissingTable = async (view) => {
+            if (view.ok || (view.reason !== 'igs-layout-unconfirmed' && view.reason !== 'combat-attribute-table-missing')
+                || typeof tables.ensure !== 'function') return view;
+            const made = await tables.ensure({
+                shouldStart: alive,
+                signal: options?.signal,
+                recoveryRecords: proof.map(record => ({ kind: 'attribute', record })),
+            });
+            if (!alive()) return stale();
+            return made?.ok ? inspect(proof) : made || view;
+        };
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (!alive()) return stale();
+            let view = await ensureMissingTable(inspect(proof));
+            if (!alive()) return stale();
+            const before = compare(view, intent);
+            if (!before.ok) return before;
+            let result = { ok: true, written: [], rejected: [], pending: [] };
+            if (before.missing.length) result = await tables.append('attribute', before.missing, {
+                shouldStart: alive, signal: options?.signal, retainOnFailure: false, recoverSegments: recovery,
+                recoveryRecords: proof.map(record => ({ kind: 'attribute', record })),
+            });
+            if (!alive()) return stale();
+            const afterView = inspect();
+            if (attempt === 0 && !afterView.ok
+                && (afterView.reason === 'igs-layout-unconfirmed' || afterView.reason === 'combat-attribute-table-missing')
+                && typeof tables.ensure === 'function') {
+                continue;
+            }
+            const after = compare(afterView, intent);
+            if (!after.ok || after.missing.length) return !result.ok ? result : !after.ok ? after : fail('stats-attribute-write-unverified');
+            if (!alive()) return stale();
+            const cleared = journal.replace(intent, null);
+            if (!cleared.ok) return cleared;
+            if (alive()) onConfirmed?.();
+            return { ...result, ok: true, present: before.present };
+        }
+        return fail('stats-attribute-write-unverified');
     }
     function recover(options) {
         return serial(async () => {

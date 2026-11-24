@@ -7,7 +7,7 @@
 // 记忆化的前提：导出数据视为不可变快照（缓存 client 在每次写入后换新快照，旧快照不会被原地修改）。
 import { parseTables } from './table-parser.js';
 import { BATCH_WRITE_OPTIONS } from './client.js';
-import { createCachedTableClient, buildIgsSheet } from './combat-tables.js';
+import { createCachedTableClient, buildIgsSheet, reconcileTemplateWithLive } from './combat-tables.js';
 import { normalizeItemName } from './item-catalog.js';
 import { INVENTORY_LOST_MARK } from './record-model.js';
 
@@ -342,51 +342,64 @@ export function createInventoryTables({ api, client = createCachedTableClient({ 
         return support.ok ? readInventoryTables(client) : support;
     };
 
-    // 缺表缺列时在用户当前模板上补建，建完核对。
+    // 缺表缺列时在用户当前模板上补建，建完核对；若角色卡首楼覆盖造成模板与活跃表分歧或导入中途被覆写，先按活跃表协调再最多重试一次。
     function ensure({ shouldStart = () => true, includeGear = true, manageInventory = true } = {}) {
         return runSerial(async () => {
             const alive = () => leaseActive(shouldStart);
-            if (!alive()) return { ok: false, reason: 'request-stale' };
             const support = probe();
             if (!support.ok) return support;
-            client.invalidate?.();
-            const current = client.readTables();
-            if (!current.ok) return { ok: false, reason: 'inventory-table-read-failed', detail: current.reason };
-            if (!current.data || typeof current.data !== 'object' || !Object.keys(current.data).length) return { ok: false, reason: 'inventory-table-not-ready' };
-            const tables = parseTablesMemo(current.data);
-            const templateRead = client.getTableTemplate();
-            if (!templateRead.ok) return { ok: false, reason: 'inventory-template-unavailable', detail: templateRead.reason };
-            const plan = planInventoryTemplate(templateRead.data, tables, { includeGear, manageInventory });
-            if (!plan.ok) return plan;
-            if (!plan.changes.length) return { ok: true, changes: [] };
-            // 用户模板与已有表集合不一致时不导入，避免覆盖用户的表
-            const existingNames = new Set(tables.map((table) => table.name));
-            const plannedNames = parseTables(plan.template).map((table) => table.name);
-            const createdNames = new Set([
-                ...(plan.changes.some((change) => change.kind === 'inventory-created') ? [INVENTORY_DEFAULT_NAME] : []),
-                ...(plan.changes.some((change) => change.kind === 'gear-created') ? [GEAR_TABLE.name] : []),
-            ]);
-            const hidden = [...existingNames].filter((name) => !plannedNames.includes(name));
-            const extra = plannedNames.filter((name) => !existingNames.has(name) && !createdNames.has(name));
-            if (hidden.length || extra.length) {
-                return { ok: false, reason: 'inventory-template-diverged', ...(hidden.length && { hidden }), ...(extra.length && { extra }) };
-            }
-            writing = true;
-            let imported;
-            try {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
                 if (!alive()) return { ok: false, reason: 'request-stale' };
-                imported = await client.importTemplate(plan.template, { scope: 'chat', dataMode: 'seed' });
-            } finally {
-                writing = false;
+                client.invalidate?.();
+                const current = client.readTables();
+                if (!current.ok) return { ok: false, reason: 'inventory-table-read-failed', detail: current.reason };
+                if (!current.data || typeof current.data !== 'object' || !Object.keys(current.data).length) return { ok: false, reason: 'inventory-table-not-ready' };
+                const tables = parseTablesMemo(current.data);
+                const templateRead = client.getTableTemplate();
+                if (!templateRead.ok && templateRead.reason === 'missing-api') {
+                    return { ok: false, reason: 'inventory-template-unavailable', detail: templateRead.reason };
+                }
+                const reconciled = reconcileTemplateWithLive(templateRead.ok ? templateRead.data : {}, current.data);
+                if (!templateRead.ok && !reconciled.ok) {
+                    return { ok: false, reason: 'inventory-template-unavailable', detail: templateRead.reason };
+                }
+                const baseTemplate = reconciled.ok ? reconciled.template : templateRead.data;
+                const plan = planInventoryTemplate(baseTemplate, tables, { includeGear, manageInventory });
+                if (!plan.ok) return plan;
+                if (!plan.changes.length) return { ok: true, changes: [] };
+                // 用户模板与已有表集合不一致时不导入，避免覆盖用户的表
+                const existingNames = new Set(tables.map((table) => table.name));
+                const plannedNames = parseTables(plan.template).map((table) => table.name);
+                const createdNames = new Set([
+                    ...(plan.changes.some((change) => change.kind === 'inventory-created') ? [INVENTORY_DEFAULT_NAME] : []),
+                    ...(plan.changes.some((change) => change.kind === 'gear-created') ? [GEAR_TABLE.name] : []),
+                ]);
+                const hidden = [...existingNames].filter((name) => !plannedNames.includes(name));
+                const extra = plannedNames.filter((name) => !existingNames.has(name) && !createdNames.has(name));
+                if (hidden.length || extra.length) {
+                    return { ok: false, reason: 'inventory-template-diverged', ...(hidden.length && { hidden }), ...(extra.length && { extra }) };
+                }
+                writing = true;
+                let imported;
+                try {
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    imported = await client.importTemplate(plan.template, { scope: 'chat', dataMode: 'seed' });
+                } finally {
+                    writing = false;
+                }
+                if (!alive()) return { ok: false, reason: 'request-stale' };
+                if (!imported.ok) return { ok: false, reason: 'inventory-template-import-failed', detail: imported.message || imported.reason };
+                if (imported.result?.runtimeReady === false) return { ok: false, reason: 'inventory-runtime-not-ready', changes: plan.changes };
+                // 导入后重新读取核对：需要装备表时核对有效，背包表要补齐新增的列
+                const verified = readInventoryTables(client);
+                const gearOk = !includeGear || Boolean(verified.gear && !verified.gear.invalid);
+                const stillMissing = verified.ok ? Object.keys(INVENTORY_ADDED_COLUMNS).filter((field) => verified.inventory.index[field] < 0) : [];
+                if (verified.ok && gearOk && !stillMissing.length) return { ok: true, changes: plan.changes };
+                if (attempt === 0 && alive()) continue;
+                if (!verified.ok || !gearOk) return { ok: false, reason: 'inventory-ensure-unverified', detail: verified.reason || '' };
+                return { ok: false, reason: 'inventory-ensure-unverified', missing: stillMissing };
             }
-            if (!alive()) return { ok: false, reason: 'request-stale' };
-            if (!imported.ok) return { ok: false, reason: 'inventory-template-import-failed', detail: imported.message || imported.reason };
-            if (imported.result?.runtimeReady === false) return { ok: false, reason: 'inventory-runtime-not-ready', changes: plan.changes };
-            // 导入后重新读取核对：需要装备表时核对有效，背包表要补齐新增的列
-            const verified = readInventoryTables(client);
-            if (!verified.ok || (includeGear && (!verified.gear || verified.gear.invalid))) return { ok: false, reason: 'inventory-ensure-unverified', detail: verified.reason || '' };
-            const stillMissing = Object.keys(INVENTORY_ADDED_COLUMNS).filter((field) => verified.inventory.index[field] < 0);
-            return stillMissing.length ? { ok: false, reason: 'inventory-ensure-unverified', missing: stillMissing } : { ok: true, changes: plan.changes };
+            return { ok: false, reason: 'inventory-ensure-unverified' };
         });
     }
 

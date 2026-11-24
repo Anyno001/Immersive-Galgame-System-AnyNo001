@@ -1,5 +1,5 @@
-import { createCachedTableClient, createCombatTables } from './combat-tables.js';
-import { IGS_LAYOUT_RECORD, IGS_MARKER_SPECS, IGS_TABLE_SPECS } from './igs-table-specs.js';
+import { COMBAT_TABLE_SPECS, createCachedTableClient, createCombatTables } from './combat-tables.js';
+import { IGS_LAYOUT_ID, IGS_LAYOUT_RECORD, IGS_MARKER_SPECS, IGS_TABLE_SPECS } from './igs-table-specs.js';
 import { resolveIgsLayout } from './igs-chat-layout.js';
 import { createInventoryTables } from './inventory-tables.js';
 import { createTableReadiness } from './table-readiness.js';
@@ -18,6 +18,17 @@ const stateOf = result => {
     const waiting = ['not-ready', 'missing-api', 'combat-table-not-ready', 'combat-table-runtime-not-ready'].includes(result.reason);
     return { ...result, reason: result.reason === 'not-ready' ? 'combat-table-not-ready' : result.reason,
         status: result.ok ? 'ready' : result.status || (waiting ? 'waiting' : 'failed') };
+};
+
+const ALL_IGS_SHEET_NAMES = new Set([
+    ...Object.values(COMBAT_TABLE_SPECS).map(spec => spec.name),
+    ...Object.values(IGS_TABLE_SPECS).map(spec => spec.name),
+]);
+const hasAnyIgsSheetRows = (data) => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    return Object.values(data).some((sheet) => sheet && typeof sheet === 'object'
+        && ALL_IGS_SHEET_NAMES.has(sheet.name)
+        && Array.isArray(sheet.content) && sheet.content.length > 1);
 };
 
 export function createIgsChatStore({ api, chatId, chat = () => [], userName = () => '', sourceFilter = () => undefined, evidence, storage, cellMax, onAttributesConfirmed, onAttributesPending }) {
@@ -50,12 +61,16 @@ export function createIgsChatStore({ api, chatId, chat = () => [], userName = ()
         const marker = createCombatTables({ api: host, client, serial, cellMax, specs: IGS_MARKER_SPECS });
         held.readiness = createTableReadiness({ client, chatId: id, generation, serial, isCurrent: valid });
         let confirmedLayout = null;
-        // 宿主切聊天或重载数据库时会先把运行时表清空为 {} 并通知回调；收到空快照时立刻释放旧内存锁存，
-        // 避免切聊天瞬间读到上一聊天的旧表后把新聊天永久锁死在 igs-layout-conflict。
+        let everConfirmedV2 = false;
+        // 宿主切聊天、重载数据库（清空为 {}），或角色卡首楼强行覆盖数据库模板与数据（清掉全部 IGS 表）时，
+        // 释放旧内存锁存，避免后续读取被永久锁死在 igs-layout-conflict。
         const onHostTableUpdated = (data) => {
             if (!valid()) return;
-            if (data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0) {
-                confirmedLayout = null;
+            if (data && typeof data === 'object' && !Array.isArray(data)) {
+                const writingAny = legacy.isWriting() || modern.isWriting() || marker.isWriting();
+                if (Object.keys(data).length === 0 || (!writingAny && !hasAnyIgsSheetRows(data))) {
+                    confirmedLayout = null;
+                }
             }
         };
         try {
@@ -76,44 +91,60 @@ export function createIgsChatStore({ api, chatId, chat = () => [], userName = ()
             const result = resolveIgsLayout(loaded.sheets, proof, { recoveryRecords, cellMax });
             if (!result.ok) return result;
             const writingAny = legacy.isWriting() || modern.isWriting() || marker.isWriting();
-            // 若当前所有 IGS 新旧表均无数据行、无布局标记、无旧聊天证据且非写入中，说明聊天处于干净空档
-            //（例如切聊天窗口曾误读上一聊天旧表后已切回空档，或首楼被重摇/清表回到空白态）；释放旧内存锁存，允许按空白 v2 重建。
-            // 若 v2 业务表仍有数据却缺标记，resolveIgsLayout 已返回 igs-layout-marker-missing；若新旧布局真冲突则仍由下方拦截。
+            // 若当前所有 IGS 新旧表均无数据行、无布局标记且非写入中：
+            // 1) 无旧聊天证据（cleanEmpty）：说明聊天处于干净空档，释放旧内存锁存，允许按空白 v2 重建。
+            // 2) 本会话已确认过 v2 且所有 IGS 表被外部清空（例如角色卡第一楼强制覆盖了数据库模板和数据），
+            //    即便聊天元数据或本地存储保留了本 v2 聊天写下的运行期记录，也不得误判回 legacy 或锁死在 igs-layout-conflict。
+            // 若 v2 业务表仍有数据却缺标记，resolveIgsLayout 已返回 igs-layout-marker-missing；若旧表出现数据行（hasRecords）则仍由下方拦截。
             const cleanEmpty = result.layout === 'v2' && !result.marked && !result.hasRecords && !result.hasEvidence && !result.markerPending;
+            const wipedV2 = (confirmedLayout === 'v2' || everConfirmedV2) && !result.marked && !result.hasRecords && !result.markerPending;
+            if (wipedV2 && (!confirmedLayout || !writingAny)) {
+                confirmedLayout = null;
+                return { ok: true, status: 'ready', layout: 'v2', marked: false, markerPending: false,
+                    hasRecords: false, hasEvidence: Boolean(result.hasEvidence), id: IGS_LAYOUT_ID };
+            }
             if (confirmedLayout && cleanEmpty && !writingAny) {
                 confirmedLayout = null;
             }
             if (confirmedLayout && (result.layout !== confirmedLayout || (confirmedLayout === 'v2' && !result.marked))) {
                 return { ok: false, status: 'failed', reason: 'igs-layout-conflict' };
             }
-            if ((result.layout === 'legacy' && result.hasRecords) || result.marked) confirmedLayout = result.layout;
+            if ((result.layout === 'legacy' && result.hasRecords) || result.marked) {
+                confirmedLayout = result.layout;
+                if (result.layout === 'v2') everConfirmedV2 = true;
+            }
             return result;
         }
         const storageFor = state => state.layout === 'legacy' ? legacy : modern;
         let initialization = null;
         async function initialize(shouldStart, recoveries) {
-            if (!valid() || !shouldStart()) return stale();
-            client.invalidate();
-            let state = layout(recoveries());
-            if (!state.ok || state.layout === 'legacy' || state.marked) return state;
-            const made = await marker.ensure({ shouldStart: () => valid() && shouldStart() });
-            if (!valid() || !shouldStart()) return stale();
-            if (!made.ok) return stateOf(made);
-            client.invalidate();
-            state = layout(recoveries());
-            if (!state.ok || state.layout === 'legacy' || state.marked) return state;
-            const written = await marker.append('layout', IGS_LAYOUT_RECORD, {
-                retainOnFailure: false, refresh: false, recoverSegments: true, shouldStart: () => {
-                    if (!valid() || !shouldStart()) return false;
-                    const next = layout(recoveries());
-                    return next.ok && next.layout === 'v2';
-                },
-            });
-            if (!valid() || !shouldStart()) return stale();
-            client.invalidate();
-            const checked = layout();
-            return checked.ok && checked.marked ? checked : stateOf(written.ok
-                ? { ok: false, reason: 'igs-layout-write-unverified' } : written);
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                if (!valid() || !shouldStart()) return stale();
+                client.invalidate();
+                let state = layout(recoveries());
+                if (!state.ok || state.layout === 'legacy' || state.marked) return state;
+                const made = await marker.ensure({ shouldStart: () => valid() && shouldStart() });
+                if (!valid() || !shouldStart()) return stale();
+                if (!made.ok) return stateOf(made);
+                client.invalidate();
+                state = layout(recoveries());
+                if (!state.ok || state.layout === 'legacy' || state.marked) return state;
+                const written = await marker.append('layout', IGS_LAYOUT_RECORD, {
+                    retainOnFailure: false, refresh: false, recoverSegments: true, shouldStart: () => {
+                        if (!valid() || !shouldStart()) return false;
+                        const next = layout(recoveries());
+                        return next.ok && next.layout === 'v2';
+                    },
+                });
+                if (!valid() || !shouldStart()) return stale();
+                client.invalidate();
+                const checked = layout();
+                if (checked.ok && checked.marked) return checked;
+                // 若写标记期间被角色卡覆盖表模板清掉 IGS·存储，允许在干净 v2 态下重试一次。
+                if (attempt === 0 && checked.ok && checked.layout === 'v2' && !checked.marked && valid() && shouldStart()) continue;
+                return stateOf(written.ok ? { ok: false, reason: 'igs-layout-write-unverified' } : written);
+            }
+            return stateOf({ ok: false, reason: 'igs-layout-write-unverified' });
         }
         function ensureLayout(shouldStart, recoveryRecords = []) {
             if (!leaseActive(shouldStart)) return Promise.resolve(stale());

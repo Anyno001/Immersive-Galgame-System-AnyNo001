@@ -242,6 +242,10 @@ export function createStatsRuntime({
     let creating = false;
     let loadedKey = '';
     let loadedChat = '';
+    let justSwitchedChat = false;
+    let lastObservedChatLength = 0;
+    let lastConfirmedHeroBase = null;
+    let pendingCardOverwriteRestore = false;
     let eventCombat = null;
     let modeDefault = 'auto';
     let modePending = false;
@@ -821,6 +825,7 @@ export function createStatsRuntime({
                     if (!alive()) return { ok: false, stage: 'attributes', reason: 'request-stale' };
                     if (!written?.ok) return { ok: false, stage: 'attributes', reason: written?.reason || 'stats-attribute-write-unverified' };
                 }
+                captureHeroBaseSnapshot(access, heroName);
                 gateMemo = null;
                 const adv = saveStage({ stage: intent.needCurrency ? 'currency-config' : 'done' });
                 if (!adv.ok) return adv;
@@ -1248,25 +1253,102 @@ export function createStatsRuntime({
         for (const item of read.items) diag('stats-table-manual-adopted', { name: item.name, key: item.key, from: item.from, to: item.shown });
         return { ok: true, adopted: read.items, skills };
     }
+    function captureHeroBaseSnapshot(access = attributeAccess ? attributeAccess() : null, heroName = userName() || PROTAGONIST) {
+        if (!access) return;
+        try {
+            const read = access.readHero(heroName);
+            if (!read?.ok || !Array.isArray(read.rows)) return;
+            const heroKey = read.view?.key;
+            const bases = read.rows.filter((row) => row.type === 'hero-base' && (!heroKey || row.character === heroKey));
+            const latest = bases.length ? bases[bases.length - 1] : null;
+            if (latest?.payload?.scores) {
+                lastConfirmedHeroBase = {
+                    id: latest.id,
+                    scores: structuredClone(latest.payload.scores),
+                    createdAt: latest.createdAt,
+                    uncapped: latest.payload.uncapped === true,
+                };
+            }
+        } catch { /* 读取失败不阻塞主流程 */ }
+    }
+
+    function restoreAfterCardOverwrite({ includePersist = true } = {}) {
+        if (!active() || !ledger) return;
+        const alive = currencyLease();
+        if (includePersist) persist([], { shouldStart: alive });
+        if (lastConfirmedHeroBase && attributeAccess) {
+            const savedBase = { ...lastConfirmedHeroBase, scores: structuredClone(lastConfirmedHeroBase.scores) };
+            const heroName = userName() || PROTAGONIST;
+            Promise.resolve().then(async () => {
+                if (!alive()) return;
+                const access = attributeAccess ? attributeAccess() : null;
+                if (!access) return;
+                const src = access.source();
+                if (src?.ready && src.readAbilities(heroName, { heroPrefs: heroPrefs() })?.initialized === true) return;
+                const ready = await ensureHeroAttributeReadable(access, heroName, alive);
+                if (!alive() || !ready?.ok || ready.view?.initialized) return;
+                const written = await access.initHero(heroName, savedBase.scores, {
+                    recordId: savedBase.id,
+                    createdAt: savedBase.createdAt,
+                    uncapped: savedBase.uncapped === true,
+                    shouldStart: alive,
+                });
+                if (alive() && written?.ok) {
+                    gateMemo = null;
+                    onChange(currentStatsState(ledger), null);
+                }
+            }).catch(() => {});
+        }
+        if (currency?.seeded && inventoryOf()) {
+            const cur = readCurrency();
+            if (!cur.ok && cur.reason === 'inventory-table-missing') {
+                queueCurrency(async () => {
+                    if (!alive()) return { ok: false, reason: 'request-stale' };
+                    const ready = await ensureCurrencyInventory(alive);
+                    if (alive() && ready?.ok) currencyChanged();
+                    return ready;
+                }).catch(() => {});
+            }
+        }
+    }
+
     let awaitingTableReload = false;
+    let sameChatTableCleared = false;
     const onTableUpdated = (data) => {
         tableCache = null;
         managedCache = null;
-        const payload = data !== undefined ? data : (() => { try { const r = getPushClient()?.readTables?.(); return r?.ok ? r.data : undefined; } catch { return undefined; } })();
-        const emptyData = payload != null && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+        const liveData = (() => { try { const r = getPushClient()?.readTables?.(); return r?.ok ? r.data : undefined; } catch { return undefined; } })();
+        const liveEmpty = liveData != null && typeof liveData === 'object' && !Array.isArray(liveData) && Object.keys(liveData).length === 0;
+        const payloadEmpty = data != null && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0;
+        // 仅当实时导出为空（或无法读实时导出且回调载荷为空对象）时，才按数据库清空态提前返回；
+        // 避免把仅传递占位空对象 {} 的更新回调（实际表有数据）误判为空快照而跳过手改采纳或刷新。
+        const emptyData = liveData !== undefined ? liveEmpty : payloadEmpty;
+        const chatId = chatIdOf(ctx());
         if (emptyData) {
             if (inflight === 0 && currencyBusy === 0 && generationCommitActive === 0) {
-                awaitingTableReload = true;
                 loadedKey = '';
+                // 刚切聊天或尚未在本聊天落盘时按切聊天清空重载处理；本聊天已运行并落盘后遇到角色卡覆写清空则保留内存账本待重建。
+                if (justSwitchedChat || !ledger || !ledgerPersisted || loadedChat !== chatId) {
+                    awaitingTableReload = true;
+                    justSwitchedChat = false;
+                } else {
+                    sameChatTableCleared = true;
+                }
             }
             return;
         }
-        const waitingState = ['combat-table-not-ready', 'combat-table-runtime-not-ready', 'not-ready', 'missing-api', 'igs-layout-conflict'].includes(blocked || unavailable);
+        const waitingState = [
+            'combat-table-not-ready', 'combat-table-runtime-not-ready', 'not-ready', 'missing-api',
+            'igs-layout-conflict', 'igs-layout-unconfirmed',
+            'combat-table-template-diverged', 'combat-table-template-mismatch',
+            'inventory-template-diverged', 'inventory-template-mismatch',
+        ].includes(blocked || unavailable);
         if (settings().enabled && !generating
             && ((awaitingTableReload && inflight === 0 && currencyBusy === 0 && generationCommitActive === 0)
                 || (!ledger && waitingState))) {
             const reloadedAfterClear = awaitingTableReload;
             awaitingTableReload = false;
+            sameChatTableCleared = false;
             load();
             autoEnable();
             if (reloadedAfterClear) onChange(ledger ? currentStatsState(ledger) : null, null, { chatChanged: true });
@@ -1274,8 +1356,42 @@ export function createStatsRuntime({
             if (active()) refreshLife();
             ensureCurrency();
         }
-        // 填表窗口内、或窗口刚关后的余波（插件一轮填表可能连发几次更新）都按 AI 填表处理：只盖回，不采纳。
-        const covered = fillOpen || Date.now() < fillGraceUntil;
+        // 角色卡在第一楼用户输入触发时强制用内置模板与数据覆盖当前聊天表：检测同一聊天内 IGS 数值日志表被外部整体清掉，
+        // 避免残留旧 baseline/ledgerPersisted 导致缺 init 的残缺写入、冲突报错或丢失首楼已生成的数值与主角六维。
+        let cardOverwritten = false;
+        const chatLen = messages(ctx()).length;
+        const notShrunk = chatLen >= lastObservedChatLength;
+        if (chatLen > lastObservedChatLength) lastObservedChatLength = chatLen;
+        if (settings().enabled && ledger && loadedChat === chatId && !justSwitchedChat && notShrunk
+            && (ledgerPersisted || sameChatTableCleared)
+            && inflight === 0 && currencyBusy === 0 && generationCommitActive === 0) {
+            const t = tables();
+            if (t.ok) {
+                t.invalidate?.();
+                const rows = t.read({ kinds: ['stats'] });
+                if (rows?.ok && (!Array.isArray(rows.stats) || rows.layoutPending || rows.stats.length === 0)) {
+                    cardOverwritten = true;
+                    sameChatTableCleared = false;
+                    ledgerPersisted = false;
+                    initQueued = false;
+                    baseline = new Map();
+                    loadedKey = '';
+                    if (generating) {
+                        pendingCardOverwriteRestore = true;
+                    } else {
+                        restoreAfterCardOverwrite({ includePersist: true });
+                    }
+                } else if (sameChatTableCleared && rows?.ok && Array.isArray(rows.stats) && rows.stats.length > 0) {
+                    sameChatTableCleared = false;
+                    if (!generating) {
+                        load();
+                        refreshOnboarding();
+                    }
+                }
+            }
+        }
+        // 填表窗口内、或窗口刚关后的余波（插件一轮填表可能连发几次更新）、或角色卡模板覆写都按 AI/外部覆写处理：只盖回，不误采纳。
+        const covered = fillOpen || Date.now() < fillGraceUntil || cardOverwritten;
         if (fillOpen) fillGraceUntil = Date.now() + FILL_GRACE;
         closeFillWindow();
         if (!covered && (writingTable || Date.now() < selfWriteUntil)) return;
@@ -1357,6 +1473,9 @@ export function createStatsRuntime({
         }
         ledger = null; ledgerPersisted = false; initQueued = false; chatEnabled = false; buildMode = null; buildChoices = {}; npcPolicy = null; npcChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
         currencyEdit = null; currencyEditError = '';
+        sameChatTableCleared = false; pendingCardOverwriteRestore = false;
+        if (!sameChat) lastConfirmedHeroBase = null;
+        lastObservedChatLength = messages(ctx()).length;
         baseline = new Map(); pendingOption = null; manualCheck = null; notices.clear();
         if (currencyNotice) notices.set('currency', currencyNotice);
         for (const [key, notice] of preservedBusy) notices.set(key, notice);
@@ -1389,7 +1508,7 @@ export function createStatsRuntime({
         if (Array.isArray(rows.stats)) {
             const merged = mergeStatLog(rows.stats, { chatId, chat: messages(c) });
             merged.diagnostics.forEach((d) => diag(d.code, d));
-            if (merged.ledger) { adopt(merged); return; }
+            if (merged.ledger) { adopt(merged); captureHeroBaseSnapshot(); return; }
         }
         // 表里没有本聊天的记录：旧版整体快照（igs_stats）只在这里导入一次。
         if (read.raw) {
@@ -1480,7 +1599,29 @@ export function createStatsRuntime({
         }
     }
 
-    // 持久化（v0.39 ms）：算聊天级差分、附上楼层记录，一次追加；若数值表尚不存在则先建表再插数据；追加串行排队。
+    function buildFullStatsRecords(extra = [], nextEntries, createdAt = Date.now()) {
+        const list = Array.isArray(extra) ? extra : [];
+        const hasInit = list.some((r) => r && r.type === 'init');
+        const extraFloors = new Set(list
+            .filter((r) => r && r.type === 'floor' && r.anchor)
+            .map((r) => `${r.anchor.messageId}:${r.anchor.swipeId}`));
+        const activeFloors = [];
+        for (const [messageId, swipeId] of [...ledger.active].sort(([a], [b]) => a - b)) {
+            if (extraFloors.has(`${messageId}:${swipeId}`)) continue;
+            const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+            if (!entry) continue;
+            activeFloors.push(currencyFloorRecord(entry));
+        }
+        writeSeq += 1;
+        return [
+            ...(hasInit ? [] : [initRecord(ledger.initial, { createdAt })]),
+            ...activeFloors,
+            ...list,
+            ...diffChatRecords(new Map(), nextEntries, { tag: `${createdAt.toString(36)}${writeSeq}`, createdAt }),
+        ];
+    }
+
+    // 持久化（v0.39 ms）：算聊天级差分、附上楼层记录，一次追加；若数值表尚不存在（或被角色卡首楼覆盖清空）则先建表再全量/增量插数据；追加串行排队。
     function persist(extra = [], options = {}) {
         if (!ledger || blocked || unavailable) return options.generation
             ? Promise.resolve({ ok: false, reason: blocked || unavailable || 'stats-no-ledger' }) : null;
@@ -1514,19 +1655,36 @@ export function createStatsRuntime({
         const ownerAlive = generationTasks.lease();
         const shouldStart = () => ownerAlive() && (!options.shouldStart || options.shouldStart() === true);
         const runWrite = async () => {
-            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-            const check = t.read({ kinds: ['stats'] });
-            if (!check || check.ok !== true) return { ok: false, reason: (check && check.reason) || 'stats-log-read-failed' };
-            if (!Array.isArray(check.stats) || check.layoutPending) {
-                if (typeof t.ensure !== 'function') return { ok: false, reason: 'stats-log-create-failed' };
-                const made = await t.ensure({ shouldStart });
+            for (let attempt = 0; attempt < 2; attempt += 1) {
                 if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-                if (!made || made.ok !== true) {
-                    diag('stats-log-create-failed', { reason: made && made.reason });
-                    return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' };
+                t.invalidate?.();
+                const check = t.read({ kinds: ['stats'] });
+                if (!check || check.ok !== true) return { ok: false, reason: (check && check.reason) || 'stats-log-read-failed' };
+                const tableMissing = !Array.isArray(check.stats) || check.layoutPending;
+                const tableWiped = tableMissing || check.stats.length === 0;
+                if (tableMissing) {
+                    if (typeof t.ensure !== 'function') return { ok: false, reason: 'stats-log-create-failed' };
+                    const made = await t.ensure({ shouldStart });
+                    if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+                    if (!made || made.ok !== true) {
+                        diag('stats-log-create-failed', { reason: made && made.reason });
+                        return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' };
+                    }
                 }
+                // 若数值表已被角色卡覆盖清空，而本次原计划只是增量记录（缺少 init），自动补全为完整快照再落盘，防止写出残缺日志。
+                const payload = tableWiped && !records.some((r) => r && r.type === 'init')
+                    ? buildFullStatsRecords(extra, next, Date.now())
+                    : records;
+                const appended = await t.append(payload, { ...options, shouldStart });
+                if (appended?.ok === true) return appended;
+                if (attempt === 0 && shouldStart() && ['combat-table-missing', 'igs-layout-unconfirmed', 'combat-ledger-insert-failed', 'combat-ledger-write-unverified'].includes(appended?.reason)) {
+                    t.invalidate?.();
+                    const recheck = t.read({ kinds: ['stats'] });
+                    if (recheck?.ok && (!Array.isArray(recheck.stats) || recheck.layoutPending || recheck.stats.length === 0)) continue;
+                }
+                return appended;
             }
-            return t.append(records, { ...options, shouldStart });
+            return { ok: false, reason: 'stats-log-write-failed' };
         };
         let started;
         try { started = runWrite(); } catch (error) { started = Promise.reject(error); }
@@ -1538,6 +1696,8 @@ export function createStatsRuntime({
             } else {
                 ledgerPersisted = true;
                 initQueued = true;
+                justSwitchedChat = false;
+                sameChatTableCleared = false;
             }
             return r;
         }, () => {
@@ -1582,21 +1742,27 @@ export function createStatsRuntime({
         return enqueueGenerationCommit(async () => {
             await tail;
             checkGeneration(task);
-            if (typeof task.conflictCheck === 'function') {
-                const latest = generationSave.read(null, task.alive);
-                if (!latest.ok) {
-                    task.check();
-                    if (notices.get(task.key)?.kind === 'busy') setNotice(task.key, null);
-                    generationSaveNotice(latest);
-                    return latest;
-                }
-                task.beforeRows = latest.rows;
+            const latest = generationSave.read(null, task.alive);
+            if (!latest.ok) {
+                task.check();
+                if (notices.get(task.key)?.kind === 'busy') setNotice(task.key, null);
+                generationSaveNotice(latest);
+                return latest;
+            }
+            const wiped = Boolean(latest.tableMissing || latest.rows.length === 0);
+            if (typeof task.conflictCheck === 'function' || wiped) {
+                task.beforeRows = wiped ? [] : latest.rows;
                 task.beforeLayout = latest.layout;
                 task.saveRevision = generationRevision();
             }
+            if (wiped) {
+                ledgerPersisted = false;
+                initQueued = false;
+                baseline = new Map();
+            }
             const previous = { catalog, ledger, learned };
             const effects = { notices: [], codex: false, push: false };
-            task.beforeEntries = ledgerPersisted
+            task.beforeEntries = (ledgerPersisted && !wiped)
                 ? chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit })
                 : new Map();
             let saved;
@@ -1606,13 +1772,27 @@ export function createStatsRuntime({
                 learned = structuredClone(learned);
                 generationStage = effects;
                 const { extra = [], result = { ok: true } } = apply();
-                saved = persist(extra, { generation: task, result: { ...result, effects } });
+                let finalExtra = extra;
+                if (wiped && ledger.active.size) {
+                    const extraFloors = new Set((Array.isArray(extra) ? extra : [])
+                        .filter((r) => r && r.type === 'floor' && r.anchor)
+                        .map((r) => `${r.anchor.messageId}:${r.anchor.swipeId}`));
+                    const activeFloors = [];
+                    for (const [messageId, swipeId] of [...ledger.active].sort(([a], [b]) => a - b)) {
+                        if (extraFloors.has(`${messageId}:${swipeId}`)) continue;
+                        const entry = ledger.entries.get(ledgerKey(ledger, messageId, swipeId));
+                        if (entry) activeFloors.push(currencyFloorRecord(entry));
+                    }
+                    if (activeFloors.length) finalExtra = [...activeFloors, ...extra];
+                }
+                saved = persist(finalExtra, { generation: task, result: { ...result, effects } });
             } finally {
                 generationStage = null;
                 ({ catalog, ledger, learned } = previous);
             }
             const result = await Promise.resolve(saved);
             task.check();
+            if (result?.ok) { justSwitchedChat = false; sameChatTableCleared = false; }
             if (result?.ok && !result.recovered) publishGeneration(task, result);
             if (!result?.ok) {
                 if (notices.get(task.key)?.kind === 'busy') setNotice(task.key, null);
@@ -2714,6 +2894,10 @@ export function createStatsRuntime({
     }
 
     function onStarted(type, params, dryRun) {
+        if (dryRun !== true) {
+            justSwitchedChat = false;
+            lastObservedChatLength = Math.max(lastObservedChatLength, messages(ctx()).length);
+        }
         // 上次读取失败（不含导入中）时，新一轮生成前再试一次。
         if (!ledger && blocked && blocked !== 'stats-importing' && dryRun !== true) { load(); autoEnable(); }
         if (dryRun === true || SKIP_TYPES.has(type) || background() || !active()) return;
@@ -2738,6 +2922,10 @@ export function createStatsRuntime({
         if (background()) return;
         const g = generating;
         generating = null;
+        justSwitchedChat = false;
+        lastObservedChatLength = Math.max(lastObservedChatLength, messages(ctx()).length);
+        const restorePending = pendingCardOverwriteRestore;
+        pendingCardOverwriteRestore = false;
         clearPrompt();
         if (!active() && settings().enabled && latestFloorHasVisibleIgsTag()) {
             autoEnable();
@@ -2752,17 +2940,20 @@ export function createStatsRuntime({
             }
         }
         if (!g || !active()) {
+            if (restorePending && active()) restoreAfterCardOverwrite({ includePersist: true });
             if (sheetsDeferredByGenerating && active() && npcPolicy === 'auto') detectNewCharacters();
             return;
         }
         const c = ctx();
         const lastId = messages(c).length - 1;
         if (lastId < 0) {
+            if (restorePending) restoreAfterCardOverwrite({ includePersist: true });
             if (sheetsDeferredByGenerating && npcPolicy === 'auto') detectNewCharacters();
             return;
         }
         const plan = { check: g.check, preroll: g.preroll, note: g.note, ruleset: g.ruleset };
         const settled = settleAt(lastId, { redo: g.type === 'continue', plan });
+        if (restorePending) restoreAfterCardOverwrite({ includePersist: Boolean(!settled || settled.reused) });
         if (sheetsDeferredByGenerating && npcPolicy === 'auto' && (!settled || settled.reused)) detectNewCharacters();
     }
 
@@ -2781,8 +2972,9 @@ export function createStatsRuntime({
     }
 
     function onDeleted() {
-        if (!ledger || !chatEnabled) return;
         const c = ctx();
+        if (c && Array.isArray(c.chat)) lastObservedChatLength = c.chat.length;
+        if (!ledger || !chatEnabled) return;
         if (!c || !Array.isArray(c.chat)) return;
         deleteFloorsFrom(ledger, c.chat.length);
         onChange(currentStatsState(ledger), null);
@@ -2804,6 +2996,10 @@ export function createStatsRuntime({
 
     function onChatChanged() {
         awaitingTableReload = false;
+        sameChatTableCleared = false;
+        pendingCardOverwriteRestore = false;
+        justSwitchedChat = true;
+        lastConfirmedHeroBase = null;
         invalidateGenerations();
         invalidateCurrencyJob();
         sheetsDeferredByGenerating = false;
@@ -3031,6 +3227,7 @@ export function createStatsRuntime({
             ? await access.editHero(heroName, cleanScores, { expectedRevision: read.view.revision, uncapped: uncapped === true, shouldStart: alive })
             : await access.initHero(heroName, cleanScores, { expectedRevision: read.view.revision, uncapped: uncapped === true, shouldStart: alive });
         if (!written?.ok) return written || { ok: false, reason: 'stats-attribute-write-unverified' };
+        captureHeroBaseSnapshot(access, heroName);
         gateMemo = null;
         if (skills && typeof skills === 'object' && Object.keys(skills).length) {
             const picked = pickHeroSkills(skills, skillAttrs, slots);
