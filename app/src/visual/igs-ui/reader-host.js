@@ -3748,7 +3748,11 @@ ${row.key}`;
         const nameMap = forumNameMap(thread);
         const forumRowsIn = nameMap.size ? log.rows.map((row) => (nameMap.has(row.key) ? { ...row, key: nameMap.get(row.key) } : row)) : log.rows;
         const rawReplies = forumRepliesOf(floor.source);
-        const ankeFound = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
+        const ankeRaw = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
+        // 数值规则是 CoC 时，AI 误写成「判定|问题|对象|技能|数值」也按 CoC 检定算；锁仍按原标签记，已掷过的楼不丢结果。
+        let cocOn = false;
+        try { cocOn = ankeRaw && ankeRaw.kind === 'check' && ankeRaw.abilityText && typeof options.statsIsCoc === 'function' && !!options.statsIsCoc(); } catch (_) { cocOn = false; }
+        const ankeFound = cocOn ? { kind: 'coc', question: ankeRaw.question, options: [], actor: ankeRaw.actor, skill: ankeRaw.abilityText, value: ankeRaw.line, level: '普通', code: '' } : ankeRaw;
         if (idle && thread) {
             const order = [...new Set(forumRowsIn.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
             // 只在安科或 AI 回帖里点到名的人也要有代号，否则替换时没有对照、真名原样露出。
@@ -3885,7 +3889,7 @@ ${row.key}`;
         };
         const anke = (() => {
             if (!ankeFound || !plan.length) return null;
-            const key = forumAnkeLockKey(chatId, messageId, ankeFound);
+            const key = forumAnkeLockKey(chatId, messageId, ankeRaw);
             const lock = ankeStore.get(key);
             const readonly = Array.isArray(ctx.chat) && ctx.chat.slice(messageId + 1).some((m) => m && m.is_user);
             const flat = plan.flatMap((p) => [p, ...(p.replies || [])]);

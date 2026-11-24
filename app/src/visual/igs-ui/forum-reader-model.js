@@ -276,7 +276,7 @@ export function forumAnkeOf(source) {
             const extra = rest.slice(1);
             const num = extra.find((f) => /^\d{1,2}$/.test(f) && Number(f) >= 1);
             const words = extra.filter((f) => !/^\d+$/.test(f));
-            found = { kind, question: rest[0].slice(0, 80), options: [], actor: (words[0] || '楼主').slice(0, 20), ability: abilityKeyOf(words[1]) || null, line: num ? Number(num) : ANKE_CHECK_LINE };
+            found = { kind, question: rest[0].slice(0, 80), options: [], actor: (words[0] || '楼主').slice(0, 20), ability: abilityKeyOf(words[1]) || null, abilityText: (words[1] || '').slice(0, 12), line: num ? Number(num) : ANKE_CHECK_LINE };
             continue;
         }
         if (rest.length < 3) continue;

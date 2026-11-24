@@ -113,7 +113,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.24';
+const IGS_VERSION = '0.41.25';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -550,6 +550,7 @@ export function bootstrapIGS(options = {}) {
         // statsRuntime 在阅读器之后创建，这里按需读取。
         statsLookup: () => (app.statsRuntime && typeof app.statsRuntime.metricsLookup === 'function' ? app.statsRuntime.metricsLookup() : null),
         statsCocSkill: (skill) => (app.statsRuntime && typeof app.statsRuntime.cocSkillOf === 'function' ? app.statsRuntime.cocSkillOf(skill) : null),
+        statsIsCoc: () => !!(app.statsRuntime && typeof app.statsRuntime.investigatorSnapshot === 'function' && app.statsRuntime.investigatorSnapshot()),
         statsAbilities: (name) => (app.statsRuntime && typeof app.statsRuntime.abilitiesOf === 'function' ? app.statsRuntime.abilitiesOf(name) : null),
         traitNamesOf: (name) => (app.statsRuntime && typeof app.statsRuntime.traitNamesOf === 'function' ? app.statsRuntime.traitNamesOf(name) : null),
         statsFavorOverview: () => (app.statsRuntime && typeof app.statsRuntime.favorOverview === 'function' ? app.statsRuntime.favorOverview() : null),

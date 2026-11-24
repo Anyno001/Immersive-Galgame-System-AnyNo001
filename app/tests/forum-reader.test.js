@@ -511,7 +511,7 @@ test('安科标签：四种形式与旧格式、判定的成功线 / 对象 / �
     assert.equal(forumAnkeOf('[igs-anke:多数决|去哪|甲]'), null);
     assert.equal(forumAnkeOf('[igs-anke:安价|说什么|甲|乙|丙|丁|戊|己|庚|辛|壬|癸]').options.length, 8);
     assert.equal(forumAnkeOf('[igs-anke:征集|取名|甲|乙]').kind, 'collect');
-    assert.deepEqual(forumAnkeOf('[igs-anke:判定|偷看|阿吒|敏捷|60]'), { kind: 'check', question: '偷看', options: [], actor: '阿吒', ability: 'dex', line: 60 });
+    assert.deepEqual(forumAnkeOf('[igs-anke:判定|偷看|阿吒|敏捷|60]'), { kind: 'check', question: '偷看', options: [], actor: '阿吒', ability: 'dex', abilityText: '敏捷', line: 60 });
     const loose = forumAnkeOf('[igs-anke:判定|逃跑|楼主|乱写|0|120]');
     assert.deepEqual([loose.actor, loose.ability, loose.line], ['楼主', null, 50]);
     assert.notEqual(forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:多数决|去哪|甲|乙]')), forumAnkeLockKey('c', 1, forumAnkeOf('[igs-anke:多数决|去哪|甲|丙]')));

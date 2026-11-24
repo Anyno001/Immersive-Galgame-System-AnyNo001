@@ -264,7 +264,9 @@ function build(overlay, list, view, revealing, d, sig) {
             });
             row.append(undo);
         }
-        body.append(row);
+        // 掷骰类接在结果那一行的末尾靠右；其余（结果在选项上）单独一行靠右
+        if ((kind === 'coc' || kind === 'check') && !ops.hidden) { row.classList.add('is-inline'); ops.append(row); }
+        else body.append(row);
     };
 
     const commit = (part) => {
