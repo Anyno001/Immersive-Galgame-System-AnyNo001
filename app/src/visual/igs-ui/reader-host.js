@@ -1963,6 +1963,7 @@ export function createIgsReaderHost(options = {}) {
         waitStage.close();
         if (current.dom && current.dom.root && current.dom.root.style) current.dom.root.style.display = '';
         if (current.deferredReviewKey) syncAssetReviewAfterRender(current, current.snapshot);
+        if (current.snapshot) syncCombatEntryAfterRender(current, current.snapshot);
     }
 
     function remountEmbeddedReader(current, message) {
@@ -5907,6 +5908,23 @@ ${row.key}`;
         // 卡牌战斗面板：会话、账本与建表由 bootstrap 注入；扩展关闭或宿主不可用时 getSession 返回 null，面板不打开。
         const combatController = createCombatPanelController(doc, {
             getSession: () => (typeof options.getCombatSession === 'function' ? options.getCombatSession() : null),
+            // 流式生成落定期间若楼号暂未对齐或越界，重新定位当前活跃 AI 楼号，避免战斗准备报找不到 ID。
+            resolveMessageId: (currentId) => {
+                const reader = state.activeReader;
+                const activeId = reader && (reader.contentMessageId != null ? reader.contentMessageId : reader.payload?.messageId);
+                const candidate = Number(activeId ?? currentId);
+                if (Number.isInteger(candidate) && candidate >= 0 && typeof options.getIllustrationSource === 'function') {
+                    const floor = options.getIllustrationSource(candidate);
+                    if (floor && floor.isAi) return floor.messageId;
+                }
+                const ctx = getSillyTavernContext(options.global || globalThis);
+                const chat = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
+                for (let i = chat.length - 1; i >= 0; i -= 1) {
+                    if (chat[i]?.is_user) break;
+                    if (chat[i] && !chat[i].is_system) return i;
+                }
+                return Number.isInteger(candidate) && candidate >= 0 ? candidate : null;
+            },
             // 对阵界面没做选择、或战斗打到一半就关闭（含关闭阅读器）：在入口位置留「返回战斗 / 返回挑战」标签；已发送、已放弃、已托管、已跳过则清除。
             onClose: ({ dismissed }) => {
                 setIntimateDuel(null);

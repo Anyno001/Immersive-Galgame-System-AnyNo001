@@ -323,6 +323,9 @@ export function createStatsRuntime({
     let generationCommitTail = Promise.resolve();
     let generationCommitActive = 0;
     let sheetsDeferredByGenerating = false;
+    let syncTablesDeferredByGenerating = false;
+    const autoSheetAttemptedFloor = new Map();
+    const pendingAutoSheetNames = new Set();
     function enqueueGenerationCommit(fn) {
         generationCommitActive += 1;
         const run = generationCommitTail.then(fn, fn);
@@ -1205,9 +1208,9 @@ export function createStatsRuntime({
         const text = messages(c).slice(0, upTo === Infinity ? undefined : upTo + 1).map((m) => String((m && m.mes) || '')).join('\n');
         return [...new Set(names)].filter((n) => text.includes(n)).map((n) => canonName(n)).filter((n, i, all) => n && all.indexOf(n) === i);
     };
-    const tableSeedOf = (state, upTo = Infinity) => {
-        const fresh = [...new Set([...tableNames(), ...rosterNames(upTo)])].filter((name) => !state.characters[name] && !Object.hasOwn(catalog.renames, name));
-        return fresh.length ? Object.fromEntries(fresh.map((name) => [name, {}])) : null;
+    const tableSeedOf = (state, upTo = Infinity, { fresh = false } = {}) => {
+        const freshNames = [...new Set([...tableNames({ fresh }), ...rosterNames(upTo)])].filter((name) => !state.characters[name] && !Object.hasOwn(catalog.renames, name));
+        return freshNames.length ? Object.fromEntries(freshNames.map((name) => [name, {}])) : null;
     };
     // 表格被数据库插件改过后分两种来源：
     // 1. AI 填表（「开始填表」回调到下一次表格更新之间）：用 IGS 数值盖回去；
@@ -1394,8 +1397,8 @@ export function createStatsRuntime({
         const covered = fillOpen || Date.now() < fillGraceUntil || cardOverwritten;
         if (fillOpen) fillGraceUntil = Date.now() + FILL_GRACE;
         closeFillWindow();
+        if (!writingTable && active() && npcPolicy && !generating) detectNewCharacters({ syncTables: true });
         if (!covered && (writingTable || Date.now() < selfWriteUntil)) return;
-        if (active() && npcPolicy && !generating) detectNewCharacters({ syncTables: true });
         scheduleTableSync(covered);
     };
     // 延迟处理表格更新。到点时若正在写表、刚写完或又进了填表窗口，采纳会读到写了一半的表：顺延，并改按 AI 填表处理。
@@ -1474,7 +1477,13 @@ export function createStatsRuntime({
         ledger = null; ledgerPersisted = false; initQueued = false; chatEnabled = false; buildMode = null; buildChoices = {}; npcPolicy = null; npcChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
         currencyEdit = null; currencyEditError = '';
         sameChatTableCleared = false; pendingCardOverwriteRestore = false;
-        if (!sameChat) lastConfirmedHeroBase = null;
+        if (!sameChat) {
+            lastConfirmedHeroBase = null;
+            autoSheetAttemptedFloor.clear();
+            pendingAutoSheetNames.clear();
+            sheetsDeferredByGenerating = false;
+            syncTablesDeferredByGenerating = false;
+        }
         lastObservedChatLength = messages(ctx()).length;
         baseline = new Map(); pendingOption = null; manualCheck = null; notices.clear();
         if (currencyNotice) notices.set('currency', currencyNotice);
@@ -2759,7 +2768,7 @@ export function createStatsRuntime({
                 check, preroll: p.preroll || null, rollPairs, storyChecks, npcChecks, favorTier, favorMode, strengthRev, aptitudeOf: (name) => aptitudeLevel(catalog, name), traits: catalog.traits, romanceSeen: catalog.romanceSeen, moodGroups: moodGroups(), intimateCost, dateRegex: s.dateRegex, timeRegex: s.timeRegex, manual, catalog, settings: s, floor: messageId, noBattle: combatOn(), currency: available, extraDirectives: challengeDirectivesBefore(messages(c), messageId), present: present(before),
                 random, nsfw: isNsfw(), resolveCharacter: (name) => resolve(canonName(name), before), engine,
                 expenses: catalog.expenses, heroSide,
-                seedCharacters: autoTable ? tableSeedOf(before, messageId) : null, fameBars: catalog.fameBars,
+                seedCharacters: autoTable ? tableSeedOf(before, messageId, { fresh: true }) : null, fameBars: catalog.fameBars,
             });
             const meta = { ...r.meta };
             let changes = r.changes;
@@ -2786,7 +2795,10 @@ export function createStatsRuntime({
             return { ...r, changes, meta };
         };
         const r = redo ? resettleFloor(ledger, floor, settle) : settleFloor(ledger, floor, settle, seed === null ? undefined : seed);
-        if (r.reused) return r;
+        if (r.reused) {
+            if (npcPolicy === 'auto') detectNewCharacters({ triggerExisting: sheetsDeferredByGenerating, syncTables: true, floorId: messageId, floorText: body, floorEntry: r.entry });
+            return r;
+        }
         const meta = r.entry.meta || {};
         if (currencyFailure) currencyFailed(currency, currencyFailure);
         if (meta.note && meta.note.reason === 'stats-roll-skipped') diag('stats-roll-skipped', { messageId });
@@ -2837,7 +2849,7 @@ export function createStatsRuntime({
         if (!(meta.flags && meta.flags.detached)) refreshLife({ write: true, messageIds: [messageId], battleHurts: new Map(hurt ? [[messageId, hurt]] : []), naturalHeals: (meta.heal || []).map((h) => ({ messageId, name: h.name, amount: h.amount, reason: h.reason })) });
         if (meta.check && meta.check.source === 'roll' && !redo) playCheck(meta.check, messageId);
         if (meta.pendingRoll && s.storyCheck === 'manual') offerManualRoll(r.entry);
-        detectNewCharacters();
+        detectNewCharacters({ triggerExisting: sheetsDeferredByGenerating, syncTables: true, floorId: messageId, floorText: body, floorEntry: r.entry });
         scheduleBackfill();
         confirmWorldRoles(meta.diagnostics, messageId);
         if (!redo) traitPass(r.entry, messageId, body);
@@ -2918,43 +2930,73 @@ export function createStatsRuntime({
     }
 
     // 完整正文只在结束（或停止）时结算一次；注入只对本次生成有效（易错点 A3/A6）。
+    function latestAiFloor(c) {
+        const list = messages(c);
+        for (let i = list.length - 1; i >= 0; i -= 1) {
+            const msg = list[i];
+            if (msg && msg.is_user) break;
+            if (msg && !msg.is_system) return { id: i, msg, text: String(msg.mes ?? '') };
+        }
+        return null;
+    }
+
     function onFinished() {
         if (background()) return;
         const g = generating;
         generating = null;
         justSwitchedChat = false;
-        lastObservedChatLength = Math.max(lastObservedChatLength, messages(ctx()).length);
+        const cNow = ctx();
+        lastObservedChatLength = Math.max(lastObservedChatLength, messages(cNow).length);
         const restorePending = pendingCardOverwriteRestore;
         pendingCardOverwriteRestore = false;
         clearPrompt();
+        const latestAi = latestAiFloor(cNow);
         if (!active() && settings().enabled && latestFloorHasVisibleIgsTag()) {
             autoEnable();
             if (!g) {
-                const c = ctx();
-                const lastId = messages(c).length - 1;
-                const lastMsg = lastId >= 0 ? messages(c)[lastId] : null;
-                if (active() && lastMsg && !lastMsg.is_user && !lastMsg.is_system && /[\[【]\s*igs\s*-?\s*stat\s*[:：]|\[igs-check:/i.test(String(lastMsg.mes || ''))) {
-                    settleAt(lastId, { redo: false, plan: {} });
+                const lastId = latestAi ? latestAi.id : messages(cNow).length - 1;
+                const lastMsg = latestAi ? latestAi.msg : (lastId >= 0 ? messages(cNow)[lastId] : null);
+                if (active() && lastMsg && !lastMsg.is_user && !lastMsg.is_system) {
+                    if (/[\[【]\s*igs\s*-?\s*stat\s*[:：]|\[igs-check:/i.test(String(lastMsg.mes || ''))) {
+                        settleAt(lastId, { redo: false, plan: {} });
+                    } else if (npcPolicy === 'auto') {
+                        detectNewCharacters({ triggerExisting: sheetsDeferredByGenerating, syncTables: true, floorId: lastId, floorText: String(lastMsg.mes ?? '') });
+                    }
                 }
                 return;
             }
         }
         if (!g || !active()) {
             if (restorePending && active()) restoreAfterCardOverwrite({ includePersist: true });
-            if (sheetsDeferredByGenerating && active() && npcPolicy === 'auto') detectNewCharacters();
+            if (active() && npcPolicy === 'auto' && (sheetsDeferredByGenerating || syncTablesDeferredByGenerating || latestAi)) {
+                detectNewCharacters({
+                    triggerExisting: sheetsDeferredByGenerating,
+                    syncTables: true,
+                    floorId: latestAi ? latestAi.id : null,
+                    floorText: latestAi ? latestAi.text : null,
+                });
+            }
             return;
         }
-        const c = ctx();
-        const lastId = messages(c).length - 1;
+        const lastId = latestAi ? latestAi.id : messages(cNow).length - 1;
         if (lastId < 0) {
             if (restorePending) restoreAfterCardOverwrite({ includePersist: true });
-            if (sheetsDeferredByGenerating && npcPolicy === 'auto') detectNewCharacters();
+            if ((sheetsDeferredByGenerating || syncTablesDeferredByGenerating) && npcPolicy === 'auto') {
+                detectNewCharacters({ triggerExisting: sheetsDeferredByGenerating, syncTables: true });
+            }
             return;
         }
         const plan = { check: g.check, preroll: g.preroll, note: g.note, ruleset: g.ruleset };
         const settled = settleAt(lastId, { redo: g.type === 'continue', plan });
         if (restorePending) restoreAfterCardOverwrite({ includePersist: Boolean(!settled || settled.reused) });
-        if (sheetsDeferredByGenerating && npcPolicy === 'auto' && (!settled || settled.reused)) detectNewCharacters();
+        if (npcPolicy === 'auto' && (!settled || settled.reused)) {
+            detectNewCharacters({
+                triggerExisting: sheetsDeferredByGenerating,
+                syncTables: true,
+                floorId: latestAi ? latestAi.id : null,
+                floorText: latestAi ? latestAi.text : null,
+            });
+        }
     }
 
     function onSwiped(messageId) {
@@ -2991,7 +3033,16 @@ export function createStatsRuntime({
         }
         const id = Number(messageId);
         const m = messages(ctx())[id];
-        if (m && ledger.entries.has(ledgerKey(ledger, id, Number(m.swipe_id) || 0))) settleAt(id, { redo: true });
+        if (!m || m.is_user || m.is_system) return;
+        if (ledger.entries.has(ledgerKey(ledger, id, Number(m.swipe_id) || 0))) {
+            settleAt(id, { redo: true });
+            return;
+        }
+        // 流式生成中若 GENERATION_ENDED 到达时正文尚未写入（或尚未落楼），随后 MESSAGE_UPDATED 补到最新 AI 楼时补跑结算与 NPC 自动生成。
+        const latestAi = latestAiFloor(ctx());
+        if (latestAi && latestAi.id === id && String(m.mes || '').trim()) {
+            settleAt(id, { redo: false, plan: {} });
+        }
     }
 
     function onChatChanged() {
@@ -3003,6 +3054,9 @@ export function createStatsRuntime({
         invalidateGenerations();
         invalidateCurrencyJob();
         sheetsDeferredByGenerating = false;
+        syncTablesDeferredByGenerating = false;
+        autoSheetAttemptedFloor.clear();
+        pendingAutoSheetNames.clear();
         currencyAsked.delete(chatIdOf(ctx()));
         managedCache = null;
         pushedHeroSkills = {};
@@ -3012,7 +3066,10 @@ export function createStatsRuntime({
         autoEnable();
         onChange(ledger ? currentStatsState(ledger) : null, null, { chatChanged: true });
         refreshOnboarding();
-        if (active()) refreshLife();
+        if (active()) {
+            refreshLife();
+            if (npcPolicy === 'auto') detectNewCharacters({ syncTables: true });
+        }
         ensureCurrency();
     }
 
@@ -3021,6 +3078,9 @@ export function createStatsRuntime({
         invalidateGenerations();
         invalidateCurrencyJob();
         sheetsDeferredByGenerating = false;
+        syncTablesDeferredByGenerating = false;
+        autoSheetAttemptedFloor.clear();
+        pendingAutoSheetNames.clear();
         for (const off of offs) { try { off(); } catch (error) { /* */ } }
         offs = [];
         generating = null;
@@ -3067,8 +3127,24 @@ export function createStatsRuntime({
     // 设置变化后调用：总开关开就挂监听并读存档，关就全部解绑（易错点 H1）。战斗开启时总开关强制为开。
     function sync() {
         const on = settings().enabled;
-        if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) refreshLife(); ensureCurrency(); } }
-        else if (on && offs.length) { autoEnable(); refreshOnboarding(); if (active()) { refreshLife(); ensureCurrency(); } }
+        if (on && !offs.length) {
+            if (attach()) {
+                load(); autoEnable(); refreshOnboarding();
+                if (active()) {
+                    refreshLife();
+                    if (npcPolicy === 'auto' && !generating) detectNewCharacters({ syncTables: true });
+                }
+                ensureCurrency();
+            }
+        }
+        else if (on && offs.length) {
+            autoEnable(); refreshOnboarding();
+            if (active()) {
+                refreshLife();
+                if (npcPolicy === 'auto' && !generating) detectNewCharacters({ syncTables: true });
+                ensureCurrency();
+            }
+        }
         else if (!on && offs.length) { detach(); notices.clear(); emitNotices(); }
         return { attached: offs.length > 0 };
     }
@@ -3102,7 +3178,7 @@ export function createStatsRuntime({
         onChange(currentStatsState(ledger), null);
         refreshOnboarding();
         onBuildPolicyChange();
-        detectNewCharacters();
+        detectNewCharacters({ syncTables: npcPolicy === 'auto' });
         ensureCurrency();
         return { ok: true };
     }
@@ -3511,12 +3587,55 @@ export function createStatsRuntime({
     // 角色卡入库前过一遍 sanitizeCatalog 的同一套规整（旧格式属性迁成六维分数），内存与存档保持一致。
     const tidySheet = (sheet) => sanitizeCatalog({ sheets: { x: sheet } }).sheets.x || sheet;
 
+    // 判断某楼层实际出场的候选 NPC（仅看本楼正文、本楼变动目标、随身角色或外部在场判定，不回看上一楼以免未出场角色误重试）。
+    function appearedOnFloor(state, candidates, { floorId = null, floorText = null, floorEntry = null } = {}) {
+        const hit = new Set();
+        if (floorId == null || !candidates.length) return hit;
+        const c = ctx();
+        const msg = messages(c)[floorId];
+        const text = typeof floorText === 'string' ? floorText : String(msg?.mes ?? '');
+        let aliases = {};
+        try { aliases = characterAliases() || {}; } catch (error) { aliases = {}; }
+        const touched = new Set(
+            (Array.isArray(floorEntry?.changes) ? floorEntry.changes : [])
+                .map((row) => canonName(row && row.target))
+                .filter(Boolean),
+        );
+        const traitCat = traitCatalogOf(catalog.traits);
+        let customPresent = null;
+        if (typeof presentOf === 'function') {
+            try { customPresent = new Set((presentOf(state) || []).map((n) => canonName(n)).filter(Boolean)); }
+            catch (error) { customPresent = null; }
+        }
+        for (const name of candidates) {
+            if (touched.has(name) || customPresent?.has(name) || hasTrait(state, traitCat, name, 'companion')) {
+                hit.add(name);
+                continue;
+            }
+            if (!text) continue;
+            const alt = Array.isArray(aliases[name]) ? aliases[name] : [];
+            if ([name, ...alt].some((n) => n && text.includes(String(n)))) hit.add(name);
+        }
+        return hit;
+    }
+
     // ---- 新角色与角色卡（v2 §6.4 / P5）：按本聊天 NPC 策略运行；同步重要角色表 / 开场名单，停止跨聊天 NPC 缓存读取 ----
-    function detectNewCharacters({ triggerExisting = false, syncTables = false } = {}) {
+    function detectNewCharacters({ triggerExisting = false, syncTables = false, floorId = null, floorText = null, floorEntry = null } = {}) {
         if (!active()) return;
         const s = settings();
         if (s.sheetGen === 'off') return;
-        if (syncTables && npcPolicy && s.register !== 'manual' && !generating) syncTablePeopleIntoLedger();
+        if (generating && npcPolicy === 'auto') {
+            if (triggerExisting || syncTables || floorId != null) {
+                sheetsDeferredByGenerating = true;
+                if (syncTables) syncTablesDeferredByGenerating = true;
+            }
+            return;
+        }
+        const shouldSyncTables = (syncTables || syncTablesDeferredByGenerating) && Boolean(npcPolicy) && s.register !== 'manual' && !generating;
+        if (shouldSyncTables) {
+            syncTablesDeferredByGenerating = false;
+            syncTablePeopleIntoLedger();
+        }
         const state = currentStatsState(ledger);
         const rawNames = [
             ...Object.keys(state.characters || {}),
@@ -3524,7 +3643,11 @@ export function createStatsRuntime({
         ];
         const candidates = [...new Set(rawNames.map((n) => canonName(n)))]
             .filter((n) => n && !isHero(n) && !catalog.sheets[n] && npcChoices[n] !== 'defer');
-        if (!candidates.length) { refreshNpcAsk(); return; }
+        if (!candidates.length) {
+            if (npcPolicy === 'auto' && !generating) sheetsDeferredByGenerating = false;
+            refreshNpcAsk();
+            return;
+        }
         if (!npcPolicy) {
             refreshNpcPolicy();
             return;
@@ -3533,11 +3656,27 @@ export function createStatsRuntime({
             const fresh = triggerExisting
                 ? candidates
                 : candidates.filter((n) => !catalog.notified.includes(n));
-            const deferred = !fresh.length && sheetsDeferredByGenerating && !generating
+            const deferred = sheetsDeferredByGenerating && !generating
                 ? (catalog.queue.people || []).map((n) => canonName(n)).filter((n) => candidates.includes(n))
                 : [];
-            const targets = fresh.length ? fresh : deferred;
-            if (!targets.length) return;
+            let reappeared = [];
+            let floorKey = '';
+            if (floorId != null) {
+                const c = ctx();
+                const msg = messages(c)[floorId];
+                const swipeId = Number(msg?.swipe_id) || 0;
+                floorKey = `${chatIdOf(c)}:${floorId}:${swipeId}`;
+                const appeared = appearedOnFloor(state, candidates, { floorId, floorText, floorEntry });
+                reappeared = candidates.filter((n) => appeared.has(n) && autoSheetAttemptedFloor.get(n) !== floorKey);
+            }
+            const targets = [...new Set([...fresh, ...deferred, ...reappeared])];
+            if (!targets.length) {
+                if (!generating) sheetsDeferredByGenerating = false;
+                return;
+            }
+            if (floorKey) {
+                for (const name of targets) autoSheetAttemptedFloor.set(name, floorKey);
+            }
             const addedNotified = targets.filter((n) => !catalog.notified.includes(n));
             const nextQueue = [...new Set([...catalog.queue.people, ...targets])];
             if (addedNotified.length || nextQueue.length !== catalog.queue.people.length) {
@@ -3618,9 +3757,23 @@ export function createStatsRuntime({
     }
 
     function generateSheets(names = null, { supersede = false } = {}) {
+        const requestedNames = Array.isArray(names)
+            ? [...new Set(names.map((n) => canonName(n)).filter(Boolean))]
+            : null;
         const pending = generationTasks.get('sheets');
-        if (pending) return !supersede || (pending.supersede || []).includes(names?.[0])
-            ? pending.promise : Promise.resolve({ ok: false, reason: 'stats-sheet-busy' });
+        if (pending) {
+            // 自动建档进行中又有新 NPC 到来：记入待续批队列，等本批结束后自动继续，避免新角色被吞掉。
+            if (!supersede && npcPolicy === 'auto' && requestedNames?.length) {
+                const inFlight = new Set(pending.targets || []);
+                for (const name of requestedNames) {
+                    if (!inFlight.has(name) && !isHero(name) && !catalog.sheets[name] && npcChoices[name] !== 'defer') {
+                        pendingAutoSheetNames.add(name);
+                    }
+                }
+            }
+            return !supersede || (pending.supersede || []).includes(names?.[0])
+                ? pending.promise : Promise.resolve({ ok: false, reason: 'stats-sheet-busy' });
+        }
         const recovery = pendingGenerationSave('sheets', () => generateSheets(names, { supersede }));
         if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
@@ -3631,18 +3784,35 @@ export function createStatsRuntime({
         }
         if (generating) {
             sheetsDeferredByGenerating = true;
+            if (requestedNames?.length && npcPolicy === 'auto') {
+                for (const name of requestedNames) {
+                    if (!isHero(name) && !catalog.sheets[name] && npcChoices[name] !== 'defer') pendingAutoSheetNames.add(name);
+                }
+            }
             return Promise.resolve({ ok: false, reason: 'stats-generating', queued: true });
         }
         sheetsDeferredByGenerating = false;
         // 不点名时：待生成队列，加上有人际档却没有角色卡的角色（角色卡被删或生成失败丢失）。
         const orphans = () => !ledger ? [] : Object.keys(currentStatsState(ledger).characters || {})
             .filter((n) => n !== PROTAGONIST && !isHero(n) && !catalog.sheets[n]);
-        const targets = (names && names.length ? names : [...new Set([...catalog.queue.people, ...orphans()])]).slice(0, SHEET_BATCH_MAX);
+        const pool = requestedNames && requestedNames.length
+            ? requestedNames
+            : [...new Set([...catalog.queue.people, ...pendingAutoSheetNames, ...orphans()])];
+        const targets = pool.slice(0, SHEET_BATCH_MAX);
         if (!targets.length) return Promise.resolve({ ok: true, skipped: true });
+        for (const name of targets) pendingAutoSheetNames.delete(name);
+        if (npcPolicy === 'auto' && pool.length > SHEET_BATCH_MAX) {
+            for (const extra of pool.slice(SHEET_BATCH_MAX)) {
+                if (!isHero(extra) && !catalog.sheets[extra] && npcChoices[extra] !== 'defer') pendingAutoSheetNames.add(extra);
+            }
+        }
         setNotice('sheets', { kind: 'busy', text: `正在生成数值：${targets.join('、')}` });
         const chatSeed = chatIdOf(ctx());
         const sheetTargetSnapshot = () => JSON.stringify(targets.map((name) => [name, catalog.sheets[name] || null, catalog.sheetDrops[name] || null]));
+        const batchOwner = generationIdentity();
+        let doneNames = [];
         const started = generationTasks.start('sheets', async job => {
+            job.targets = targets;
             let failureReason = '';
             job.onFinish(() => {
                 if (job.alive() && notices.get('sheets')?.kind === 'busy') {
@@ -3651,6 +3821,19 @@ export function createStatsRuntime({
                     try { console.warn('[IGS 数值] 角色卡生成未完成：', code); } catch { /* */ }
                     setNotice('sheets', { kind: 'sheets', text: `生成数值未完成（${code}），可重试`, actions: [['generate', '重试'], ['dismiss', '稍后']] });
                 }
+                if (disposed || !active() || generating || npcPolicy !== 'auto') return;
+                if (chatIdOf(ctx()) !== chatSeed || generationIdentity() !== batchOwner) return;
+                const failedInBatch = new Set(targets.filter((n) => !doneNames.includes(n)));
+                const nextTargets = [...pendingAutoSheetNames]
+                    .filter((n) => n && !isHero(n) && !catalog.sheets[n] && npcChoices[n] !== 'defer' && !failedInBatch.has(n));
+                if (!nextTargets.length) return;
+                for (const name of nextTargets) pendingAutoSheetNames.delete(name);
+                queueMicrotask(() => {
+                    if (disposed || !active() || generating || npcPolicy !== 'auto') return;
+                    if (chatIdOf(ctx()) !== chatSeed || generationIdentity() !== batchOwner) return;
+                    const stillNeeded = nextTargets.filter((n) => !catalog.sheets[n] && npcChoices[n] !== 'defer');
+                    if (stillNeeded.length) generateSheets(stillNeeded);
+                });
             });
             try {
             await tail;
@@ -3709,7 +3892,7 @@ export function createStatsRuntime({
             }
             (parsed.diagnostics || []).forEach((d) => diag(d.code, d));
             const done = Object.keys(parsed.sheets);
-            return await stageGeneration(job, () => {
+            const committed = await stageGeneration(job, () => {
                 const sheets = { ...catalog.sheets };
                 const sheetDrops = { ...catalog.sheetDrops };
                 for (const [name, tiers] of Object.entries(parsed.sheets)) {
@@ -3724,6 +3907,10 @@ export function createStatsRuntime({
                     : { kind: 'info', text: `已生成数值：${done.join('、')}`, ttl: true });
                 return { result: { ok: true, names: done } };
             });
+            if (committed?.ok === true) {
+                doneNames = done;
+            }
+            return committed;
             } catch (error) {
                 failureReason = error?.reason || error?.message || 'stats-sheet-threw';
                 throw error;
@@ -5064,6 +5251,10 @@ export function createStatsRuntime({
         if (!ledger) return { ok: false, reason: 'stats-chat-not-enabled' };
         const owner = generationIdentity(), chatId = chatIdOf(ctx());
         const alive = () => !disposed && loadedChat === chatId && chatIdOf(ctx()) === chatId && generationIdentity() === owner;
+        if (generationCommitActive > 0) {
+            await generationCommitTail;
+            if (!alive()) return { ok: false, reason: 'request-stale' };
+        }
         const prevPolicy = npcPolicy;
         const prevBaseline = new Map(baseline);
         npcPolicy = normalized;
@@ -5078,7 +5269,11 @@ export function createStatsRuntime({
         refreshOnboarding();
         onBuildPolicyChange();
         onChange(currentStatsState(ledger), null);
-        detectNewCharacters({ triggerExisting: normalized === 'auto', syncTables: true });
+        if (normalized === 'auto') {
+            detectNewCharacters({ triggerExisting: true, syncTables: true });
+        } else {
+            detectNewCharacters({ triggerExisting: false, syncTables: true });
+        }
         return { ok: true, npcPolicy };
     }
 
@@ -5124,7 +5319,15 @@ export function createStatsRuntime({
         if (blocked) return { ok: false, reason: blocked };
         const picked = normalizeBuildMode(mode);
         if (!picked) return { ok: false, reason: 'stats-build-mode-invalid' };
-        if (ledger) { buildMode = picked; npcPolicy = normalizeNpcPolicy(picked); persist(); refreshOnboarding(); onBuildPolicyChange(); return { ok: true }; }
+        if (ledger) {
+            buildMode = picked;
+            npcPolicy = normalizeNpcPolicy(picked);
+            persist();
+            refreshOnboarding();
+            onBuildPolicyChange();
+            if (npcPolicy === 'auto') detectNewCharacters({ triggerExisting: true, syncTables: true });
+            return { ok: true };
+        }
         if (!chatIdOf(ctx())) return { ok: false, reason: 'stats-no-chat' };
         refreshOnboarding();
         modeDefault = picked;

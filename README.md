@@ -22,7 +22,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ## 当前状态
 
-当前版本：`0.41.32`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
+当前版本：`0.41.33`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
 
 ### 未发布 / 版本不详
 
@@ -35,6 +35,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ### 0.41.x
 
+- `0.41.33`：优化酒馆流式生成场景下的战斗准备流程（修正 `GENERATION_ENDED` 传入越界 `chat.length` 或延迟落楼导致的楼号找不到 ID、流式期间平滑暂缓并在结束后自动补跑、读取 MVU 变量跳过未落地最新楼回读前序楼层、忽略自动插图标记落位引起的伪 `request-stale` / `combat-record-stale`、战斗面板遇到瞬态楼号/租约问题自动重查楼号重试）；优化 NPC 选择「自动生成」后未能稳定触发数值生成的问题（补齐生成中切自动、切 `setBuildMode('auto')`、表更新与超 8 人/在途并发自动续批）并新增上一楼生成失败后下一楼该 NPC 再次出场时自动重试机制（同楼不重复刷请求、未出场与已暂不建档不重试）。未真机验证。
 - `0.41.32`：移除生图世界书扫描、原生酒馆 `ctx.generateRaw` 回退及背景/立绘/立绘多批写词链上不必要的串行并发上限（保留 NovelAI 同 API Key 官方防 429 串行生图队列与退避冷却）；修复备用模型日志对 `messages` 数组记录 `未命名请求 · 发送0字` 及进行中不即时显示 `已发出` 的问题；修复支持数据库的角色卡在第一楼用户输入触发时强制覆盖表模板与数据导致的 `combat-table-template-diverged` / `inventory-template-diverged` / `igs-layout-conflict` / `stats-generation-log-conflict` 报错，按活跃表协调模板保留角色卡数据并自动重建恢复 IGS 表与首楼状态。未真机验证。
 - `0.41.31`：修复数值与主角初始化等生成功能全面报 `igs-layout-conflict` 且无法建表插数的问题（解决切聊天与 shujuku 重载竞态锁死旧布局、`igs_stats_declined` 清除后与旧布局锁存冲突、首楼重摇/清表回到空白态卡死，以及零表状态下主角初始化与擅长技能并发提交冲突）；同步修复已有表下显式启用不落盘 `init` 的回归。未真机验证。
 - `0.41.30`：「数据 › 日志」新增「备用模型日志」，记录每次发给备用模型的请求（模型、用途、耗时、重试、结果），API Key 不写入；清理规则与生图日志相同。未真机验证。
@@ -1104,6 +1105,19 @@ projects/Immersive Galgame System/
 ### v0.34.73 - 新手引导新增工具栏按钮管理（内测）
 
 - **新手引导**：「对话框外观」之后新增「工具栏按钮管理」一步，带你到「阅读器 › 界面」的按钮管理列表；觉得哪个图标累赘就关掉它的眼睛隐藏，也能调整顺序。引导步骤总数从 10 步变为 11 步。
+
+### v0.41.33 - 2026-11-24
+
+- **战斗准备流式生成容错与自动定位重试**：
+  - `app/src/host/illustration-message-host.js`：修正 `onImageFloorReady` 在 `GENERATION_ENDED` 收到酒馆传入的 `chat.length`（越界 1 位）时直接下发无效 ID 的问题，仅在 `id` 指向有效 AI 槽位时采纳，否则回扫最新 AI 楼号；若 `GENERATION_ENDED` 早于新 AI 楼入栈，则等待随后的 `MESSAGE_RECEIVED` / `CHARACTER_MESSAGE_RENDERED` / `MESSAGE_UPDATED` 落地后再派发。
+  - `app/src/host/combat-generation-materials.js`：`readMvu` 在读取最新流式楼遇到「找不到消息 ID」抛错时跳过该未落地最新楼并继续回扫前序有效楼层或 `type: 'chat'`，不再直接阻断素材读取。
+  - `app/src/scene/scene-directives.js` / `app/src/host/combat-chat-record.js` / `app/src/combat/session.js` / `app/src/core/combat-services.js`：抽取共享比对函数 `floorTextWithoutIllustrationMarkers`，自动插图在备战期间向楼层写入 `[igs-img:N]` / `<IMG>N</IMG>` 标记及独占行换行不再使备战租约误判为 `request-stale` 或 `combat-record-stale`（真实正文改动、滑页、删楼与切聊天仍立即失效）。
+  - `app/src/core/combat-services.js`：监听宿主主生成流式周期，流式输出期间平滑暂缓非手动 `prepareProtagonist` 与 `autoPrepare` 并在流式结束后自动补跑；`autoPrepare` 对越界或缺失楼号自动重查最新可用 AI 战斗楼，瞬态 `blocked` 不再阻止自动重试；`currentProtagonistState` 不再把 `request-stale` 记为已请求完成而锁死后续自动重试。
+  - `app/src/visual/igs-ui/combat-panel.js` / `app/src/visual/igs-ui/reader-host.js`：战斗面板打开时忽略瞬态 `blocked` 缓存短路，遇到楼号未就绪/瞬态取消自动刷新目标楼号并在有界退避内重试；内嵌单页退出流式加载态后主动补齐一次战斗入口同步。
+- **NPC「自动生成」可靠触发与跨楼失败自动重试**：
+  - `app/src/core/stats-runtime.js`：补齐生成期间点选「自动生成」、`setBuildMode('auto')`、表更新（含 `selfWriteUntil` 窗口内新角色）与无 `[igs-stat:]` 普通正文楼的自动同步触发；`setNpcPolicy` 在 `generationCommitActive > 0` 时等待当前提交落盘避免竞态失败；`generateSheets` 支持自动策略下在途并发新角色与超出 `SHEET_BATCH_MAX`（8 人）分批的自动队列续跑（仅排空新增/溢出队列，不误刷前楼未出场的失败角色）。
+  - `app/src/core/stats-runtime.js`：新增按本楼出场判定（仅看本楼正文/别名、本楼结算变动、同行与在场，不回扫上一楼）与 `autoSheetAttemptedFloor`（按 `chatId:floorId:swipeId` 去重），上一楼生成失败的 NPC 在下一楼再次出场时自动重新发起数值生成，同楼更新不反复刷请求，未出场及已选「暂不建档」角色不自动重试。
+- **验证边界与留存说明**：已完成 12 组定向/回归单测（含新增 `app/tests/streaming-combat-and-npc-retry.test.js` 7 条回归用例，总计 208/208 通过）、构建、loader 生成、本地整合包打包及 bundle 冷启动核验；真实酒馆（SillyTavern / TT 酒馆）流式生成时序与实机联调待后续复验（`tests/stream-exit-after-end.test.js:129` 为历史前置用例未含可见 IGS 标签的存量不匹配，本轮未改动该无关旧测试）。
 
 ### v0.41.32 - 2026-11-24
 

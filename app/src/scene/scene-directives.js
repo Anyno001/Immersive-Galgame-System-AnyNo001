@@ -34,6 +34,11 @@ export function stripIllustrationMarkers(text) {
         .replace(/(?:\[igs-img:\s*\d+\s*\]|<IMG>\s*\d+\s*<\/IMG>)/gi, '');
 }
 
+// 租约/同楼比对：去掉自动插图写入的标记及独占行插入附带的换行差异，避免插图落位误判正文变更。
+export function floorTextWithoutIllustrationMarkers(text) {
+    return stripIllustrationMarkers(text).replace(/[\r\n]+/g, '');
+}
+
 export function stripIllustrationMarker(text, slot) {
     const n = Number(slot);
     if (!Number.isInteger(n) || n < 1) return String(text || '');

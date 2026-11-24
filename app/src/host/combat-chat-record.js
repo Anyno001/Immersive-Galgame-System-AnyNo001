@@ -2,6 +2,7 @@
 // 记录挂在 AI 楼层（及其当前滑页）的 extra.igsCombat[key] 下；
 // 读取时要求楼层存在、非用户楼且滑页号一致，写入后回读校验，保存失败则恢复原 extra。
 import { getSillyTavernContext } from './tavern-helper-adapter.js';
+import { floorTextWithoutIllustrationMarkers } from '../scene/scene-directives.js';
 
 export const COMBAT_CHAT_RECORD_KEY = 'igsCombat';
 const EXTRA_KEY = COMBAT_CHAT_RECORD_KEY;
@@ -44,11 +45,12 @@ export function createCombatChatRecord(host = globalThis) {
     async function write(anchor, key, patch, { shouldStart = () => true } = {}) {
         const ctx = context();
         if (!ctx || typeof ctx.saveChat !== 'function') return { ok: false, reason: 'combat-record-unsupported' };
-        const chat = ctx.chat, message = findMessage(anchor, ctx), text = message?.mes;
+        const chat = ctx.chat, message = findMessage(anchor, ctx), text = floorTextWithoutIllustrationMarkers(message?.mes);
         const stale = () => ({ ok: false, reason: 'combat-record-stale' });
         const sameFloor = () => {
             const current = context();
-            return !!message && current?.chat === chat && findMessage(anchor, current) === message && message.mes === text;
+            return !!message && current?.chat === chat && findMessage(anchor, current) === message
+                && floorTextWithoutIllustrationMarkers(message.mes) === text;
         };
         const active = () => {
             try { return sameFloor() && shouldStart() === true; }

@@ -1847,16 +1847,67 @@ export function createCombatPanelController(doc, options = {}) {
         runDrawMotion(insts, drawSource);
     }
 
+    // 流式生成刚结束或楼层尚未落稳时的瞬态阻断：重新打开面板或准备期间自动重新定位楼层 ID 并有限次重试，避免卡在报错页只能手点重试。
+    const TRANSIENT_PREPARE_REASONS = new Set([
+        'request-stale', 'combat-floor-missing', 'combat-floor-invalid',
+        'combat-start-missing', 'combat-record-stale', 'combat-table-not-ready',
+        'combat-attributes-waiting',
+    ]);
+    const AUTO_RETRY_PREPARE_REASONS = new Set([
+        'request-stale', 'combat-floor-missing', 'combat-floor-invalid',
+        'combat-start-missing', 'combat-record-stale',
+    ]);
+    const retryDelays = Array.isArray(options.prepareRetryDelays) ? options.prepareRetryDelays : [180, 450];
+
+    function waitPrepareRetry(ms, my, signal) {
+        if (my !== token || !root || signal?.aborted) return Promise.resolve(false);
+        if (!(ms > 0)) return Promise.resolve(true);
+        return new Promise((resolve) => {
+            const scheduleFn = typeof options.schedule === 'function' ? options.schedule : (fn, t) => setTimeout(fn, t);
+            const clearFn = typeof options.clear === 'function' ? options.clear : (id) => clearTimeout(id);
+            let done = false;
+            const finish = (ok) => {
+                if (done) return;
+                done = true;
+                signal?.removeEventListener?.('abort', onAbort);
+                resolve(ok);
+            };
+            const onAbort = () => {
+                clearFn(timer);
+                finish(false);
+            };
+            const timer = scheduleFn(() => finish(my === token && Boolean(root) && !signal?.aborted), ms);
+            signal?.addEventListener?.('abort', onAbort, { once: true });
+        });
+    }
+
+    function refreshMessageId() {
+        if (typeof options.resolveMessageId !== 'function') return messageId;
+        try {
+            const next = Number(options.resolveMessageId(messageId));
+            if (Number.isInteger(next) && next >= 0) messageId = next;
+        } catch (error) { /* 保留原楼号 */ }
+        return messageId;
+    }
+
     async function prepare({ recoverReward = false } = {}) {
         const s = session();
+        if (messageId === null) refreshMessageId();
         if (!s || messageId === null || pending) return { ok: false, reason: pending ? 'combat-busy' : 'combat-session-unavailable' };
         const my = token;
         abort = typeof AbortController === 'function' ? new AbortController() : null;
         pending = 'prepare';
         notice = '';
         render();
-        let r;
-        try { r = await s.prepare(messageId, { signal: abort?.signal, recoverReward }); } catch (error) { r = { ok: false, reason: 'combat-action-threw' }; }
+        let r = { ok: false, reason: 'combat-action-threw' };
+        for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+            refreshMessageId();
+            try { r = await s.prepare(messageId, { signal: abort?.signal, recoverReward }); } catch (error) { r = { ok: false, reason: 'combat-action-threw' }; }
+            if (my !== token || !root) return r;
+            if (r?.ok === true || !AUTO_RETRY_PREPARE_REASONS.has(r?.reason) || attempt >= retryDelays.length) break;
+            const waited = await waitPrepareRetry(retryDelays[attempt], my, abort?.signal);
+            if (!waited || my !== token || !root) return r;
+        }
         if (my !== token) return r;
         pending = '';
         abort = null;
@@ -2710,7 +2761,8 @@ export function createCombatPanelController(doc, options = {}) {
         const cur = s.state();
         if (cur.lobby) controlledId = cur.lobby.heroId;
         const busy = ['battle', 'ended', 'send-failed', 'preparing'].includes(cur.status);
-        const same = cur.anchor?.messageId === messageId && ['lobby', 'blocked', 'done', 'skipped'].includes(cur.status);
+        const blockedTransient = cur.status === 'blocked' && TRANSIENT_PREPARE_REASONS.has(cur.reason);
+        const same = cur.anchor?.messageId === messageId && ['lobby', 'blocked', 'done', 'skipped'].includes(cur.status) && !blockedTransient;
         render();
         watchControlDock();
         syncSpeedWatch();

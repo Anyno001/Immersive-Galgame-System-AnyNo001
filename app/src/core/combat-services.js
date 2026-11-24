@@ -48,6 +48,8 @@ import { combatBattleOn, dailyChallengeOn, normalizeCombatExpansionSettings } fr
 import { INTIMATE_FOUGHT_KEY, fallbackMechanic, getIntimateGate, intimateOn, readFoughtKeys, resolveIntimateGate } from '../scene/intimate-duel.js';
 import { normalizeAutoIllustrationSettings } from '../generated-images/illustration/auto-illustration-settings.js';
 import { getSillyTavernContext } from '../host/tavern-helper-adapter.js';
+import { isBackgroundGenerationActive } from '../host/background-generation.js';
+import { floorTextWithoutIllustrationMarkers } from '../scene/scene-directives.js';
 import { createCombatTraitSeed } from '../host/combat-trait-seed.js';
 import { createModelRouteIdentity } from '../host/model-route-identity.js';
 import { hash32 } from '../combat/random.js';
@@ -58,6 +60,12 @@ const TRANSIENT_TABLE_REASONS = new Set([
     'combat-table-not-ready', 'combat-table-read-failed',
     'combat-table-runtime-not-ready', 'combat-table-create-unverified',
     'igs-layout-write-unverified', 'igs-layout-unconfirmed',
+]);
+// 流式生成或落地竞态引起的瞬态阻断原因：不应把自动备战永久锁定在 unchanged:true，待楼层/数据落稳后自动重跑。
+const TRANSIENT_PREPARE_REASONS = new Set([
+    'request-stale', 'combat-floor-missing', 'combat-floor-invalid',
+    'combat-start-missing', 'combat-record-stale', 'combat-table-not-ready',
+    'combat-attributes-waiting',
 ]);
 // 会话处于这些状态时牌组/装备只读
 const BUSY_STATUSES = Object.freeze(['preparing', 'battle', 'ended', 'send-failed']);
@@ -192,11 +200,90 @@ export function createCombatServices(options = {}) {
         readConfig: () => ({ llm: getLlm(), combat: settings() }),
         owner: () => global.AutoCardUpdaterAPI || null,
     });
+    let hostStreaming = false;
+    let hostStreamIgnoredDepth = 0;
+    let protagonistDeferredByStream = false;
+    let pendingAutoPrepareFloor = null;
+    let hostStreamSource = null;
+    const hostStreamCleanups = [];
+
+    function detachHostStreamWatch() {
+        while (hostStreamCleanups.length) {
+            const off = hostStreamCleanups.pop();
+            try { off(); } catch { /* */ }
+        }
+        hostStreamSource = null;
+        hostStreaming = false;
+        hostStreamIgnoredDepth = 0;
+    }
+
+    function flushDeferredStreamPrep() {
+        if (disposed || hostStreaming || !settings().enabled) return;
+        const needProtagonist = protagonistDeferredByStream;
+        const floor = pendingAutoPrepareFloor;
+        protagonistDeferredByStream = false;
+        pendingAutoPrepareFloor = null;
+        if (needProtagonist) void prepareProtagonist().catch(() => {});
+        if (floor !== null) void autoPrepare(floor).catch(() => {});
+    }
+
+    function ensureHostStreamWatch() {
+        if (disposed) return;
+        const ctx = getSillyTavernContext(global);
+        const source = ctx && ctx.eventSource;
+        const types = ctx && (ctx.event_types || ctx.eventTypes);
+        if (!source || typeof source.on !== 'function' || !types) return;
+        if (hostStreamSource === source) return;
+        detachHostStreamWatch();
+        hostStreamSource = source;
+        const bind = (eventKey, fn) => {
+            const name = types[eventKey];
+            if (!name) return;
+            try {
+                source.on(name, fn);
+                hostStreamCleanups.push(() => {
+                    if (typeof source.removeListener === 'function') source.removeListener(name, fn);
+                    else if (typeof source.off === 'function') source.off(name, fn);
+                });
+            } catch { /* */ }
+        };
+        bind('GENERATION_STARTED', (type, params, dryRun) => {
+            if (disposed || dryRun === true) return;
+            if ((type === 'quiet' && !params?.quietToLoud) || type === 'impersonate' || isBackgroundGenerationActive()) {
+                hostStreamIgnoredDepth += 1;
+                return;
+            }
+            hostStreaming = true;
+        });
+        const onStreamDone = () => {
+            if (disposed) return;
+            if (hostStreamIgnoredDepth > 0) { hostStreamIgnoredDepth -= 1; return; }
+            if (!hostStreaming) return;
+            hostStreaming = false;
+            queueMicrotask(() => flushDeferredStreamPrep());
+        };
+        bind('GENERATION_ENDED', onStreamDone);
+        bind('GENERATION_STOPPED', () => {
+            if (disposed) return;
+            hostStreaming = false;
+            hostStreamIgnoredDepth = 0;
+            queueMicrotask(() => flushDeferredStreamPrep());
+        });
+        bind('CHAT_CHANGED', () => {
+            hostStreaming = false;
+            hostStreamIgnoredDepth = 0;
+            protagonistDeferredByStream = false;
+            pendingAutoPrepareFloor = null;
+        });
+    }
+    ensureHostStreamWatch();
+
+    const floorBodyForLease = (message) => floorTextWithoutIllustrationMarkers(message?.mes);
     function captureGenerationLease({ signal, shouldStart, requireApi = true } = {}) {
         getTables();
         const owner = bundle, epoch = chatEpoch, chatId = getChatId(), route = modelRoute.get();
         const floors = getChat();
-        const prefix = floors.map(message => [message, message?.mes, message?.swipe_id]);
+        const prefix = floors.map(message => [message, floorBodyForLease(message), message?.swipe_id]);
         let active = !!chatId && (!requireApi || !!owner?.api) && !!route;
         return () => {
             try {
@@ -204,7 +291,7 @@ export function createCombatServices(options = {}) {
                     && getChatId() === chatId && bundle === owner && owner.api === (global.AutoCardUpdaterAPI || null)
                     && (!options.chatStore || options.chatStore.get() === owner.shared) && modelRoute.get() === route
                     && getChat() === floors && prefix.every(([message, text, swipe], index) =>
-                        floors[index] === message && message?.mes === text && message?.swipe_id === swipe)
+                        floors[index] === message && floorBodyForLease(message) === text && message?.swipe_id === swipe)
                     && (!shouldStart || shouldStart() === true);
             } catch { active = false; }
             return active;
@@ -1812,7 +1899,7 @@ export function createCombatServices(options = {}) {
     function currentProtagonistState() {
         if (!protagonistGenerating(protagonistState)
             || (protagonistTask?.state === protagonistState && protagonistTask.alive())) return protagonistState;
-        return { ...protagonistState, status: 'failed', reason: 'request-stale', attempt: 0, requested: true };
+        return { ...protagonistState, status: 'failed', reason: 'request-stale', attempt: 0, requested: false };
     }
 
     function getProtagonist() {
@@ -1885,11 +1972,17 @@ export function createCombatServices(options = {}) {
 
     function prepareProtagonist({ manual = false, generationHint, materialSelection, materialChatId } = {}) {
         if (disposed) return Promise.resolve({ ok: false, reason: 'request-stale' });
+        ensureHostStreamWatch();
         if (!combatBattleOn(settings())) {
             stopProtagonistTableWatch();
             cancelProtagonist();
             return Promise.resolve({ ok: false, reason: 'combat-disabled' });
         }
+        if (!manual && hostStreaming) {
+            protagonistDeferredByStream = true;
+            return Promise.resolve({ ok: false, status: 'waiting', reason: 'combat-stream-waiting', deferred: true });
+        }
+        protagonistDeferredByStream = false;
         const key = protagonistKey();
         if (!key) return Promise.resolve({ ok: false, reason: 'combat-generate-unavailable' });
         if (protagonistTask?.key === key && protagonistTask.alive()) return protagonistTask.promise;
@@ -1974,7 +2067,10 @@ export function createCombatServices(options = {}) {
                     onStart: () => { if (alive()) setProtagonistState({ key, status: 'generating', reason: '', attempt: 0, requested: false }); },
                     onRetry: ({ attempt }) => { if (alive()) setProtagonistState({ key, status: 'retrying', attempt }); },
                 });
-                if (generated.reason === 'request-stale' || !alive()) return { ok: false, reason: 'request-stale' };
+                if (generated.reason === 'request-stale' || !alive()) {
+                    if (!manual && hostStreaming) protagonistDeferredByStream = true;
+                    return { ok: false, reason: 'request-stale' };
+                }
                 const after = await readState();
                 if (!alive()) return { ok: false, reason: 'request-stale' };
                 const stillPending = Boolean(combatContentIntents.read(chatId).intent);
@@ -2058,17 +2154,51 @@ export function createCombatServices(options = {}) {
         return deriveChallengeHistory(getChat().map((message, floor) => ({ floor, text: message && message.is_user === true ? String(message.mes ?? '') : '' })));
     }
 
+    // 从给定楼号定位本轮最新 AI 开战楼：流式结束事件（GENERATION_ENDED）常传入 chat.length 或暂未落定的楼号，
+    // 越界或暂未命中时自动向前回找当前回合的最新 AI 楼，避免报「开战楼不存在（找不到 ID）」而只能手动重试。
+    function resolveAutoPrepareTarget(chat, messageId, filter, activeKinds) {
+        const list = Array.isArray(chat) ? chat : [];
+        const raw = Number(messageId);
+        if (Number.isSafeInteger(raw) && raw >= 0 && raw < list.length) {
+            const direct = locateCombatStart(list, raw, filter, activeKinds);
+            if (direct.ok) return { floor: raw, located: direct };
+            if (raw < list.length - 1 && list[raw] && !list[raw].is_user) {
+                return { floor: raw, located: direct };
+            }
+        }
+        let fallback = null;
+        for (let i = list.length - 1; i >= 0; i -= 1) {
+            if (list[i]?.is_user) break;
+            if (!list[i] || list[i].is_system) continue;
+            const probe = locateCombatStart(list, i, filter, activeKinds);
+            if (probe.ok) return { floor: i, located: probe };
+            if (!fallback) fallback = { floor: i, located: probe };
+        }
+        if (Number.isSafeInteger(raw) && raw >= 0) {
+            return fallback || { floor: raw, located: locateCombatStart(list, raw, filter, activeKinds) };
+        }
+        return { floor: raw, located: { ok: false, reason: 'combat-floor-missing' } };
+    }
+
     // 自动备战：给定楼层有战斗标签且会话空闲时开始备战
     function autoPrepare(messageId) {
+        ensureHostStreamWatch();
         const activeSession = getSession();
         if (!activeSession) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        const rawFloor = Number(messageId);
+        if (hostStreaming) {
+            if (Number.isSafeInteger(rawFloor) && rawFloor >= 0) pendingAutoPrepareFloor = rawFloor;
+            return Promise.resolve({ ok: false, reason: 'combat-stream-waiting', deferred: true });
+        }
         if (!latestFloorHasVisibleIgsTag()) return Promise.resolve({ ok: false, reason: 'combat-igs-tag-waiting' });
-        const floor = Number(messageId);
-        if (!Number.isSafeInteger(floor) || floor < 0) return Promise.resolve({ ok: false, reason: 'combat-floor-missing' });
+        if (!Number.isSafeInteger(rawFloor) || rawFloor < 0) return Promise.resolve({ ok: false, reason: 'combat-floor-missing' });
+        let floor = rawFloor;
         let located;
         let state;
         try {
-            located = locateCombatStart(getChat(), floor, getSourceFilter(), kinds());
+            const resolved = resolveAutoPrepareTarget(getChat(), rawFloor, getSourceFilter(), kinds());
+            floor = resolved.floor;
+            located = resolved.located;
             state = activeSession.state();
         } catch {
             return Promise.resolve({ ok: false, reason: 'combat-action-threw' });
@@ -2077,7 +2207,10 @@ export function createCombatServices(options = {}) {
         if (located.challenge === true && located.start?.intimate !== true && challengePromptQuota(floor)?.ok === false) return Promise.resolve({ ok: false, reason: 'challenge-quota' });
         if (PREPARE_BUSY_STATUSES.includes(state.status) && typeof activeSession.dropSuperseded === 'function' && activeSession.dropSuperseded(floor)) state = activeSession.state();
         if (PREPARE_BUSY_STATUSES.includes(state.status)) return Promise.resolve({ ok: false, reason: 'combat-busy' });
-        if (state.combatId === located.combatId && PREPARE_DONE_STATUSES.includes(state.status)) return Promise.resolve({ ok: true, unchanged: true, session: state });
+        const transientBlocked = state.status === 'blocked' && TRANSIENT_PREPARE_REASONS.has(state.reason);
+        if (state.combatId === located.combatId && PREPARE_DONE_STATUSES.includes(state.status) && !transientBlocked) {
+            return Promise.resolve({ ok: true, unchanged: true, session: state });
+        }
         let prepared;
         try {
             prepared = activeSession.prepare(floor);
@@ -2142,6 +2275,8 @@ export function createCombatServices(options = {}) {
         growthSnapshot = null;
         ensureFailure = null;
         inventoryTakeover = null;
+        protagonistDeferredByStream = false;
+        pendingAutoPrepareFloor = null;
         for (const listener of growthListeners.keys()) growthListeners.set(listener, null);
         try { bundle?.client.invalidate(); } catch { /* */ }
         cancelProtagonist();
@@ -2151,6 +2286,7 @@ export function createCombatServices(options = {}) {
     function dispose() {
         if (disposed) return;
         disposed = true;
+        detachHostStreamWatch();
         resetChat();
         retireBundle(bundle);
         modelRoute.dispose();

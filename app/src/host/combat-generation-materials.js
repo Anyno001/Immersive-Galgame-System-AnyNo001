@@ -19,13 +19,22 @@ async function readMvu(host, chat) {
         : typeof helper?.getVariables === 'function' ? (options) => helper.getVariables(options) : null;
     let error = false;
     if (read) {
+        let skippedLatestError = false;
         for (let i = chat.length - 1; i >= Math.max(0, chat.length - 40); i -= 1) {
             try {
                 const swipe = chat[i]?.swipe_id;
                 const data = await read({ type: 'message', message_id: i });
                 if (chat[i]?.swipe_id !== swipe) return { status: 'error', data: {}, floor: null };
                 if (record(data?.stat_data)) return { status: 'ready', data: data.stat_data, floor: i };
-            } catch { error = true; break; }
+            } catch {
+                // 流式生成尚未落库时最新楼的 message_id 可能暂不可读（找不到消息 ID），跳过最新楼继续向前回读。
+                if (i === chat.length - 1 && !skippedLatestError && i > 0) {
+                    skippedLatestError = true;
+                    continue;
+                }
+                error = true;
+                break;
+            }
         }
         try {
             const data = await read({ type: 'chat' });

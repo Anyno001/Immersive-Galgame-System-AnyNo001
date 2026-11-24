@@ -276,6 +276,7 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
     // 跳过后台静默生成事件防止递归。
     function onImageFloorReady(handler) {
         let active = false, blocked = false, turnChat = '', epoch = 0, ignoredDepth = 0, alive = true;
+        let awaitingLatestAfterEnd = false;
         const pending = new Set();
         const awaitingFinal = new Set();
         const delivered = new Map(); // `${chatId}:${messageId}` -> `${swipeId}:${hash}`
@@ -283,6 +284,16 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
             const number = Number(id);
             return id != null && Number.isSafeInteger(number) && number >= 0 ? number : -1;
         };
+        const latestAiFloorId = (chat) => {
+            if (!Array.isArray(chat)) return -1;
+            for (let i = chat.length - 1; i >= 0; i -= 1) {
+                if (chat[i]?.is_user) break;
+                if (chat[i] && !chat[i].is_system) return i;
+            }
+            return -1;
+        };
+        const isAiSlot = (chat, index) => Array.isArray(chat) && index >= 0 && index < chat.length
+            && Boolean(chat[index]) && !chat[index].is_user && !chat[index].is_system;
         const deliver = (id, eventKey = 'CHARACTER_MESSAGE_RENDERED', { requireChat = '' } = {}) => {
             if (!alive || blocked) return false;
             const number = validId(id);
@@ -296,6 +307,7 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
             if (delivered.get(floorKey) === revision) return false;
             delivered.set(floorKey, revision);
             awaitingFinal.delete(number);
+            awaitingLatestAfterEnd = false;
             invokeListener(eventKey, handler, [number, { ...floor, revision, eventKey }]);
             return true;
         };
@@ -307,7 +319,7 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
                 pending.add(number);
                 return;
             }
-            const expectedChat = awaitingFinal.has(number) ? turnChat : getChatId();
+            const expectedChat = (awaitingFinal.has(number) || awaitingLatestAfterEnd) ? turnChat : getChatId();
             if (!expectedChat) return;
             deliver(number, eventKey, { requireChat: expectedChat });
         };
@@ -319,7 +331,7 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
                     return;
                 }
                 epoch++; blocked = false;
-                active = true; turnChat = getChatId(); pending.clear(); awaitingFinal.clear();
+                active = true; awaitingLatestAfterEnd = false; turnChat = getChatId(); pending.clear(); awaitingFinal.clear();
             }),
             on('MESSAGE_RECEIVED', onFloorEvent('MESSAGE_RECEIVED')),
             on('CHARACTER_MESSAGE_RENDERED', onFloorEvent('CHARACTER_MESSAGE_RENDERED')),
@@ -330,32 +342,38 @@ export function createIllustrationMessageHost(globalObject = globalThis, options
                 if (ignoredDepth) { ignoredDepth--; return; }
                 if (!active) return;
                 active = false;
-                if (getChatId() !== turnChat) { pending.clear(); awaitingFinal.clear(); return; }
+                if (getChatId() !== turnChat) { pending.clear(); awaitingFinal.clear(); awaitingLatestAfterEnd = false; return; }
+                const chat = context()?.chat || [];
                 const number = validId(id);
-                if (number >= 0) pending.add(number);
-                // 仅当本轮尚未收到任何带 messageId 的事件时，才从当前聊天末尾定位本轮 AI 楼并仍校验非空正文。
-                if (!pending.size) {
-                    const chat = context()?.chat || [];
-                    for (let i = chat.length - 1; i >= 0; i--) {
-                        if (chat[i]?.is_user) break;
-                        if (chat[i] && !chat[i].is_system) { pending.add(i); break; }
-                    }
+                // 酒馆 GENERATION_ENDED 常传入 chat.length（越界 1 位）而非最新楼号；仅当下标确实指向当前聊天中的 AI 楼时才采纳。
+                if (number >= 0 && isAiSlot(chat, number)) pending.add(number);
+                // 若本轮收到的候选里没有有效 AI 楼下标，从当前聊天末尾定位最新 AI 楼并仍校验非空正文。
+                if (![...pending].some((candidate) => isAiSlot(chat, candidate))) {
+                    const latest = latestAiFloorId(chat);
+                    if (latest >= 0) pending.add(latest);
+                    else awaitingLatestAfterEnd = true;
                 }
-                const candidates = [...pending];
+                const candidates = [...pending].filter((candidate) => isAiSlot(chat, candidate));
                 pending.clear();
                 const endedEpoch = epoch;
                 const endedChat = turnChat;
                 for (const candidate of candidates) awaitingFinal.add(candidate);
                 queueMicrotask(() => {
                     if (!alive || active || blocked || epoch !== endedEpoch || getChatId() !== endedChat) return;
-                    for (const candidate of candidates) {
+                    const currentChat = context()?.chat || [];
+                    const list = candidates.length ? candidates : (() => {
+                        const latest = latestAiFloorId(currentChat);
+                        if (latest >= 0) { awaitingFinal.add(latest); return [latest]; }
+                        return [];
+                    })();
+                    for (const candidate of list) {
                         if (!awaitingFinal.has(candidate)) continue;
                         deliver(candidate, 'GENERATION_ENDED', { requireChat: endedChat });
                     }
                 });
             }),
-            on('GENERATION_STOPPED', () => { epoch++; active = false; blocked = true; ignoredDepth = 0; pending.clear(); awaitingFinal.clear(); }),
-            on('CHAT_CHANGED', () => { epoch++; active = false; blocked = false; ignoredDepth = 0; pending.clear(); awaitingFinal.clear(); delivered.clear(); turnChat = getChatId(); }),
+            on('GENERATION_STOPPED', () => { epoch++; active = false; blocked = true; awaitingLatestAfterEnd = false; ignoredDepth = 0; pending.clear(); awaitingFinal.clear(); }),
+            on('CHAT_CHANGED', () => { epoch++; active = false; blocked = false; awaitingLatestAfterEnd = false; ignoredDepth = 0; pending.clear(); awaitingFinal.clear(); delivered.clear(); turnChat = getChatId(); }),
         ];
         return () => { alive = false; pending.clear(); awaitingFinal.clear(); delivered.clear(); offs.forEach(off => off()); };
     }

@@ -28,6 +28,7 @@ import { enemyArtKeyFor, isEnemyArtTheme } from './enemy-art.js';
 import { enemyLoadout } from './enemy-loadout.js';
 import { hash32 } from './random.js';
 import { extractCombatStart, extractGrowthDirectives } from '../scene/combat-directives.js';
+import { floorTextWithoutIllustrationMarkers } from '../scene/scene-directives.js';
 import { parseChallengeStart } from '../scene/challenge-directives.js';
 import { chooseAllyPlay } from './policy.js';
 import { buildChallengeSetup, challengeCombatIdFor, challengeOutcomeOf, challengeResultOf, resolveChallengeDomain } from './challenge-setup.js';
@@ -833,16 +834,17 @@ export function createCombatSession(options = {}) {
     let current = { status: 'idle' };
     let disposed = false;
     let taskEpoch = 0;
+    const floorTextForLease = (message) => floorTextWithoutIllustrationMarkers(message?.mes);
     const captureTaskLease = ({ signal, shouldStart } = {}, requireApi = true) => {
         const epoch = taskEpoch, chatId = getChatId(), floors = getChat();
-        const prefix = floors.map(message => [message, message?.mes, message?.swipe_id]);
+        const prefix = floors.map(message => [message, floorTextForLease(message), message?.swipe_id]);
         const owner = typeof options.captureGenerationLease === 'function' ? options.captureGenerationLease({ signal, shouldStart, requireApi }) : null;
         let active = !disposed;
         return () => {
             try {
                 active = active && !disposed && taskEpoch === epoch && !signal?.aborted && getChatId() === chatId
                     && getChat() === floors && prefix.every(([message, text, swipe], index) =>
-                        floors[index] === message && message?.mes === text && message?.swipe_id === swipe)
+                        floors[index] === message && floorTextForLease(message) === text && message?.swipe_id === swipe)
                     && (!owner || owner() === true) && (!shouldStart || shouldStart() === true);
             } catch { active = false; }
             return active;
