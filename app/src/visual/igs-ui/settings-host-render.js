@@ -458,6 +458,8 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
                 advancedImageLogOpen: advancedOpen('image-log-retain'),
                 imageLogStatus: esc(asyncState.imageLogStatus || ''),
                 imageLogList: page === 'logs' && !idx ? renderImageJobLogList() : '',
+                llmLogStatus: esc(asyncState.llmLogStatus || ''),
+                llmLogList: page === 'logs' && !idx ? renderLlmCallLogList() : '',
                 imagePromptCaptureStatus: esc(asyncState.imagePromptCaptureStatus || ''),
                 imagePromptCaptureList: page === 'logs' && !idx ? renderPromptCaptureList() : '',
                 imageCacheCountField: field('bridge.imageCache.maxCount', '本地缓存张数', numberInput('bridge.imageCache.maxCount', normalizeImageCacheCount(bridge.imageCache && bridge.imageCache.maxCount), 1, 2000)),
@@ -1239,6 +1241,13 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
     }
 
+    function renderLlmCallLogList() {
+        const log = options.llmCallLog;
+        const list = log && typeof log.list === 'function' ? log.list() : [];
+        if (!list.length) return '<div class="igs-image-log-empty">暂无记录。情绪归类、生图写词、数值计算等请求发给备用模型后，每次的结果会记录在这里。</div>';
+        return list.map((e) => `<div class="igs-image-log-item is-${esc(e.level)}"><span class="igs-image-log-time">${esc(formatImageJobLogTime(e.at))}</span><span class="igs-image-log-level">${esc(imageJobLogLevelLabel(e.level))}</span><span class="igs-image-log-msg">${esc(e.message)}</span></div>`).join('');
+    }
+
     // 生图 › CG 库：与工具栏面板共用 cg-library-view。目录一次拿全；缩略图到了只换那一格、状态行只改文字，不整页重画。
     function cgAttr(value) {
         return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, '');
@@ -1361,7 +1370,7 @@ export function createSettingsRenderer({ normalizeUnifiedSettings, options, rere
         return resolveRenderQuality(reader && reader.performance && reader.performance.quality) === 'low';
     }
 
-    return { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, buildRegexPreview, settingsLowQuality };
+    return { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, renderLlmCallLogList, buildRegexPreview, settingsLowQuality };
 }
 
 

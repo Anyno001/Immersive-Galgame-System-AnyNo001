@@ -82,7 +82,7 @@ import { IMAGE_ACTIVITY_EVENT, trackImageActivity } from '../generated-images/ge
 import { blockImageBackend, forumBlocksImages, withImagesBlocked } from '../generated-images/image-block.js';
 import { applyForumFxBlock } from '../visual/igs-ui/forum-fx-block.js';
 import { createNaiOfficialClient } from '../generated-images/nai-official-client.js';
-import { createImageJobLog } from '../generated-images/image-job-log.js';
+import { createImageJobLog, LLM_CALL_LOG_STORAGE_KEY } from '../generated-images/image-job-log.js';
 import { createIndexedDbIllustrationStore } from '../media/illustration-store.js';
 import { createIndexedDbCgIndexStore } from '../media/cg-index-store.js';
 import { createAssetThumbnailer, createIndexedDbAssetThumbStore } from '../media/asset-thumb-store.js';
@@ -114,7 +114,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.29';
+const IGS_VERSION = '0.41.30';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -245,8 +245,13 @@ export function bootstrapIGS(options = {}) {
         : alphaMatte(dataUrl, matteOptions));
     const imageTaskRuntime = createBuiltinImageTaskRuntime({ readBridge: readImageBridge, registry: presetRegistry, global: globalObject,
         subscribeSettings: handler => events.on('igs:legacy-settings-updated', handler) });
+    const llmCallLog = options.llmCallLog || createImageJobLog({
+        storage: storageLike,
+        storageKey: LLM_CALL_LOG_STORAGE_KEY,
+        getSettings: () => cloneData(peekBridge().imageJobLog),
+    });
     const secondaryLlm = createImagePromptLlm(options.secondaryLlm
-        || createSecondaryLlm(globalObject, { fetch: options.fetch }), presetRegistry, imageTaskRuntime,
+        || createSecondaryLlm(globalObject, { fetch: options.fetch, log: llmCallLog }), presetRegistry, imageTaskRuntime,
         createImageWorldInfoSource(globalObject, { readExclude: readWorldInfoExclude }));
     const imageJobLog = options.imageJobLog || createImageJobLog({
         storage: storageLike,
@@ -451,6 +456,7 @@ export function bootstrapIGS(options = {}) {
         illustrations: illustrationService,
         generatedAssets: assetGenerationService,
         imageJobLog,
+        llmCallLog,
         hostAdapter,
         itemImages: itemCg.itemImages,
         cgGallery: itemCg.cgGallery,
@@ -678,6 +684,7 @@ export function bootstrapIGS(options = {}) {
             return () => offs.forEach(off => off?.());
         },
         imageJobLog,
+        llmCallLog,
         getUnifiedSettings: getUnifiedSettingsSnapshot,
         // 配置每次写入（保存、从酒馆文件恢复）都加一；阅读器翻页据此复用上次整理好的配置。
         getSettingsRevision: () => state.settingsRevision || 0,
@@ -989,6 +996,7 @@ export function bootstrapIGS(options = {}) {
     state.status = 'ready';
     // 设置就绪后再按保留规则清理一次启动前遗留的旧日志。
     if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
+    llmCallLog.prune?.();
     applyImageCacheLimit((getUnifiedSettingsSnapshot() || {}).bridge);
     illustrationService.start();
     assetGenerationService.start();
@@ -1493,6 +1501,7 @@ export function bootstrapIGS(options = {}) {
         if (payload.silent !== true) events.emit('igs:legacy-settings-updated', state.legacyIgs);
         // 用户改了日志保留天数 / 条数后立即按新规则清理。
         if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
+        llmCallLog.prune?.();
         applyImageCacheLimit(nextBridge);
         syncSceneAssetsInjectionWithRetry(1);
         return {

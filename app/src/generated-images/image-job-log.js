@@ -1,6 +1,7 @@
 // 生图排查日志：自动插图 / 素材补全每一步的进度与失败原因，持久化到 localStorage，
 // 按「保留天数」「最多条数」自动清理，也可在设置里手动清空。
 export const IMAGE_JOB_LOG_STORAGE_KEY = 'igs_image_job_log';
+export const LLM_CALL_LOG_STORAGE_KEY = 'igs_llm_call_log';
 export const IMAGE_JOB_LOG_LEVELS = Object.freeze(['info', 'success', 'warn', 'error']);
 export const DEFAULT_IMAGE_JOB_LOG_SETTINGS = Object.freeze({ retainDays: 3, maxEntries: 300 });
 
@@ -27,6 +28,7 @@ function isEntry(item) {
 
 export function createImageJobLog(deps = {}) {
     const storage = deps.storage || null;
+    const storageKey = deps.storageKey || IMAGE_JOB_LOG_STORAGE_KEY;
     const now = deps.now || (() => Date.now());
     const getSettings = deps.getSettings || (() => null);
     const listeners = new Set();
@@ -36,7 +38,7 @@ export function createImageJobLog(deps = {}) {
     function load() {
         if (!storage || typeof storage.getItem !== 'function') return [];
         try {
-            const parsed = JSON.parse(storage.getItem(IMAGE_JOB_LOG_STORAGE_KEY) || '[]');
+            const parsed = JSON.parse(storage.getItem(storageKey) || '[]');
             return Array.isArray(parsed) ? parsed.filter(isEntry) : [];
         } catch (error) {
             return [];
@@ -46,11 +48,11 @@ export function createImageJobLog(deps = {}) {
     function save() {
         if (!storage || typeof storage.setItem !== 'function') return;
         try {
-            storage.setItem(IMAGE_JOB_LOG_STORAGE_KEY, JSON.stringify(entries));
+            storage.setItem(storageKey, JSON.stringify(entries));
         } catch (error) {
             // 存储满时丢掉较旧的一半再试一次，日志不能影响生图本身。
             entries = entries.slice(Math.floor(entries.length / 2));
-            try { storage.setItem(IMAGE_JOB_LOG_STORAGE_KEY, JSON.stringify(entries)); } catch (retryError) { /* 放弃持久化 */ }
+            try { storage.setItem(storageKey, JSON.stringify(entries)); } catch (retryError) { /* 放弃持久化 */ }
         }
     }
 

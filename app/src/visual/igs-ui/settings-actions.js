@@ -935,6 +935,7 @@ const RISKY_ACTIONS = [
     ['live-platform-prompt-reset', () => '直播平台栏的写法恢复默认？当前修改过的内容将被覆盖。'],
     ['remove-virtual-regex:', () => '删除这条正文格式化规则？'],
     ['image-log-clear', () => '清空生图日志？'],
+    ['llm-log-clear', () => '清空备用模型日志？'],
     ['image-prompt-capture-clear', () => '清空提示词捕获记录？'],
     ['purge-asset-cache', () => '清素材缓存？浏览器里缓存的图片与设置页缩略图都会清空；酒馆上的原图还在，下次查看会重新读取。'],
     ['image-cache-clear', () => '清空浏览器里缓存的图片？酒馆上的原图还在，下次查看会重新下载。'],
@@ -3755,6 +3756,28 @@ export async function handleSettingsAction(action, ctx) {
         } else {
             const pruned = typeof log.prune === 'function' ? log.prune().removed : 0;
             settingsState.asyncState.imageLogStatus = pruned ? `已按自动清理规则移除${pruned}条旧日志。` : '';
+        }
+        return rerenderSettings();
+    }
+
+    if (normalizedAction === 'llm-log-refresh' || normalizedAction === 'llm-log-clear' || normalizedAction === 'llm-log-copy') {
+        const log = options.llmCallLog;
+        const state = settingsState.asyncState;
+        if (!log || typeof log.list !== 'function') {
+            state.llmLogStatus = '当前未接入备用模型日志。';
+        } else if (normalizedAction === 'llm-log-clear') {
+            state.llmLogStatus = `已清空${log.clear().removed}条日志。`;
+        } else if (normalizedAction === 'llm-log-copy') {
+            const text = formatImageJobLogText(log.list());
+            const clipboard = (options.global || globalThis)?.navigator?.clipboard;
+            if (!text) state.llmLogStatus = '暂无日志可复制。';
+            else if (clipboard && typeof clipboard.writeText === 'function') {
+                try { await clipboard.writeText(text); state.llmLogStatus = '已复制全部日志到剪贴板。'; }
+                catch (error) { state.llmLogStatus = '复制失败：浏览器拒绝访问剪贴板，可手动选中日志复制。'; }
+            } else state.llmLogStatus = '当前环境不支持剪贴板，可手动选中日志复制。';
+        } else {
+            const pruned = typeof log.prune === 'function' ? log.prune().removed : 0;
+            state.llmLogStatus = pruned ? `已按自动清理规则移除${pruned}条旧日志。` : '';
         }
         return rerenderSettings();
     }

@@ -182,9 +182,7 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
         })(), 30000, () => controller.abort());
     }
 
-    return {
-        fetchModels,
-        async request(request, llm = {}) {
+    async function execute(request, llm = {}) {
             const timeoutMs = Number(llm.timeoutMs) || 90000;
             const rawRetries = llm.retries ?? deps.retries ?? DEFAULT_SECONDARY_LLM_RETRIES;
             const maxRetries = Number.isInteger(rawRetries) && rawRetries >= 0 ? rawRetries : DEFAULT_SECONDARY_LLM_RETRIES;
@@ -244,6 +242,37 @@ export function createSecondaryLlm(globalObject = globalThis, deps = {}) {
                     if (!waited || shouldStop()) throw cancelled();
                 }
             }
-        },
-    };
+    }
+
+    function clip(value, max) {
+        const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+        return text.length > max ? `${text.slice(0, max)}…` : text;
+    }
+
+    async function request(req, llm = {}) {
+        const log = deps.log;
+        if (!log || typeof log.add !== 'function') return execute(req, llm);
+        const startedAt = Date.now();
+        const model = llm.source === 'openai' ? (String(llm.model || '').trim() || '未填模型') : '酒馆当前连接';
+        const purpose = clip(req && (req.system || req.user), 24);
+        const head = `${model} · ${purpose || '未命名请求'}`;
+        const sizes = `发送${String(req && req.system || '').length + String(req && req.user || '').length}字`;
+        const traced = { ...llm, onRetry: (info) => {
+            try { log.add('warn', `${head} · 第${info.attempt}/${info.maxRetries}次重试${info.status ? `（HTTP ${info.status}）` : ''}${info.reason ? ` ${info.reason}` : ''}`); } catch { /* 日志不影响请求 */ }
+            llm.onRetry?.(info);
+        } };
+        try {
+            const out = await execute(req, traced);
+            try { log.add('success', `${head} · ${Date.now() - startedAt}ms · ${sizes} · 返回${String(out == null ? '' : out).length}字\n返回：${clip(out, 120) || '（空）'}`); } catch { /* */ }
+            return out;
+        } catch (error) {
+            try {
+                const cancelledOne = error?.reason === 'request-stale';
+                log.add(cancelledOne ? 'info' : 'error', `${head} · ${Date.now() - startedAt}ms · ${sizes} · ${cancelledOne ? '已取消' : `失败：${safeDetail(error?.message || error, llm.apiKey) || '未知错误'}`}`);
+            } catch { /* */ }
+            throw error;
+        }
+    }
+
+    return { fetchModels, request };
 }

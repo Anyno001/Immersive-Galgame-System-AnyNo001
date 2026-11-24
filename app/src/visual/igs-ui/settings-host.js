@@ -100,7 +100,7 @@ export function createSettingsHost(deps) {
     const settingsBusyActions = new Set();
     // 手指按着或 ⋯ 菜单开着时不整页重绘：重绘会收掉菜单、换掉按下的按钮，点击落空。
     let settingsPointerDown = false;
-    const { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, buildRegexPreview, settingsLowQuality } = createSettingsRenderer({
+    const { buildSettingsSnapshot, renderSettingsBody, renderPageForIndex, renderImageJobLogList, renderLlmCallLogList, buildRegexPreview, settingsLowQuality } = createSettingsRenderer({
         normalizeUnifiedSettings, options, rerenderSettings, settingsShellHtml, state, forumRegistry,
     });
 
@@ -2467,7 +2467,7 @@ export function createSettingsHost(deps) {
 
     return {
         settingsInteracting, openSettings, syncSettingsStagePause, rerenderSettings, closeSettings,
-        persistSettingsDraft, reportSettingsFailure, renderImageJobLogList,
+        persistSettingsDraft, reportSettingsFailure, renderImageJobLogList, renderLlmCallLogList,
         withCharacterDnaDraftSync: target => withCharacterDnaDraftSync(target, () => state.activeSettings),
     };
 }

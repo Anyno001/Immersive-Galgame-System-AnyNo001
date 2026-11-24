@@ -667,6 +667,16 @@ export function createIgsReaderHost(options = {}) {
             else rerenderSettings();
         })
         : () => {};
+    const offLlmCallLog = options.llmCallLog && typeof options.llmCallLog.onChange === 'function'
+        ? options.llmCallLog.onChange(() => {
+            const current = state.activeSettings;
+            if (!current || currentSettingsPage(current) !== 'logs') return;
+            const list = current.dom && current.dom.root && current.dom.root.querySelector
+                ? current.dom.root.querySelector('[data-llm-log-list]') : null;
+            if (list) list.innerHTML = renderLlmCallLogList();
+            else rerenderSettings();
+        })
+        : () => {};
     // DLC 中途登记 / 注销：重绘当前阅读器与设置页（皮肤样式、下拉、演出开关），同一轮里多次登记只重绘一次。
     let dlcRerenderQueued = false;
     const onDlcChange = () => {
@@ -727,7 +737,7 @@ export function createIgsReaderHost(options = {}) {
 
     const {
         settingsInteracting, openSettings, syncSettingsStagePause, rerenderSettings, closeSettings,
-        persistSettingsDraft, reportSettingsFailure, renderImageJobLogList, withCharacterDnaDraftSync,
+        persistSettingsDraft, reportSettingsFailure, renderImageJobLogList, renderLlmCallLogList, withCharacterDnaDraftSync,
     } = createSettingsHost({
         flushDeferredImageRefresh, normalizeUnifiedSettings, onboarding, openCgGallery, options, pageModal,
         playReaderUiSfx, rerenderActiveReader, resolveBridgeConfigSnapshot, scheduleMoodAutoClassify, sourceCache,
@@ -1471,6 +1481,7 @@ export function createIgsReaderHost(options = {}) {
         offCombatGrowth();
         offWaitGamePack();
         offImageJobLog();
+        offLlmCallLog();
         teardownStatusHudSubscription();
         closeReader();
         waitStage.dispose();

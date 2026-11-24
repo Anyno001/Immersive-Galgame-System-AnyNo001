@@ -179,6 +179,17 @@ const IMAGE_LOGS_TEMPLATE = `
     </details>
   </div>
   <div class="igs-source-filter">
+    <div class="igs-source-filter-title">备用模型日志</div>
+    <div class="igs-source-filter-note">记录每次发给备用模型的请求：用途、模型、耗时、重试和结果，不含API Key。清理规则与生图日志相同。</div>
+    <div class="igs-settings-row">
+      <button class="igs-settings-action" data-action="llm-log-refresh" type="button">刷新</button>
+      <button class="igs-settings-action" data-action="llm-log-copy" type="button">复制</button>
+      <button class="igs-settings-action" data-action="llm-log-clear" type="button">清空</button>
+    </div>
+    <div class="igs-settings-result" data-result="llm-log">{{llmLogStatus}}</div>
+    <div class="igs-image-log-list" data-llm-log-list>{{llmLogList}}</div>
+  </div>
+  <div class="igs-source-filter">
     <div class="igs-source-filter-title">提示词捕获</div>
     <div class="igs-source-filter-note">记录每次发给NAI的完整请求，保留最近8条；数据库生图由插件发送，不在此记录。</div>
     <div class="igs-settings-row">
