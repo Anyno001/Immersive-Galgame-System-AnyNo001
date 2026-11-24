@@ -29,7 +29,7 @@ export function syncAnke(overlay, list, view, revealing, d) {
     const anke = view.anke;
     const old = [...list.querySelectorAll('[data-anke-of]')];
     if (!anke) { old.forEach((n) => n.remove()); return; }
-    const sig = JSON.stringify([anke.key, anke.readonly === true]);
+    const sig = JSON.stringify([anke.key, anke.readonly === true, view.ankeNameSig || '']);
     if (old.length && old[0].dataset.ankeOf === sig) return;
     old.forEach((n) => n.remove());
     if (view.upto < view.rows.length - 1) return;
@@ -47,6 +47,7 @@ function build(overlay, list, view, revealing, d, sig) {
     const live = Boolean(revealing);
     const st = { lock: anke.lock || null, busy: false };
     const latest = () => s.view || view;
+    const named = (t) => (typeof view.ankeNamed === 'function' ? view.ankeNamed(String(t || ''), true) : String(t || ''));
     const bonusNow = () => (kind === 'check' && latest().ankeBonus ? latest().ankeBonus(anke.actor, anke.ability) : null);
     const mkLink = (cls, text) => { const b = d.el(doc, 'button', `igs-fm-anke-link ${cls}`); b.type = 'button'; b.textContent = text; return b; };
 
@@ -95,7 +96,7 @@ function build(overlay, list, view, revealing, d, sig) {
         no.textContent = `${i + 1}`;
         no.append(tickNode());
         const label = d.el(doc, 'span', 'igs-fm-anke-text');
-        label.innerHTML = d.textHtml(f.text, view, `${anke.key}:f${i}`);
+        label.innerHTML = d.textHtml(f.text, view, `${anke.key}:f${i}`, true);
         text.append(no, label);
         row.append(head, text);
         return row;
@@ -105,7 +106,7 @@ function build(overlay, list, view, revealing, d, sig) {
     if (kind === 'check') {
         const mods = d.el(doc, 'div', 'igs-fm-anke-mods');
         const bonus = bonusNow();
-        const parts = [`<span>判定对象 ${d.esc(anke.actor)}</span>`];
+        const parts = [`<span>判定对象 ${d.esc(named(anke.actor))}</span>`];
         if (anke.ability && bonus !== null) parts.push(`<span>${d.esc(ABILITY_LABELS[anke.ability])} <b class="${bonus > 0 ? 'is-up' : bonus < 0 ? 'is-down' : ''}">${bonus >= 0 ? '+' : '−'}${Math.abs(bonus)}</b></span>`);
         parts.push(`<span>成功线 ${anke.line}</span>`);
         mods.innerHTML = parts.join('');
@@ -116,7 +117,7 @@ function build(overlay, list, view, revealing, d, sig) {
         const mods = d.el(doc, 'div', 'igs-fm-anke-mods');
         const cocValue = ankeCocValueOf(anke, st.lock);
         const need = ankeCocPlay({ die: 50, value: cocValue, level: anke.level }).need;
-        mods.innerHTML = [`<span>检定对象 ${d.esc(anke.actorLabel || anke.actor)}</span>`, `<span>${d.esc(anke.skill)} ${cocValue}</span>`, anke.level === '普通' ? '' : `<span>${anke.level}线 ${need}</span>`].join('');
+        mods.innerHTML = [`<span>检定对象 ${d.esc(named(anke.actorLabel || anke.actor))}</span>`, `<span>${d.esc(anke.skill)} ${cocValue}</span>`, anke.level === '普通' ? '' : `<span>${anke.level}线 ${need}</span>`].join('');
         body.append(mods);
     }
 
@@ -148,11 +149,15 @@ function build(overlay, list, view, revealing, d, sig) {
         if (i < 0 || !targets[i]) return;
         if (animate) { void targets[i].offsetWidth; targets[i].classList.add('is-tick'); } else targets[i].classList.add('is-tick', 'is-still');
     };
-    const fill = (text) => {
-        const prev = s.ankeLine && s.ankeLine[anke.key] || '';
+    const lineOf = (lock) => ankeFillLine({ ...anke, bonus: kind === 'check' ? lock.total - lock.die : null }, lock);
+    // text 为空时把上一次填入的那行从输入框里删掉（撤销）；prev 缺省取本页记下的上一行，刷新后取锁算出的那行。
+    const fill = (text, prev = s.ankeLine && s.ankeLine[anke.key] || '') => {
         const cb = latest().onAnke;
-        if (!cb) return;
-        Promise.resolve(cb(text, prev)).then((r) => { if (!r || r.ok !== false) s.ankeLine = { ...s.ankeLine, [anke.key]: text }; }).catch(() => {});
+        if (!cb) return Promise.resolve({ ok: false });
+        return Promise.resolve(cb(text, prev)).then((r) => {
+            if (!r || r.ok !== false) s.ankeLine = { ...s.ankeLine, [anke.key]: text };
+            return r || { ok: true };
+        }).catch(() => ({ ok: false }));
     };
 
     const showTally = (lock, animate) => {
@@ -228,6 +233,38 @@ function build(overlay, list, view, revealing, d, sig) {
         if (kind === 'check') showCheck(lock);
         if (kind === 'coc') showCoc(lock);
         showReact(lock.react || [], animate);
+        if (!anke.readonly) showAfter(lock);
+    };
+    // 出结果后、User 还没发下一层时：重新发送结果（刷新或清空输入框后再填一次）；没掷过骰的直接选择可以撤销。
+    const undoable = (lock) => !lock.roll && kind !== 'check' && kind !== 'coc' && (kind !== 'vote' || lock.pick < 0);
+    const showAfter = (lock) => {
+        const row = d.el(doc, 'div', 'igs-fm-anke-after');
+        const resend = mkLink('is-resend', '重新发送结果');
+        resend.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const text = lineOf(lock);
+            fill(text, s.ankeLine && s.ankeLine[anke.key] || text).then((r) => {
+                resend.textContent = r.ok === false ? '输入框不可用' : '已填入输入框';
+                win.setTimeout(() => { resend.textContent = '重新发送结果'; }, 1500);
+            });
+        });
+        row.append(resend);
+        if (undoable(lock)) {
+            const undo = mkLink('is-undo', '撤销');
+            undo.addEventListener('click', (event) => {
+                event.stopPropagation();
+                fill('', s.ankeLine && s.ankeLine[anke.key] || lineOf(lock)).then(() => {
+                    const rest = { ...s.ankeLine };
+                    delete rest[anke.key];
+                    s.ankeLine = rest;
+                });
+                if (latest().onAnkeLock) latest().onAnkeLock(anke.key, null);
+                list.querySelectorAll('[data-anke-of]').forEach((x) => { if (x.dataset.ankeOf === sig) x.remove(); });
+                build(overlay, list, { ...view, anke: { ...anke, lock: null } }, null, d, sig);
+            });
+            row.append(undo);
+        }
+        body.append(row);
     };
 
     const commit = (part) => {
@@ -240,7 +277,7 @@ function build(overlay, list, view, revealing, d, sig) {
             .slice(0, slots.length).map((r, j) => ({ no: slots[j].no, id: r.id, time: slots[j].time, text: r.text }));
         st.lock = lock;
         if (latest().onAnkeLock) latest().onAnkeLock(anke.key, lock);
-        fill(ankeFillLine({ ...anke, bonus: kind === 'check' ? lock.total - lock.die : null }, lock));
+        fill(lineOf(lock));
     };
     const settle = (part) => { commit(part); paint(true); };
     const runRoll = (result, count, shown, done) => {
@@ -260,7 +297,8 @@ function build(overlay, list, view, revealing, d, sig) {
     const onClick = (event) => {
         event.stopPropagation();
         const t = event.target && event.target.closest ? event.target : null;
-        if (!t || anke.readonly || st.lock || st.busy || (latest().anke && latest().anke.key === anke.key && latest().anke.lock)) return;
+        const stored = latest().ankeLockOf ? latest().ankeLockOf(anke.key) : latest().anke && latest().anke.key === anke.key && latest().anke.lock;
+        if (!t || anke.readonly || st.lock || st.busy || stored) return;
         const row = t.closest('.igs-fm-anke-opt');
         if (row) {
             const i = Number(row.dataset.pick);

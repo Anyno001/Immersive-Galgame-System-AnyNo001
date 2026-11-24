@@ -3747,9 +3747,13 @@ ${row.key}`;
         const posterKey = poster.kind === 'char' ? poster.key : poster.kind === 'user' ? FORUM_USER_KEY : '';
         const nameMap = forumNameMap(thread);
         const forumRowsIn = nameMap.size ? log.rows.map((row) => (nameMap.has(row.key) ? { ...row, key: nameMap.get(row.key) } : row)) : log.rows;
+        const rawReplies = forumRepliesOf(floor.source);
+        const ankeFound = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
         if (idle && thread) {
             const order = [...new Set(forumRowsIn.map((row) => (row.key && row.key === floor.userKey ? FORUM_USER_KEY : row.key)).filter(Boolean))];
-            const bodyText = forumRowsIn.map((row) => String(row.text || '')).join(' ');
+            // 只在安科或 AI 回帖里点到名的人也要有代号，否则替换时没有对照、真名原样露出。
+            const ankeText = ankeFound ? [ankeFound.question, ankeFound.actor, ...(ankeFound.options || [])].join(' ') : '';
+            const bodyText = [...forumRowsIn.map((row) => String(row.text || '')), ankeText, ...rawReplies.map((r) => `${r.text || ''} ${r.cite || ''}`)].join(' ');
             for (const key of Object.keys(assets.characters || {})) {
                 if (key && !nameMap.has(key) && !order.includes(key) && [key, ...(assets.characterAliases && Array.isArray(assets.characterAliases[key]) ? assets.characterAliases[key] : []), ...((thread.names || {})[key] || [])].some((n) => n && bodyText.includes(n))) order.push(key);
             }
@@ -3790,10 +3794,9 @@ ${row.key}`;
         const firstPage = (floor.pages[0] && floor.pages[0].sceneStateForBg) || floor.inheritedSceneState || {};
         const sendDate = Array.isArray(ctx.chat) && ctx.chat[messageId] ? ctx.chat[messageId].send_date : '';
         const poId = (thread && thread.poId) || forumPoId(chatId, threadId);
-        const aiReplies = forumRepliesNamed(forumRepliesOf(floor.source), namePairs);
+        const aiReplies = forumRepliesNamed(rawReplies, namePairs);
         const images = forumImagesOf(rows, (row) => forumImagePick(current, floor, rs, row.index, messageId), `${chatId}:${messageId}`);
         const prevReplies = aiReplies.some((r) => r.prev) ? forumRepliesNamed(forumPrevRepliesOf(ctx.chat, messageId), namePairs) : [];
-        const ankeFound = settings.anke === 'off' ? null : forumAnkeOf(floor.source);
         const reserve = ankeFound && ankeFound.kind !== 'pick' ? 1 + (ankeFound.kind === 'anchor' || ankeFound.kind === 'collect' ? ankeFound.options.length : 0) : 0;
         const plan = forumPlan(rows, { chatId, messageId, settings: rs.forumReader, poId, threadId, aiReplies, sceneTime: firstPage.time || '', sendDate, images, posterKind: poster.kind, threadStart: marks.start, prevReplies, reserve });
         const tailSig = (id) => `${(ctx.chat && ctx.chat[id] && String(ctx.chat[id].mes || '').length) || 0}:${settings.replies}:${settings.perPost}:${settings.posterText}`;
@@ -3923,8 +3926,10 @@ ${row.key}`;
             return { ok: true };
         };
         return syncForumReader(overlay, {
-            anke, onAnke, ankeBonus,
+            anke, onAnke, ankeBonus, ankeNamed: (text, other) => replaceNames(text, other ? namePairs.map(([from, to]) => [from, to === '我' ? '楼主' : to]) : namePairs),
+            ankeNameSig: JSON.stringify(namePairs),
             onAnkeLock: (key, value) => ankeStore.put(key, value),
+            ankeLockOf: (key) => ankeStore.get(key),
             floorKey: log.key,
             sig: JSON.stringify([anke && { ...anke, lock: null }, rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
             rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,

@@ -162,6 +162,9 @@ ${R} .igs-fm-anke-floor.is-still .igs-fm-anke-tick path{animation:none;stroke-da
 ${R} .igs-fm-anke.is-locked .igs-fm-anke-opt,${R} .igs-fm-anke-floor.is-locked{cursor:default;}
 ${R} .igs-fm-anke.is-locked .igs-fm-anke-opt:hover .igs-fm-anke-text,${R} .igs-fm-anke-floor.is-locked:hover .igs-fm-anke-text{text-decoration:none;}
 ${R} .igs-fm-anke.is-locked .igs-fm-anke-link{color:var(--igs-fm-sub,#707070);cursor:default;text-decoration:none;}
+${R} .igs-fm-anke-after{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-top:4px;font-size:12.5px;line-height:1.6;}
+${R} .igs-fm-anke.is-locked .igs-fm-anke-after .igs-fm-anke-link{color:var(--igs-fm-sub,#707070);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;}
+${R} .igs-fm-anke.is-locked .igs-fm-anke-after .igs-fm-anke-link:hover{color:var(--igs-fm-main,#800000);text-decoration-style:solid;}
 ${R} .igs-fm-anke-you{margin-left:8px;font-size:12px;color:var(--igs-fm-sub,#707070);}
 ${R} .igs-fm-anke-tally{margin:6px 0 2px;}
 ${R} .igs-fm-anke-trow{display:grid;grid-template-columns:16px 1fr 40px;align-items:center;gap:8px;padding:2px 0;font-size:13px;color:var(--igs-fm-sub,#707070);}

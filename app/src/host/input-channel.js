@@ -5,8 +5,12 @@ export function appendInputDraft(existing, text, replace = '') {
     if (replace) {
         const lines = current.split('\n');
         const at = lines.indexOf(String(replace));
-        if (at >= 0) { lines[at] = command; return lines.join('\n'); }
+        if (at >= 0) {
+            if (command) lines[at] = command; else lines.splice(at, 1);
+            return lines.join('\n');
+        }
     }
+    if (!command) return current;
     if (current === command || current.endsWith(`\n${command}`)) return current;
     return `${current}${current.endsWith('\n') ? '' : '\n'}${command}`;
 }

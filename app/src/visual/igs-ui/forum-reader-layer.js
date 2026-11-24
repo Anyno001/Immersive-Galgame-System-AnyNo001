@@ -351,9 +351,11 @@ function replyNode(doc, reply, view, live) {
 }
 
 // 安科的问题、选项、候选楼里可能夹表情包标签：原位换成行内图。
-function ankeTextHtml(text, view, seed) {
+// other：路人写的候选楼，楼主名换「楼主」而不是「我」。
+function ankeTextHtml(text, view, seed, other = false) {
     const sticker = stickerOf(view);
-    return inlineReplyHtml(stripTextFxMarkup(String(text || '')), (n) => ({ ...sticker.opts, seed: `${seed}:${n}`, cls: 'igs-fm-sticker' })).trim();
+    const named = typeof view.ankeNamed === 'function' ? view.ankeNamed(String(text || ''), other) : String(text || '');
+    return inlineReplyHtml(stripTextFxMarkup(named), (n) => ({ ...sticker.opts, seed: `${seed}:${n}`, cls: 'igs-fm-sticker' })).trim();
 }
 
 const ANKE_DEPS = { el, esc, winOf, reducedMotion, stateOf, replyNode, headHtml, scrollEnd, textHtml: ankeTextHtml };

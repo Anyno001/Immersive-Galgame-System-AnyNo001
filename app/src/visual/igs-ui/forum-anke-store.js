@@ -20,10 +20,11 @@ export function createAnkeStore({ getContext, getChatId }) {
     };
     return {
         get: (key) => all()[key] || null,
+        // value 为 null 时删掉这条锁（撤销）。
         put(key, value) {
             const data = { ...all() };
             delete data[key];
-            data[key] = value;
+            if (value) data[key] = value;
             for (const old of Object.keys(data).slice(0, Math.max(0, Object.keys(data).length - ANKE_KEEP))) delete data[old];
             const held = heldOf();
             if (!held) { memory.set(String(getChatId() || ''), data); return; }

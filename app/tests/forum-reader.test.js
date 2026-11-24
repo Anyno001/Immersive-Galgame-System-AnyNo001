@@ -14,6 +14,7 @@ import { ankeCheckPlay, ankeCocPlay, ankeOutcomeOf, ankeFillLine, ankeVisibleVot
 import { ANKE_REACT_POOLS, ANKE_REACT_STICKERS, ankeReactions, ankeSituation } from '../src/visual/igs-ui/forum-anke-react.js';
 import { ankeQuotedFloors, createAnkeStore } from '../src/visual/igs-ui/forum-anke-store.js';
 import { stickerNames } from '../src/stickers/sticker-catalog.js';
+import { appendInputDraft } from '../src/host/input-channel.js';
 import { createForumRegistry } from '../src/visual/igs-ui/forum-reader-registry.js';
 import { finishForumReveal, syncForumReader } from '../src/visual/igs-ui/forum-reader-layer.js';
 import { FORUM_READER_STYLE_TEXT } from '../src/visual/igs-ui/forum-reader-style.js';
@@ -692,6 +693,37 @@ test('安科楼：安价候选楼排在安科楼之后，点楼选中并填入�
     assert.equal(ro.fills.length, 0);
     assert.equal(ro.locks.length, 0);
     assert.equal(overlay.querySelectorAll('.is-builtin').length, 0);
+});
+
+test('安科楼：出结果后可重新发送结果（刷新后从锁算出同一行）；直接选择可撤销后重选，掷过骰与只读不能撤销', () => {
+    const { overlay } = mountOverlay();
+    const { view, fills, locks } = ankeView(overlay, 'anchor');
+    syncForumReader(overlay, view);
+    assert.equal(overlay.querySelector('.is-resend'), null);
+    overlay.querySelector('.igs-fm-anke-floor[data-floor="1"]').click();
+    overlay.querySelector('.is-resend').click();
+    assert.equal(fills[1], fills[0]);
+    const lock = locks[0][1];
+    const refreshed = mountOverlay().overlay;
+    const again = ankeView(refreshed, 'anchor', { lock });
+    syncForumReader(refreshed, again.view);
+    refreshed.querySelector('.is-resend').click();
+    assert.deepEqual(again.fills, [fills[0]]);
+    overlay.querySelector('.is-undo').click();
+    assert.equal(fills[fills.length - 1], '');
+    assert.deepEqual(locks[locks.length - 1], [view.anke.key, null]);
+    assert.equal(overlay.querySelector('.igs-fm-anke-floor.is-pick'), null);
+    assert.equal(overlay.querySelectorAll('.is-builtin').length, 0);
+    overlay.querySelector('.igs-fm-anke-floor[data-floor="0"]').click();
+    assert.match(fills[fills.length - 1], /^【安价】>>No\.\d+ 甲$/);
+    const rolled = ankeView(overlay, 'anchor', { key: 'c:1:rolled', lock: { ...lock, roll: 3, die: 2 } });
+    syncForumReader(overlay, { ...rolled.view, sig: 'rolled' });
+    assert.ok(overlay.querySelector('.is-resend') && !overlay.querySelector('.is-undo'));
+    const ro = ankeView(overlay, 'anchor', { lock, readonly: true });
+    syncForumReader(overlay, { ...ro.view, sig: 'ro' });
+    assert.equal(overlay.querySelector('.igs-fm-anke-after'), null);
+    assert.equal(appendInputDraft('写点什么\n【安价】2：乙\n再写', '', '【安价】2：乙'), '写点什么\n再写');
+    assert.equal(appendInputDraft('已经清空了', '', '【安价】2：乙'), '已经清空了');
 });
 
 test('安科楼：判定掷骰后算式、结果与填入行一致，落定后不能重骰', () => {
