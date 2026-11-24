@@ -18,6 +18,7 @@ export function createStatsChip(options = {}) {
     const seen = new Set();
     const infoTimers = new Map();
     let shown = '';
+    let shownEl = null;
 
     function element(create) {
         const dialog = typeof options.getDialog === 'function' ? options.getDialog() : null;
@@ -77,12 +78,17 @@ export function createStatsChip(options = {}) {
         if (!active.length) {
             el.setAttribute('hidden', '');
             shown = '';
+            shownEl = null;
             for (const id of infoTimers.values()) timers.clearTimeout(id);
             infoTimers.clear();
             return false;
         }
         const key = active.map((notice) => `${notice.id}:${notice.kind || 'info'}:${notice.text}:${(notice.actions || []).map((a) => `${a[0]}${a[2] === true ? '*' : ''}`).join(',')}`).join('\n');
-        if (key !== shown) { render(el, active); shown = key; }
+        if (key !== shown || el !== shownEl || !el.childNodes || !el.childNodes.length) {
+            render(el, active);
+            shown = key;
+            shownEl = el;
+        }
         el.removeAttribute('hidden');
         const activeInfoKeys = new Set();
         for (const notice of active) {

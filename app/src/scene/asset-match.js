@@ -422,11 +422,22 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
         // 默认那套在本卡隐藏、又没有别的可见衣装：有原装立绘就落到原装。
         const hiddenToBase = !selected.ok && selected.reason === 'default-outfit-hidden' && hasLegacySprite;
         if (!selected.ok) {
-            if (!hiddenToBase) return { url: '', slot: '', character: appearanceKey, source: 'none', quality: 'none',
-                requestedOutfit: outfit, ...(selected.effectiveOutfit && { outfit: selected.effectiveOutfit }),
-                reason: selected.reason, fallbackReason: selected.fallbackReason || '',
-                // 写词即存的衣装还没挂图（图被丢弃或没画成）时，角色名下一张图都没有，照样算缺图。
-                needsGeneration: selected.reason === 'outfit-image-missing' || !hasCharacterSprite(userAssets, appearanceKey) };
+            if (!hiddenToBase) {
+                const hasAnySprite = hasCharacterSprite(userAssets, appearanceKey);
+                if (!hasAnySprite && typeof ctx.tempSprite === 'function') {
+                    const temp = ctx.tempSprite(name) || (appearanceKey && appearanceKey !== name ? ctx.tempSprite(appearanceKey) : '');
+                    if (temp && !unavailableImage(temp, ctx)) {
+                        return { url: temp, slot: '默认', character: appearanceKey,
+                            requestedOutfit: outfit, ...(selected.effectiveOutfit && { outfit: selected.effectiveOutfit }),
+                            source: 'temp', quality: 'exact', needsGeneration: false };
+                    }
+                }
+                return { url: '', slot: '', character: appearanceKey, source: 'none', quality: 'none',
+                    requestedOutfit: outfit, ...(selected.effectiveOutfit && { outfit: selected.effectiveOutfit }),
+                    reason: selected.reason, fallbackReason: selected.fallbackReason || '',
+                    // 写词即存或立绘占位还没挂图（图被丢弃或尚未出图）时，角色名下一张图都没有，照样算缺图。
+                    needsGeneration: selected.reason === 'outfit-image-missing' || !hasAnySprite };
+            }
         } else return { url: selected.spriteImage.url, slot: selected.spriteImage.slot, character: appearanceKey,
             requestedOutfit: selected.requestedOutfit, outfit: selected.effectiveOutfit,
             source: selected.selectionSource === 'requested' ? 'user-outfit' : 'user-default-outfit',
@@ -488,7 +499,9 @@ export function resolveSpriteAsset(character, mood, ctx = {}, outfit = '') {
     const creatureUndrawn = Boolean(registeredKey && (creatureOf(registeredDna) || registeredDna?.combatFoe === true)
         && !userAssets.characters?.[registeredKey] && !userAssets.characterOutfits?.[registeredKey]);
     const unavailableRegistered = registeredKey && Object.values((userAssets.characters || {})[registeredKey] || {}).some(url => unavailableImage(url, ctx));
-    return { url: '', slot: '', character: name, source: 'none', reason: unavailableRegistered ? 'original-unavailable' : registeredKey || generated.spriteCharacter ? 'original-empty' : 'character-unregistered', needsGeneration: Boolean(missingRegistered || preparedOnly || creatureUndrawn) || (!registeredKey && !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets)) };
+    // 仅有立绘占位（characters[name] = {} / 仅有 DNA 或空衣装槽）而尚未有任何立绘图片时，仍应视为缺图触发自动生成。
+    const undrawnPlaceholder = Boolean(registeredKey && !unavailableRegistered && !hasCharacterSprite(userAssets, registeredKey) && !isNonSpriteSpeaker(name));
+    return { url: '', slot: '', character: name, source: 'none', reason: unavailableRegistered ? 'original-unavailable' : registeredKey || generated.spriteCharacter ? 'original-empty' : 'character-unregistered', needsGeneration: Boolean(missingRegistered || preparedOnly || creatureUndrawn || undrawnPlaceholder) || (!registeredKey && !isNonSpriteSpeaker(name) && !isKnownCharacterName(name, userAssets)) };
 }
 
 // NSFW 挂 CG 时的对话框头像：只在衣柜引用「裸体」的那几套里找（当条表情 → 裸体底图 → 这一套的「平和」），
@@ -509,14 +522,17 @@ export function resolveNudeSpriteAsset(character, mood, ctx = {}) {
     return { url: '', character: found.key || name };
 }
 
-// 素材里已登记角色的简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一人。角色卡名不在此列。
+// 素材里已登记且已有立绘的角色的简称/全名互指（「雪乃」↔「雪之下雪乃」）：至少两个字且互为子串即视为同一人。角色卡名与空占位不在此列。
 function isKnownCharacterName(name, userAssets) {
     if (Array.from(name).length < 2) return false;
     const aliases = userAssets.characterAliases && typeof userAssets.characterAliases === 'object' ? userAssets.characterAliases : {};
-    const candidates = [
-        ...Object.keys(userAssets.characters || {}),
-        ...Object.values(aliases).flat(),
-    ].map((c) => String(c || '').trim()).filter((c) => Array.from(c).length >= 2);
+    const drawnChars = Object.keys(userAssets.characters || {}).filter((c) => hasCharacterSprite(userAssets, c));
+    const drawnAliases = Object.entries(aliases)
+        .filter(([owner]) => hasCharacterSprite(userAssets, owner))
+        .flatMap(([, list]) => (Array.isArray(list) ? list : []));
+    const candidates = [...drawnChars, ...drawnAliases]
+        .map((c) => String(c || '').trim())
+        .filter((c) => Array.from(c).length >= 2);
     return candidates.some((c) => c === name || c.includes(name) || name.includes(c));
 }
 

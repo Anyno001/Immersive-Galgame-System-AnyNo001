@@ -12,6 +12,8 @@ import {
     BUILD_CHOICES, chatEntries, diffChatRecords, floorRecord, importLegacyStats, initRecord, mergeStatLog, normalizeBuildMode, normalizeNpcChoice, normalizeNpcPolicy, statTagHash, verifyStatImport,
 } from '../scene/stats/stat-log.js';
 import { hash32 } from '../combat/random.js';
+import { nameKey } from '../combat/ledger.js';
+import { hasVisibleIgsTagOnLatestFloor } from '../scene/message-source.js';
 import { challengeDirectiveOf, parseChallengeReport } from '../combat/challenge-report.js';
 import { battleDirectiveOf, parseBattleReport } from '../combat/battle-report.js';
 import { ABILITY_KEYS, ABILITY_LABELS, BUILD_MODES, MANUAL_BUILD, MANUAL_TOTAL, abilityKeyOf } from '../combat/abilities.js';
@@ -193,9 +195,13 @@ export function createStatsRuntime({
     moodGroups = () => null,
     // 全局特质图鉴存储 { get(), set(next) }（跨聊天、跨角色卡）；缺省不记图鉴。
     traitCodexStore = null,
+    // 来源过滤配置读取函数：用于判断当前最新楼层是否存在可见的 IGS 格式标签。
+    sourceFilter = () => undefined,
 } = {}) {
     const store = createChatStatsStore(getContext);
     let ledger = null;
+    let ledgerPersisted = false;
+    let initQueued = false;
     let chatEnabled = false;
     let buildMode = null;
     let buildChoices = {};
@@ -627,9 +633,15 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
+    function latestFloorHasVisibleIgsTag() {
+        let filter;
+        try { filter = typeof sourceFilter === 'function' ? sourceFilter() : sourceFilter; } catch { filter = undefined; }
+        return hasVisibleIgsTagOnLatestFloor(messages(ctx()), filter);
+    }
+
     function currencyStoryText() {
         const chat = messages(ctx()).filter((m) => m && !m.is_system && typeof m.mes === 'string' && m.mes.trim());
-        const picked = [...new Set([...chat.slice(0, 3), ...chat.slice(-3)])];
+        const picked = [...new Set([...chat.slice(0, 3), ...chat.slice(-4)])];
         return picked.map((m) => `${m.is_user ? '用户' : '剧情'}：${m.mes.trim()}`).join('\n');
     }
 
@@ -649,15 +661,21 @@ export function createStatsRuntime({
         return true;
     }
 
-    function readAuthoritativeStatsCurrency(alive) {
+    function readAuthoritativeStatsCurrency(alive, { allowMissing = false } = {}) {
         if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
         const t = tables();
         if (!t.ok) return { ok: false, stage: 'read', reason: t.reason || 'stats-log-read-failed' };
         t.invalidate?.();
         const rows = t.read({ kinds: ['stats'] });
         if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
-        if (!rows || rows.ok !== true || !Array.isArray(rows.stats)) {
+        if (!rows || rows.ok !== true) {
             return { ok: false, stage: 'read', reason: (rows && rows.reason) || 'stats-log-read-failed' };
+        }
+        if (!Array.isArray(rows.stats) || rows.layoutPending) {
+            if (allowMissing) {
+                return { ok: true, layout: rows.layout === 'v2' ? 'v2' : 'legacy', currency: null, tableMissing: true };
+            }
+            return { ok: false, stage: 'read', reason: rows.reason || 'stats-log-read-failed' };
         }
         const merged = mergeStatLog(rows.stats, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
         if (merged.currencyEditError) return { ok: false, stage: 'edit', reason: merged.currencyEditError };
@@ -668,7 +686,26 @@ export function createStatsRuntime({
             if (merged.baseline.has(key)) baseline.set(key, merged.baseline.get(key));
             else baseline.delete(key);
         }
-        return { ok: true, layout: rows.layout === 'v2' ? 'v2' : 'legacy', currency };
+        return { ok: true, layout: rows.layout === 'v2' ? 'v2' : 'legacy', currency, tableMissing: false };
+    }
+
+    // 只读查询主角属性表状态（绝不提前建表）：表尚不存在或布局未确认时返回未初始化视图，待生成成功或手动提交后再建表。
+    function readHeroAttributeState(access, heroName, alive) {
+        if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+        const st = access.status();
+        if (!st.ok) return { ...st, stage: 'read' };
+        const read = access.readHero(heroName);
+        if (!alive()) return { ok: false, stage: 'read', reason: 'request-stale' };
+        if (!read.ok && (read.reason === 'combat-attribute-table-missing' || read.reason === 'igs-layout-unconfirmed')) {
+            return {
+                ok: true,
+                tableMissing: true,
+                layout: read.layout === 'v2' ? 'v2' : 'legacy',
+                rows: [],
+                view: { initialized: false, protagonist: true, key: nameKey(heroName), revision: '' },
+            };
+        }
+        return read.ok ? { ...read, tableMissing: false } : { ...read, stage: 'read' };
     }
 
     async function ensureHeroAttributeReadable(access, heroName, alive) {
@@ -700,7 +737,9 @@ export function createStatsRuntime({
         if (catalog.heroInitChoice === 'auto' || catalog.heroInitChoice === 'manual') return false;
         const saved = heroInitIntents.read(chatId);
         if (!saved.ok || saved.intent) return false;
-        return !heroAttributesInitialized();
+        if (heroAttributesInitialized()) return false;
+        if (!ledgerPersisted && !latestFloorHasVisibleIgsTag()) return false;
+        return true;
     }
 
     // 主角统一初始化（P4）：先恢复未完成意图；若未决定自动/手填则等待玩家选择；否则读取权威六维与货币判定缺项，全缺一次请求、部分已有只补缺项，分阶段保存并读回确认。
@@ -722,6 +761,8 @@ export function createStatsRuntime({
         const currencyReady = !hasInv || Boolean(currency?.seeded);
         const bioReady = !requireBio || Boolean(String(catalog.heroBio || '').trim());
         if (!hasPendingIntent && attrReady && currencyReady && bioReady && !force && !exchangeOf() && !currencyEditPending()) return null;
+        // 尚无已落地数据时，自动触发必须满足当前最新楼层含任意可见 IGS 标签。
+        if (!force && !hasPendingIntent && (!attrReady || !currencyReady) && !latestFloorHasVisibleIgsTag()) return null;
         if (!force && !hasPendingIntent && currencyAsked.has(chatId)) return null;
         const ownerAlive = currencyLease();
         const route = generationRoute();
@@ -788,7 +829,7 @@ export function createStatsRuntime({
             // 阶段 3：货币定义写入/确认
             if (intent.needCurrency && intent.stage !== 'currency-seed' && intent.stage !== 'done') {
                 progress('currency-config');
-                const statsRead = readAuthoritativeStatsCurrency(alive);
+                const statsRead = readAuthoritativeStatsCurrency(alive, { allowMissing: true });
                 if (!statsRead.ok) return { ...statsRead, stage: 'currency-config' };
                 const existing = statsRead.currency;
                 const wantCfg = normalizeCurrencyConfig(intent.currency);
@@ -814,7 +855,7 @@ export function createStatsRuntime({
             // 阶段 4：初始金额入账/确认
             if (intent.needCurrency && intent.stage === 'currency-seed') {
                 progress('currency-seed');
-                const statsRead = readAuthoritativeStatsCurrency(alive);
+                const statsRead = readAuthoritativeStatsCurrency(alive, { allowMissing: true });
                 if (!statsRead.ok) return { ...statsRead, stage: 'currency-seed' };
                 if (currency && !currency.seeded) {
                     const seeded = await seedCurrency(alive, intent.seed || null, (seed) => saveStage({ seed }));
@@ -823,9 +864,12 @@ export function createStatsRuntime({
                 const adv = saveStage({ stage: 'done' });
                 if (!adv.ok) return adv;
             }
-            // 阶段 4.5：写入主角简介（不覆盖已有简介，独立键值不锁 NPC 或技能写入）
+            // 阶段 4.5：写入主角简介（不覆盖已有简介，独立键值不锁 NPC 或技能写入）；若尚有未落盘的初始账本也一并落地。
             if (intent.bio && !String(catalog.heroBio || '').trim() && alive()) {
                 catalog = sanitizeCatalog({ ...catalog, heroBio: intent.bio });
+                persist([], { shouldStart: alive });
+                await tail;
+            } else if (!ledgerPersisted && alive()) {
                 persist([], { shouldStart: alive });
                 await tail;
             }
@@ -847,19 +891,19 @@ export function createStatsRuntime({
             if (!pending.ok) return { ok: false, stage: 'recover', reason: pending.reason };
             if (pending.intent) return commitIntent(pending.intent);
 
-            // 读取权威六维与货币状态，捕获修订，判断缺项；读取失败不请求模型。
+            // 只读核对六维与货币状态（不提前建表），判断缺项；读取失败不请求模型。
             const heroName = userName() || PROTAGONIST;
             let layout = 'legacy';
             let attrRead = null;
             if (hasAttr) {
                 const access = attributeAccess();
-                attrRead = await ensureHeroAttributeReadable(access, heroName, alive);
+                attrRead = readHeroAttributeState(access, heroName, alive);
                 if (!attrRead.ok) return attrRead;
                 if (attrRead.layout === 'v2' || attrRead.layout === 'legacy') layout = attrRead.layout;
             }
             let statsRead = null;
             if (hasInv) {
-                statsRead = readAuthoritativeStatsCurrency(alive);
+                statsRead = readAuthoritativeStatsCurrency(alive, { allowMissing: true });
                 if (!statsRead.ok) return statsRead;
                 if (statsRead.layout === 'v2' || statsRead.layout === 'legacy') layout = statsRead.layout;
             }
@@ -942,19 +986,19 @@ export function createStatsRuntime({
             const parsed = parseHeroInitReply(reply, { needAttributes, needCurrency, chatSeed: chatId });
             if (!parsed.ok) return { ...parsed, stage: 'parse' };
 
-            // 回包前再次核对权威状态：若期间手改已补足，绝不覆盖！
+            // 回包前再次只读核对权威状态：若期间手改已补足，绝不覆盖；仍缺项时再在 commitIntent 中建表写入。
             let finalNeedAttributes = needAttributes;
             let finalNeedCurrency = needCurrency;
             let heroKey = attrRead?.view?.key || '';
             if (finalNeedAttributes) {
                 const access = attributeAccess();
-                const latestAttr = await ensureHeroAttributeReadable(access, heroName, alive);
+                const latestAttr = readHeroAttributeState(access, heroName, alive);
                 if (!latestAttr.ok) return latestAttr;
                 if (latestAttr.view.initialized) finalNeedAttributes = false;
                 else heroKey = latestAttr.view.key;
             }
             if (finalNeedCurrency) {
-                const latestStats = readAuthoritativeStatsCurrency(alive);
+                const latestStats = readAuthoritativeStatsCurrency(alive, { allowMissing: true });
                 if (!latestStats.ok) return latestStats;
                 if (latestStats.currency) finalNeedCurrency = false;
             }
@@ -1275,7 +1319,7 @@ export function createStatsRuntime({
     });
 
     function adopt(merged) {
-        ledger = merged.ledger; chatEnabled = merged.chatEnabled; buildMode = merged.buildMode ?? null; buildChoices = merged.buildChoices || {};
+        ledger = merged.ledger; ledgerPersisted = Boolean(merged.ledger); initQueued = ledgerPersisted; chatEnabled = merged.chatEnabled; buildMode = merged.buildMode ?? null; buildChoices = merged.buildChoices || {};
         npcPolicy = merged.npcPolicy ?? null; npcChoices = merged.npcChoices || {};
         catalog = merged.catalog; learned = merged.learned; baseline = merged.baseline; currency = merged.currency || null;
         currencyEdit = merged.currencyEdit || null; currencyEditError = merged.currencyEditError || '';
@@ -1291,7 +1335,7 @@ export function createStatsRuntime({
                 if (notice?.kind === 'busy' && generationTasks.get(key)) preservedBusy.push([key, notice]);
             }
         }
-        ledger = null; chatEnabled = false; buildMode = null; buildChoices = {}; npcPolicy = null; npcChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
+        ledger = null; ledgerPersisted = false; initQueued = false; chatEnabled = false; buildMode = null; buildChoices = {}; npcPolicy = null; npcChoices = {}; blocked = ''; unavailable = ''; learned = {}; catalog = emptyCatalog(); declined = false; currency = null;
         currencyEdit = null; currencyEditError = '';
         baseline = new Map(); pendingOption = null; manualCheck = null; notices.clear();
         if (currencyNotice) notices.set('currency', currencyNotice);
@@ -1344,6 +1388,16 @@ export function createStatsRuntime({
         const chatId = chatIdOf(ctx());
         if (!explicit && !settings().enabled) { if (loadedChat !== chatId) { resetLoaded(); loadedKey = ''; loadedChat = chatId; } return; }
         if (loadedKey && loadedKey === cacheKey(tables())) return;
+        // 延迟建表期间（内存已有待落地账本，但数据库里尚无数值记录）：其他表版本变化不得清空内存账本。
+        if (ledger && !ledgerPersisted && loadedChat === chatId) {
+            const t = tables();
+            const rows = t.ok ? t.read({ kinds: ['stats'] }) : null;
+            const hasSaved = Boolean(rows && rows.ok === true && Array.isArray(rows.stats) && mergeStatLog(rows.stats, { chatId, chat: messages(ctx()) }).ledger);
+            if (!hasSaved) {
+                if (t.ok) loadedKey = cacheKey(t);
+                return;
+            }
+        }
         load();
         if (ledger && chatEnabled) refreshOnboarding();
     }
@@ -1394,10 +1448,19 @@ export function createStatsRuntime({
         // 失败后以表里实际内容为准，下次差分才不会漏记。
         const t = tables();
         const rows = t.ok ? t.read({ kinds: ['stats'] }) : null;
-        if (rows && rows.ok === true && Array.isArray(rows.stats)) baseline = mergeStatLog(rows.stats, { chatId: chatIdOf(ctx()), chat: messages(ctx()) }).baseline;
+        if (rows && rows.ok === true && Array.isArray(rows.stats)) {
+            const merged = mergeStatLog(rows.stats, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
+            baseline = merged.baseline;
+            ledgerPersisted = Boolean(merged.ledger);
+            initQueued = ledgerPersisted;
+        } else {
+            baseline = new Map();
+            ledgerPersisted = false;
+            initQueued = false;
+        }
     }
 
-    // 持久化（v0.39 ms）：算聊天级差分、附上楼层记录，一次追加；追加串行排队。
+    // 持久化（v0.39 ms）：算聊天级差分、附上楼层记录，一次追加；若数值表尚不存在则先建表再插数据；追加串行排队。
     function persist(extra = [], options = {}) {
         if (!ledger || blocked || unavailable) return options.generation
             ? Promise.resolve({ ok: false, reason: blocked || unavailable || 'stats-no-ledger' }) : null;
@@ -1411,30 +1474,55 @@ export function createStatsRuntime({
         }
         const next = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit });
         writeSeq += 1;
-        const records = [...extra, ...diffChatRecords(options.generation?.beforeEntries || baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
+        const needInit = !ledgerPersisted && !initQueued;
+        const prefix = needInit ? [initRecord(ledger.initial, { createdAt: Date.now() })] : [];
+        const records = [...prefix, ...extra, ...diffChatRecords(options.generation?.beforeEntries || baseline, next, { tag: `${Date.now().toString(36)}${writeSeq}`, createdAt: Date.now() })];
         if (options.generation) {
             const task = options.generation;
             task.check();
             if (!records.length) return Promise.resolve({ ...options.result, ok: true });
-            const prepared = records.length ? generationSave.prepare(task.key, records, options.result || { ok: true }, task.alive, task.beforeRows) : { ok: true };
+            const prepared = records.length ? generationSave.prepare(task.key, records, options.result || { ok: true }, task.alive, task.beforeRows, task.beforeLayout) : { ok: true };
             if (!prepared.ok) return Promise.resolve(prepared);
             return Promise.resolve().then(() => finishGenerationSave(task));
         }
         baseline = next;
         if (!records.length) return null;
+        if (needInit) initQueued = true;
         inflight += 1;
         inflightChat = chatIdOf(ctx());
         const chatId = inflightChat;
         const ownerAlive = generationTasks.lease();
-        let started;
         const shouldStart = () => ownerAlive() && (!options.shouldStart || options.shouldStart() === true);
-        try { started = t.append(records, { ...options, shouldStart }); } catch (error) { started = Promise.reject(error); }
+        const runWrite = async () => {
+            if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+            const check = t.read({ kinds: ['stats'] });
+            if (!check || check.ok !== true) return { ok: false, reason: (check && check.reason) || 'stats-log-read-failed' };
+            if (!Array.isArray(check.stats) || check.layoutPending) {
+                if (typeof t.ensure !== 'function') return { ok: false, reason: 'stats-log-create-failed' };
+                const made = await t.ensure({ shouldStart });
+                if (!shouldStart()) return { ok: false, reason: 'request-stale' };
+                if (!made || made.ok !== true) {
+                    diag('stats-log-create-failed', { reason: made && made.reason });
+                    return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' };
+                }
+            }
+            return t.append(records, { ...options, shouldStart });
+        };
+        let started;
+        try { started = runWrite(); } catch (error) { started = Promise.reject(error); }
         const job = Promise.resolve(started).then((r) => {
             if (!shouldStart()) return { ok: false, reason: 'request-stale' };
-            if (!r || r.ok !== true) writeFailed(r);
+            if (!r || r.ok !== true) {
+                if (needInit) initQueued = ledgerPersisted;
+                writeFailed(r);
+            } else {
+                ledgerPersisted = true;
+                initQueued = true;
+            }
             return r;
         }, () => {
             const r = { ok: false, reason: 'stats-log-write-threw' };
+            if (needInit) initQueued = ledgerPersisted;
             if (shouldStart()) writeFailed(r);
             return shouldStart() ? r : { ok: false, reason: 'request-stale' };
         }).finally(() => {
@@ -1483,11 +1571,14 @@ export function createStatsRuntime({
                     return latest;
                 }
                 task.beforeRows = latest.rows;
+                task.beforeLayout = latest.layout;
                 task.saveRevision = generationRevision();
             }
             const previous = { catalog, ledger, learned };
             const effects = { notices: [], codex: false, push: false };
-            task.beforeEntries = chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit });
+            task.beforeEntries = ledgerPersisted
+                ? chatEntries({ chatEnabled, catalog, learned, buildMode, buildChoices, npcPolicy, npcChoices, currency, currencyEdit })
+                : new Map();
             let saved;
             try {
                 catalog = structuredClone(catalog);
@@ -2628,6 +2719,18 @@ export function createStatsRuntime({
         const g = generating;
         generating = null;
         clearPrompt();
+        if (!active() && settings().enabled && latestFloorHasVisibleIgsTag()) {
+            autoEnable();
+            if (!g) {
+                const c = ctx();
+                const lastId = messages(c).length - 1;
+                const lastMsg = lastId >= 0 ? messages(c)[lastId] : null;
+                if (active() && lastMsg && !lastMsg.is_user && !lastMsg.is_system && /[\[【]\s*igs\s*-?\s*stat\s*[:：]|\[igs-check:/i.test(String(lastMsg.mes || ''))) {
+                    settleAt(lastId, { redo: false, plan: {} });
+                }
+                return;
+            }
+        }
         if (!g || !active()) {
             if (sheetsDeferredByGenerating && active() && npcPolicy === 'auto') detectNewCharacters();
             return;
@@ -2644,7 +2747,10 @@ export function createStatsRuntime({
     }
 
     function onSwiped(messageId) {
-        if (!ledger || !chatEnabled) return;
+        if (!ledger || !chatEnabled) {
+            if (settings().enabled && latestFloorHasVisibleIgsTag()) autoEnable();
+            return;
+        }
         const id = Number(messageId);
         const m = messages(ctx())[id];
         if (!m) return;
@@ -2666,7 +2772,11 @@ export function createStatsRuntime({
 
     // 编辑正文：只重算这一楼，从本楼结算前快照出发，不级联（易错点 A5）。
     function onUpdated(messageId) {
-        if (generating || !active()) return;
+        if (generating) return;
+        if (!active()) {
+            if (settings().enabled && latestFloorHasVisibleIgsTag()) autoEnable();
+            return;
+        }
         const id = Number(messageId);
         const m = messages(ctx())[id];
         if (m && ledger.entries.has(ledgerKey(ledger, id, Number(m.swipe_id) || 0))) settleAt(id, { redo: true });
@@ -2740,35 +2850,26 @@ export function createStatsRuntime({
     function sync() {
         const on = settings().enabled;
         if (on && !offs.length) { if (attach()) { load(); autoEnable(); refreshOnboarding(); if (active()) refreshLife(); ensureCurrency(); } }
-        else if (on && offs.length) { if (combatOn()) autoEnable(); refreshOnboarding(); }
+        else if (on && offs.length) { autoEnable(); refreshOnboarding(); if (active()) { refreshLife(); ensureCurrency(); } }
         else if (!on && offs.length) { detach(); notices.clear(); emitNotices(); }
         return { attached: offs.length > 0 };
     }
 
-    // 本聊天启用。数据库里还没有数值表时先建表再重试一次（creating 防重入）。
+    // 本聊天启用：先建立内存账本与启用状态，不提前建表或插空行；待内容生成成功、手动填写提交或楼层结算写入时再按需建表并一并落盘。
     function enableForChat({ initial, buildMode: pickedMode, skillAttributes } = {}) {
         ensureLoaded(true);
         if (unavailable) return { ok: false, reason: unavailable };
         if (blocked) return { ok: false, reason: blocked };
         const chatId = chatIdOf(ctx());
         if (!chatId) return { ok: false, reason: 'stats-no-chat' };
-        const extra = [];
         if (!ledger) {
             const t = tables();
             const rows = t.ok ? t.read({ kinds: ['stats'] }) : t;
             if (!rows || rows.ok !== true) return { ok: false, reason: (rows && rows.reason) || 'stats-log-read-failed' };
-            if (!Array.isArray(rows.stats)) {
-                if (creating) return { ok: false, reason: 'stats-log-create-unverified' };
-                creating = true;
-                return Promise.resolve().then(() => t.ensure()).then((made) => {
-                    if (!made || made.ok !== true) { diag('stats-log-create-failed', { reason: made && made.reason }); return { ok: false, reason: (made && made.reason) || 'stats-log-create-failed' }; }
-                    load();
-                    return enableForChat({ initial, buildMode: pickedMode, skillAttributes });
-                }, () => ({ ok: false, reason: 'stats-log-create-failed' })).finally(() => { creating = false; });
-            }
             // 直接启用（快速开始、自动启用）不送技能，「我的角色」里提示选擅长技能（3+5）。
             ledger = createStatsLedger(chatId, initial || createStatsState({ skills: [] }));
-            extra.push(initRecord(ledger.initial, { createdAt: Date.now() }));
+            ledgerPersisted = false;
+            initQueued = false;
             registerCustomSkills(skillAttributes);
         }
         chatEnabled = true;
@@ -2776,7 +2877,8 @@ export function createStatsRuntime({
         if (!buildMode && mode) buildMode = mode;
         modePending = false;
         if (declined) { store.setDeclined(false); declined = false; }
-        persist(extra);
+        // 仅在已有已落盘账本（如暂停后重新启用）时立即写回启用标记；全新未落盘账本等待实际数据写入再建表与落盘。
+        if (ledgerPersisted) persist();
         onChange(currentStatsState(ledger), null);
         refreshOnboarding();
         onBuildPolicyChange();
@@ -2785,13 +2887,16 @@ export function createStatsRuntime({
         return { ok: true };
     }
 
-    // 自动启用：数值总开关开启后本聊天直接开始启用并初始化主角；历史未启用/旧 declined 不阻断自动启动。
-    // 已有账本且显式暂停过的聊天保持暂停；战斗开启时一律确保启用。
+    // 自动启用：已有数值账本的聊天照常载入（战斗开启时确保启用，其余尊重显式暂停）；
+    // 尚无数值数据的聊天必须当前最新楼层含任意可见的 IGS 格式标签才触发启动。
     function autoEnable() {
         const s = settings();
         if (!s.enabled || unavailable || blocked || !chatIdOf(ctx())) return;
-        if (combatOn()) { if (!ledger || !chatEnabled) Promise.resolve(enableForChat()).catch(() => {}); return; }
-        if (ledger) return;
+        if (ledger) {
+            if (combatOn() && !chatEnabled) Promise.resolve(enableForChat()).catch(() => {});
+            return;
+        }
+        if (!latestFloorHasVisibleIgsTag()) return;
         Promise.resolve(enableForChat()).catch(() => {});
     }
 
@@ -3220,7 +3325,7 @@ export function createStatsRuntime({
                     notified: addedNotified.length ? [...catalog.notified, ...addedNotified] : catalog.notified,
                     queue: { ...catalog.queue, people: nextQueue },
                 };
-                persist();
+                if (ledgerPersisted) persist();
             }
             generateSheets(targets);
             return;
@@ -3260,6 +3365,7 @@ export function createStatsRuntime({
                 throw Object.assign(new Error(source.reason), { reason: source.reason, stage: source.stage });
             }
             job.beforeRows = source.rows;
+            job.beforeLayout = source.layout;
             job.sourceRevision = generationRevision();
             return job.request(request, prompt, ms, options);
         }
@@ -3280,7 +3386,7 @@ export function createStatsRuntime({
     function manualBaseIds(names) {
         if (!attributeAccess) return { ok: true, ids: {} };
         const source = attributes();
-        if (!source?.ready) return source?.reason === 'combat-attribute-table-missing'
+        if (!source?.ready) return (source?.reason === 'combat-attribute-table-missing' || source?.reason === 'igs-layout-unconfirmed')
             ? { ok: true, ids: {} } : { ok: false, reason: source?.reason || 'stats-attribute-read-failed' };
         const ids = {};
         for (const name of names) {
@@ -3441,7 +3547,7 @@ export function createStatsRuntime({
             try { people = typeof describePeople === 'function' ? await describeWithHero([...npcs, PROTAGONIST]) : [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             catch (error) { people = [...npcs, PROTAGONIST].map((name) => ({ name, summary: '' })); }
             checkGeneration(job);
-            const prompt = buildBackfillRequest(people, skills, { prompt: settings().prompts.backfill });
+            const prompt = buildBackfillRequest(people, skills, { prompt: settings().prompts.backfill, history: currencyStoryText() });
             let parsed = null;
             try { parsed = parseBackfillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job), { names: [...npcs, PROTAGONIST], skills }); }
             catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-backfill-request-failed' }; }
@@ -3541,7 +3647,7 @@ export function createStatsRuntime({
             try { people = typeof describePeople === 'function' ? await describeWithHero([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
             catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
             checkGeneration(job);
-            const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills });
+            const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills, history: currencyStoryText() });
             let parsed = null;
             try {
                 parsed = parseHeroSkillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job, {
@@ -3829,7 +3935,8 @@ export function createStatsRuntime({
             if (action === 'auto') {
                 catalog = sanitizeCatalog({ ...catalog, heroInitChoice: 'auto' });
                 setNotice('hero-init-mode', null);
-                persist();
+                // 延迟建表：仅在已有落盘账本时立即写选择；否则等待自动生成成功后随生成数据一并建表写入。
+                if (ledgerPersisted) persist();
                 refreshOnboarding();
                 const initPromise = ensureHeroInit({ force: true });
                 return Promise.resolve(initPromise || { ok: true }).then((res) => {
@@ -4459,7 +4566,7 @@ export function createStatsRuntime({
                 try { people = typeof describePeople === 'function' ? await describePeople(batch) : batch.map((n) => ({ name: n, summary: '' })); }
                 catch (error) { people = batch.map((n) => ({ name: n, summary: '' })); }
                 job.check();
-                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations, hero, plot });
+                const prompt = buildStartRelationRequest(people, { prompt: settings().prompts.startRelations, hero, plot, history: currencyStoryText() });
                 let parsed = null;
                 try { parsed = parseStartRelationReply(await ask(request, prompt, START_TIMEOUT_MS, job), { names: batch }); }
                 catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: 'stats-start-request-failed', detail: String(error?.message || error).slice(0, 120) }; }
@@ -4576,6 +4683,7 @@ export function createStatsRuntime({
             const source = generationSave.read(null, job.alive);
             if (!source.ok) { generationSaveNotice(source); return source; }
             job.beforeRows = source.rows;
+            job.beforeLayout = source.layout;
             job.sourceRevision = generationRevision();
             return stageGeneration(job, () => {
                 const sheets = { ...catalog.sheets };

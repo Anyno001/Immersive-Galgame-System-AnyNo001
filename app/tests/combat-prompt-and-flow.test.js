@@ -22,7 +22,7 @@ test('逻辑1：开局询问自行填写/自动生成；超上限弹出深红色
     const storage = createMemoryStorage();
     const context = {
         name1: '主角', name2: '小雪', chatId: 'hero-manual-cheat-1', chatMetadata: {},
-        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '新世界开场。', swipe_id: 0 }],
+        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '[igs-scene:王都|白天|晴]\n新世界开场。', swipe_id: 0 }],
         getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
         eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
         eventSource: { on() {}, removeListener() {} },
@@ -190,7 +190,7 @@ test('逻辑3：20张基础模板按职业组合并由LLM结合世界书命名�
     const db = createLedgerMockHost({ supportCallbacks: true });
     db.sheets.sheet_userbag = userInventorySheet();
     const storage = createMemoryStorage();
-    const chat = [{ is_user: true, mes: '开始' }, { is_user: false, mes: '观星塔觉醒。', swipe_id: 0 }];
+    const chat = [{ is_user: true, mes: '开始' }, { is_user: false, mes: '[igs-scene:观星塔|夜晚|晴]\n观星塔觉醒。', swipe_id: 0 }];
     let kind = 'daily';
     let llmCalls = 0;
     const passiveKey = Object.keys(PASSIVE_TEMPLATES)[0];

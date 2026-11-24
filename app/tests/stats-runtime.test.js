@@ -22,7 +22,7 @@ function fakeHost() {
     };
     let saves = 0;
     const ctx = {
-        name2: '小雪', chat: [{ is_user: true, mes: '你好' }], chatMetadata: {}, extensionPrompts: {},
+        name2: '小雪', chat: [{ is_user: true, mes: '你好' }, { is_user: false, mes: '[igs-scene:教室|白天|晴]\n你好。', swipe_id: 0 }], chatMetadata: {}, extensionPrompts: {},
         eventSource, eventTypes: T, getCurrentChatId: () => 'chat-1',
         setExtensionPrompt(key, value, position) { this.extensionPrompts[key] = { value, position }; },
         saveMetadata() { saves += 1; },
@@ -372,7 +372,7 @@ test('P5 相对值来源标记与主角纯六维编辑（无战斗表、保存�
     const storage = createMemoryStorage();
     const context = {
         name1: '主角', name2: '小雪', chatId: 'v2-p5-edit-1', chatMetadata: {},
-        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '开场。', swipe_id: 0 }],
+        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '[igs-scene:开场|白天|晴]\n开场。', swipe_id: 0 }],
         getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
         eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
         eventSource: { on() {}, removeListener() {} },
@@ -553,6 +553,7 @@ test('数值结果拒写时不发布，冷重建后补交原记录且不重新�
     f.rt.destroy();
     t.after(() => rt.destroy());
     rt.sync();
+    f.changes.length = 0;
     const failed = await rt.generateSheets(['小雪']);
     assert.equal(failed.ok, false);
     assert.equal(failed.reason, 'stats-generation-save-unverified');

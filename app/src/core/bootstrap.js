@@ -18,7 +18,7 @@ import { createInputChannel } from '../host/input-channel.js';
 import { parseSceneText } from '../scene/text-parser.js';
 import { createSceneState } from '../scene/scene-state.js';
 import { resolveScene } from '../scene/scene-resolver.js';
-import { LEGACY_READER_MODES, readLegacyIgsSettings, writeLegacyIgsSettings, resolveLegacyReaderMode } from '../storage/legacy-igs.js';
+import { LEGACY_READER_MODES, LEGACY_VN_KEYS, readLegacyIgsSettings, writeLegacyIgsSettings, resolveLegacyReaderMode } from '../storage/legacy-igs.js';
 import { createPresetStore } from '../storage/preset-store.js';
 import { createTavernSettingsSync } from '../storage/tavern-settings-file.js';
 import { createExpressionNotesFile, fillExpressionNotes } from '../storage/expression-notes-file.js';
@@ -26,6 +26,7 @@ import { createLayerController } from '../visual/layer-controller.js';
 import { createStageRenderer } from '../visual/stage-renderer.js';
 import { resolveVisualMode } from '../visual/visual-mode.js';
 import { DEFAULT_SCENE_PROMPT_RULE, LEGACY_DEFAULT_SCENE_PROMPT_RULE_V3, normalizeScenePromptRule } from '../visual/igs-ui/reader-host-constants.js';
+import { SENTENCE_PAGING_MIGRATION_VERSION, resolveSentencePagingMigration } from '../visual/igs-ui/settings-host-normalize.js';
 import { createIgsReaderHost } from '../visual/igs-ui/reader-host.js';
 import { normalizeChatShowSettings, resolveChatShowPromptRule } from '../visual/igs-ui/chat-show-runtime.js';
 import { resolveBgmPromptRule, resolveDlcFxPromptRule, resolveFxPromptRule, resolveItemFxPromptRule, resolveRomanceFxPromptRule, resolveStageCastFxPromptRule } from '../visual/igs-ui/fx-prompt.js';
@@ -113,7 +114,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.27';
+const IGS_VERSION = '0.41.28';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -344,12 +345,14 @@ export function bootstrapIGS(options = {}) {
         readAssets: () => readImageBridge().sceneAssets,
         readContext: () => getSillyTavernContext(globalObject),
         saveAssets: sceneAssets => saveUnifiedSettings({ bridge: { sceneAssets } }),
+        onPlaceholderSaved: (before, next) => app.igsUi?.syncStoryOutfitDraft?.(before, next),
     });
     const assetGenerationService = options.assetGenerationService || createAssetGenerationService({
         global: globalObject,
         messageHost: illustrationMessageHost,
         llm: secondaryLlm,
         nai: imageBackend,
+        ensurePortraitPlaceholders: entries => characterDnaStore.ensurePortraitPlaceholders(entries),
         registerCreatureProfiles: hints => (creatureSystemEnabled() ? characterDnaStore.registerCreatures(hints) : { ok: true, changed: false }),
         captureCharacterDnaTarget: name => {
             const target = characterDnaStore.capture(name);
@@ -379,6 +382,8 @@ export function bootstrapIGS(options = {}) {
         ? createStoryOutfitRuntime({ storage: storageLike, assets: assetGenerationService,
             messageHost: illustrationMessageHost,
             readContext: () => getSillyTavernContext(globalObject), readBridge: readImageBridge,
+            getSourceFilter: () => readImageBridge().sourceFilter,
+            ensurePortraitPlaceholders: entries => characterDnaStore.ensurePortraitPlaceholders(entries),
             saveAssets: sceneAssets => saveUnifiedSettings({ bridge: { sceneAssets } }),
             onAssetsSaved: (before, next) => app.igsUi?.syncStoryOutfitDraft?.(before, next),
             onAutoResult(_row, result) {
@@ -523,17 +528,11 @@ export function bootstrapIGS(options = {}) {
         if (state.destroyed || !startupReady) return;
         if (typeof combatServices.prepareProtagonist === 'function') combatServices.prepareProtagonist();
     };
-    // 战斗扩展开启时同一时机接管当前聊天的物品表（关闭数据库自动填表，v0.39.2）。
-    const takeoverCombatInventory = () => {
-        if (state.destroyed || !startupReady) return;
-        if (typeof combatServices.takeoverInventory === 'function') void combatServices.takeoverInventory();
-    };
     const syncCombat = () => {
         if (state.destroyed || !startupReady) return;
         combatServices.syncRegex();
         combatServices.refreshGrowth();
         prepareCombatProtagonist();
-        takeoverCombatInventory();
     };
     state.combatSettingsOff = events.on('igs:legacy-settings-updated', syncCombat);
     state.combatFloorOff = typeof illustrationMessageHost.onImageFloorReady === 'function' && typeof combatServices.autoPrepare === 'function'
@@ -555,6 +554,11 @@ export function bootstrapIGS(options = {}) {
         traitNamesOf: (name) => (app.statsRuntime && typeof app.statsRuntime.traitNamesOf === 'function' ? app.statsRuntime.traitNamesOf(name) : null),
         statsFavorOverview: () => (app.statsRuntime && typeof app.statsRuntime.favorOverview === 'function' ? app.statsRuntime.favorOverview() : null),
         statsProtagonistLookup: () => (app.statsRuntime && typeof app.statsRuntime.protagonistLookup === 'function' ? app.statsRuntime.protagonistLookup() : null),
+        statsProtagonistBlock: () => (app.statsRuntime && typeof app.statsRuntime.protagonistBlock === 'function' ? app.statsRuntime.protagonistBlock() : null),
+        isStatsEnabled: () => {
+            const snap = getUnifiedSettingsSnapshot() || {};
+            return Boolean((snap.bridge && snap.bridge.stats && snap.bridge.stats.enabled === true) || combatExpansionEnabled(snap.readerSettings));
+        },
         statsChat: () => (app.statsRuntime ? app.statsRuntime.chatStatus() : null),
         statsArchive: () => (app.statsRuntime ? app.statsRuntime.archive() : null),
         statsStorageReport: () => (app.statsRuntime ? app.statsRuntime.storageReport() : '数值系统未加载（总开关关闭或未初始化）'),
@@ -856,6 +860,7 @@ export function bootstrapIGS(options = {}) {
     }
     runSpriteMigration();
     runStatsPromptMigration();
+    runSentencePagingMigration();
     function runSpriteMigration() {
         const bridge = { ...state.legacyIgs?.bridge, ...state.config };
         const planned = migrateSpriteSystem(bridge.sceneAssets, state.legacyIgs?.readerSettingsByMode || {});
@@ -877,6 +882,27 @@ export function bootstrapIGS(options = {}) {
         state.statsPromptMigration = saved.ok ? { ok: true } : { ok: false, reason: saved.reason };
         if (!saved.ok) console.warn('[IGS] 数值提示词迁移保存失败，原数据保持不变，可在下次保存或启动时重试。');
     }
+    function runSentencePagingMigration() {
+        const persistedBridge = state.legacyIgs?.bridge;
+        let hasStoredBridge = Boolean(persistedBridge && typeof persistedBridge === 'object' && Object.keys(persistedBridge).length > 0);
+        if (!hasStoredBridge && storageLike && typeof storageLike.getItem === 'function') {
+            try { hasStoredBridge = storageLike.getItem(LEGACY_VN_KEYS.bridge) != null; } catch { hasStoredBridge = false; }
+        }
+        if (!hasStoredBridge) return;
+        const bridge = { ...persistedBridge, ...state.config };
+        const planned = resolveSentencePagingMigration(bridge);
+        if (!planned.needsOverride) return;
+        const saved = saveUnifiedSettings({
+            bridge: {
+                sentencePaging: planned.sentencePaging,
+                dialogueSentencePaging: planned.dialogueSentencePaging,
+                sentencePagingMigrationVersion: planned.sentencePagingMigrationVersion,
+            },
+            silent: true,
+        });
+        state.sentencePagingMigration = saved.ok ? { ok: true } : { ok: false, reason: saved.reason };
+        if (!saved.ok) console.warn('[IGS] 自动分段一次性迁移保存失败，原数据保持不变，可在下次保存或启动时重试。');
+    }
     // 全局配置镜像到酒馆 user/files：另一台设备存得更新时写回本机并刷新运行时设置。
     if (!options.storage && storageLike && options.tavernSettingsSync !== false) {
         state.settingsSync = createTavernSettingsSync(globalObject, {
@@ -890,6 +916,7 @@ export function bootstrapIGS(options = {}) {
                 state.config = mergeInitialConfig(options.config, state.legacyIgs);
                 runSpriteMigration();
                 runStatsPromptMigration();
+                runSentencePagingMigration();
                 state.settingsRevision = (state.settingsRevision || 0) + 1;
                 if (typeof presetRegistry.hydrate === 'function') presetRegistry.hydrate();
                 events.emit('igs:legacy-settings-updated', state.legacyIgs);
@@ -1102,6 +1129,7 @@ export function bootstrapIGS(options = {}) {
             return auto.nsfwEnabled === true || romance.enabled === true;
         },
         moodGroups: () => (readImageBridge().sceneAssets || {}).moodGroups || null,
+        sourceFilter: () => readImageBridge().sourceFilter,
         worldRoles: statsWorldRoles,
         readSettings: () => ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats,
         getPushClient: () => (globalObject.AutoCardUpdaterAPI ? createShujukuClient(globalObject.AutoCardUpdaterAPI) : null),
@@ -1175,8 +1203,10 @@ export function bootstrapIGS(options = {}) {
             // 成长与战斗结果走阅读器生成细线（不弹窗、不挡画面，§10）；阅读器未打开时 info 级不退回 toastr。
             const notice = app.igsUi && app.igsUi.showImageNotice;
             if (typeof notice === 'function') {
-                // 成长行带技能数值：状态栏关着时不显示。
-                const hudOn = normalizeStatusHudSettings(((getUnifiedSettingsSnapshot() || {}).readerSettings || {}).statusHud).enabled;
+                // 成长行带技能数值：状态栏开启或数值系统开启（常驻状态栏）时显示。
+                const snap = getUnifiedSettingsSnapshot() || {};
+                const statsHudOn = Boolean((snap.bridge && snap.bridge.stats && snap.bridge.stats.enabled === true) || combatExpansionEnabled(snap.readerSettings));
+                const hudOn = statsHudOn || normalizeStatusHudSettings((snap.readerSettings || {}).statusHud).enabled;
                 for (const line of statsNoticeLines(hudOn ? fx : { ...fx, growth: [] })) {
                     try { notice.call(app.igsUi, 'info', line); } catch (error) { /* 细线出错不影响结算 */ }
                 }
@@ -1216,35 +1246,16 @@ export function bootstrapIGS(options = {}) {
         readRuleset: () => { const st = ((getUnifiedSettingsSnapshot() || {}).bridge || {}).stats; return st && st.enabled && st.ruleset === 'dnd5e' ? 'dnd5e' : 'coc7'; },
     });
     app.originRuntime = originRuntime;
-    const ensureSharedPointsIfNeeded = () => {
-        if (state.destroyed || !startupReady) return;
-        const snap = getUnifiedSettingsSnapshot() || {};
-        const bridge = snap.bridge || {};
-        const combatOn = combatExpansionEnabled(snap.readerSettings);
-        const originOn = Boolean(bridge.origin?.enabled);
-        const minigameOn = Boolean(bridge.minigame?.enabled || snap.readerSettings?.minigame?.enabled);
-        if (!combatOn && !originOn && !minigameOn) return;
-        const chatId = typeof illustrationMessageHost.getChatId === 'function' ? illustrationMessageHost.getChatId() : '';
-        if (!chatId) return;
-        try {
-            const layout = chatStore.get().layout();
-            if (layout?.ok && layout.layout === 'v2') {
-                Promise.resolve(combatServices.points?.().ensure?.()).catch(() => null);
-            }
-        } catch { /* 数据库尚未就绪时延后按需建表 */ }
-    };
     const runSystemsCheck = () => {
         if (state.destroyed || !startupReady) return;
-        // 各子系统按各自启用状态独立运行，不设全系统屏障，也不自动清除显式失败态。
+        // 各子系统按各自启用状态独立运行，不设全系统屏障，也不自动清除显式失败态；建表延迟到实际数据写入前按需执行。
         statsRuntime.sync();
         syncCombat();
         originRuntime.sync();
-        ensureSharedPointsIfNeeded();
     };
     state.originSettingsOff = events.on('igs:legacy-settings-updated', () => {
         if (state.destroyed || !startupReady) return;
         originRuntime.sync();
-        ensureSharedPointsIfNeeded();
     });
     if (startupDelayMs === 0) {
         runSystemsCheck();
@@ -1372,6 +1383,10 @@ export function bootstrapIGS(options = {}) {
             ...(state.legacyIgs && state.legacyIgs.bridge || {}),
             ...(state.config || {}),
         };
+        const paging = resolveSentencePagingMigration(bridge);
+        bridge.sentencePaging = paging.sentencePaging;
+        bridge.dialogueSentencePaging = paging.dialogueSentencePaging;
+        bridge.sentencePagingMigrationVersion = paging.sentencePagingMigrationVersion;
         if (bridge.sceneAssets && typeof bridge.sceneAssets === 'object' && !Array.isArray(bridge.sceneAssets)) {
             bridge.sceneAssets = {
                 ...bridge.sceneAssets,
@@ -1440,6 +1455,13 @@ export function bootstrapIGS(options = {}) {
         if (combatExpansionEnabled(readerSettingsByMode['default']) && nextBridge.stats?.enabled !== true) {
             nextBridge.stats = { ...(nextBridge.stats || {}), enabled: true };
         }
+        // 自动分段一次性覆盖迁移：旧配置尚未带迁移版本时默认补开并落盘版本标记，显式传入的用户开关值优先保留。
+        if (!Number.isInteger(nextBridge.sentencePagingMigrationVersion)
+            || nextBridge.sentencePagingMigrationVersion < SENTENCE_PAGING_MIGRATION_VERSION) {
+            nextBridge.sentencePagingMigrationVersion = SENTENCE_PAGING_MIGRATION_VERSION;
+            if (payload.bridge?.sentencePaging === undefined) nextBridge.sentencePaging = true;
+            if (payload.bridge?.dialogueSentencePaging === undefined) nextBridge.dialogueSentencePaging = true;
+        }
         const migration = migrateSpriteSystem(nextBridge.sceneAssets, readerSettingsByMode);
         nextBridge.sceneAssets = migration.sceneAssets;
         if (migration.changed && Object.keys(nextBridge.sceneAssets?.generated?.expressionNotes || {}).length)
@@ -1468,7 +1490,7 @@ export function bootstrapIGS(options = {}) {
         state.config = nextBridge;
         state.settingsRevision = (state.settingsRevision || 0) + 1;
         // 监听方只当通知用（不读载荷），传引用即可；需要数据请走 getUnifiedSettings。
-        events.emit('igs:legacy-settings-updated', state.legacyIgs);
+        if (payload.silent !== true) events.emit('igs:legacy-settings-updated', state.legacyIgs);
         // 用户改了日志保留天数 / 条数后立即按新规则清理。
         if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
         applyImageCacheLimit(nextBridge);
@@ -1749,15 +1771,11 @@ export function bootstrapIGS(options = {}) {
             }
             combatServices.refreshGrowth();
             prepareCombatProtagonist();
-            takeoverCombatInventory();
-            ensureSharedPointsIfNeeded();
             // 换聊天瞬间聊天 ID / 主角名可能尚未就绪，可取消延时再幂等触发一次。
             chatChangedTimer = setTimer(() => {
                 chatChangedTimer = null;
                 if (state.destroyed || !startupReady) return;
                 prepareCombatProtagonist();
-                takeoverCombatInventory();
-                ensureSharedPointsIfNeeded();
             }, 2000);
             chatChangedTimer?.unref?.();
             resync();

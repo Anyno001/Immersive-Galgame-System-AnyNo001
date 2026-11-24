@@ -1154,10 +1154,11 @@ export function applyStatusHudToDom(root, snapshot) {
     const hasLocation = Boolean(hud && hud.location);
     const hasMetrics = Boolean(hud && Array.isArray(hud.metrics) && hud.metrics.length);
     const heroRows = hud && hud.hero && Array.isArray(hud.hero.metrics) ? hud.hero.metrics.slice(0, 4) : [];
+    const alwaysShow = Boolean(hud && hud.alwaysShow);
     const grayscaleBars = Boolean(hud && hud.barColor === 'grayscale');
-    const shouldShow = Boolean(hud && hud.enabled && (hud.character || hasLocation || heroRows.length));
+    const shouldShow = Boolean(hud && hud.enabled && (hud.character || hasLocation || heroRows.length || alwaysShow));
     if (globalThis.__IGS_HUD_DEBUG__) {
-        console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, character: hud.character, emotion: hud.emotion, location: hud.location, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length } : null, hasEmotion, hasLocation, hasMetrics, shouldShow }));
+        console.log('[HUD-PROBE]', JSON.stringify({ hud: hud ? { enabled: hud.enabled, alwaysShow, character: hud.character, emotion: hud.emotion, location: hud.location, avatar: Boolean(hud.avatar), metrics: hud.metrics && hud.metrics.length, hero: heroRows.length } : null, hasEmotion, hasLocation, hasMetrics, shouldShow }));
     }
     if (!shouldShow) {
         host.setAttribute('hidden', '');
@@ -1166,10 +1167,11 @@ export function applyStatusHudToDom(root, snapshot) {
     }
     host.removeAttribute('hidden');
     // 背景只在有 HUD 条时出现：只有头像/情绪/地点栏时不加背景，即使背景开关开着。
-    if (hud.background === 'dialog' && hasMetrics) host.classList.add('igs-hud-bg-dialog');
+    if (hud.background === 'dialog' && (hasMetrics || heroRows.length)) host.classList.add('igs-hud-bg-dialog');
     if (root.classList && root.classList.contains('igs-options-visible')) host.classList.add('igs-hud-suppressed');
     // 仅头像/情绪/地点、无 HUD 条时挂修饰类，anchor 恢复加菜单前的列式几何，情绪与头像间距回到旧值；有 HUD 条时保持现状。
     host.classList.toggle('igs-hud-no-metrics', !hasMetrics && !heroRows.length);
+    host.classList.toggle('igs-hud-no-avatar', !hud.character);
     host.classList.toggle('igs-hud-character-emotion-only', Boolean(hud && hud.character && hasEmotion && !hasLocation && !hasMetrics));
     host.classList.toggle('igs-hud-character-emotion-with-metrics', Boolean(hud && hud.character && hasEmotion && hasMetrics));
     if (hudSettings && hudSettings.collapsed) host.classList.add('igs-hud-collapsed');
@@ -1206,6 +1208,11 @@ export function applyStatusHudToDom(root, snapshot) {
         const chip = doc.createElement('span');
         chip.className = 'igs-hud-emotion';
         chip.textContent = hud.emotion;
+        entryAnchor.appendChild(chip);
+    } else if (!hud.character && !hasLocation && (heroRows.length || alwaysShow)) {
+        const chip = doc.createElement('span');
+        chip.className = 'igs-hud-emotion';
+        chip.textContent = (hud.hero && hud.hero.name) || '状态';
         entryAnchor.appendChild(chip);
     }
     if (hasLocation) {
@@ -1341,13 +1348,14 @@ export function applyStatusHudScale(root, snapshot) {
     if (!host) return;
     const settings = snapshot && snapshot.readerSettings;
     const hudSettings = settings && settings.statusHud;
-    if (!hudSettings || !hudSettings.enabled) return;
+    const hudEnabled = Boolean((hudSettings && hudSettings.enabled) || (snapshot && snapshot.content && snapshot.content.statusHud && snapshot.content.statusHud.enabled));
+    if (!hudEnabled) return;
     const overlayWidth = readElementWidth(root, 0);
     const overlayHeight = readElementHeight(root, 0);
-    const scale = resolveStatusHudScale(hudSettings.size, overlayWidth, overlayHeight);
+    const scale = resolveStatusHudScale(hudSettings && hudSettings.size, overlayWidth, overlayHeight);
     snapshot._statusHudScale = scale;
     host.style.setProperty('--igs-hud-scale', String(scale));
-    const locationScale = resolveStatusHudLocationScale(hudSettings.size);
+    const locationScale = resolveStatusHudLocationScale(hudSettings && hudSettings.size);
     snapshot._statusHudLocationScale = locationScale;
     host.style.setProperty('--igs-hud-location-scale', String(locationScale));
 }

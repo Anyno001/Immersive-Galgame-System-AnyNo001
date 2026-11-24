@@ -228,7 +228,17 @@ export function createStoryOutfitService(deps) {
             const dna = normalizeCharacterDna(assets.characterDna?.[row.character]);
             const template = deps.assets.usesCharacterTemplates?.(dna) === true;
             if (template) {
-                const view = readCharacterDnaView(dna, 'half_body');
+                let view = readCharacterDnaView(dna, 'half_body');
+                if (!view.ok && typeof deps.assets.waitForFloor === 'function') {
+                    // 新角色的首套立绘可能正在本楼后台写 DNA：等待本楼立绘任务完成后再复读 DNA。
+                    try { await deps.assets.waitForFloor(row.floorKey); } catch { /* */ }
+                    if (!current(row)) return fail('stale-target');
+                    ctx = deps.getContext(row);
+                    const refreshedAssets = effectiveSceneAssets(ctx.root, ctx.scopeKey);
+                    const refreshedDna = normalizeCharacterDna(refreshedAssets.characterDna?.[row.character]);
+                    view = readCharacterDnaView(refreshedDna, 'half_body');
+                    if (view.ok) Object.assign(dna, refreshedDna);
+                }
                 if (!view.ok) return view;
             }
             // 本次只写该衣装的平和图；其它角色、衣装和设置在生成中可以正常保存。

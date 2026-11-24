@@ -8,7 +8,7 @@ import { disposeLive2dStage } from './live2d-stage.js';
 import { openLive2dPanel } from './live2d-panel.js';
 import { createMediaLeaseScope } from '../../media/media-lease-scope.js';
 import { bindImageCacheDocument } from '../../media/tavern-image-cache.js';
-import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex } from '../../scene/message-source.js';
+import { buildIgsTextPayload, getMessagePrimaryText, getVisibleMessageTextFromElement, normalizeSourceFilter, normalizeVirtualRegex, visibleDirectiveSource } from '../../scene/message-source.js';
 import { applyVoiceBark, canonicalName, normalizeCharacterVoices, noteFormGender, setActiveFormGenders } from './voice-bark.js';
 import { knownCharacterNames } from '../../scene/creature-registry.js';
 import { confirmedCreatureOf, storedCreatureOf } from '../../scene/creature-profile.js';
@@ -775,7 +775,7 @@ export function createIgsReaderHost(options = {}) {
         playStatsCheck(detail) {
             return playOptionResultFx({ ok: true, detail }, { force: true });
         },
-        // 数值结算反馈（好感飘字、成长、关系阶段）：状态栏关着时直接丢弃，开着时用现有飘字样式；阅读器没开不补播。
+        // 数值结算反馈（好感飘字、成长、关系阶段）：状态栏关着且未开启数值系统时直接丢弃，开着时用现有飘字样式；阅读器没开不补播。
         playStatsFeedback(fx) {
             const current = state.activeReader;
             const snapshot = current && current.snapshot;
@@ -783,7 +783,7 @@ export function createIgsReaderHost(options = {}) {
             const readerSettings = snapshot && snapshot.readerSettings;
             if (!overlay || !readerSettings) return false;
             const hud = snapshot.content && snapshot.content.statusHud;
-            return playStatsFeedbackWithHud(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
+            return playStatsFeedbackWithHud(overlay, fx, { readerSettings, forceHud: Boolean(hud && hud.enabled), speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
         },
         // 对外通知卡（IGS.api.notify.show）：阅读器没开直接返回，不排队、不补播。
         playExternalNotify(message) {
@@ -1134,7 +1134,8 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         const settings = current && current.snapshot && current.snapshot.readerSettings;
         const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
-        const shouldSubscribe = Boolean(current) && ((statusHud.enabled && statusHudUsesTables(statusHud))
+        const statsHudOn = Boolean(typeof options.isStatsEnabled === 'function' && options.isStatsEnabled());
+        const shouldSubscribe = Boolean(current) && (((statusHud.enabled || statsHudOn) && statusHudUsesTables(statusHud))
             || Boolean(settings?._sceneAssets?.enabled && Object.keys(settings._sceneAssets.characterOutfits || {}).length)
             || Boolean(current.payload?.promiseHistory?.length));
         if (!shouldSubscribe) {
@@ -2622,7 +2623,7 @@ export function createIgsReaderHost(options = {}) {
             const host = overlay?.querySelector?.('#igs-status-hud');
             const arrow = host?.querySelector?.('.igs-hud-entry-arrow');
             const menu = host?.querySelector?.('#igs-hud-record-menu');
-            if (!hud?.enabled || (!hud.character && !hud.location && !hud.hero) || settings?.statusHud?.collapsed || !current.toolbarCollapsed
+            if (!hud?.enabled || (!hud.character && !hud.location && !hud.hero && !hud.alwaysShow) || settings?.statusHud?.collapsed || !current.toolbarCollapsed
                 || overlay?.classList?.contains('igs-options-visible') || !host || !menu || host.classList?.contains('igs-hud-collapsed'))
                 return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'toggle-record-menu') {
@@ -2633,7 +2634,7 @@ export function createIgsReaderHost(options = {}) {
                 arrow?.setAttribute('aria-expanded', String(expanded));
                 return { ok: true, expanded };
             }
-            if (normalizedAction === 'map' && !hud.character && !hud.location) return { ok: false, reason: 'record-entry-not-visible' };
+            if (normalizedAction === 'map' && !hud.character && !hud.location && !hud.alwaysShow) return { ok: false, reason: 'record-entry-not-visible' };
             if (normalizedAction === 'favor' && !hud.favorData && !(hud.metrics || []).some(metric => /好感/.test(String(metric?.label || '')))) return { ok: false, reason: 'favor-bar-missing' };
             if (normalizedAction === 'combat' && !combatBattleOn(settings?.combatExpansion)) return { ok: false, reason: 'combat-disabled' };
             if (anyPanelOpen(current.dom)) return { ok: false, reason: 'panel-open' };
@@ -4968,24 +4969,28 @@ ${row.key}`;
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = payload.scene || (payload.render && payload.render.scene) || {};
         const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration, outfitFor, spriteAvatar) => {
-            const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
+            const rawStatusHud = normalizeStatusHudSettings(settings && settings.statusHud);
+            // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）；只要开启数值系统，现有状态栏就在左上角常驻显示。
+            const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
+            const statsSystemOn = Boolean((typeof options.isStatsEnabled === 'function' && options.isStatsEnabled()) || tavernLookup);
+            const statusHud = statsSystemOn ? { ...rawStatusHud, enabled: true } : rawStatusHud;
             if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const usesTables = statusHudUsesTables(statusHud);
             const readResult = usesTables ? readStatusHudTables() : null;
             const info = sceneInfo && typeof sceneInfo === 'object' ? sceneInfo : {};
             const hud = buildStatusHudModel({ settings: statusHud, sceneAssets, character: speaker, emotion, location: info.location, time: info.time, weather: info.weather, isNarration, readResult, outfitFor, spriteAvatar, parsedTables: usesTables ? tableData.parsed() : [], rowFor: tableData.rowFor });
-            // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）。
-            const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
-            // 主角说话时显示主角条（生命、体力、压力、金钱），其余角色读好感等人际数值；旁白页不加主角区。
+            // 开启数值系统时状态栏常驻显示主角区（生命、体力、压力、金钱）；说话人是主角时只显示一块不重复，其余角色叠加好感等人际数值。
             const protagonistLookup = tavernLookup && typeof options.statsProtagonistLookup === 'function' ? options.statsProtagonistLookup() : null;
             const statsLookup = protagonistLookup ? (name) => protagonistLookup(name) || tavernLookup(name) : tavernLookup;
+            const heroBlock = tavernLookup && typeof options.statsProtagonistBlock === 'function' ? options.statsProtagonistBlock() : null;
             const userName = String((getSillyTavernContext(options.global || globalThis) || {}).name1 || '');
             // 「设为User立绘」的角色名常与酒馆用户名不同，也按主角处理。
             const userCharacter = String(sceneAssets.userCharacter || '').trim();
             const asHero = Boolean(userCharacter) && (speaker === userCharacter || hud.character === userCharacter);
             const heroSpeaker = asHero ? PROTAGONIST : speaker;
-            const composed = withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, speaker: heroSpeaker }), heroSpeaker, userName));
+            const composed = withConcreteAvatar(dropUserFavor(composeStatsHud(hud, { lookup: statsLookup, heroLookup: protagonistLookup, heroBlock, speaker: heroSpeaker }), heroSpeaker, userName));
+            if (composed && statsSystemOn) composed.alwaysShow = true;
             // 好感总览数据信号：数值系统有已登记角色，或状态栏已选到读取表；旁白页、只有主角条的页面据此也显示入口。
             let favorData = false;
             try {
@@ -6764,9 +6769,19 @@ ${row.key}`;
         }
         const context = storyOutfitContext();
         if (current.streamPhase !== 'streaming' && storyOutfits && context && snapshot.readerSettings?._sceneAssets?.enabled) {
-            const assets = effectiveSceneAssets(context.root, context.scopeKey);
-            const observed = storyOutfits.observe(extractSceneDirectives(context.text, { outfitResolver: createOutfitResolver(assets) }).directives, context);
-            if (observed.ok) void storyOutfits.autoGenerate(context);
+            const prepared = typeof storyOutfits.prepareFloorDirectives === 'function'
+                ? storyOutfits.prepareFloorDirectives(context)
+                : {
+                    context,
+                    directives: extractSceneDirectives(
+                        visibleDirectiveSource(context.text, snapshot.readerSettings?._sourceFilter),
+                        { outfitResolver: createOutfitResolver(effectiveSceneAssets(context.root, context.scopeKey)) },
+                    ).directives,
+                };
+            if (prepared.context) {
+                const observed = storyOutfits.observe(prepared.directives, prepared.context);
+                if (observed.ok) void storyOutfits.autoGenerate(prepared.context);
+            }
         }
         if (!overlay || !overlay.querySelector) return;
         let container = overlay.querySelector('#igs-asset-review');

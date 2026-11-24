@@ -38,6 +38,9 @@ export function readIgsChatEvidence({ context, chatId, storage }) {
                 || (key === heroInitKey(chatId) && !validHeroInitIntent(value, chatId))) {
                 return { ok: false, status: 'failed', reason: 'igs-recovery-record-invalid' };
             }
+            // 延迟建表期间，新 v2 聊天会在建表前先写入带 layout: 'v2' 的提交意图；
+            // 这些 v2 意图不得被误判为旧版（legacy）聊天证据。
+            if (value.layout === 'v2') continue;
             recovery = true;
         }
         return { ok: true, exists: exists || recovery };

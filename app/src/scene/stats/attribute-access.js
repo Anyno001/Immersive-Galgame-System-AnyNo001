@@ -67,7 +67,12 @@ export function createAttributeAccess({ store, read, ensure, inventory, client, 
         const uncapped = options.uncapped === true;
         const base = normalizeHeroScores(scores, { uncapped });
         if (!base) return { ok: false, reason: 'stats-hero-edit-invalid' };
-        const s = readHero(name);
+        let s = readHero(name);
+        if (!s.ok && (s.reason === 'combat-attribute-table-missing' || s.reason === 'igs-layout-unconfirmed') && typeof ensure === 'function') {
+            const ensured = await ensure(options);
+            if (!ensured?.ok) return ensured || s;
+            s = readHero(name);
+        }
         if (!s.ok) return s;
         if (options.expectedRevision !== undefined && options.expectedRevision !== s.view.revision) {
             return { ok: false, reason: 'stats-attribute-conflict' };

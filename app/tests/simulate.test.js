@@ -170,6 +170,9 @@ function coldReaderFixture() {
 test('gate:simulation:dialogue-thought-paging-saves-and-preserves-speaker-across-pages', async () => {
     const document = createFakeDocument();
     const storage = createMemoryStorage({ igs_bridge_config: JSON.stringify({
+        sentencePaging: false,
+        dialogueSentencePaging: false,
+        sentencePagingMigrationVersion: 1,
         sceneAssets: { enabled: true, scenes: {}, characters: {} },
     }) });
     const raw = [

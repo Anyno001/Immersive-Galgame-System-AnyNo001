@@ -158,7 +158,7 @@ async function sharedRuntime(t, money = 500, originSettings = {}, currencyOption
         if (wait) await statsRuntime.whenSaved();
         return statsRuntime;
     };
-    if (currencyOptions) { game.ai('古城开场'); await openStats(); }
+    if (currencyOptions) { game.ai('[igs-scene:古城|白天|晴]\n古城开场'); await openStats(); }
     const runtime = createOriginRuntime({
         getContext: () => ({ ...game.ctx }), readSettings: () => ({ enabled: true, achieveOn: false, ...originSettings }),
         readLlm: () => ({}), combatServices: services,
@@ -471,7 +471,7 @@ test('货币慢请求：跨过60秒与宿主慢通知仍单飞，原回复可完
     const { renderStatsHeroDashboard } = await import('../src/visual/igs-ui/stats-hero-card.js');
     for (const source of ['tavern', 'openai']) await t.test(source, async t => {
         const h = await sharedRuntime(t, 0);
-        h.game.ai('古城开场');
+        h.game.ai('[igs-scene:古城|白天|晴]\n古城开场');
         await h.runtime.engine.whenSaved();
         let resolve, calls = 0;
         const pending = new Promise(done => { resolve = done; });
@@ -519,7 +519,7 @@ test('货币失败：请求与解析原因保留，一次动作只请求一次�
     ];
     for (const [label, fail, stage, reason] of cases) await t.test(label, async t => {
         const h = await sharedRuntime(t, 0);
-        h.game.ai('古城开场');
+        h.game.ai('[igs-scene:古城|白天|晴]\n古城开场');
         await h.runtime.engine.whenSaved();
         let calls = 0;
         const rt = await h.openStats(null, { getBackgroundRequest: () => () => { calls += 1; return calls === 1 ? fail() : currencyReply(); } });
@@ -544,7 +544,7 @@ test('货币失败：请求与解析原因保留，一次动作只请求一次�
 test('货币任务失效：换聊天、暂停与销毁拒绝迟到成功和失败，不写新目标', async t => {
     for (const action of ['chat', 'pause', 'destroy']) for (const rejected of [false, true]) await t.test(`${action}/${rejected ? '失败' : '成功'}`, async t => {
         const h = await sharedRuntime(t, 0);
-        h.game.ai('古城开场');
+        h.game.ai('[igs-scene:古城|白天|晴]\n古城开场');
         await h.runtime.engine.whenSaved();
         const tasks = [];
         const rt = await h.openStats(null, {
@@ -580,6 +580,7 @@ test('bootstrap 货币接线：公开设置动作单飞，慢状态局部刷新�
     const { createMemoryStorage } = await import('../src/storage/preset-store.js');
     const { initRecord } = await import('../src/scene/stats/stat-log.js');
     const h = await sharedRuntime(t, 0);
+    h.game.ai('[igs-scene:古城|白天|晴]\n古城开场');
     h.game.ctx.name1 = '主角';
     h.game.ctx.getCurrentChatId = () => h.game.ctx.chatId;
     h.game.ctx.setExtensionPrompt = () => {};
@@ -706,7 +707,7 @@ test('bootstrap 生命周期：聊天与API替换、关闭和销毁隔离迟到�
     const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://igs.invalid/' });
     const handlers = new Map();
     const context = { name1: '主角', name2: '小雪', chatId: 'lifecycle-a', chatMetadata: {},
-        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '古城开场。', swipe_id: 0 }],
+        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '[igs-scene:古城|白天|晴]\n古城开场。', swipe_id: 0 }],
         getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
         eventTypes: { CHAT_CHANGED: 'chat' }, eventSource: {
             on(key, fn) { if (!handlers.has(key)) handlers.set(key, new Set()); handlers.get(key).add(fn); },
@@ -811,7 +812,7 @@ test('bootstrap 生命周期：聊天与API替换、关闭和销毁隔离迟到�
 
 test('货币恢复：已初始化且无待写也须确认权威余额，读错与合法零严格分开', async t => {
     const h = await sharedRuntime(t, 500);
-    h.game.ai('古城开场');
+    h.game.ai('[igs-scene:古城|白天|晴]\n古城开场');
     let calls = 0;
     const rt = await h.openStats(null, { getBackgroundRequest: () => () => { calls += 1; return currencyReply(); } });
     const inventory = h.services.inventoryTables();
@@ -1247,7 +1248,7 @@ test('P4 主角统一建档（v2 无战斗表）：一次请求补齐六维与�
     const handlers = new Map();
     const context = {
         name1: '主角', name2: '小雪', chatId: 'v2-hero-init-1', chatMetadata: {},
-        chat: [{ is_user: true, mes: '进城打探消息' }, { is_user: false, mes: '街市热闹。', swipe_id: 0 }],
+        chat: [{ is_user: true, mes: '进城打探消息' }, { is_user: false, mes: '[igs-scene:街市|白天|晴]\n街市热闹。', swipe_id: 0 }],
         getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
         eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
         eventSource: {
@@ -1320,7 +1321,7 @@ test('P4 部分补缺、回包前手改防覆盖与分阶段中断冷恢复（�
     const storage = createMemoryStorage();
     const context = {
         name1: '主角', name2: '小雪', chatId: 'v2-hero-recover-1', chatMetadata: {},
-        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '开局。', swipe_id: 0 }],
+        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '[igs-scene:开局|白天|晴]\n开局。', swipe_id: 0 }],
         getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
         eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
         eventSource: { on() {}, removeListener() {} },
@@ -1359,7 +1360,10 @@ test('P4 部分补缺、回包前手改防覆盖与分阶段中断冷恢复（�
     void rt1.noticeAction('hero-init-mode', 'auto');
     for (let i = 0; i < 40 && reqs.length === 0; i += 1) await new Promise(r => setTimeout(r, 10));
     assert.equal(reqs.length, 1);
-    // 在模型返回之前，用户手改补足主角六维
+    // 延迟建表：模型返回前尚未创建属性表
+    assert.equal(Object.values(db.sheets).some(s => s.name === 'IGS数值·属性'), false, '模型未成功返回前不得提前建属性表');
+    // 在模型返回之前，用户手改补足主角六维（写入前按需建表）
+    assert.equal((await store1.get().attributeAccess.ensure()).ok, true);
     const heroRead = store1.get().attributeAccess.readHero('主角');
     assert.equal(heroRead.ok, true);
     const manualScores = { str: 16, dex: 12, con: 14, int: 10, wis: 10, cha: 10 };
@@ -1452,7 +1456,7 @@ test('回归：物品表描述列 NOT NULL 约束不触发 SQL_CONSTRAINT，且�
     const storage = createMemoryStorage();
     const context = {
         name1: '主角', name2: '小雪', chatId: 'v2-sql-constraint-1', chatMetadata: {},
-        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '开局。', swipe_id: 0 }],
+        chat: [{ is_user: true, mes: '出发' }, { is_user: false, mes: '[igs-scene:开局|白天|晴]\n开局。', swipe_id: 0 }],
         getCurrentChatId: () => context.chatId, setExtensionPrompt() {}, saveMetadata() {},
         eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
         eventSource: { on() {}, removeListener() {} },

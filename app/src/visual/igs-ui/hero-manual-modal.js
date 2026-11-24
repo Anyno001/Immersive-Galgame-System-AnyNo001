@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '')
 
 const MODAL_STYLE = `
 #${MODAL_ID} {
-    position: fixed; inset: 0; z-index: 99992;
+    position: fixed; inset: 0; z-index: 2147483600;
     display: flex; align-items: center; justify-content: center;
     background: rgba(12, 14, 20, 0.72); backdrop-filter: blur(6px);
     padding: 16px; box-sizing: border-box; font-family: inherit;
@@ -65,6 +65,13 @@ const MODAL_STYLE = `
 #${MODAL_ID} .igs-hm-btn.is-primary { background: #2563eb; border-color: #3b82f6; font-weight: 600; }
 #${MODAL_ID} .igs-hm-btn.is-danger { background: #991b1b; border-color: #b91c1c; color: #fff; font-weight: 600; }
 #${MODAL_ID} .igs-hm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 520px) {
+    #${MODAL_ID} { padding: 10px; align-items: flex-end; }
+    #${MODAL_ID} .igs-hm-card { max-height: 86vh; padding: 14px; border-radius: 14px 14px 10px 10px; }
+    #${MODAL_ID} .igs-hm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #${MODAL_ID} .igs-hm-skill-grid { grid-template-columns: minmax(0, 1fr); }
+    #${MODAL_ID} .igs-hm-sec-title { flex-wrap: wrap; }
+}
 `;
 
 export function checkHeroScoresOverCap(scores) {
@@ -246,7 +253,8 @@ export function createHeroManualModal(doc, { onSubmit } = {}) {
             if (act === 'cheat-yes') { state.uncapped = true; state.askCheat = false; void submitNow(); return; }
             if (act === 'submit') { void submitNow(); }
         });
-        overlay.appendChild(root);
+        const host = overlay.classList?.contains('igs-mode-embedded') && doc.body ? doc.body : overlay;
+        host.appendChild(root);
         render();
         return { ok: true };
     }

@@ -13,6 +13,7 @@ import { collectPromises } from '../scene/promise-reminder.js';
 import { createLiveHistoryScanner, liveFallbackOf } from '../scene/live-context.js';
 import { createStormHistoryScanner } from '../scene/storm-context.js';
 import { PUBLIC_READER_MODES } from '../schemas/reader-mode.js';
+import { resolveSentencePagingMigration } from '../visual/igs-ui/settings-host-normalize.js';
 
 export function createIgsCompatApi(app) {
     return {
@@ -408,12 +409,13 @@ async function buildReaderPayload(app, message, messageId, readerMode) {
     // 只拷会随 payload 交出去的两个小字段；素材库按引用读（共享只读）。整份深拷贝会让下游按引用记的素材缓存每次切楼都失效、整楼重做。
     const bridge = { ...rawBridge, sourceFilter: cloneData(rawBridge.sourceFilter), virtualRegex: cloneData(rawBridge.virtualRegex) };
     const sceneAssets = sceneAssetsForContext(bridge.sceneAssets, getSillyTavernContext(app.global));
+    const paging = resolveSentencePagingMigration(bridge);
     const visualNovelText = buildIgsTextPayload(message, {
         sourceFilter: bridge.sourceFilter,
         virtualRegex: bridge.virtualRegex,
         sceneAssets,
-        sentencePaging: bridge.sentencePaging,
-        dialogueSentencePaging: bridge.dialogueSentencePaging,
+        sentencePaging: paging.sentencePaging,
+        dialogueSentencePaging: paging.dialogueSentencePaging,
     });
     // 跨楼层场景追溯只在场景素材模式启用时发生；本楼没有任何场景指令时
     // （AI 漏发 [igs-scene:]，正文照常输出）才向前最多追溯 3 个 AI 楼层。

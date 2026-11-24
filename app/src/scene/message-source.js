@@ -3,7 +3,7 @@ import { extractSceneDirectives, stripIllustrationMarkers } from './scene-direct
 import { parseSceneText } from './text-parser.js';
 import { DEFAULT_HTML_CARD_TAGS, extractHtmlCards } from './html-cards.js';
 import { extractChatBlocks } from './chat-blocks.js';
-import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, normalizeClosedIgsDialogueLines, stripCombatBlockTags, stripOutfitFields } from './directive-tags.js';
+import { IGS_DIRECTIVE_CLOSE_SOURCE, IGS_DIRECTIVE_LINE_RE, hasAnyIgsFormatTag, hasIgsDirectiveTags, normalizeIgsDirectiveLayout, normalizeClosedIgsDialogueLines, stripCombatBlockTags, stripOutfitFields } from './directive-tags.js';
 import { createOutfitResolver } from './character-outfits.js';
 import { normalizeImageMarkerLayout } from './image-marker-layout.js';
 import { matchTextFxMarkupAt } from './text-fx-markup.js';
@@ -356,6 +356,8 @@ function splitSentenceBody(line) {
             if (depth === 0 && splitAfterTranslation) {
                 splitAfterTranslation = false;
                 while (i + 1 < line.length && SENTENCE_PAGING_CLOSERS.includes(line[i + 1])) out += line[++i];
+                const closingTags = line.slice(i + 1).match(/^(?:<\/[a-zA-Z][\w:-]*\s*>)+/);
+                if (closingTags) { out += closingTags[0]; i += closingTags[0].length; }
                 const rest = line.slice(i + 1);
                 if (rest.trim()) {
                     const spaces = (rest.match(/^\s*/) || [''])[0];
@@ -374,6 +376,9 @@ function splitSentenceBody(line) {
         while (i + 1 < line.length && SENTENCE_PAGING_TERMINATORS.includes(line[i + 1])) out += line[++i];
         if (line[i + 1] === '〖') { splitAfterTranslation = true; continue; }
         while (i + 1 < line.length && SENTENCE_PAGING_CLOSERS.includes(line[i + 1]) && line[i + 1] !== '〖') out += line[++i];
+        // 紧跟句末的闭合标签（如 </content>、</i>）归入前句，避免把纯闭合标签切成孤立下一页。
+        const closingTags = line.slice(i + 1).match(/^(?:<\/[a-zA-Z][\w:-]*\s*>)+/);
+        if (closingTags) { out += closingTags[0]; i += closingTags[0].length; }
         const rest = line.slice(i + 1);
         if (!rest.trim()) continue;
         const spaces = (rest.match(/^\s*/) || [''])[0];
@@ -441,6 +446,44 @@ export function readerBodyText(raw, sourceFilter) {
     if (filtered.sourceKind === 'tagged-empty') return '';
     const body = filtered.textSource || (cfg.enabled ? removeTagBlocks(source, cfg.textExcludeTags) : source);
     return normalizeWhitespace(stripReaderFormattingControls(cleanNarrativeSource(body)).replace(/\x00IMG\x00/g, ' '));
+}
+
+// 提取单楼在来源过滤（去注释、去思考/状态栏等排除块、优先保留正文标签块）并规整 IGS 指令后的可见文本。
+export function visibleDirectiveSource(raw, sourceFilter) {
+    const cfg = normalizeSourceFilter(sourceFilter);
+    const source = normalizeIgsDirectiveLayout(raw);
+    if (!source.trim()) return '';
+    const filtered = buildFilteredTextSource(source, cfg, '');
+    if (filtered.sourceKind === 'tagged-empty') return '';
+    if (filtered.textSource) return filtered.textSource;
+    let fallback = source;
+    if (cfg.enabled) {
+        if (cfg.stripHtmlComments) fallback = stripHtmlComments(fallback);
+        fallback = removeTagBlocks(fallback, cfg.textExcludeTags);
+    }
+    return fallback;
+}
+
+// 检查单楼原文在来源过滤（去注释、去思考/状态栏等排除块、优先保留正文标签块）后的可见部分是否含任意 IGS 格式标签。
+export function hasVisibleIgsTagInText(raw, sourceFilter) {
+    return hasAnyIgsFormatTag(visibleDirectiveSource(raw, sourceFilter));
+}
+
+// 检查当前最新楼层（最后一条非系统消息）是否含任意可见的 IGS 格式标签。
+export function hasVisibleIgsTagOnLatestFloor(chat, sourceFilter) {
+    if (!Array.isArray(chat) || !chat.length) return false;
+    let latest = null;
+    for (let i = chat.length - 1; i >= 0; i -= 1) {
+        const message = chat[i];
+        if (message && !message.is_system) {
+            latest = message;
+            break;
+        }
+    }
+    if (!latest) return false;
+    const raw = getMessagePrimaryText(latest)
+        || (Array.isArray(latest.swipes) && Number.isInteger(latest.swipe_id) ? String(latest.swipes[latest.swipe_id] || '') : '');
+    return hasVisibleIgsTagInText(raw, sourceFilter);
 }
 
 export function buildIgsTextPayload(message, options = {}) {

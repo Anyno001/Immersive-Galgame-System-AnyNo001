@@ -2,6 +2,7 @@ import { createStoryOutfitService } from '../generated-images/illustration/story
 import { resolveAssetScope, relocateLegacyCard, effectiveSceneAssets } from '../scene/asset-scope.js';
 import { createOutfitResolver } from '../scene/character-outfits.js';
 import { extractSceneDirectives } from '../scene/scene-directives.js';
+import { visibleDirectiveSource } from '../scene/message-source.js';
 import { storyOutfitSourceHash } from '../scene/outfit-review-store.js';
 import { floorKeyOf } from '../media/illustration-store.js';
 import { applyOperationEdits } from '../storage/operation-edits.js';
@@ -9,6 +10,7 @@ import { applyOperationEdits } from '../storage/operation-edits.js';
 export function createStoryOutfitRuntime(deps) {
     let disposed = false, offReady = null;
     const listeners = new Set();
+    const readSourceFilter = () => (typeof deps.getSourceFilter === 'function' ? deps.getSourceFilter() : deps.readBridge?.()?.sourceFilter);
     function getContext(row) {
         if (disposed) return null;
         const host = deps.readContext();
@@ -31,6 +33,46 @@ export function createStoryOutfitRuntime(deps) {
             sourceHash: storyOutfitSourceHash(floor.text), text: floor.text,
             autoGenerate: bridge.autoIllustration?.assets?.outfitAutoGenerate === true };
     }
+    // 观察本楼剧情衣装前，先为未有立绘的出场角色按首个登场标签的服装建立立绘占位（含默认衣装），
+    // 再用更新后的衣装表提取指令：首套服装归入默认衣装不重复询问，其余服装挂在该角色占位下入库衣柜。
+    function prepareFloorDirectives(context) {
+        if (!context) return { context: null, directives: [] };
+        const visibleText = visibleDirectiveSource(context.text, readSourceFilter());
+        let liveContext = context;
+        let assets = effectiveSceneAssets(liveContext.root, liveContext.scopeKey);
+        const initialDirectives = extractSceneDirectives(visibleText, { outfitResolver: createOutfitResolver(assets) }).directives;
+        if (typeof deps.ensurePortraitPlaceholders === 'function') {
+            const firstByCharacter = new Map();
+            for (const d of initialDirectives) {
+                if ((d?.type !== 'char' && d?.type !== 'thought') || !d.character) continue;
+                if (!firstByCharacter.has(d.character)) {
+                    firstByCharacter.set(d.character, d.unknownOutfit || d.outfit || '');
+                }
+            }
+            if (firstByCharacter.size) {
+                const entries = [...firstByCharacter.entries()].map(([name, outfitName]) => ({ name, outfitName }));
+                try {
+                    const ensured = deps.ensurePortraitPlaceholders(entries);
+                    if (ensured?.ok && ensured.changed) {
+                        const refreshed = getContext(liveContext);
+                        if (refreshed) {
+                            liveContext = refreshed;
+                        } else {
+                            const latestRoot = structuredClone(deps.readBridge?.()?.sceneAssets || liveContext.root || {});
+                            relocateLegacyCard(latestRoot, liveContext.scopeKey, null);
+                            liveContext = { ...liveContext, root: latestRoot };
+                        }
+                        assets = effectiveSceneAssets(liveContext.root, liveContext.scopeKey);
+                        return {
+                            context: liveContext,
+                            directives: extractSceneDirectives(visibleText, { outfitResolver: createOutfitResolver(assets) }).directives,
+                        };
+                    }
+                } catch { /* 占位写入失败时仍继续按现有素材观察 */ }
+            }
+        }
+        return { context: liveContext, directives: initialDirectives };
+    }
     const service = createStoryOutfitService({ storage: deps.storage, assets: deps.assets, getContext,
         commit(next, expected, guard) {
             if (disposed || !guard()) return { ok: false, reason: 'stale-target' };
@@ -50,6 +92,7 @@ export function createStoryOutfitRuntime(deps) {
         onAutoResult(row, result) { deps.onAutoResult?.(row, result); },
     });
     return { ...service,
+        prepareFloorDirectives,
         subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
         async processMessage(messageId) {
             const floor = deps.messageHost.readFloor(Number(messageId));
@@ -58,10 +101,10 @@ export function createStoryOutfitRuntime(deps) {
             if (deps.readBridge().imagesBlocked === true) return [];
             const context = getContext(floor);
             if (!context || !effectiveSceneAssets(context.root, context.scopeKey).enabled) return [];
-            const assets = effectiveSceneAssets(context.root, context.scopeKey);
-            const observed = service.observe(extractSceneDirectives(context.text,
-                { outfitResolver: createOutfitResolver(assets) }).directives, context);
-            return observed.ok ? service.autoGenerate(context) : [];
+            const prepared = prepareFloorDirectives(context);
+            if (!prepared.context) return [];
+            const observed = service.observe(prepared.directives, prepared.context);
+            return observed.ok ? service.autoGenerate(prepared.context) : [];
         },
         start() {
             if (disposed || offReady) return;

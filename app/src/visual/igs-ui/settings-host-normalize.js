@@ -45,6 +45,32 @@ import { normalizeImageCacheCount } from '../../media/tavern-image-cache.js';
 import { normalizeStatsSettings } from '../../scene/stats/stat-settings.js';
 import { normalizeOriginSettings } from './origin-settings.js';
 
+export const SENTENCE_PAGING_MIGRATION_VERSION = 1;
+
+// 旁白按句分页与对白/心理话按句分页默认开启；旧版持久化配置未带最新迁移版本时强制一次性覆盖为开启，
+// 落盘版本标记后尊重用户后续手动关闭。
+export function resolveSentencePagingMigration(bridge) {
+    const src = bridge && typeof bridge === 'object' && !Array.isArray(bridge) ? bridge : {};
+    const currentVersion = Number.isInteger(src.sentencePagingMigrationVersion) && src.sentencePagingMigrationVersion >= 0
+        ? src.sentencePagingMigrationVersion
+        : 0;
+    const needsOverride = currentVersion < SENTENCE_PAGING_MIGRATION_VERSION;
+    const sentencePaging = needsOverride ? true : normalizeBoolean(src.sentencePaging, true);
+    const dialogueSentencePaging = needsOverride ? true : normalizeBoolean(src.dialogueSentencePaging, true);
+    const sentencePagingMigrationVersion = Math.max(currentVersion, SENTENCE_PAGING_MIGRATION_VERSION);
+    const changed = needsOverride
+        || src.sentencePaging !== sentencePaging
+        || src.dialogueSentencePaging !== dialogueSentencePaging
+        || src.sentencePagingMigrationVersion !== sentencePagingMigrationVersion;
+    return {
+        changed,
+        needsOverride,
+        sentencePaging,
+        dialogueSentencePaging,
+        sentencePagingMigrationVersion,
+    };
+}
+
 export function normalizeBridgeConfig(bridge) {
     // 不改入参、不深拷：入参可能是存储里共享的只读配置。改到哪层就浅拷哪层，没动的子树（素材库）原样共享。
     const normalized = { ...(bridge || {}) };
@@ -54,8 +80,10 @@ export function normalizeBridgeConfig(bridge) {
     normalized.debug = normalizeBoolean(normalized.debug, false);
     normalized.sourceFilter = normalizeSourceFilter(normalized.sourceFilter);
     normalized.virtualRegex = normalizeVirtualRegex(normalized.virtualRegex);
-    normalized.sentencePaging = normalizeBoolean(normalized.sentencePaging, false);
-    normalized.dialogueSentencePaging = normalizeBoolean(normalized.dialogueSentencePaging, false);
+    const paging = resolveSentencePagingMigration(normalized);
+    normalized.sentencePaging = paging.sentencePaging;
+    normalized.dialogueSentencePaging = paging.dialogueSentencePaging;
+    normalized.sentencePagingMigrationVersion = paging.sentencePagingMigrationVersion;
     normalized.imageApi = normalizeImageApi(normalized.imageApi);
     normalized.imageCache = { ...normalized.imageCache,
         maxCount: normalizeImageCacheCount(normalized.imageCache?.maxCount),

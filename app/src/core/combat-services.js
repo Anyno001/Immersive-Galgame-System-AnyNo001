@@ -20,6 +20,7 @@ import { createInventoryTables } from '../data/shujuku/inventory-tables.js';
 import { PROTAGONIST_ALIASES, abilitiesForName, createCombatLedger, grantGeneratedGear, signaturePending, upgradableRows, vitalsForName } from '../combat/ledger.js';
 import { createCombatSession, locateCombatStart, partyStatus } from '../combat/session.js';
 import { combatBodyText } from '../scene/combat-directives.js';
+import { hasVisibleIgsTagOnLatestFloor } from '../scene/message-source.js';
 import { withFloorNote } from '../combat/floor-note.js';
 import {
     checkCorrections, checkRollPairsFor, floorCheckOrdinal, floorCheckSwipe, floorIndexOfOrdinal, replayChecks, upcomingCheckOrdinal, upcomingCheckSwipe,
@@ -133,6 +134,7 @@ export function createCombatServices(options = {}) {
     };
     const getUserName = () => String((typeof options.getUserName === 'function' ? options.getUserName() : '') || '');
     const getSourceFilter = () => (typeof options.getSourceFilter === 'function' ? options.getSourceFilter() : undefined);
+    const latestFloorHasVisibleIgsTag = () => hasVisibleIgsTagOnLatestFloor(getChat(), getSourceFilter());
     const getLlm = () => normalizeAutoIllustrationSettings(typeof options.getAutoIllustration === 'function' ? options.getAutoIllustration() : {}).llm;
     const readLore = typeof options.readLore === 'function' ? options.readLore : undefined;
     const materialContext = createCombatMaterialContext({ read: options.readGenerationMaterials, getChatId, getUserName });
@@ -248,18 +250,43 @@ export function createCombatServices(options = {}) {
 
     const withMissing = (read, reason) => (read.missing?.length ? { ok: false, reason, missing: read.missing } : read);
 
-    // 包一层：读到缺表时先补建再重读
+    // 包一层：只读不提前建表（缺表或布局未确认时返回空快照）；实际写入生成数据时再先建表后插数据。
     function wrapTables(raw) {
-        const wrapped = { ...raw, read: readWithEnsure };
-        async function readWithEnsure(readOptions) {
+        const wrapped = { ...raw, read: readWithoutEnsure, append: appendWithEnsure };
+        async function readWithoutEnsure(readOptions) {
             if (readOptions?.recoveryRecords?.length) return raw.read(readOptions);
-            const read = await raw.read();
+            const read = await raw.read(readOptions);
             if (read?.ok !== true || !(read.layoutPending || read.missing?.length || read.optionalMissing?.length)) return read;
             const chatKey = getChatId();
             if (!chatKey) return read;
             if (ensureFailure && ensureFailure.key === chatKey) return withMissing(read, ensureFailure.reason);
-            const ensured = await ensureOnce(wrapped, chatKey);
-            return ensured?.ok !== true ? withMissing(read, ensured?.reason || 'combat-table-create-failed') : raw.read();
+            return {
+                ...read,
+                profile: Array.isArray(read.profile) ? read.profile : [],
+                ledger: Array.isArray(read.ledger) ? read.ledger : [],
+                attribute: Array.isArray(read.attribute) ? read.attribute : undefined,
+                missing: [],
+                optionalMissing: Array.isArray(read.attribute) ? [] : ['attribute'],
+                tablesMissing: true,
+            };
+        }
+        async function appendWithEnsure(kind, records, appendOptions = {}) {
+            const chatKey = getChatId();
+            if (chatKey) {
+                const probe = await raw.read();
+                const needsTable = probe?.ok === true && (
+                    probe.layoutPending
+                    || (Array.isArray(probe.missing) && probe.missing.includes(kind))
+                    || (Array.isArray(probe.optionalMissing) && probe.optionalMissing.includes(kind))
+                    || !Array.isArray(probe[kind])
+                );
+                if (needsTable) {
+                    if (ensureFailure && ensureFailure.key === chatKey) return { ok: false, reason: ensureFailure.reason };
+                    const ensured = await ensureOnce(wrapped, chatKey);
+                    if (ensured?.ok !== true) return { ok: false, reason: ensured?.reason || 'combat-table-create-failed' };
+                }
+            }
+            return raw.append(kind, records, appendOptions);
         }
         return wrapped;
     }
@@ -1396,8 +1423,10 @@ export function createCombatServices(options = {}) {
         const gearAnchor = lastIdx >= 0 ? { messageId: lastIdx, swipeId: Number.isInteger(floors[lastIdx]?.swipe_id) ? floors[lastIdx].swipe_id : 0 } : null;
         if (prepareMissing) {
             const opId = `cc-${hash32(JSON.stringify({ chatId, characterId, createdAt, ids: writes.profiles.map(p => p.id) })).toString(36)}`;
+            const layoutNow = bundle?.shared?.layout?.()?.layout;
             const intent = {
-                version: 1, chatId, characterId, name: target, operationId: opId, stage: 'profile',
+                version: 1, chatId, ...(layoutNow === 'v2' || layoutNow === 'legacy' ? { layout: layoutNow } : {}),
+                characterId, name: target, operationId: opId, stage: 'profile',
                 profiles: writes.profiles, gearAccepted, gearAnchor, createdAt,
             };
             const savedIntent = combatContentIntents.save(chatId, intent);
@@ -1917,6 +1946,11 @@ export function createCombatServices(options = {}) {
                     return { ok: true, status: 'ready' };
                 };
                 if (facts.contentReady && facts.attributesReady) return await publishReady();
+                // 尚无已生成的战斗档案时，自动启动必须满足当前最新楼层存在任意可见的 IGS 格式标签。
+                if (!manual && !facts.contentReady && !hasPendingContent && !latestFloorHasVisibleIgsTag()) {
+                    setProtagonistState({ key, status: 'idle', reason: 'combat-igs-tag-waiting', attempt: 0, requested: false, ...facts });
+                    return { ok: false, status: 'waiting-igs-tag', reason: 'combat-igs-tag-waiting', ...facts };
+                }
                 // 严格等待主角初始六维属性生成完毕后，才自动触发主角职业、卡组与初始装备生成。
                 if (!facts.attributesReady) {
                     setProtagonistState({ key, status: 'waiting-attributes', reason: 'combat-attributes-waiting', attempt: 0, requested: false, ...facts });
@@ -2017,6 +2051,7 @@ export function createCombatServices(options = {}) {
     function autoPrepare(messageId) {
         const activeSession = getSession();
         if (!activeSession) return Promise.resolve({ ok: false, reason: 'combat-disabled' });
+        if (!latestFloorHasVisibleIgsTag()) return Promise.resolve({ ok: false, reason: 'combat-igs-tag-waiting' });
         const floor = Number(messageId);
         if (!Number.isSafeInteger(floor) || floor < 0) return Promise.resolve({ ok: false, reason: 'combat-floor-missing' });
         let located;

@@ -1,4 +1,4 @@
-import { splitIgsDirectiveLines, stripOutfitFields } from '../../scene/directive-tags.js';
+import { canonicalizeIgsDirectives, splitIgsDirectiveLines, stripOutfitFields } from '../../scene/directive-tags.js';
 import { imageMarkerBoundary, imageMarkerContentRanges, insertImageMarkerOnLine } from '../../scene/image-marker-layout.js';
 
 const SCENE_RE = /\[igs-scene:([^|\]\n]+)\|([^|\]\n]+)(?:\|([^|\]\n]*))?(?:\|([^|\]\n]*))?(?:\|[^\]\n]*)?\]/g;
@@ -39,12 +39,13 @@ function readableLine(line) {
 }
 
 export function numberParagraphs(raw, options = {}) {
-    const lines = String(raw || '').split('\n');
+    const normalized = canonicalizeIgsDirectives(raw);
+    const lines = normalized.split('\n');
     const spans = contentSpans(lines);
     const paragraphs = [];
     const scenes = [];
     const characters = new Set();
-    for (const { text, lineIndex } of splitIgsDirectiveLines(raw)) {
+    for (const { text, lineIndex } of splitIgsDirectiveLines(normalized)) {
         const line = stripOutfitFields(text, options && options.outfitResolver);
         // 场景标签整楼都认。写在第一段 </content> 之后的转场也要算进 NSFW 和背景。
         for (const m of line.matchAll(SCENE_RE)) {

@@ -29,6 +29,7 @@ import { normalizeStoredPrompt, promptFromCaption, promptProvenance, storedPromp
 import { promptTimeBucket, sceneVariantCaption, sceneVariantTags } from '../scene-variant-tags.js';
 import { sceneTimeBucket } from '../../scene/time-bucket.js';
 import { extractSceneDirectives, resolveCharacterKey } from '../../scene/scene-directives.js';
+import { visibleDirectiveSource } from '../../scene/message-source.js';
 import { createOutfitResolver, isValidOutfitName, isBuiltinNudeOutfit } from '../../scene/character-outfits.js';
 import { prepareCharacterDnaSave } from '../../scene/character-dna-preparation.js';
 import { normalizeCharacterDna, isCharacterDnaEmpty, resolveCharacterDna, CHARACTER_DNA_REQUIRED_VIEWS } from '../../scene/character-dna.js';
@@ -1008,6 +1009,10 @@ export function createAssetGenerationService(deps) {
 
     async function run(messageId, floor, key, s, manual, refresh = false) {
         if (manual) s.auto.assets = { ...s.auto.assets, spriteEnabled: true, backgroundEnabled: true };
+        // 中途启用场景素材模式时 start() 可能尚未执行 ready()；开工前补一次恢复。
+        if (!prepared) {
+            try { await ready(); } catch { /* 存储未实现 restore 或已停止时交给后续检查处理 */ }
+        }
         // 失败或中途刷新残留的 planning 不算处理完，下次渲染时重试。
         const previous = await store.getFloor(key);
         // 已完成楼层不因重复渲染重发；仅手动补全或成功任务期间收到的新正文通知可重算。
@@ -1019,22 +1024,44 @@ export function createAssetGenerationService(deps) {
             report('info', `第 ${messageId} 楼跳过素材补全：正文只有 ${bodyChars} 字，少于 ${minBodyChars} 字不自动生图`);
             return { ok: true, reason: 'body-too-short' };
         }
-        const numbered = numberParagraphs(floor.text);
-        const outfitResolver = createOutfitResolver(s.sceneAssets);
+        const visibleText = visibleDirectiveSource(floor.text, sourceFilter());
+        const initialOutfitResolver = createOutfitResolver(s.sceneAssets);
+        const numbered = numberParagraphs(visibleText, { outfitResolver: initialOutfitResolver });
         // 原名只用于本次补图，不经衣装词池改名，也不把楼末换装套到首次触发上。
-        const characterTriggers = extractSceneDirectives(floor.text, {
-            outfitResolver: (name, token) => {
-                const resolved = outfitResolver(name, token);
-                return resolved && isValidOutfitName(token) ? token : resolved;
-            },
-        }).directives.filter(d => d.type === 'char' || d.type === 'thought');
+        const extractTriggers = (assets) => {
+            const resolver = createOutfitResolver(assets);
+            return extractSceneDirectives(visibleText, {
+                outfitResolver: (name, token) => {
+                    const resolved = resolver(name, token);
+                    return resolved && isValidOutfitName(token) ? token : resolved;
+                },
+            }).directives.filter(d => d.type === 'char' || d.type === 'thought');
+        };
+        let characterTriggers = extractTriggers(s.sceneAssets);
+        const appearingCharacters = [...new Set([...numbered.characters, ...characterTriggers.map(d => d.character)])];
+        // 未有立绘的出场角色：先按其第一个登场标签里的服装作为默认服装建立立绘占位，再开始生成立绘；
+        // 同一楼或后续楼层的其它服装即可稳定挂在该角色占位下入库衣柜。
+        if (s.auto.assets.spriteEnabled && appearingCharacters.length && typeof deps.ensurePortraitPlaceholders === 'function') {
+            const placeholderEntries = appearingCharacters.map((name) => {
+                const firstTrigger = characterTriggers.find(d => d.character === name);
+                const outfitName = firstTrigger?.unknownOutfit || firstTrigger?.outfit || '';
+                return { name, outfitName };
+            });
+            try {
+                const ensured = await deps.ensurePortraitPlaceholders(placeholderEntries);
+                if (ensured?.ok && ensured.changed) {
+                    s = { ...s, sceneAssets: readSettings(s.taskSignal).sceneAssets };
+                    characterTriggers = extractTriggers(s.sceneAssets);
+                }
+            } catch { /* 占位写入失败不阻断本楼生图 */ }
+        }
         // AI 标注的非人角色与战斗对手：先登记档案（战斗对手建临时档），本楼随即按档案补立绘。
         // 战斗对手自动建档的排除：开关关闭、近期以角色标签或说话人出现过的人物、本聊天已判为人类的名字。
         const spokenKeys = new Set();
         const canonicalOf = name => resolveCharacterKey({ ...s.sceneAssets.characterDna, ...s.sceneAssets.characters, ...s.sceneAssets.characterOutfits },
             s.sceneAssets.characterAliases || {}, name) || String(name || '').trim();
         const noteSpeakers = text => { try { for (const name of numberParagraphs(text).characters) spokenKeys.add(canonicalOf(name)); } catch { /* 解析失败按未出现处理。 */ } };
-        noteSpeakers(floor.text);
+        noteSpeakers(visibleText);
         if (typeof messageHost.readPreviousAiTexts === 'function') {
             try { for (const text of messageHost.readPreviousAiTexts(messageId, Math.max(3, s.auto.llm.contextFloors || 0))) noteSpeakers(text); } catch { /* 读不到前文时只按本楼判断。 */ }
         }
@@ -1049,7 +1076,7 @@ export function createAssetGenerationService(deps) {
             } catch { /* 登记失败不阻断本楼其余素材。 */ }
         }
         const creatureNames = creatureHints.map(hint => canonicalOf(hint.name)).filter(name => creatureOf(s.sceneAssets.characterDna?.[name]));
-        const spriteCharacters = [...new Set([...numbered.characters, ...creatureNames])];
+        const spriteCharacters = [...new Set([...appearingCharacters, ...creatureNames])];
         const match = matchContext(s, floor, { ...numbered, characters: spriteCharacters }, manual);
         // 命中的 igs-gen 图先记下，查一遍图片本体还在不在；丢了的按缺图重算，否则一直「已有素材」却显示不出来。
         const probed = new Set();
@@ -3003,6 +3030,7 @@ ${prompt.slice(k * 520, (k + 1) * 520)}`);
         generateSceneVariants, writeWardrobePrompt, paintWardrobeReference,
         getEditableImage, saveMatteEdit, imageAvailability, retryImageRead, clearImageReadFailures, tempSpriteForOutfit,
         getRecord: (key) => !stopped && currentChat() ? tempCache.peek(tempCache.scope, key) : null,
+        waitForFloor: (floorKey) => (floorKey && locks.get(floorKey)) || Promise.resolve(),
         start() {
             stopped = false;
             if (recoveryController.signal.aborted) recoveryController = new AbortController();

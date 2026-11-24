@@ -306,11 +306,12 @@ export function abilityLine(engine, state, actor) {
 }
 
 // people：[{ name, summary }]（含主角，名字为「主角」）；skills：待补的技能名。
-export function buildBackfillRequest(people, skills, { prompt } = {}) {
+export function buildBackfillRequest(people, skills, { prompt, history = '' } = {}) {
     const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${ownOf(p) || '（没有资料）'}`);
+    const historyText = String(history || '').trim();
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.backfill,
-        user: `需要补的技能：${skills.slice(0, BACKFILL_SKILL_MAX).join('、')}\n角色资料：\n${list.join('\n')}`,
+        user: `需要补的技能：${skills.slice(0, BACKFILL_SKILL_MAX).join('、')}\n${historyText ? `最近剧情与用户输入：\n${historyText}\n` : ''}角色资料：\n${list.join('\n')}`,
     };
 }
 
@@ -336,12 +337,13 @@ export function parseBackfillReply(reply, { names = [], skills = [] } = {}) {
 export const HERO_TIER_LIMITS = Object.freeze({ 大师: 1, 精通: 2, 熟练: 6, 入门: 8 });
 
 // skills：可分配的技能名。回复格式 { "技能名": "档位" }。
-export function buildHeroSkillRequest(people, skills, { prompt } = {}) {
+export function buildHeroSkillRequest(people, skills, { prompt, history = '' } = {}) {
     const hero = (people || []).find((p) => p && p.name === PROTAGONIST) || (people || [])[0] || {};
+    const historyText = String(history || '').trim();
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.heroSkills,
         user: `可分配技能：${skills.join('、')}
-${worldRef([hero])}角色资料：
+${historyText ? `最近剧情与用户输入：\n${historyText}\n` : ''}${worldRef([hero])}角色资料：
 【${PROTAGONIST}】${ownOf(hero) || '（没有资料，按普通人处理）'}`,
     };
 }
@@ -372,15 +374,16 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
 // 起始关系一次性补填：people 为 [{ name, summary }]，回复格式 { "角色名": "关系档" }。
 // hero 为主角资料（用户人设）：玩家常把「谁喜欢主角」写在这里，角色资料里反而没有。
 // plot 为剧情注入器的设定条目，人物关系常写在这里。
-export function buildStartRelationRequest(people, { prompt, hero = '', plot = '' } = {}) {
+export function buildStartRelationRequest(people, { prompt, hero = '', plot = '', history = '' } = {}) {
     const list = people.slice(0, SHEET_BATCH_MAX).map((p) => `【${p.name}】${ownOf(p) || '（没有资料）'}`);
     const heroText = String(hero || '').trim();
     const plotText = String(plot || '').trim();
+    const historyText = String(history || '').trim();
     // 主角资料与世界书常写满其他角色，只列资料时模型会回成别人；判断名单单独放在最后。
     const names = people.slice(0, SHEET_BATCH_MAX).map((p) => p.name).join('、');
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.startRelations,
-        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}\n本次只判断这些角色与主角的关系：${names}。资料里写到的其他人物不要输出，JSON 的键只能是这些名字。`,
+        user: `主角：${PROTAGONIST}\n${heroText ? `主角资料：${heroText}\n` : ''}${plotText ? `剧情设定：${plotText}\n` : ''}${historyText ? `最近剧情与用户输入：\n${historyText}\n` : ''}${worldRef(people.slice(0, SHEET_BATCH_MAX))}角色资料：\n${list.join('\n')}\n本次只判断这些角色与主角的关系：${names}。资料里写到的其他人物不要输出，JSON 的键只能是这些名字。`,
     };
 }
 

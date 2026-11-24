@@ -10,7 +10,8 @@ export const COMIC_STYLE_TEXT = `
 ${C}{--igs-comic-paper:#fff;--igs-comic-ink:#141414;--igs-comic-text:#141414;--igs-comic-accent:#141414;--igs-comic-gutter:#fff;--igs-dialog-h:72px!important;--igs-dialog-w:min(560px,calc(100% - 32px))!important;}
 ${C} #igs-dialog{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;min-height:0!important;max-height:none!important;margin:0!important;padding:0!important;background:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transform:none!important;overflow:visible!important;display:block!important;pointer-events:none!important;}
 ${C} #igs-dialog::before,${C} #igs-dialog::after{content:none!important;display:none!important;}
-${C} #igs-dialog>:not(.igs-comic-group):not(.igs-comic-ghost):not(.igs-controls){display:none!important;}
+${C} #igs-dialog>:not(.igs-comic-group):not(.igs-comic-ghost):not(.igs-controls):not(#igs-stats-chip){display:none!important;}
+${C} #igs-stats-chip{left:12px;right:12px;bottom:84px;max-width:calc(100% - 24px);z-index:20;}
 ${C} #igs-dialog .igs-controls{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,calc(100% - 40px));box-sizing:border-box;pointer-events:auto;margin:0;padding:8px 10px;border-radius:14px;box-shadow:none;}
 ${CI} #igs-dialog .igs-controls{background:var(--igs-comic-paper);border:2.5px solid var(--igs-comic-ink);}
 ${C}:not(.igs-awaiting-reply) #igs-dialog .igs-controls[data-igs-comic-sent="1"]{display:none!important;}
