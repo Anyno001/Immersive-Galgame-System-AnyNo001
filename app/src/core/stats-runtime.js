@@ -253,6 +253,7 @@ export function createStatsRuntime({
     const askedFill = new Set();
     const heroAsked = new Set();
     const heroPickAsked = new Set();
+    const heroManualPickOpen = new Set();
     const notices = new Map();
     const diagnostics = [];
     const forcedSettings = new WeakMap();
@@ -886,7 +887,7 @@ export function createStatsRuntime({
                     nextCatalog = sanitizeCatalog({ ...nextCatalog, heroBio: intent.bio });
                     catalogChanged = true;
                 }
-                if (intent.needSkills && intent.skills && Object.keys(intent.skills).length && needsHeroPick() && !hasLearnedHeroSkill()) {
+                if (intent.needSkills && intent.skills && Object.keys(intent.skills).length && nextCatalog.heroSkillsManual !== true && needsHeroPick() && !hasLearnedHeroSkill()) {
                     const owned = ledger ? currentStatsState(ledger).protagonist.skills : {};
                     const base = { ...nextCatalog.protagonistBase };
                     const edit = { ...nextCatalog.protagonistEdit };
@@ -906,6 +907,7 @@ export function createStatsRuntime({
                             protagonistEdit: edit,
                             heroAssigned: true,
                             heroPicked: true,
+                            heroSkillsManual: false,
                             heroSlots,
                         });
                         heroAsked.add(chatId);
@@ -988,7 +990,7 @@ export function createStatsRuntime({
             const needCurrency = Boolean(hasInv && !currency);
             const needBio = !String(catalog.heroBio || '').trim();
             const ownedHeroSkills = ledger ? currentStatsState(ledger).protagonist.skills : {};
-            const wantSkills = Boolean(ledger && (includeSkills || catalog.heroInitChoice === 'auto') && needsHeroPick() && !hasLearnedHeroSkill());
+            const wantSkills = Boolean(ledger && (includeSkills || catalog.heroInitChoice === 'auto') && catalog.heroSkillsManual !== true && needsHeroPick() && !hasLearnedHeroSkill());
             const availableSkills = wantSkills
                 ? heroSkillNames().filter((name) => !(ownedHeroSkills[name] && Number(ownedHeroSkills[name].value) >= 25))
                 : [];
@@ -1101,7 +1103,7 @@ export function createStatsRuntime({
                 if (latestStats.layout === 'v2' || latestStats.layout === 'legacy') layout = latestStats.layout;
                 if (latestStats.currency) finalNeedCurrency = false;
             }
-            const finalNeedSkills = Boolean(needSkills && parsed.skills && Object.keys(parsed.skills).length && needsHeroPick() && !hasLearnedHeroSkill());
+            const finalNeedSkills = Boolean(needSkills && parsed.skills && Object.keys(parsed.skills).length && catalog.heroSkillsManual !== true && needsHeroPick() && !hasLearnedHeroSkill());
             const finalNeedTraits = Boolean(needTraits && parsed.hasTraits && !(catalog.traitInit || []).includes(PROTAGONIST));
             if (!finalNeedAttributes && !finalNeedCurrency && !finalNeedSkills && !finalNeedTraits && !(needBio && parsed.bio)) {
                 if (hasInv && currency && !currency.seeded) {
@@ -3437,7 +3439,7 @@ export function createStatsRuntime({
         }
     }
 
-    // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），写进底数层；之后成长、手改照常叠加。attributes 为自定义技能所选六维。
+    // 选擅长技能：skills 为 { 技能: 起始值 }（pickSummary 的结果），直接覆盖旧 AI 分配并写入底数层；标记手动后 AI 回包不得覆盖。
     function pickHeroSkills(skills, attributes, slots) {
         if (!ledger) return { ok: false, reason: 'stats-no-ledger' };
         registerCustomSkills(attributes);
@@ -3448,7 +3450,11 @@ export function createStatsRuntime({
         const entries = Object.entries(skills || {}).filter(([, v]) => Number(v) > 0)
             .map(([name, v]) => [own(name) || engine.registry.resolve(name) || commitSkill(name), Number(v)]).filter(([name]) => Boolean(name));
         if (!entries.length) return { ok: false, reason: 'stats-hero-pick-empty' };
+        // 用户手选直接覆盖先前 AI 自动生成的擅长项与旧格位底数，保留不相关的剧情成长技能。
+        const replaceable = new Set([...heroSkillNames(), ...Object.values(catalog.heroSlots || {}).filter(Boolean)]);
         const base = { ...catalog.protagonistBase };
+        const edit = { ...catalog.protagonistEdit };
+        for (const key of replaceable) { delete base[key]; delete edit[key]; }
         for (const [name, value] of entries) base[name] = withoutHeroBonus(engine, name, value);
 
         // 每格占的技能随聊天保存：界面给了格位就用，没给（旧调用）按起始值回填。
@@ -3459,8 +3465,21 @@ export function createStatsRuntime({
             if (name && picked.has(name)) given[slot] = name;
         }
         const heroSlots = Object.keys(given).length ? given : backfillHeroSlots(entries);
-        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, heroPicked: true, heroSlots });
+        const chatId = chatIdOf(ctx());
+        heroManualPickOpen.delete(chatId);
+        heroPickAsked.add(chatId);
+        heroAsked.add(chatId);
+        catalog = sanitizeCatalog({
+            ...catalog,
+            protagonistBase: base,
+            protagonistEdit: edit,
+            heroPicked: true,
+            heroAssigned: false,
+            heroSkillsManual: true,
+            heroSlots,
+        });
         setNotice('hero-pick', null);
+        setNotice('hero-skills', null);
         persist();
         onChange(currentStatsState(ledger), null);
         refreshOnboarding();
@@ -4154,7 +4173,7 @@ export function createStatsRuntime({
         const recovery = pendingGenerationSave('hero-skills', () => assignHeroSkills({ overwrite }));
         if (recovery) return recovery;
         if (!active()) return Promise.resolve({ ok: false, reason: 'stats-inactive' });
-        if (hasLearnedHeroSkill() && !overwrite) return Promise.resolve({ ok: false, reason: 'needs-confirm' });
+        if ((hasLearnedHeroSkill() || catalog.heroSkillsManual === true) && !overwrite) return Promise.resolve({ ok: false, reason: 'needs-confirm' });
         const request = requester();
         if (!request) {
             setNotice('hero-skills', { kind: 'onboarding', order: 2, retry: true, text: '生成主角擅长技能需要可用的辅助模型（自动插图设置里的写词模型）', actions: [['later', '知道了']] });
@@ -4168,6 +4187,7 @@ export function createStatsRuntime({
             catalog = sanitizeCatalog({ ...catalog, heroAssigned: true, heroPicked: true });
             heroAsked.add(chatId);
             heroPickAsked.add(chatId);
+            heroManualPickOpen.delete(chatId);
             persist();
             setNotice('hero-skills', null);
             setNotice('hero-pick', null);
@@ -4175,7 +4195,7 @@ export function createStatsRuntime({
             return Promise.resolve({ ok: true, skipped: true });
         }
         setNotice('hero-skills', { kind: 'busy', text: '正在按人设生成主角擅长技能' });
-        const heroSkillSnapshot = () => JSON.stringify([catalog.protagonistBase, catalog.protagonistEdit, catalog.heroSlots, catalog.heroAssigned]);
+        const heroSkillSnapshot = () => JSON.stringify([catalog.protagonistBase, catalog.protagonistEdit, catalog.heroSlots, catalog.heroAssigned, catalog.heroSkillsManual]);
         return generationTasks.start('hero-skills', async job => {
             let failureReason = '';
             job.onFinish(() => {
@@ -4214,6 +4234,10 @@ export function createStatsRuntime({
                 return { ok: false, reason };
             }
             const res = await stageGeneration(job, () => {
+                if (!overwrite && catalog.heroSkillsManual === true) {
+                    setNotice('hero-skills', null);
+                    return { result: { ok: true, skipped: 'manual-protected' } };
+                }
                 const base = { ...catalog.protagonistBase };
                 const edit = { ...catalog.protagonistEdit };
                 for (const name of skills) { delete base[name]; delete edit[name]; }
@@ -4226,10 +4250,11 @@ export function createStatsRuntime({
                     done.push(`${skill} ${tier}`);
                 }
                 const heroSlots = backfillHeroSlots(entries);
-                catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true, heroPicked: true, heroSlots });
+                catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroAssigned: true, heroPicked: true, heroSkillsManual: false, heroSlots });
                 generationStage.heroAssigned = true;
                 heroAsked.add(chatId);
                 heroPickAsked.add(chatId);
+                heroManualPickOpen.delete(chatId);
                 setNotice('hero-pick', null);
                 setNotice('hero-skills', { kind: 'info', text: `已生成主角擅长技能：${done.join('、')}`, ttl: true });
                 return { result: { ok: true, assigned: done } };
@@ -4265,7 +4290,8 @@ export function createStatsRuntime({
             // 界面和表格里看到的是含随身系统加成的生效值，存回 IGS 的要先减掉加成。
             edit[skill] = { value: withoutHeroBonus(engine, skill, value), from: seed };
         }
-        catalog = sanitizeCatalog({ ...catalog, protagonistEdit: edit });
+        heroManualPickOpen.delete(chatIdOf(ctx()));
+        catalog = sanitizeCatalog({ ...catalog, protagonistEdit: edit, heroSkillsManual: true });
         persist();
         onChange(currentStatsState(ledger), null);
         return { ok: true };
@@ -4322,7 +4348,8 @@ export function createStatsRuntime({
             if (Number(owned[name].value) < start) edit[name] = { value: withoutHeroBonus(engine, name, start), from: Number(owned[name].value) || 0 };
         } else base[name] = withoutHeroBonus(engine, name, start);
         slots[slot] = name;
-        let next = { ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots: slots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((x) => x !== name && x !== old) } };
+        heroManualPickOpen.delete(chatIdOf(ctx()));
+        let next = { ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots: slots, heroPicked: true, heroSkillsManual: true, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((x) => x !== name && x !== old) } };
         if (old) next = removeStorySkill(next, old);
         catalog = sanitizeCatalog(next);
         persist();
@@ -4363,7 +4390,8 @@ export function createStatsRuntime({
         // 改为未学即腾出所占的格。
         let heroSlots = slots;
         if (tier === '未学' && Object.values(slots).includes(skill)) heroSlots = Object.fromEntries(Object.entries(slots).filter(([, v]) => v !== skill));
-        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
+        heroManualPickOpen.delete(chatIdOf(ctx()));
+        catalog = sanitizeCatalog({ ...catalog, protagonistBase: base, protagonistEdit: edit, heroSlots, heroSkillsManual: true, queue: { ...catalog.queue, skills: catalog.queue.skills.filter((s) => s !== skill) } });
         persist();
         onChange(currentStatsState(ledger), null);
         return { ok: true };
@@ -4373,6 +4401,11 @@ export function createStatsRuntime({
         if (op === 'set') return setHeroSkill(name, payload.value);
         if (op === 'edit') return editHeroSkill(name, payload.tier);
         if (op === 'pick') return pickHeroSkills(payload.skills, payload.attributes, payload.slots);
+        if (op === 'pick-open') {
+            const cid = chatIdOf(ctx());
+            if (cid) heroManualPickOpen.add(cid);
+            return { ok: true };
+        }
         if (op === 'slot') return setHeroSlot(name, payload);
         if (op === 'attrs') return { ok: true, attrs: heroAttrs() };
         if (op === 'manual-init') return submitManualHero(payload);
@@ -4488,16 +4521,18 @@ export function createStatsRuntime({
                 refreshOnboarding();
                 const initPromise = ensureHeroInit({ force: true, includeSkills: true });
                 return Promise.resolve(initPromise || { ok: true }).then((res) => {
-                    if (res?.ok !== false && needsHeroPick() && requester()) void assignHeroSkills({ overwrite: true });
+                    if (res?.ok !== false && catalog.heroSkillsManual !== true && !heroManualPickOpen.has(chatIdOf(ctx())) && needsHeroPick() && requester()) void assignHeroSkills({ overwrite: true });
                     return { ok: res?.ok !== false, choice: 'auto', result: res };
                 });
             }
             return { ok: false, reason: 'stats-notice-action-unknown' };
         }
         if (id === 'hero-pick') {
-            heroPickAsked.add(chatIdOf(ctx()));
+            const cid = chatIdOf(ctx());
+            heroPickAsked.add(cid);
             setNotice('hero-pick', null);
-            if (action === 'assign') return assignHeroSkills({ overwrite: true });
+            if (action === 'assign') { heroManualPickOpen.delete(cid); return assignHeroSkills({ overwrite: true }); }
+            if (action === 'open' && cid) heroManualPickOpen.add(cid);
             refreshOnboarding();
             return action === 'open' ? { ok: true, openSettings: 'stats' } : { ok: true };
         }
@@ -4508,7 +4543,7 @@ export function createStatsRuntime({
         }
         if (id === 'sheets' && action === 'generate') { setNotice('sheets', null); return generateSheets(); }
         if (id === 'roll' && action === 'roll') return manualRoll();
-        if ((id === 'currency' || id === 'hero-init') && action === 'retry') return ensureHeroInit({ force: true, includeSkills: catalog.heroInitChoice === 'auto' });
+        if ((id === 'currency' || id === 'hero-init') && action === 'retry') return ensureHeroInit({ force: true, includeSkills: catalog.heroInitChoice === 'auto' && catalog.heroSkillsManual !== true });
         setNotice(id, null);
         return { ok: true };
     }
@@ -5508,7 +5543,8 @@ export function createStatsRuntime({
                 if (ab && !ab.initialized) npcRelative[c.name] = { source: ab.source || 'relative', initialized: false, scores: { ...ab.scores }, tier: ab.tier };
             }
         }
-        return model ? { ...model, heroBio: catalog.heroBio || '', npcPolicy, npcChoices: { ...npcChoices }, npcRelative, expenses: catalog.expenses, needsPick: needsHeroPick(), heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
+        const chatIdNow = chatIdOf(ctx());
+        return model ? { ...model, heroBio: catalog.heroBio || '', npcPolicy, npcChoices: { ...npcChoices }, npcRelative, expenses: catalog.expenses, needsPick: needsHeroPick() || (Boolean(chatIdNow) && heroManualPickOpen.has(chatIdNow)), heroSkillsManual: catalog.heroSkillsManual === true, heroAttrs: heroAttrs(), aptitude: Object.fromEntries(Object.entries(catalog.aptitude).map(([n, v]) => [n, v.v])), traits: traitSwitchModel(catalog.traits), traitList: Object.fromEntries(Object.keys(catalog.traits).map((n) => [n, { items: listTraits(catalog, n), ...slotUsage(catalog, n) }])), traitNsfw: isNsfw(), combatCardOn: combatOn(), statusMap: catalog.statuses || {}, relMap: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, Array.isArray(c.relStates) ? c.relStates : []])), traitAttrs: Object.fromEntries([PROTAGONIST, ...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})].map((n) => [n, gateAttrsOf(n)])), traitCodex: traitCodexStore ? traitCodexStore.get() : null, heroNotes: { ...catalog.heroNotes }, renames: { ...catalog.renames }, heroFeelings: settings().heroFeelings === true, confessed: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).filter(([, c]) => c.confessed === true).map(([n]) => [n, true])), heroDims: Object.fromEntries(Object.entries(currentStatsState(ledger).characters || {}).map(([n, c]) => [n, { ...heroDimsOf(c, { nsfw: isNsfw() }) }])), traitNotes: { ...catalog.traitNotes }, landmineKnown: { ...(catalog.landmineKnown || {}) }, softKnown: { ...(catalog.softKnown || {}) }, fame: fameRows(currentStatsState(ledger), catalog.fameBars), cycleMap: catalog.cycles || {}, statusDay: Number(currentStatsState(ledger).clock && currentStatsState(ledger).clock.day) || 0, worlds: [...(catalog.worlds || [])], worldsManual: [...(catalog.worldsManual || [])] } : null;
     }
     // 对外接口的入口统一包一层 inEvent：同一次调用内战斗开关只取一次。
     const ev = inEvent;

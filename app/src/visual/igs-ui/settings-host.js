@@ -1102,6 +1102,9 @@ export function createSettingsHost(deps) {
                     }
                 }
             }
+            else if (kind === 'hero-pick-open') {
+                result = await op('hero', 'pick-open', '', {});
+            }
             else if (kind === 'hero-pick') {
                 // 选擅长技能：读设置草稿里的 8 格（与建卡同一份），确定后写进本聊天。
                 const draftBuild = state.activeSettings && state.activeSettings.draft && state.activeSettings.draft.bridge && state.activeSettings.draft.bridge.stats && state.activeSettings.draft.bridge.stats.build;

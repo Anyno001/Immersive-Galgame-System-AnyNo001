@@ -22,7 +22,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ## 当前状态
 
-当前版本：`0.41.38`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
+当前版本：`0.41.39`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
 
 ### 未发布 / 版本不详
 
@@ -35,6 +35,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ### 0.41.x
 
+- `0.41.39`：支持主角擅长项混合选择规则（保留「自动生成」单批请求）：用户手动填写/选择擅长项时直接完整清空并覆盖先前 AI 回包，并持久化 `heroSkillsManual` 标记确保任何在途或迟到的 AI 回包都无法覆盖用户手选；点「手动选择」期间 AI 回包不会顶掉 3+5 选择区，且「我的角色 › 高级 › 擅长技能」新增「手动重选擅长（覆盖当前）」入口。未真机验证。
 - `0.41.38`：将数值提示词一次性覆盖迁移升级至修订 `v2`，自动一次性将存量配置中的 `heroInit` 与 `sheetGen`（含旧自定义副本）切换为单批统一生成的新版默认提示词，同时保留其余提示词与迁移后的新编辑。未真机验证。
 - `0.41.37`：统一主角与 NPC 的数值单批生成（同一批请求内一次性生成六维、擅长技能与初始特质，不再拆分多批请求）；调整生图串行冲突优先级为「角色立绘 > 场景 > CG > 物品等其他」（保留手动触发 `urgent` 与开战预热 `high` 优先）；修复 `replaceReader` 漏传变量导致的 `操作未完成：messageId is not defined` 报错；修复多行 `sprite-data`（字段冒号后换行及 NAI 权重语法）解析失败以及手动生成立绘未即时建立默认立绘占位与中途关闭设置导致绘图中断的问题。未真机验证。
 - `0.41.36`：调整数值系统与状态栏开关的联动方式：开启数值系统（含开启卡牌战斗自动拉起数值系统）时仅同步将「显示状态栏」开关置为开启，不再接管或强制覆盖状态栏显示控制权，用户随时可单独关闭状态栏并持久生效。未真机验证。
@@ -1110,6 +1111,13 @@ projects/Immersive Galgame System/
 ### v0.34.73 - 新手引导新增工具栏按钮管理（内测）
 
 - **新手引导**：「对话框外观」之后新增「工具栏按钮管理」一步，带你到「阅读器 › 界面」的按钮管理列表；觉得哪个图标累赘就关掉它的眼睛隐藏，也能调整顺序。引导步骤总数从 10 步变为 11 步。
+### v0.41.39 - 2026-11-25
+
+- **主角擅长项混合选择优先级（手选覆盖 AI、AI 永不覆盖手选）**：
+  - `app/src/scene/stats/stat-persist.js` / `app/src/scene/stats/stat-log.js` / `app/src/core/stats-runtime.js`：新增持久化标记 `heroSkillsManual`（`hero:skillsManual`）；`pickHeroSkills` 在写入用户手选 3+5 擅长项前先清空所有旧 AI 自动分配的技能底数与旧槽位，实现干净完整覆盖；`ensureHeroInit` 与非显式确认的 `assignHeroSkills` 在请求前、回包前、提交期（含冷恢复）均严格检查 `heroSkillsManual`，保证任何迟到 AI 回包都无法覆盖用户手填；用户在等待期间点击 `hero-pick`「手动选择」时保持 3+5 选择区不因 AI 回包而消失。
+  - `app/src/visual/igs-ui/stats-settings-fields.js` / `app/src/visual/igs-ui/settings-host.js`：在「我的角色 › 高级 › 擅长技能」新增「手动重选擅长（覆盖当前）」（`stats-op:hero-pick-open`），随时可展开 3+5 选择区一次性覆盖 AI 擅长项。
+- **验证**：`tests/unified-stats-priority-portrait.test.js`（6/6，含先手选后 AI 回包、先点手动选择中途 AI 回包再提交、AI 完成后重选覆盖三类竞态回归）、`stats-runtime` / `stats-wallet` / `stats-archive` / `combat-prompt-and-flow` / `igs-opt-hud-trigger-portrait` 共 **137/137** 全部通过，`loader-version`（5/5）与 `dist/igs.bundle.js` 构建及启动自检通过；未真机验证。
+
 ### v0.41.38 - 2026-11-25
 
 - **数值提示词一次性强制覆盖迁移（修订 `v2`）**：

@@ -179,7 +179,7 @@ export function renderHeroSlots(build, slots, ruleset = 'coc7') {
     const head = ruleset === 'dnd5e'
         ? '擅长技能加全额熟练加值，比较擅长加一半（向下取整）。更换技能时，原技能回到未学，新技能按该格起步。'
         : `擅长技能${BUILD_STRONG_VALUE}起步，比较擅长${BUILD_GOOD_VALUE}起步。更换技能时，原技能回到未学，新技能按该格起步。`;
-    return `<div class="igs-settings-section" data-stats-hero-slots><div class="igs-source-filter-title">擅长技能</div><div class="igs-source-filter-note">${esc(head)}</div><div class="igs-source-filter-grid">${grid}</div></div>`;
+    return `<div class="igs-settings-section" data-stats-hero-slots><div class="igs-source-filter-title">擅长技能</div><div class="igs-source-filter-note">${esc(head)}</div><div class="igs-source-filter-grid">${grid}</div><div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-pick-open" type="button">手动重选擅长（覆盖当前）</button></div></div>`;
 }
 
 // 数字框输入只写草稿、不整页重绘（保焦点）；剩余点数、技能提示与「按分配启用」在这里就地更新。
@@ -399,7 +399,9 @@ export function renderStatsHeroCard(model, advancedOpen = () => '', build = null
     if (!model) return '<div class="igs-source-filter-note">本聊天还没有数值存档。启用后从当前楼开始记录。</div>';
     // 新聊天还没选擅长技能：选择区放在最前，同时提供「按人设自动生成」，确定或生成后不再显示。
     const pick = model.needsPick
-        ? `<div class="igs-settings-section" data-stats-hero-pick><div class="igs-source-filter-title">选择擅长技能</div>${renderSkillPicks(build, model.ruleset)}`
+        ? `<div class="igs-settings-section" data-stats-hero-pick><div class="igs-source-filter-title">选择擅长技能</div>`
+            + (Array.isArray(model.skills) && model.skills.length ? '<div class="igs-source-filter-note">确认后将用你手动选择的擅长项直接覆盖当前技能；后续 AI 回包不会覆盖你的手选项。</div>' : '')
+            + `${renderSkillPicks(build, model.ruleset)}`
             + `<div class="igs-stats-hero-actions"><button class="igs-settings-action" data-action="stats-op:hero-pick" type="button"${pickSummary(build).ok ? '' : ' disabled'}>确定</button>`
             + `<button class="igs-settings-action" data-action="stats-op:hero-assign" type="button">按人设自动生成</button></div></div>`
         : '';

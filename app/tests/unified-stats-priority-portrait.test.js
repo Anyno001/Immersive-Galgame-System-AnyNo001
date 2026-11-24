@@ -444,3 +444,156 @@ test('提示词一次性覆盖迁移 rev 1 -> 2：强制覆盖旧自定义 heroI
     assert.equal(reloaded.prompts.sheetGen, '迁移后新编 sheetGen');
     await restarted.shutdown();
 });
+
+test('主角擅长项混合模式：用户手选直接完整覆盖 AI 回包，且迟到 AI 回包绝不覆盖用户手选', async (t) => {
+    const makeEnv = (chatId, handler) => {
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        db.sheets.sheet_userbag = userInventorySheet();
+        const storage = createMemoryStorage();
+        const ctx = {
+            chatId,
+            name1: '阿不思',
+            name2: '小雪',
+            chat: [{ is_user: false, mes: '[igs-scene:山脚|白天|晴]\n旅程开始。', swipe_id: 0 }],
+            chatMetadata: {},
+            getCurrentChatId: () => ctx.chatId,
+            eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
+            eventSource: { on() {}, removeListener() {} },
+        };
+        const chatStore = createIgsChatStore({
+            storage,
+            api: () => db.api,
+            chatId: () => ctx.chatId,
+            chat: () => ctx.chat,
+            userName: () => ctx.name1,
+            evidence: (id) => readIgsChatEvidence({ context: ctx, chatId: id, storage }),
+        });
+        const makeRuntime = () => createStatsRuntime({
+            getContext: () => ctx,
+            readSettings: () => ({ enabled: true, sheetGen: 'off', backfill: 'off', hudEnabled: true, ruleset: 'dnd5e' }),
+            worldviewOf: () => 'fantasy',
+            generationIdentity: () => chatStore.get(),
+            generationRoute: () => `route-${chatId}`,
+            statsTables: () => chatStore.get().statsAccess,
+            attributeAccess: () => chatStore.get().attributeAccess,
+            currencyInventory: () => chatStore.get().inventory,
+            currencyEditStorage: storage,
+            getPushClient: () => chatStore.get().client,
+            getBackgroundRequest: () => handler,
+        });
+        const rt = makeRuntime();
+        t.after(() => { rt.destroy(); chatStore.dispose(); });
+        rt.sync();
+        return { db, storage, ctx, chatStore, rt, makeRuntime };
+    };
+
+    const aiReply = JSON.stringify({
+        attributes: { 力量: 11, 敏捷: 15, 体质: 12, 智力: 16, 感知: 14, 魅力: 10 },
+        skills: { 侦查: '精通', 潜行: '熟练', 察言观色: '熟练', 话术: '入门', 医术: '入门' },
+        bio: '苍白山脉的旅人。',
+        currency: { name: '银币', initial: 90, prices: { 少量: 5, 普通: 20, 昂贵: 100, 巨额: 500 }, rate: 1 },
+    });
+
+    // 场景 A：用户先点自动生成，随后在 AI 回包前手动填写擅长项 -> AI 迟到回包正常写六维/货币/简介，但绝不覆盖用户手选擅长项
+    {
+        const gate = deferred();
+        const entered = deferred();
+        const env = makeEnv('chat-hybrid-user-first', async () => {
+            entered.resolve();
+            await gate.promise;
+            return aiReply;
+        });
+        const autoRun = env.rt.noticeAction('hero-init-mode', 'auto');
+        await entered.promise;
+
+        const openRes = env.rt.noticeAction('hero-pick', 'open');
+        assert.equal(openRes.openSettings, 'stats');
+        const pickRes = env.rt.heroOp('pick', '', {
+            skills: { 剑术: 60, 魔法: 60, 骑术: 60, 攀爬: 30, 跳跃: 30 },
+            slots: { strong1: '剑术', strong2: '魔法', strong3: '骑术', good1: '攀爬', good2: '跳跃' },
+        });
+        assert.equal(pickRes.ok, true);
+        assert.equal(env.rt.getCatalog().heroSkillsManual, true);
+
+        gate.resolve();
+        const autoRes = await autoRun;
+        assert.equal(autoRes.ok, true, JSON.stringify(autoRes));
+        await env.rt.whenSaved();
+
+        assert.equal(env.rt.abilitiesOf('阿不思')?.permanentScores?.int, 16, 'AI 六维应正常写入');
+        assert.equal(env.rt.currencyBalance(), 90, 'AI 货币应正常入账');
+        assert.equal(env.rt.getCatalog().heroBio, '苍白山脉的旅人。');
+        const names = Object.keys(env.rt.getCatalog().protagonistBase).sort();
+        assert.deepEqual(names, ['剑术', '攀爬', '跳跃', '骑术', '魔法'], '迟到 AI 回包不得覆盖或混入用户手选擅长项');
+        assert.equal(env.rt.getCatalog().heroSkillsManual, true);
+
+        // 冷重载后仍保留 heroSkillsManual 标记与用户手选项
+        env.rt.destroy();
+        env.chatStore.reset();
+        const cold = env.makeRuntime();
+        t.after(() => cold.destroy());
+        cold.sync();
+        assert.equal(cold.getCatalog().heroSkillsManual, true);
+        assert.deepEqual(Object.keys(cold.getCatalog().protagonistBase).sort(), ['剑术', '攀爬', '跳跃', '骑术', '魔法']);
+        const unconfirmedAssign = await cold.heroOp('assign', '', { overwrite: false });
+        assert.equal(unconfirmedAssign.reason, 'needs-confirm', '未确认时 AI 分配不得静默覆盖手选项');
+    }
+
+    // 场景 B：点自动生成 -> 点手动选择打开 3+5 选择器 -> AI 先回包（选择器保持可见不消失）-> 用户提交手选，完整清空覆盖旧 AI 技能
+    {
+        const gate = deferred();
+        const entered = deferred();
+        const env = makeEnv('chat-hybrid-ai-first', async () => {
+            entered.resolve();
+            await gate.promise;
+            return aiReply;
+        });
+        const autoRun = env.rt.noticeAction('hero-init-mode', 'auto');
+        await entered.promise;
+
+        const openRes = env.rt.noticeAction('hero-pick', 'open');
+        assert.equal(openRes.openSettings, 'stats');
+
+        gate.resolve();
+        const autoRes = await autoRun;
+        assert.equal(autoRes.ok, true, JSON.stringify(autoRes));
+        await env.rt.whenSaved();
+
+        assert.ok(env.rt.getCatalog().protagonistBase.侦查, 'AI 先回包时先写入临时 AI 技能');
+        assert.equal(env.rt.archive().needsPick, true, '用户已点手动选择时，AI 回包不得把 3+5 选择区顶消失');
+
+        const pickRes = env.rt.heroOp('pick', '', {
+            skills: { 剑术: 60, 魔法: 60, 骑术: 60, 攀爬: 30 },
+            slots: { strong1: '剑术', strong2: '魔法', strong3: '骑术', good1: '攀爬' },
+        });
+        assert.equal(pickRes.ok, true);
+        await env.rt.whenSaved();
+
+        const baseKeys = Object.keys(env.rt.getCatalog().protagonistBase).sort();
+        assert.deepEqual(baseKeys, ['剑术', '攀爬', '骑术', '魔法'], '用户手选必须完整覆盖 AI 回包，不残留任何旧 AI 技能');
+        assert.equal(env.rt.getCatalog().heroSkillsManual, true);
+        assert.equal(env.rt.archive().needsPick, false);
+    }
+
+    // 场景 C：AI 全自动完成后，用户在设置页点「手动重选擅长（覆盖当前）」可随时重新展开 3+5 选择区并覆盖 AI 回包
+    {
+        const env = makeEnv('chat-hybrid-reopen', async () => aiReply);
+        const autoRes = await env.rt.noticeAction('hero-init-mode', 'auto');
+        assert.equal(autoRes.ok, true);
+        await env.rt.whenSaved();
+        assert.equal(env.rt.archive().needsPick, false);
+        assert.ok(env.rt.getCatalog().protagonistBase.侦查);
+
+        assert.equal(env.rt.heroOp('pick-open', '', {}).ok, true);
+        assert.equal(env.rt.archive().needsPick, true, '点击手动重选擅长后应重新展示 3+5 选择区');
+
+        const pickRes = env.rt.heroOp('pick', '', {
+            skills: { 烹饪: 60, 艺术: 60, 学习: 60 },
+            slots: { strong1: '烹饪', strong2: '艺术', strong3: '学习' },
+        });
+        assert.equal(pickRes.ok, true);
+        await env.rt.whenSaved();
+        assert.deepEqual(Object.keys(env.rt.getCatalog().protagonistBase).sort(), ['学习', '烹饪', '艺术']);
+        assert.equal(env.rt.archive().needsPick, false);
+    }
+});
