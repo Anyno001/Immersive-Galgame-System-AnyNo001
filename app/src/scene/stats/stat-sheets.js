@@ -1,7 +1,7 @@
 // NPC 角色卡与批量补全（数值 v2 §6.2–§6.4）：LLM 只给档位词，脚本按「聊天种子 + 角色名 + 项目名」在档位区间里取底数。
 // 解析只收白名单档位；出现数字整格丢弃；整份解析失败时返回 ok:false，不写半份数据（易错点 N3/N4）。
 import { BASE_ATTRIBUTES } from './stat-state.js';
-import { LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat-registry.js';
+import { canonicalSkillName, LEGACY_ATTRIBUTE_MAP, normalizeAttribute, validSkillName } from './stat-registry.js';
 import { PROTAGONIST, RANKS, SAN_ATTRIBUTE, profileOf } from './stat-engine.js';
 import { seededRandom } from './stat-ledger.js';
 import { DEFAULT_STAT_PROMPTS } from './stat-prompt.js';
@@ -388,7 +388,7 @@ ${historyText ? `最近剧情与用户输入：\n${historyText}\n` : ''}${worldR
 
 // 返回 { ok, tiers: { 技能: 档 }, demoted }：只收清单内技能与白名单档位，含数字的项整项丢弃；
 // 档位名额按回复顺序占用，超额降一档直到有空位（降到未学则不写）。全部为未学或没有有效项视为失败。
-export function parseHeroSkillReply(reply, { skills = [] } = {}) {
+export function parseHeroSkillReply(reply, { skills = [], registry = null } = {}) {
     const obj = extractJson(reply);
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-hero-skills-invalid', tiers: {} };
     const allowed = new Set(skills);
@@ -396,8 +396,13 @@ export function parseHeroSkillReply(reply, { skills = [] } = {}) {
     const tiers = {};
     let demoted = 0;
     for (const [key, raw] of Object.entries(obj)) {
-        const skill = allowed.has(key) ? key : null;
-        let tier = skill ? skillTier(raw) : null;
+        const trimmed = String(key ?? '').trim();
+        const resolved = registry && typeof registry.resolve === 'function' ? registry.resolve(trimmed) : '';
+        const canon = canonicalSkillName(trimmed);
+        const skill = allowed.has(trimmed) ? trimmed
+            : (resolved && allowed.has(resolved) ? resolved : (allowed.has(canon) ? canon : null));
+        if (!skill || Object.hasOwn(tiers, skill)) continue;
+        let tier = skillTier(raw);
         if (!tier || tier === '未学') continue;
         let i = SKILL_TIER_ORDER.indexOf(tier);
         while (i > 0 && (used[SKILL_TIER_ORDER[i]] || 0) >= HERO_TIER_LIMITS[SKILL_TIER_ORDER[i]]) { i -= 1; demoted += 1; }

@@ -186,6 +186,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
     // 背包格位与详情头图标：设置为「生图」且本聊天已有物品图时显示图片，否则保留 SVG。
     let unsubscribeItemImages = null;
     let unsubscribePortraits = null;
+    let unsubscribeStats = null;
     const SAFE_PORTRAIT_URL = /^(?:https?:|blob:|data:image\/|\/|\.\.?\/)/i;
     const personPortrait = name => {
         if (typeof options.resolvePersonPortrait !== 'function' || !name) return '';
@@ -248,6 +249,20 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         const top = scroller ? scroller.scrollTop : 0;
         const detailTop = detail ? detail.scrollTop : 0;
         render();
+        const next = root.querySelector?.('.igs-record-scroll');
+        if (next) next.scrollTop = top;
+        const nextDetail = root.querySelector?.('.igs-record-relationship-detail');
+        if (nextDetail) nextDetail.scrollTop = detailTop;
+    };
+    const onStatsChanged = () => {
+        if (!root || (category !== 'relationships' && category !== 'favor')) return;
+        const active = doc.activeElement;
+        if (active && String(active.tagName || '').toUpperCase() === 'INPUT' && root.contains?.(active)) return;
+        const scroller = root.querySelector?.('.igs-record-scroll');
+        const detail = root.querySelector?.('.igs-record-relationship-detail');
+        const top = scroller ? scroller.scrollTop : 0;
+        const detailTop = detail ? detail.scrollTop : 0;
+        reload();
         const next = root.querySelector?.('.igs-record-scroll');
         if (next) next.scrollTop = top;
         const nextDetail = root.querySelector?.('.igs-record-relationship-detail');
@@ -368,6 +383,7 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         try { client.registerCallback(callback); } catch (_) { /* Optional subscription. */ }
         try { unsubscribeItemImages = options.subscribeItemImages?.(onItemImagesChanged) || null; } catch (_) { unsubscribeItemImages = null; }
         try { unsubscribePortraits = options.subscribePortraits?.(onPortraitsChanged) || null; } catch (_) { unsubscribePortraits = null; }
+        try { unsubscribeStats = options.subscribeStats?.(onStatsChanged) || null; } catch (_) { unsubscribeStats = null; }
         reload();
         root.querySelector?.('[data-record-act="close"]')?.focus?.();
         return { ok: true };
@@ -389,6 +405,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
         unsubscribeItemImages = null;
         unsubscribePortraits?.();
         unsubscribePortraits = null;
+        unsubscribeStats?.();
+        unsubscribeStats = null;
         root.remove();
         root = null;
         pageOverlay?.classList?.remove('igs-record-screen-open');
@@ -455,12 +473,80 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
             const others = preferStatsLookup(statsLookup, tableLookup);
             // 用户本人与「设为User立绘」的角色都没有人际数值：显示主角生活条（压力、体力等），表格里的好感、信任、芥蒂等列不显示。
             const userCharacter = String(((settings?._sceneAssets || settings?.sceneAssets) || {}).userCharacter || '').trim();
+            const resolveHeroMetrics = (name) => {
+                if (!heroLookup) return null;
+                return heroLookup(name) || (String(name || '').trim() !== '主角' ? heroLookup('主角') : null);
+            };
+            // 重要角色表为空、缺表或未收录主角/数值系统已登记角色时，将主角与数值系统已登记角色并入人际关系页，确保六维、擅长与生活条可直接查看。
+            const stUserName = String(getSillyTavernContext(global || globalThis)?.name1 || '').trim();
+            const heroDisplayName = userCharacter || stUserName || '主角';
+            const heroData = resolveHeroMetrics(heroDisplayName);
+            const hasHeroData = Boolean(heroData && ((heroData.metrics && heroData.metrics.length) || (heroData.attributes && heroData.attributes.length) || (heroData.sheet && !heroData.sheet.missing) || heroData.bio));
+            const livePeople = Array.isArray(live?.people) ? live.people : [];
+            if (hasHeroData || livePeople.length) {
+                const tables = Array.isArray(next.tables) ? next.tables.slice() : [];
+                const people = Array.isArray(next.people) ? next.people.slice() : [];
+                if (!tables.length) {
+                    tables.push({ uid: 'igs-stats', name: '数值档案', columns: [], rows: [], diagnostics: [] });
+                    activeUid = 'igs-stats';
+                } else if (!tables.some(item => item.uid === activeUid)) {
+                    activeUid = tables[0].uid;
+                }
+                for (const sourceTable of tables) {
+                    const uid = sourceTable.uid;
+                    if (hasHeroData && !people.some(person => person.uid === uid && isHeroPerson(person.name))) {
+                        people.push({
+                            id: `${uid}:stats-hero:${heroDisplayName}`,
+                            uid,
+                            source: '',
+                            rowIndex: -1,
+                            name: heroDisplayName,
+                            role: '主角',
+                            description: '',
+                            relatedText: '',
+                            hasProfile: false,
+                            profile: [],
+                            cells: [],
+                            detailCells: [],
+                            synthetic: true,
+                            statsOnly: true,
+                        });
+                    }
+                    for (const npc of livePeople) {
+                        const npcName = String(npc?.name || '').trim();
+                        if (!npcName || isHeroPerson(npcName)) continue;
+                        if (people.some(person => person.uid === uid && String(person.name || '').trim() === npcName)) continue;
+                        people.push({
+                            id: `${uid}:stats-npc:${npcName}`,
+                            uid,
+                            source: '',
+                            rowIndex: -1,
+                            name: npcName,
+                            role: '',
+                            description: '',
+                            relatedText: '',
+                            hasProfile: false,
+                            profile: [],
+                            cells: [],
+                            detailCells: [],
+                            synthetic: true,
+                            statsOnly: true,
+                        });
+                    }
+                }
+                model = {
+                    ...next,
+                    tables,
+                    people,
+                    status: people.length && (next.status === 'empty' || next.status === 'no-tables') ? 'ready' : next.status,
+                };
+            }
             metricsOf = (name) => {
                 const userName = getSillyTavernContext(global || globalThis)?.name1;
                 const picked = Boolean(userCharacter) && String(name || '').trim() === userCharacter;
                 if (!picked && !isUserName(name, userName)) return others(name);
-                const own = heroLookup ? heroLookup(name) : null;
-                if (own && ((own.metrics && own.metrics.length) || (own.attributes && own.attributes.length) || own.sheet)) return own;
+                const own = resolveHeroMetrics(name);
+                if (own && ((own.metrics && own.metrics.length) || (own.attributes && own.attributes.length) || own.sheet || own.bio)) return own;
                 let fromTable = null;
                 try { fromTable = tableLookup ? tableLookup(name) : null; } catch (_) { fromTable = null; }
                 return { ...dropUserFavor({ metrics: (fromTable && fromTable.metrics) || [] }, picked ? '主角' : name, userName), stages: [] };
@@ -948,6 +1034,8 @@ export function createRecordPanelController(doc, global, fillDraft, options = {}
                 profileHtml = heroBio
                     ? `<dl class="igs-record-profile"><div><dt>主角简介</dt><dd>${escapeHtml(heroBio)}</dd></div></dl>`
                     : '<p class="igs-record-relationship-note">暂无主角简介（可在酒馆「人设管理」中填写）。</p>';
+            } else if (chosen.statsOnly) {
+                profileHtml = '<p class="igs-record-relationship-note">已由数值系统登记，人物表格尚未写入外貌与经历记录。</p>';
             } else {
                 profileHtml = `<p class="igs-record-relationship-description">暂无人物描述。</p>${chosen.synthetic ? '<p class="igs-record-relationship-note">仅记录了姓名，未提供身份或描述。</p>' : ''}`;
             }

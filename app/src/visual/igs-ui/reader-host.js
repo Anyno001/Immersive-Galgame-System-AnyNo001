@@ -5901,6 +5901,7 @@ ${row.key}`;
             resolvePersonPortrait: (name) => resolveRecordPersonPortrait(name),
             subscribePortraits: (handler) => (typeof options.onGeneratedAssetUpdated === 'function'
                 ? options.onGeneratedAssetUpdated((detail) => { if (detail && (detail.reason === 'image-loaded' || detail.reason === 'image-lost' || detail.reason === 'combat-prewarm')) handler(detail); }) : null),
+            subscribeStats: (handler) => (typeof options.onStatsUpdated === 'function' ? options.onStatsUpdated(handler) : null),
             // 背包「使用」（P7c）：有装配定义的回复道具走场外使用；返回 draft 时照旧填草稿。
             useInventoryItem: typeof options.useCombatInventoryItem === 'function' ? (name) => options.useCombatInventoryItem(name) : null,
             // 背包分组、已装备标记与装备映射（P7e）：战斗开启时读主角背包投影；装上 / 卸下走现有换装服务。

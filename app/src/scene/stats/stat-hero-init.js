@@ -86,27 +86,47 @@ function parseCurrencyObject(raw) {
     return { ok: true, config, initial };
 }
 
-function parseHeroInitSkills(data, availableSkills) {
-    if (!Array.isArray(availableSkills) || !availableSkills.length) return null;
-    const rawObj = data.skills ?? data.技能;
-    if (rawObj && typeof rawObj === 'object' && !Array.isArray(rawObj)) {
-        const parsed = parseHeroSkillReply(JSON.stringify(rawObj), { skills: availableSkills });
-        return parsed.ok ? parsed.tiers : null;
+function toSkillNameList(raw) {
+    if (Array.isArray(raw)) {
+        return raw.map((item) => String((item && typeof item === 'object' ? (item.name ?? item.名 ?? item.skill) : item) ?? '').trim()).filter(Boolean);
     }
-    const strong = Array.isArray(data.擅长 ?? data.strong) ? (data.擅长 ?? data.strong) : [];
-    const good = Array.isArray(data.比较擅长 ?? data.good) ? (data.比较擅长 ?? data.good) : [];
+    if (typeof raw === 'string') {
+        return raw.split(/[、,，;；\n]+/).map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+}
+
+function mapSkillGroups(strongRaw, goodRaw, availableSkills, registry) {
+    const strong = toSkillNameList(strongRaw);
+    const good = toSkillNameList(goodRaw);
     if (!strong.length && !good.length) return null;
     const mapped = {};
-    for (const item of strong) {
-        const name = String(item ?? '').trim();
+    for (const name of strong) {
         if (name && !Object.hasOwn(mapped, name)) mapped[name] = '精通';
     }
-    for (const item of good) {
-        const name = String(item ?? '').trim();
+    for (const name of good) {
         if (name && !Object.hasOwn(mapped, name)) mapped[name] = '熟练';
     }
-    const parsed = parseHeroSkillReply(JSON.stringify(mapped), { skills: availableSkills });
+    const parsed = parseHeroSkillReply(JSON.stringify(mapped), { skills: availableSkills, registry });
     return parsed.ok ? parsed.tiers : null;
+}
+
+function parseHeroInitSkills(data, availableSkills, { registry = null } = {}) {
+    if (!Array.isArray(availableSkills) || !availableSkills.length) return null;
+    const rawObj = data.skills ?? data.技能 ?? data.擅长技能;
+    if (Array.isArray(rawObj)) {
+        const list = toSkillNameList(rawObj);
+        return mapSkillGroups(list.slice(0, 3), list.slice(3, 8), availableSkills, registry);
+    }
+    if (rawObj && typeof rawObj === 'object') {
+        if (rawObj.擅长 !== undefined || rawObj.比较擅长 !== undefined || rawObj.strong !== undefined || rawObj.good !== undefined) {
+            const grouped = mapSkillGroups(rawObj.擅长 ?? rawObj.strong, rawObj.比较擅长 ?? rawObj.good, availableSkills, registry);
+            if (grouped) return grouped;
+        }
+        const parsed = parseHeroSkillReply(JSON.stringify(rawObj), { skills: availableSkills, registry });
+        if (parsed.ok) return parsed.tiers;
+    }
+    return mapSkillGroups(data.擅长 ?? data.strong, data.比较擅长 ?? data.good, availableSkills, registry);
 }
 
 export function buildHeroInitRequest({
@@ -164,7 +184,7 @@ export function buildHeroInitRequest({
 
 export function parseHeroInitReply(reply, {
     needAttributes = true, needCurrency = true, needSkills = false, availableSkills = [],
-    needTraits = false, traitDefs = [], chatSeed = '',
+    needTraits = false, traitDefs = [], chatSeed = '', registry = null,
 } = {}) {
     const extracted = extractJsonObject(reply);
     if (!extracted.ok) return { ok: false, stage: 'parse', reason: extracted.reason };
@@ -183,7 +203,7 @@ export function parseHeroInitReply(reply, {
         out.currency = { config: parsedCurrency.config, initial: parsedCurrency.initial };
     }
     if (needSkills && Array.isArray(availableSkills) && availableSkills.length) {
-        const skills = parseHeroInitSkills(data, availableSkills);
+        const skills = parseHeroInitSkills(data, availableSkills, { registry });
         if (skills) out.skills = skills;
     }
     if (needTraits && Array.isArray(traitDefs) && traitDefs.length) {

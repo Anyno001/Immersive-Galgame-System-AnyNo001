@@ -22,7 +22,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ## 当前状态
 
-当前版本：`0.41.39`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
+当前版本：`0.41.40`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
 
 ### 未发布 / 版本不详
 
@@ -35,6 +35,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ### 0.41.x
 
+- `0.41.40`：修复主角擅长技能单独弹出 `stats-generation-conflict` 报错的问题（增强 `heroInit` 单批技能容错解析以支持空格、注册表别名与嵌套/数组格式；单批自动初始化进行中不再暴露重复的「按人设生成」按钮；`assignHeroSkills` 在 `heroInit` 先行落库或用户手选完成时静默退出并清理忙提示，不再误报 `stats-generation-conflict`，同时保护 `finishGenerationSave` 并发 `adopt(merged)` 不回滚主角初始化内存状态）；修复「人际关系」页在重要角色表为空、缺表或未收录主角时不显示已生成六维/擅长/生活条的问题，自动并入主角及数值系统已登记角色并订阅 `igs:stats-updated` 即时刷新。未真机验证。
 - `0.41.39`：支持主角擅长项混合选择规则（保留「自动生成」单批请求）：用户手动填写/选择擅长项时直接完整清空并覆盖先前 AI 回包，并持久化 `heroSkillsManual` 标记确保任何在途或迟到的 AI 回包都无法覆盖用户手选；点「手动选择」期间 AI 回包不会顶掉 3+5 选择区，且「我的角色 › 高级 › 擅长技能」新增「手动重选擅长（覆盖当前）」入口。未真机验证。
 - `0.41.38`：将数值提示词一次性覆盖迁移升级至修订 `v2`，自动一次性将存量配置中的 `heroInit` 与 `sheetGen`（含旧自定义副本）切换为单批统一生成的新版默认提示词，同时保留其余提示词与迁移后的新编辑。未真机验证。
 - `0.41.37`：统一主角与 NPC 的数值单批生成（同一批请求内一次性生成六维、擅长技能与初始特质，不再拆分多批请求）；调整生图串行冲突优先级为「角色立绘 > 场景 > CG > 物品等其他」（保留手动触发 `urgent` 与开战预热 `high` 优先）；修复 `replaceReader` 漏传变量导致的 `操作未完成：messageId is not defined` 报错；修复多行 `sprite-data`（字段冒号后换行及 NAI 权重语法）解析失败以及手动生成立绘未即时建立默认立绘占位与中途关闭设置导致绘图中断的问题。未真机验证。
@@ -1111,6 +1112,15 @@ projects/Immersive Galgame System/
 ### v0.34.73 - 新手引导新增工具栏按钮管理（内测）
 
 - **新手引导**：「对话框外观」之后新增「工具栏按钮管理」一步，带你到「阅读器 › 界面」的按钮管理列表；觉得哪个图标累赘就关掉它的眼睛隐藏，也能调整顺序。引导步骤总数从 10 步变为 11 步。
+### v0.41.40 - 2026-11-25
+
+- **消除主角擅长技能单独报 `stats-generation-conflict`**：
+  - `app/src/scene/stats/stat-sheets.js` / `app/src/scene/stats/stat-hero-init.js`：`parseHeroSkillReply` 与 `parseHeroInitSkills` 支持技能名去空格、通过技能注册表与 `canonicalSkillName` 归一别名（如 `侦察`→`侦查`、`交涉`→`话术`、`急救`→`医术`），并兼容嵌套 `skills: { 擅长, 比较擅长 }`、分隔串与技能数组，避免 `heroInit` 单批漏收技能后退回二次请求。
+  - `app/src/core/stats-runtime.js`：`hero-init-mode: auto` 先启动带 `wantSkills` 标记的 `ensureHeroInit` 再刷新引导条，进行中 `hero-pick` 不再展示重复的「按人设生成」按钮；`assignHeroSkills` 窄化快照避免外部表采纳误触冲突，在 `heroInit` 已先落库技能或用户已手选时静默退出并清除忙提示（`onRetry`/`onSlow` 不复活已清除的忙提示）；`finishGenerationSave` 在并发 `adopt(merged)` 时补全对主角初始化字段的保护，避免被并发 NPC 建档回滚。
+- **修复人际关系页未显示主角六维与数值已登记角色**：
+  - `app/src/visual/igs-ui/record-panel.js` / `reader-host.js` / `bootstrap.js`：当 `重要角色表` 为空、缺表或尚未收录主角／数值系统已登记 NPC 时，`relationships` 视图自动并入主角（含六维雷达图、生活条、擅长技能、默认立绘与主角简介）及数值系统已登记角色，消除空表状态下的「匹配表没有可阅读的记录」误提示，并订阅 `igs:stats-updated` 在数值生成完成后实时刷新已打开的人际关系页。
+- **验证**：`tests/unified-stats-priority-portrait.test.js`（8/8）、`stats-runtime` / `stats-wallet` / `stats-archive` / `combat-prompt-and-flow` / `igs-opt-hud-trigger-portrait` 共 **139/139** 通过，`loader-version`（5/5）与 `dist/igs.bundle.js`、`dist/igs.bundle.debug.js`、`build-local-package.js` 构建及冷启动校验通过；未真机验证。
+
 ### v0.41.39 - 2026-11-25
 
 - **主角擅长项混合选择优先级（手选覆盖 AI、AI 永不覆盖手选）**：

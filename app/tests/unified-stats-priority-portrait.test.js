@@ -597,3 +597,214 @@ test('主角擅长项混合模式：用户手选直接完整覆盖 AI 回包，�
         assert.equal(env.rt.archive().needsPick, false);
     }
 });
+
+test('主角擅长技能单批容错解析与并发完成不误报 stats-generation-conflict', async (t) => {
+    const { parseHeroInitReply } = await import('../src/scene/stats/stat-hero-init.js');
+    const { createSkillRegistry } = await import('../src/scene/stats/stat-registry.js');
+    const registry = createSkillRegistry({});
+
+    // 1) 单批 heroInit 容错解析：支持技能空格、别名与嵌套 擅长/比较擅长
+    const parsedAlias = parseHeroInitReply(JSON.stringify({
+        attributes: { 力量: 10, 敏捷: 12, 体质: 11, 智力: 15, 感知: 14, 魅力: 11 },
+        skills: { ' 侦察 ': '精通', 交涉: '熟练', 急救: '入门' },
+        currency: { name: '银币', initial: 50, prices: { 少量: 5, 普通: 20, 昂贵: 100, 巨额: 500 }, rate: 1 },
+    }), {
+        needAttributes: true,
+        needCurrency: true,
+        needSkills: true,
+        availableSkills: ['侦查', '话术', '潜行', '医术'],
+        registry,
+    });
+    assert.equal(parsedAlias.ok, true);
+    assert.equal(parsedAlias.skills?.侦查, '精通', '别名与带空格技能应归一命中可用技能');
+    assert.equal(parsedAlias.skills?.话术, '熟练', '交涉应通过注册表别名归一为话术');
+    assert.equal(parsedAlias.skills?.医术, '入门', '急救应通过注册表别名归一为医术');
+
+    const parsedNested = parseHeroInitReply(JSON.stringify({
+        attributes: { 力量: 10, 敏捷: 12, 体质: 11, 智力: 15, 感知: 14, 魅力: 11 },
+        skills: { 擅长: ['侦查', '说服'], 比较擅长: '隐匿、急救' },
+        currency: { name: '银币', initial: 50, prices: { 少量: 5, 普通: 20, 昂贵: 100, 巨额: 500 }, rate: 1 },
+    }), {
+        needAttributes: true,
+        needCurrency: true,
+        needSkills: true,
+        availableSkills: ['侦查', '话术', '潜行', '医术'],
+        registry,
+    });
+    assert.equal(parsedNested.ok, true);
+    assert.deepEqual(Object.keys(parsedNested.skills || {}).sort(), ['侦查', '医术', '潜行', '话术']);
+
+    // 2) 自动初始化进行中不向用户暴露重复的「按人设生成」按钮；且若并发 assignHeroSkills 晚于 heroInit 返回，静默跳过绝不报 stats-generation-conflict
+    const heroGate = deferred();
+    const skillGate = deferred();
+    const skillEntered = deferred();
+    const db = createLedgerMockHost({ supportCallbacks: true });
+    db.sheets.sheet_userbag = userInventorySheet();
+    const storage = createMemoryStorage();
+    const ctx = {
+        chatId: 'chat-no-false-skill-conflict',
+        name1: '阿不思',
+        name2: '小雪',
+        chat: [{ is_user: false, mes: '[igs-scene:山脚|白天|晴]\n旅程开始。', swipe_id: 0 }],
+        chatMetadata: {},
+        getCurrentChatId: () => ctx.chatId,
+        eventTypes: { GENERATION_STARTED: 'gs', GENERATION_ENDED: 'ge', CHAT_CHANGED: 'cc' },
+        eventSource: { on() {}, removeListener() {} },
+    };
+    const chatStore = createIgsChatStore({
+        storage,
+        api: () => db.api,
+        chatId: () => ctx.chatId,
+        chat: () => ctx.chat,
+        userName: () => ctx.name1,
+        evidence: (id) => readIgsChatEvidence({ context: ctx, chatId: id, storage }),
+    });
+    const rt = createStatsRuntime({
+        getContext: () => ctx,
+        readSettings: () => ({ enabled: true, sheetGen: 'off', backfill: 'off', hudEnabled: true, ruleset: 'dnd5e' }),
+        worldviewOf: () => 'fantasy',
+        generationIdentity: () => chatStore.get(),
+        generationRoute: () => 'route-conflict-fix',
+        statsTables: () => chatStore.get().statsAccess,
+        attributeAccess: () => chatStore.get().attributeAccess,
+        currencyInventory: () => chatStore.get().inventory,
+        currencyEditStorage: storage,
+        getPushClient: () => chatStore.get().client,
+        getBackgroundRequest: () => async (prompt, task = {}) => {
+            const text = `${prompt?.system || ''}\n${prompt?.user || ''}`;
+            if (text.includes('可分配技能：')) {
+                skillEntered.resolve();
+                await skillGate.promise;
+                task.onRetry?.({ attempt: 1, maxRetries: 2 });
+                return JSON.stringify({ 潜行: '精通', 急救: '熟练' });
+            }
+            await heroGate.promise;
+            return JSON.stringify({
+                attributes: { 力量: 11, 敏捷: 14, 体质: 12, 智力: 16, 感知: 13, 魅力: 10 },
+                skills: { 侦查: '精通', 察言观色: '熟练', 话术: '熟练' },
+                bio: '苍白山脉的年轻法师。',
+                currency: { name: '银币', initial: 80, prices: { 少量: 5, 普通: 20, 昂贵: 100, 巨额: 500 }, rate: 1 },
+            });
+        },
+    });
+    t.after(() => { rt.destroy(); chatStore.dispose(); });
+    rt.sync();
+
+    const heroRun = rt.noticeAction('hero-init-mode', 'auto');
+    const pickNotice = rt.notices().find((n) => n.id === 'hero-pick');
+    assert.ok(pickNotice, '初始化期间仍允许手动选择覆盖');
+    assert.equal(pickNotice.actions.some(([act]) => act === 'assign'), false, '主角初始化已在单批生成技能时，hero-pick 不应展示重复的「按人设生成」按钮');
+
+    // 即使外部/旧路径并发触发了 assignHeroSkills，且 heroInit 先落库技能：
+    const skillRun = rt.heroOp('assign', '', { overwrite: false });
+    await skillEntered.promise;
+    heroGate.resolve();
+    const heroRes = await heroRun;
+    assert.equal(heroRes.ok, true);
+    await rt.whenSaved();
+
+    skillGate.resolve();
+    const skillRes = await skillRun;
+    assert.equal(skillRes.ok, true, `并发 heroInit 先完成时 assignHeroSkills 不应失败：${JSON.stringify(skillRes)}`);
+    assert.equal(skillRes.skipped, 'already-assigned');
+    assert.equal(rt.notices().some((n) => n.id === 'hero-skills' && String(n.text || '').includes('stats-generation-conflict')), false, '不得弹出 stats-generation-conflict 报错条');
+    assert.ok(rt.getCatalog().protagonistBase.侦查, 'heroInit 单批生成的擅长技能应完整保留');
+});
+
+test('人际关系页：重要角色表为空/缺表/未收录主角时仍直接展示主角六维、擅长与生活条，并支持数值更新自动刷新', async (t) => {
+    const { createRecordPanelController } = await import('../src/visual/igs-ui/record-panel.js');
+    const attrs = [
+        { name: '力量', value: 55, display: '11（+0）' },
+        { name: '敏捷', value: 70, display: '14（+2）' },
+        { name: '体质', value: 60, display: '12（+1）' },
+        { name: '智力', value: 80, display: '16（+3）' },
+        { name: '感知', value: 65, display: '13（+1）' },
+        { name: '魅力', value: 50, display: '10（+0）' },
+    ];
+
+    // 场景 1：重要角色表为空（0 行）且主角六维/擅长/生活条已生成 -> 人际关系页不再显示「匹配表没有可阅读的记录」，直接渲染主角与已登记 NPC
+    {
+        const dom = new JSDOM('<div id="overlay"><div id="igs-db-layer"></div></div>');
+        t.after(() => dom.window.close());
+        const doc = dom.window.document;
+        let heroReady = false;
+        let notifyStats = null;
+        const globalObj = {
+            SillyTavern: { getContext: () => ({ name1: '阿不思', powerUserSettings: {} }) },
+            AutoCardUpdaterAPI: {
+                exportTableAsJson: () => ({
+                    sheet_zhong_yao_jue_se_biao: {
+                        uid: 'sheet_zhong_yao_jue_se_biao',
+                        name: '重要角色表',
+                        content: [[null, '姓名', '年龄', '外貌', '人际关系']],
+                    },
+                }),
+            },
+        };
+        const controller = createRecordPanelController(doc, globalObj, null, {
+            statsProtagonistLookup: () => (heroReady ? () => ({
+                metrics: [
+                    { label: '生命', percent: 100, display: '55/55' },
+                    { label: '体力', percent: 100, display: '100' },
+                ],
+                stages: [],
+                sheet: { name: '主角', hero: true, strong: ['侦查 精通', '察言观色 熟练'], missing: false },
+                bio: '右手握着木质法师杖的年轻旅人。',
+                attributes: attrs,
+            }) : null),
+            statsFavorOverview: () => (heroReady ? {
+                nsfw: false,
+                people: [{ name: '小雪', dims: { 好感: 20, 信任: 15, 了解: 10, 芥蒂: 0 }, romance: false, kin: false, metrics: [], log: [] }],
+            } : null),
+            statsLookup: () => (name) => (heroReady && name === '小雪' ? {
+                metrics: [{ label: '好感', percent: 20, display: '20' }],
+                stages: [{ label: '关系阶段', value: '初步好感' }],
+                sheet: { name: '小雪', rank: '普通人', strong: ['急救 熟练'], provisional: false },
+                attributes: attrs,
+            } : { metrics: [], stages: [] }),
+            subscribeStats: (handler) => { notifyStats = handler; return () => { notifyStats = null; }; },
+        });
+        t.after(() => controller.close());
+
+        controller.open(doc.querySelector('#overlay'), {}, 'relationships');
+        assert.match(doc.body.textContent || '', /匹配表没有可阅读的记录/, '数值尚未就绪且表为空时保持原空态提示');
+
+        // 模拟主角六维等数据生成完成触发 stats-updated -> 面板自动刷新并展示主角六维雷达图与数据
+        heroReady = true;
+        notifyStats?.({});
+        const html = doc.querySelector('#igs-record-panel')?.innerHTML || '';
+        assert.doesNotMatch(html, /匹配表没有可阅读的记录/, '主角生成六维后不得再提示匹配表没有可阅读的记录');
+        assert.doesNotMatch(html, /当前来源没有可识别的人物记录/);
+        assert.match(html, /<h2>阿不思<\/h2>/, '应默认选中并展示主角阿不思');
+        assert.match(html, /igs-record-person-radar[\s\S]*igs-stats-radar/, '主角卡应展示六维雷达图');
+        assert.match(html, /生命[\s\S]*55\/55/, '主角卡应展示生命条');
+        assert.match(html, /<span>擅长<\/span><strong>侦查 精通、察言观色 熟练<\/strong>/, '主角卡应展示擅长技能');
+        assert.match(html, /右手握着木质法师杖的年轻旅人。/, '主角卡应展示生成的主角简介');
+        assert.ok([...doc.querySelectorAll('[data-record-act="person"]')].some((b) => b.textContent.includes('小雪')), '已登记数值 NPC 也应一并展示');
+    }
+
+    // 场景 2：完全没有重要角色/关系表（no-tables）时，主角生成六维后同样在人际关系页显示
+    {
+        const dom = new JSDOM('<div id="overlay"><div id="igs-db-layer"></div></div>');
+        t.after(() => dom.window.close());
+        const doc = dom.window.document;
+        const globalObj = {
+            SillyTavern: { getContext: () => ({ name1: '阿不思', powerUserSettings: {} }) },
+            AutoCardUpdaterAPI: { exportTableAsJson: () => ({}) },
+        };
+        const controller = createRecordPanelController(doc, globalObj, null, {
+            statsProtagonistLookup: () => () => ({
+                metrics: [{ label: '体力', percent: 100, display: '100' }],
+                stages: [],
+                sheet: { name: '主角', hero: true, strong: ['侦查 精通'], missing: false },
+                attributes: attrs,
+            }),
+        });
+        t.after(() => controller.close());
+        controller.open(doc.querySelector('#overlay'), {}, 'relationships');
+        const html = doc.querySelector('#igs-record-panel')?.innerHTML || '';
+        assert.doesNotMatch(html, /未找到匹配的人际关系表/);
+        assert.match(html, /<h2>阿不思<\/h2>/);
+        assert.match(html, /igs-record-person-radar[\s\S]*igs-stats-radar/);
+    }
+});

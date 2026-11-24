@@ -290,6 +290,7 @@ export function createStatsRuntime({
         },
         onSlow: job => {
             if (VISIBLE_BUSY_TASKS.has(job.key)) {
+                if (job.key === 'hero-skills' && notices.get('hero-skills')?.kind !== 'busy') return;
                 setNotice(job.key, { kind: 'busy', text: '仍在等待同一次模型请求，请勿重复提交', slow: true });
             } else {
                 diag('stats-generation-slow', { key: job.key });
@@ -778,7 +779,16 @@ export function createStatsRuntime({
         const alive = () => ownerAlive();
         const requestAlive = () => ownerAlive() && generationRoute() === route;
         currencyAsked.add(chatId);
-        const job = { chatId, epoch: currencyEpoch, alive, controller: new AbortController(), stage: 'read', slow: false, promise: null };
+        const job = {
+            chatId,
+            epoch: currencyEpoch,
+            alive,
+            controller: new AbortController(),
+            stage: 'read',
+            slow: false,
+            wantSkills: Boolean(ledger && (includeSkills || catalog.heroInitChoice === 'auto') && catalog.heroSkillsManual !== true && needsHeroPick() && !hasLearnedHeroSkill()),
+            promise: null,
+        };
         currencyJob = job;
         const progress = (stage, slow = false) => {
             if (!alive() || currencyJob !== job) return;
@@ -995,6 +1005,7 @@ export function createStatsRuntime({
                 ? heroSkillNames().filter((name) => !(ownedHeroSkills[name] && Number(ownedHeroSkills[name].value) >= 25))
                 : [];
             const needSkills = availableSkills.length > 0;
+            job.wantSkills = needSkills;
             const traitDefs = ledger && !(catalog.traitInit || []).includes(PROTAGONIST) ? candidateTraitDefs({ protagonist: true }) : [];
             const needTraits = traitDefs.length > 0;
             if (!needAttributes && !needCurrency && !(requireBio && needBio) && !(includeSkills && needSkills)) {
@@ -1082,6 +1093,7 @@ export function createStatsRuntime({
                 needTraits,
                 traitDefs,
                 chatSeed: chatId,
+                registry: dailyEngineOf().registry,
             });
             if (!parsed.ok) return { ...parsed, stage: 'parse' };
 
@@ -1170,6 +1182,7 @@ export function createStatsRuntime({
             if (currencyJob === job) {
                 currencyJob = null;
                 if (notices.get('currency')?.kind === 'busy') setNotice('currency', null);
+                if (chatIdOf(ctx()) === chatId) refreshHeroPick();
             }
         });
         return job.promise;
@@ -1931,7 +1944,7 @@ export function createStatsRuntime({
         inflightChat = chatIdOf(ctx());
         const run = async () => {
             try {
-                // 并发非生成写口（如 setNpcPolicy、heroInit 的 heroBio/currency、detectNewCharacters 的 notified/queue）
+                // 并发非生成写口（如 setNpcPolicy、heroInit 的主角初始化/货币、pickHeroSkills、detectNewCharacters 的 notified/queue）
                 // 可能在 recover 等待 DB I/O 期间刚更新内存并入队 persist()；adopt(merged) 不得将其回滚成旧快照。
                 const beforeSnap = {
                     npcPolicy,
@@ -1941,6 +1954,14 @@ export function createStatsRuntime({
                     currency: JSON.stringify(currency),
                     currencyEdit: JSON.stringify(currencyEdit),
                     heroBio: catalog.heroBio || '',
+                    heroInitChoice: catalog.heroInitChoice || '',
+                    protagonistBase: JSON.stringify(catalog.protagonistBase || {}),
+                    protagonistEdit: JSON.stringify(catalog.protagonistEdit || {}),
+                    heroSlots: JSON.stringify(catalog.heroSlots || null),
+                    heroAssigned: catalog.heroAssigned === true,
+                    heroPicked: catalog.heroPicked === true,
+                    heroSkillsManual: catalog.heroSkillsManual === true,
+                    traitInit: JSON.stringify(catalog.traitInit || []),
                     notified: JSON.stringify(catalog.notified || []),
                     queue: JSON.stringify(catalog.queue || {}),
                 };
@@ -1950,7 +1971,16 @@ export function createStatsRuntime({
                 if (result.ok && result.rows) {
                     const liveNow = {
                         npcPolicy, npcChoices, buildMode, buildChoices, currency, currencyEdit,
-                        heroBio: catalog.heroBio || '', notified: catalog.notified || [], queue: catalog.queue || {},
+                        heroBio: catalog.heroBio || '',
+                        heroInitChoice: catalog.heroInitChoice || '',
+                        protagonistBase: { ...(catalog.protagonistBase || {}) },
+                        protagonistEdit: { ...(catalog.protagonistEdit || {}) },
+                        heroSlots: catalog.heroSlots ? { ...catalog.heroSlots } : null,
+                        heroAssigned: catalog.heroAssigned === true,
+                        heroPicked: catalog.heroPicked === true,
+                        heroSkillsManual: catalog.heroSkillsManual === true,
+                        traitInit: [...(catalog.traitInit || [])],
+                        notified: catalog.notified || [], queue: catalog.queue || {},
                         baseline: new Map(baseline),
                     };
                     const merged = mergeStatLog(result.rows, { chatId: chatIdOf(ctx()), chat: messages(ctx()) });
@@ -1988,6 +2018,38 @@ export function createStatsRuntime({
                     if (liveNow.heroBio !== beforeSnap.heroBio && (nextCat.heroBio || '') !== liveNow.heroBio) {
                         nextCat = { ...nextCat, heroBio: liveNow.heroBio };
                         restoreKey('hero:bio');
+                    }
+                    if (liveNow.heroInitChoice !== beforeSnap.heroInitChoice && (nextCat.heroInitChoice || '') !== liveNow.heroInitChoice) {
+                        nextCat = { ...nextCat, heroInitChoice: liveNow.heroInitChoice };
+                        restoreKey('hero:initChoice');
+                    }
+                    if (JSON.stringify(liveNow.protagonistBase) !== beforeSnap.protagonistBase && JSON.stringify(nextCat.protagonistBase || {}) !== JSON.stringify(liveNow.protagonistBase)) {
+                        nextCat = { ...nextCat, protagonistBase: liveNow.protagonistBase };
+                        for (const key of new Set([...Object.keys(liveNow.protagonistBase), ...Object.keys(nextCat.protagonistBase || {})])) restoreKey(`base:${key}`);
+                    }
+                    if (JSON.stringify(liveNow.protagonistEdit) !== beforeSnap.protagonistEdit && JSON.stringify(nextCat.protagonistEdit || {}) !== JSON.stringify(liveNow.protagonistEdit)) {
+                        nextCat = { ...nextCat, protagonistEdit: liveNow.protagonistEdit };
+                        for (const key of new Set([...Object.keys(liveNow.protagonistEdit), ...Object.keys(nextCat.protagonistEdit || {})])) restoreKey(`edit:${key}`);
+                    }
+                    if (JSON.stringify(liveNow.heroSlots) !== beforeSnap.heroSlots && JSON.stringify(nextCat.heroSlots || null) !== JSON.stringify(liveNow.heroSlots)) {
+                        nextCat = { ...nextCat, heroSlots: liveNow.heroSlots };
+                        restoreKey('hero:slots');
+                    }
+                    if (liveNow.heroAssigned !== beforeSnap.heroAssigned && (nextCat.heroAssigned === true) !== liveNow.heroAssigned) {
+                        nextCat = { ...nextCat, heroAssigned: liveNow.heroAssigned };
+                        restoreKey('hero:assigned');
+                    }
+                    if (liveNow.heroPicked !== beforeSnap.heroPicked && (nextCat.heroPicked === true) !== liveNow.heroPicked) {
+                        nextCat = { ...nextCat, heroPicked: liveNow.heroPicked };
+                        restoreKey('hero:picked');
+                    }
+                    if (liveNow.heroSkillsManual !== beforeSnap.heroSkillsManual && (nextCat.heroSkillsManual === true) !== liveNow.heroSkillsManual) {
+                        nextCat = { ...nextCat, heroSkillsManual: liveNow.heroSkillsManual };
+                        restoreKey('hero:skillsManual');
+                    }
+                    if (JSON.stringify(liveNow.traitInit) !== beforeSnap.traitInit && JSON.stringify(nextCat.traitInit || []) !== JSON.stringify(liveNow.traitInit)) {
+                        nextCat = { ...nextCat, traitInit: [...new Set([...(nextCat.traitInit || []), ...liveNow.traitInit])] };
+                        restoreKey('traitinit:all');
                     }
                     if (JSON.stringify(liveNow.notified) !== beforeSnap.notified && JSON.stringify(nextCat.notified || []) !== JSON.stringify(liveNow.notified)) {
                         nextCat = { ...nextCat, notified: [...new Set([...(nextCat.notified || []), ...liveNow.notified])] };
@@ -3388,9 +3450,15 @@ export function createStatsRuntime({
     function refreshHeroPick() {
         const chatId = chatIdOf(ctx());
         const offer = Boolean(chatId) && active() && !needsHeroInitChoice() && !heroPickAsked.has(chatId) && needsHeroPick();
-        const canAssign = Boolean(requester());
-        const actions = canAssign ? [['open', '手动选择'], ['assign', '按人设生成'], ['later', '稍后']] : [['open', '去选择'], ['later', '稍后']];
-        setNotice('hero-pick', offer ? { kind: 'onboarding', order: 1, text: '主角擅长技能：请选3项擅长、5项比较擅长，或按人设生成', actions } : null);
+        const heroInitGeneratingSkills = Boolean(currencyJob && currencyJob.chatId === chatId && currencyJob.epoch === currencyEpoch && currencyJob.wantSkills && currencyJob.alive());
+        const canAssign = Boolean(requester()) && !heroInitGeneratingSkills;
+        const text = heroInitGeneratingSkills
+            ? '正在随主角初始化一并生成擅长技能；也可手动选择覆盖'
+            : '主角擅长技能：请选3项擅长、5项比较擅长，或按人设生成';
+        const actions = heroInitGeneratingSkills
+            ? [['open', '手动选择'], ['later', '稍后']]
+            : (canAssign ? [['open', '手动选择'], ['assign', '按人设生成'], ['later', '稍后']] : [['open', '去选择'], ['later', '稍后']]);
+        setNotice('hero-pick', offer ? { kind: 'onboarding', order: 1, text, actions } : null);
     }
 
     // 主角开局手动提交六维与擅长项：超出上限时若未确认开挂（uncapped）返回 stats-build-over-cap；
@@ -4194,12 +4262,23 @@ export function createStatsRuntime({
             refreshOnboarding();
             return Promise.resolve({ ok: true, skipped: true });
         }
+        const startedWithAssigned = Boolean(catalog.heroAssigned || hasLearnedHeroSkill());
+        const heroSkillsSettledOutside = () => {
+            if (!overwrite && catalog.heroSkillsManual === true) return 'manual-protected';
+            if (!startedWithAssigned && catalog.heroAssigned === true && hasLearnedHeroSkill()) return 'already-assigned';
+            return '';
+        };
         setNotice('hero-skills', { kind: 'busy', text: '正在按人设生成主角擅长技能' });
-        const heroSkillSnapshot = () => JSON.stringify([catalog.protagonistBase, catalog.protagonistEdit, catalog.heroSlots, catalog.heroAssigned, catalog.heroSkillsManual]);
+        const heroSkillSnapshot = () => JSON.stringify([catalog.protagonistEdit, catalog.heroSlots, catalog.heroAssigned, catalog.heroSkillsManual]);
         return generationTasks.start('hero-skills', async job => {
             let failureReason = '';
             job.onFinish(() => {
-                if (job.alive() && notices.get('hero-skills')?.kind === 'busy') {
+                if (!job.alive()) return;
+                if (heroSkillsSettledOutside()) {
+                    if (notices.get('hero-skills')?.kind === 'busy') setNotice('hero-skills', null);
+                    return;
+                }
+                if (notices.get('hero-skills')?.kind === 'busy') {
                     const code = failureReason || 'stats-hero-skills-unfinished';
                     diag(code);
                     try { console.warn('[IGS 数值] 主角擅长技能生成未完成：', code); } catch { /* */ }
@@ -4209,22 +4288,45 @@ export function createStatsRuntime({
             try {
             await tail;
             job.check();
+            {
+                const settled = heroSkillsSettledOutside();
+                if (settled) {
+                    if (notices.get('hero-skills')?.kind === 'busy') setNotice('hero-skills', null);
+                    return { ok: true, skipped: settled };
+                }
+            }
             job.conflictSnapshot = heroSkillSnapshot();
             job.conflictCheck = () => heroSkillSnapshot() === job.conflictSnapshot;
             let people;
             try { people = typeof describePeople === 'function' ? await describeWithHero([PROTAGONIST]) : [{ name: PROTAGONIST, summary: '' }]; }
             catch (error) { people = [{ name: PROTAGONIST, summary: '' }]; }
+            {
+                const settled = heroSkillsSettledOutside();
+                if (settled) {
+                    if (notices.get('hero-skills')?.kind === 'busy') setNotice('hero-skills', null);
+                    return { ok: true, skipped: settled };
+                }
+            }
             checkGeneration(job);
             const prompt = buildHeroSkillRequest(people, skills, { prompt: settings().prompts.heroSkills, history: currencyStoryText() });
             let parsed = null;
             try {
                 parsed = parseHeroSkillReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job, {
                     onRetry: ({ attempt, maxRetries }) => {
-                        if (job.alive()) setNotice('hero-skills', { kind: 'busy', text: `正在重试生成主角擅长技能（第 ${attempt}/${maxRetries} 次）` });
+                        if (job.alive() && !heroSkillsSettledOutside() && notices.get('hero-skills')?.kind === 'busy') {
+                            setNotice('hero-skills', { kind: 'busy', text: `正在重试生成主角擅长技能（第 ${attempt}/${maxRetries} 次）` });
+                        }
                     },
-                }), { skills });
+                }), { skills, registry: dailyEngineOf().registry });
             }
             catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-hero-skills-request-failed' }; }
+            {
+                const settled = heroSkillsSettledOutside();
+                if (settled) {
+                    if (notices.get('hero-skills')?.kind === 'busy') setNotice('hero-skills', null);
+                    return { ok: true, skipped: settled };
+                }
+            }
             checkGeneration(job);
             if (!parsed || !parsed.ok) {
                 const reason = parsed ? parsed.reason : 'stats-hero-skills-request-failed';
@@ -4234,9 +4336,10 @@ export function createStatsRuntime({
                 return { ok: false, reason };
             }
             const res = await stageGeneration(job, () => {
-                if (!overwrite && catalog.heroSkillsManual === true) {
+                const settled = heroSkillsSettledOutside();
+                if (settled) {
                     setNotice('hero-skills', null);
-                    return { result: { ok: true, skipped: 'manual-protected' } };
+                    return { result: { ok: true, skipped: settled } };
                 }
                 const base = { ...catalog.protagonistBase };
                 const edit = { ...catalog.protagonistEdit };
@@ -4262,6 +4365,11 @@ export function createStatsRuntime({
             if (res?.ok && job.alive()) refreshOnboarding();
             return res;
             } catch (error) {
+                const settled = heroSkillsSettledOutside();
+                if (settled && error?.reason === 'stats-generation-conflict') {
+                    if (job.alive() && notices.get('hero-skills')?.kind === 'busy') setNotice('hero-skills', null);
+                    return { ok: true, skipped: settled };
+                }
                 failureReason = error?.reason || error?.message || 'stats-hero-skills-threw';
                 throw error;
             }
@@ -4518,10 +4626,10 @@ export function createStatsRuntime({
                 setNotice('hero-init-mode', null);
                 // 延迟建表：仅在已有落盘账本时立即写选择；否则等待自动生成成功后随生成数据一并建表写入。
                 if (ledgerPersisted) persist();
-                refreshOnboarding();
                 const initPromise = ensureHeroInit({ force: true, includeSkills: true });
+                refreshOnboarding();
                 return Promise.resolve(initPromise || { ok: true }).then((res) => {
-                    if (res?.ok !== false && catalog.heroSkillsManual !== true && !heroManualPickOpen.has(chatIdOf(ctx())) && needsHeroPick() && requester()) void assignHeroSkills({ overwrite: true });
+                    if (res?.ok !== false && catalog.heroSkillsManual !== true && !heroManualPickOpen.has(chatIdOf(ctx())) && needsHeroPick() && requester()) void assignHeroSkills({ overwrite: false });
                     return { ok: res?.ok !== false, choice: 'auto', result: res };
                 });
             }
@@ -4531,7 +4639,7 @@ export function createStatsRuntime({
             const cid = chatIdOf(ctx());
             heroPickAsked.add(cid);
             setNotice('hero-pick', null);
-            if (action === 'assign') { heroManualPickOpen.delete(cid); return assignHeroSkills({ overwrite: true }); }
+            if (action === 'assign') { heroManualPickOpen.delete(cid); return assignHeroSkills({ overwrite: false }); }
             if (action === 'open' && cid) heroManualPickOpen.add(cid);
             refreshOnboarding();
             return action === 'open' ? { ok: true, openSettings: 'stats' } : { ok: true };

@@ -114,7 +114,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.39';
+const IGS_VERSION = '0.41.40';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -561,6 +561,7 @@ export function bootstrapIGS(options = {}) {
         statsFavorOverview: () => (app.statsRuntime && typeof app.statsRuntime.favorOverview === 'function' ? app.statsRuntime.favorOverview() : null),
         statsProtagonistLookup: () => (app.statsRuntime && typeof app.statsRuntime.protagonistLookup === 'function' ? app.statsRuntime.protagonistLookup() : null),
         statsProtagonistBlock: () => (app.statsRuntime && typeof app.statsRuntime.protagonistBlock === 'function' ? app.statsRuntime.protagonistBlock() : null),
+        onStatsUpdated: (handler) => events.on('igs:stats-updated', handler),
         isStatsEnabled: () => {
             const snap = getUnifiedSettingsSnapshot() || {};
             return Boolean((snap.bridge && snap.bridge.stats && snap.bridge.stats.enabled === true) || combatExpansionEnabled(snap.readerSettings));
