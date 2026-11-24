@@ -1348,8 +1348,7 @@ export function applyStatusHudScale(root, snapshot) {
     if (!host) return;
     const settings = snapshot && snapshot.readerSettings;
     const hudSettings = settings && settings.statusHud;
-    const hudEnabled = Boolean((hudSettings && hudSettings.enabled) || (snapshot && snapshot.content && snapshot.content.statusHud && snapshot.content.statusHud.enabled));
-    if (!hudEnabled) return;
+    if (!hudSettings || !hudSettings.enabled) return;
     const overlayWidth = readElementWidth(root, 0);
     const overlayHeight = readElementHeight(root, 0);
     const scale = resolveStatusHudScale(hudSettings && hudSettings.size, overlayWidth, overlayHeight);

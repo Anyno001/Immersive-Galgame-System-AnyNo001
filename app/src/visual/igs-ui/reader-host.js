@@ -785,7 +785,7 @@ export function createIgsReaderHost(options = {}) {
         playStatsCheck(detail) {
             return playOptionResultFx({ ok: true, detail }, { force: true });
         },
-        // 数值结算反馈（好感飘字、成长、关系阶段）：状态栏关着且未开启数值系统时直接丢弃，开着时用现有飘字样式；阅读器没开不补播。
+        // 数值结算反馈（好感飘字、成长、关系阶段）：状态栏关着时直接丢弃，开着时用现有飘字样式；阅读器没开不补播。
         playStatsFeedback(fx) {
             const current = state.activeReader;
             const snapshot = current && current.snapshot;
@@ -793,7 +793,7 @@ export function createIgsReaderHost(options = {}) {
             const readerSettings = snapshot && snapshot.readerSettings;
             if (!overlay || !readerSettings) return false;
             const hud = snapshot.content && snapshot.content.statusHud;
-            return playStatsFeedbackWithHud(overlay, fx, { readerSettings, forceHud: Boolean(hud && hud.enabled), speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
+            return playStatsFeedbackWithHud(overlay, fx, { readerSettings, speaker: hud && hud.character, reducedMotion: prefersReducedMotion() }).played > 0;
         },
         // 对外通知卡（IGS.api.notify.show）：阅读器没开直接返回，不排队、不补播。
         playExternalNotify(message) {
@@ -1144,8 +1144,7 @@ export function createIgsReaderHost(options = {}) {
         const current = state.activeReader;
         const settings = current && current.snapshot && current.snapshot.readerSettings;
         const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
-        const statsHudOn = Boolean(typeof options.isStatsEnabled === 'function' && options.isStatsEnabled());
-        const shouldSubscribe = Boolean(current) && (((statusHud.enabled || statsHudOn) && statusHudUsesTables(statusHud))
+        const shouldSubscribe = Boolean(current) && ((statusHud.enabled && statusHudUsesTables(statusHud))
             || Boolean(settings?._sceneAssets?.enabled && Object.keys(settings._sceneAssets.characterOutfits || {}).length)
             || Boolean(current.payload?.promiseHistory?.length));
         if (!shouldSubscribe) {
@@ -4994,12 +4993,11 @@ ${row.key}`;
     function buildReaderSnapshot(payload, mode, readerSettings, index = 0) {
         const scene = payload.scene || (payload.render && payload.render.scene) || {};
         const buildStatusHudForSnapshot = (settings, speaker, emotion, sceneInfo, isNarration, outfitFor, spriteAvatar) => {
-            const rawStatusHud = normalizeStatusHudSettings(settings && settings.statusHud);
-            // 数值系统接管时，已登记角色的 HUD 条以 IGS 为准（易错点 H3）；只要开启数值系统，现有状态栏就在左上角常驻显示。
+            const statusHud = normalizeStatusHudSettings(settings && settings.statusHud);
+            // 状态栏显示权始终归状态栏自身开关；开启数值系统时只负责联动打开状态栏开关，不接管或覆盖用户的手动关闭。
+            if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const tavernLookup = typeof options.statsLookup === 'function' ? options.statsLookup() : null;
             const statsSystemOn = Boolean((typeof options.isStatsEnabled === 'function' && options.isStatsEnabled()) || tavernLookup);
-            const statusHud = statsSystemOn ? { ...rawStatusHud, enabled: true } : rawStatusHud;
-            if (!statusHud.enabled) return buildStatusHudModel({ settings: statusHud, character: '', emotion: '', location: '' });
             const sceneAssets = (settings && settings._sceneAssets) || {};
             const usesTables = statusHudUsesTables(statusHud);
             const readResult = usesTables ? readStatusHudTables() : null;

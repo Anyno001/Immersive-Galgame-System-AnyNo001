@@ -219,10 +219,10 @@ export function playStatsFeedback(root, fx, options = {}) {
     return { played: lines.length + cards.length };
 }
 
-// 阅读器入口：状态栏关着时数值反馈一律丢弃，什么都不显示；开启状态栏或开启数值系统常驻时照常播放。
+// 阅读器入口：状态栏关着时数值反馈一律丢弃，什么都不显示；开着时照常播放。
 export function playStatsFeedbackWithHud(root, fx, options = {}) {
     const settings = options.readerSettings;
-    if (!settings || (!options.forceHud && !normalizeStatusHudSettings(settings.statusHud).enabled)) return { played: 0 };
+    if (!settings || !normalizeStatusHudSettings(settings.statusHud).enabled) return { played: 0 };
     return playStatsFeedback(root, fx, options);
 }
 

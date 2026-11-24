@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 import { createIgsReaderHost } from '../src/visual/igs-ui/reader-host.js';
+import { BATTLE_MODE_PATH, planBattleMode } from '../src/visual/igs-ui/combat-settings.js';
+import { playStatsFeedbackWithHud } from '../src/visual/igs-ui/fx-runtime.js';
 import { createStatsChip } from '../src/visual/igs-ui/stats-chip.js';
 import { createHeroManualModal } from '../src/visual/igs-ui/hero-manual-modal.js';
 import { normalizeBridgeConfig, SENTENCE_PAGING_MIGRATION_VERSION } from '../src/visual/igs-ui/settings-host-normalize.js';
@@ -50,9 +52,114 @@ function makeDom() {
     return { dom, document: dom.window.document, window: dom.window };
 }
 
-test('需求1：开启数值系统后左上角状态栏常驻显示（即使状态栏开关关闭、旁白页），主角说话不重复，关闭数值时恢复隐藏', () => {
+test('需求1：开启数值系统联动打开状态栏开关，但不接管控制权，用户仍可单独关闭状态栏', () => {
     const { dom, document } = makeDom();
     try {
+        // A. 开关联动与独立关闭权：planBattleMode、设置面板开关联动、保存后保持用户手动关闭
+        const cardPlan = planBattleMode('card', { ok: true });
+        assert.equal(cardPlan.ok, true);
+        assert.deepEqual(
+            cardPlan.writes.find(([p]) => p === 'readerSettings.statusHud.enabled'),
+            ['readerSettings.statusHud.enabled', true],
+            '切换卡牌战斗应同步打开状态栏开关',
+        );
+
+        const db = createLedgerMockHost({ supportCallbacks: true });
+        const savedSnapshots = [];
+        let unified = {
+            bridge: { sceneAssets: { enabled: true }, stats: { enabled: false }, autoIllustration: { llm: { source: 'tavern' } } },
+            readerSettings: { titleScreen: false, statusHud: { enabled: false }, combatExpansion: { enabled: false, kind: 'combat' } },
+        };
+        const settingsHost = createIgsReaderHost({
+            global: { document, window: dom.window, AutoCardUpdaterAPI: db.api },
+            getUnifiedSettings: () => unified,
+            saveUnifiedSettings: (payload) => {
+                unified = {
+                    ...unified,
+                    bridge: payload.bridge,
+                    readerSettings: payload.readerSettings,
+                };
+                savedSnapshots.push(structuredClone(unified));
+                return { ok: true };
+            },
+        });
+        try {
+            const opened = settingsHost.openSettings({ page: 'stats' });
+            assert.equal(opened.ok, true);
+            const ctrl = opened.controller;
+            assert.equal(ctrl.getSnapshot().draft.readerSettings.statusHud.enabled, false);
+
+            // 1) 打开数值系统开关 -> 同步把状态栏开关置为 true
+            const turnOnStats = ctrl.setValue('bridge.stats.enabled', true);
+            assert.equal(turnOnStats.ok, true);
+            assert.equal(ctrl.getSnapshot().draft.bridge.stats.enabled, true);
+            assert.equal(ctrl.getSnapshot().draft.readerSettings.statusHud.enabled, true, '开启数值系统时应联动开启状态栏开关');
+
+            // 2) 用户仍有权单独关闭状态栏，且数值系统保持开启
+            const closeHud = ctrl.setValue('readerSettings.statusHud.enabled', false);
+            assert.equal(closeHud.ok, true);
+            assert.equal(ctrl.getSnapshot().draft.bridge.stats.enabled, true);
+            assert.equal(ctrl.getSnapshot().draft.readerSettings.statusHud.enabled, false, '用户单独关闭状态栏不得被拦截或强行改回');
+            assert.equal(ctrl.close().ok, true);
+            assert.equal(unified.bridge.stats.enabled, true);
+            assert.equal(unified.readerSettings.statusHud.enabled, false, '保存后应保留用户手动关闭的状态栏状态');
+
+            // 3) 重开设置：改无关项后仍保持关闭；关闭数值再重新打开数值 -> 再次联动开启状态栏开关；开启卡牌战斗同理
+            const reopened = settingsHost.openSettings({ page: 'stats' });
+            assert.equal(reopened.ok, true);
+            const ctrl2 = reopened.controller;
+            assert.equal(ctrl2.getSnapshot().draft.readerSettings.statusHud.enabled, false);
+            assert.equal(ctrl2.setValue('bridge.stats.enabled', false).ok, true);
+            assert.equal(ctrl2.setValue('bridge.stats.enabled', true).ok, true);
+            assert.equal(ctrl2.getSnapshot().draft.readerSettings.statusHud.enabled, true);
+            assert.equal(ctrl2.setValue('readerSettings.statusHud.enabled', false).ok, true);
+            assert.equal(ctrl2.setValue(BATTLE_MODE_PATH, 'card').ok, true);
+            assert.equal(ctrl2.getSnapshot().draft.readerSettings.statusHud.enabled, true, '选卡牌战斗同步开启数值时也联动打开状态栏');
+            assert.equal(ctrl2.setValue('readerSettings.statusHud.enabled', false).ok, true);
+            assert.equal(ctrl2.getSnapshot().draft.readerSettings.statusHud.enabled, false, '卡牌战斗开启时用户依然可单独关闭状态栏');
+            ctrl2.close();
+        } finally {
+            settingsHost.destroy();
+        }
+
+        // A2. bootstrapIGS 持久化链路：数值由关转开同步开启状态栏；开启后单独关闭状态栏并再改无关项，状态栏保持关闭
+        const bootStorage = createMemoryStorage();
+        const bootApp = bootstrapIGS({
+            global: {
+                document,
+                window: dom.window,
+                localStorage: bootStorage,
+                AutoCardUpdaterAPI: db.api,
+            },
+            autoAttachMagicWand: false,
+        });
+        try {
+            const s1 = bootApp.openSettings({ page: 'stats' });
+            assert.equal(s1.ok, true);
+            assert.equal(s1.controller.getSnapshot().draft.readerSettings.statusHud.enabled, false);
+            assert.equal(s1.controller.setValue('bridge.stats.enabled', true).ok, true);
+            assert.equal(s1.controller.getSnapshot().draft.readerSettings.statusHud.enabled, true);
+            assert.equal(s1.controller.close().ok, true);
+
+            const s2 = bootApp.openSettings({ page: 'reader' });
+            assert.equal(s2.controller.getSnapshot().draft.readerSettings.statusHud.enabled, true, '重新打开设置应读到联动保存的状态栏开启');
+            assert.equal(s2.controller.setValue('readerSettings.statusHud.enabled', false).ok, true);
+            assert.equal(s2.controller.close().ok, true);
+
+            const s3 = bootApp.openSettings({ page: 'reader' });
+            assert.equal(s3.controller.getSnapshot().draft.bridge.stats.enabled, true);
+            assert.equal(s3.controller.getSnapshot().draft.readerSettings.statusHud.enabled, false, '单独关闭状态栏并保存后不得被强制改回');
+            assert.equal(s3.controller.setValue('readerSettings.titleScreen', false).ok, true);
+            assert.equal(s3.controller.close().ok, true);
+
+            const s4 = bootApp.openSettings({ page: 'reader' });
+            assert.equal(s4.controller.getSnapshot().draft.readerSettings.statusHud.enabled, false, '改其他设置再次保存后仍保留用户关闭的状态栏');
+            s4.controller.close();
+        } finally {
+            bootApp.shutdown();
+        }
+
+        // B. 阅读器渲染：状态栏开关为唯一显示控制权；开启时数值系统提供主角常驻区，关闭时彻底隐藏且不播飘字
         const heroBlock = {
             name: '主角',
             metrics: [
@@ -64,6 +171,7 @@ test('需求1：开启数值系统后左上角状态栏常驻显示（即使状�
             { key: '好感', label: '好感', value: 45, max: 100, percent: 45, text: '45' },
         ];
         let statsOn = true;
+        let statusHudEnabled = true;
         const host = createIgsReaderHost({
             global: { document, window: dom.window },
             isStatsEnabled: () => statsOn,
@@ -72,17 +180,17 @@ test('需求1：开启数值系统后左上角状态栏常驻显示（即使状�
             statsProtagonistBlock: () => (statsOn ? heroBlock : null),
             getUnifiedSettings: () => ({
                 bridge: { sceneAssets: { enabled: true }, stats: { enabled: statsOn } },
-                readerSettings: { titleScreen: false, statusHud: { enabled: false } },
+                readerSettings: { titleScreen: false, statusHud: { enabled: statusHudEnabled } },
             }),
         });
         try {
-            // 1) 纯旁白页 + statusHud.enabled=false + statsOn=true -> 左上角状态栏常驻并显示主角条
+            // 1) 状态栏开 + 数值开 + 纯旁白页 -> 显示状态栏并常驻主角条
             const narrationRaw = '<content>\n[igs-scene:古镇街道]\n薄雾笼罩着空荡的石板路。\n</content>';
             const opened = host.openReader({ messageId: 1, message: { id: 1, text: narrationRaw }, raw: narrationRaw }, { mode: 'fullscreen' });
             assert.equal(opened.ok, true);
             const hudEl = document.getElementById('igs-status-hud');
             assert.ok(hudEl);
-            assert.equal(hudEl.hasAttribute('hidden'), false, '开启数值系统时旁白页状态栏必须可见');
+            assert.equal(hudEl.hasAttribute('hidden'), false, '状态栏开启且数值开启时旁白页状态栏可见');
             assert.equal(hudEl.classList.contains('igs-hud-no-avatar'), true);
             const snap1 = host.getState().activeReader.snapshot.content.statusHud;
             assert.equal(snap1.enabled, true);
@@ -103,9 +211,21 @@ test('需求1：开启数值系统后左上角状态栏常驻显示（即使状�
             assert.equal(snap3.metrics.some((m) => m.label === '好感'), true);
             assert.equal(snap3.hero?.metrics?.length, 2);
 
-            // 4) 关闭数值系统且 statusHud.enabled=false -> 恢复隐藏
-            statsOn = false;
+            // 4) 数值系统仍开，但用户单独关闭状态栏 -> 必须尊重状态栏关闭，彻底隐藏且不播放飘字
+            statusHudEnabled = false;
             host.openReader({ messageId: 4, message: { id: 4, text: narrationRaw }, raw: narrationRaw }, { mode: 'fullscreen' });
+            assert.equal(document.getElementById('igs-status-hud').hasAttribute('hidden'), true, '用户关闭状态栏后即便数值开启也必须隐藏');
+            assert.equal(host.getState().activeReader.snapshot.content.statusHud.enabled, false);
+            assert.equal(
+                playStatsFeedbackWithHud(document.getElementById('igs-overlay'), { favors: [{ name: '白墨', delta: 5 }] }, {
+                    readerSettings: { statusHud: { enabled: false } },
+                }).played,
+                0,
+                '状态栏关闭时不应强制播放数值飘字',
+            );
+
+            // 5) 对话页在状态栏关闭 + 数值开启时同样保持隐藏
+            host.openReader({ messageId: 5, message: { id: 5, text: npcRaw }, raw: npcRaw }, { mode: 'fullscreen' });
             assert.equal(document.getElementById('igs-status-hud').hasAttribute('hidden'), true);
         } finally {
             host.destroy();

@@ -672,6 +672,7 @@ export function createSettingsHost(deps) {
                 return { ok: false, reason: ready.reason, missing: ready.missing };
             }
             setPath(draft, 'bridge.stats.enabled', true);
+            setPath(draft, 'readerSettings.statusHud.enabled', true);
             setPath(draft, 'readerSettings.waitStage.games', true);
         }
         if (path === 'bridge.stats.enabled' && value !== true && draft.readerSettings && draft.readerSettings.combatExpansion && draft.readerSettings.combatExpansion.enabled === true) {
@@ -688,6 +689,8 @@ export function createSettingsHost(deps) {
                 showSettingsNotice(api ? `数据库不支持数值系统所需的表：缺少 ${support.missing.join('、')}` : '未检测到数据库（shujuku），无法开启数值系统');
                 return { ok: false, reason: support.reason, missing: support.missing };
             }
+            // 开启数值系统时同步打开状态栏开关，但不接管控制权，用户后续仍可单独关闭状态栏。
+            setPath(draft, 'readerSettings.statusHud.enabled', true);
         }
         materializeStatsBuild(draft, path);
         setPath(draft, path, normalizeSettingsValue(path, value));
