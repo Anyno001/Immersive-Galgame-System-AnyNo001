@@ -3836,6 +3836,19 @@ ${row.key}`;
                 return hit && hit.sig === tailSig(id) ? hit.replies : null;
             },
         }) : [];
+        // 上一 AI 楼的安科掷过后补的内置短楼：只在本楼开头续上显示，不进上一轮回帖，不喂给 AI。
+        if (settings.chainTail && settings.anke !== 'off' && !marks.start && Array.isArray(ctx.chat)) {
+            for (let i = Math.min(ctx.chat.length, messageId) - 1; i >= 0; i--) {
+                const m = ctx.chat[i];
+                if (!m || m.is_user || m.is_system) continue;
+                const prevAnke = thread && (threadAt(data, i) || {}).id === thread.id ? forumAnkeOf(m.mes) : null;
+                const prevLock = prevAnke ? ankeStore.get(forumAnkeLockKey(chatId, i, prevAnke)) : null;
+                if (prevLock && Array.isArray(prevLock.react)) {
+                    for (const r of prevLock.react) chainTail.push({ k: 0, no: r.no, id: r.id, po: false, time: r.time || '', text: r.text, quote: '', ref: 0, builtin: true });
+                }
+                break;
+            }
+        }
         // 聊天页在帖子里画成手机截图：名字换论坛代号，配色与手机壳跟聊天演出一致，顶栏时间取剧情时间。
         const shotOf = (row) => {
             const block = logChatOf(floor, row.index);
