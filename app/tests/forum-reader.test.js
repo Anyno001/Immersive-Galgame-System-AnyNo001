@@ -695,7 +695,7 @@ test('安科楼：安价候选楼排在安科楼之后，点楼选中并填入�
     assert.equal(overlay.querySelectorAll('.is-builtin').length, 0);
 });
 
-test('安科楼：出结果后可重新发送结果（刷新后从锁算出同一行）；直接选择可撤销后重选，掷过骰与只读不能撤销', () => {
+test('安科楼：出结果后可重新发送结果（刷新后从锁算出同一行，发过下一层也能发）；直接选择可撤销后重选，掷过骰与只读不能撤销', () => {
     const { overlay } = mountOverlay();
     const { view, fills, locks } = ankeView(overlay, 'anchor');
     syncForumReader(overlay, view);
@@ -721,7 +721,9 @@ test('安科楼：出结果后可重新发送结果（刷新后从锁算出同�
     assert.ok(overlay.querySelector('.is-resend') && !overlay.querySelector('.is-undo'));
     const ro = ankeView(overlay, 'anchor', { lock, readonly: true });
     syncForumReader(overlay, { ...ro.view, sig: 'ro' });
-    assert.equal(overlay.querySelector('.igs-fm-anke-after'), null);
+    assert.ok(!overlay.querySelector('.is-undo'));
+    overlay.querySelector('.is-resend').click();
+    assert.deepEqual(ro.fills, [fills[0]]);
     assert.equal(appendInputDraft('写点什么\n【安价】2：乙\n再写', '', '【安价】2：乙'), '写点什么\n再写');
     assert.equal(appendInputDraft('已经清空了', '', '【安价】2：乙'), '已经清空了');
 });

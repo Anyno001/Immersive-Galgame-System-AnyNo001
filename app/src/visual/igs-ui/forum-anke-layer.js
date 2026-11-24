@@ -233,10 +233,10 @@ function build(overlay, list, view, revealing, d, sig) {
         if (kind === 'check') showCheck(lock);
         if (kind === 'coc') showCoc(lock);
         showReact(lock.react || [], animate);
-        if (!anke.readonly) showAfter(lock);
+        showAfter(lock);
     };
-    // 出结果后、User 还没发下一层时：重新发送结果（刷新或清空输入框后再填一次）；没掷过骰的直接选择可以撤销。
-    const undoable = (lock) => !lock.roll && kind !== 'check' && kind !== 'coc' && (kind !== 'vote' || lock.pick < 0);
+    // 出结果后一直可以重新发送结果（发过下一层再刷新、删楼重发都要用）；User 还没发下一层时，没掷过骰的直接选择可以撤销。
+    const undoable = (lock) => !anke.readonly && !lock.roll && kind !== 'check' && kind !== 'coc' && (kind !== 'vote' || lock.pick < 0);
     const showAfter = (lock) => {
         const row = d.el(doc, 'div', 'igs-fm-anke-after');
         const resend = mkLink('is-resend', '重新发送结果');
