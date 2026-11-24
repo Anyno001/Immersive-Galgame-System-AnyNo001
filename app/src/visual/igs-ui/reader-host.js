@@ -1009,7 +1009,7 @@ export function createIgsReaderHost(options = {}) {
         const merged = applyReaderPayloadToState(current, mode, { payload, index: 0 });
         if (!merged.content.segments.length) return { ok: false, reason: 'no-readable-text' };
         current.contentMessageId = payload.messageId != null ? payload.messageId : current.contentMessageId;
-        current.illustrationIdentity = readIllustrationIdentity(messageId);
+        current.illustrationIdentity = readIllustrationIdentity(current.contentMessageId);
         if (replaceOptions.turnOffset != null) current.turnOffset = Math.max(0, Number(replaceOptions.turnOffset) || 0);
         current.payload = payload;
         if (current.turnOffset === 0 || payload.messageId === current.mountMessageId) {

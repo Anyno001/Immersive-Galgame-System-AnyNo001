@@ -329,11 +329,20 @@ export function createImageBackend({ nai, getBridge, global: globalObject = glob
                     : globalArtist(frozen);
                 frozen.finalArtist = artist === null ? null : structuredClone(artist);
             }
+            const imageKind = String(meta.imageKind || input?.imageKind || '').trim().toLowerCase();
+            const promptKind = String(meta.promptKind || input?.promptKind || '').trim().toLowerCase();
+            const kindPriority = imageKind === 'sprite' || ['sprite', 'expression', 'avatar', 'creature', 'wardrobe'].includes(promptKind) ? 'sprite'
+                : imageKind === 'background' || promptKind === 'background' ? 'background'
+                : imageKind === 'cg' || ['cg', 'nsfwcg'].includes(promptKind) ? 'cg'
+                : imageKind === 'item' || promptKind === 'item' ? 'item'
+                : '';
+            const priority = isUrgentImageSignal(meta.signal, input?.signal, settings?.signal, guarded.signal) ? 'urgent'
+                : meta.paintPriority === 'high' ? 'high'
+                : kindPriority;
             const controls = {
                 ...(guarded.signal && { signal: guarded.signal }),
                 ...(guarded.shouldStart && { shouldStart: guarded.shouldStart }),
-                ...(isUrgentImageSignal(meta.signal, input?.signal, settings?.signal, guarded.signal) ? { priority: 'urgent' }
-                    : meta.paintPriority === 'high' && { priority: 'high' }),
+                ...(priority && { priority }),
             };
             const result = await retryRun('nai', () => nai[method](method === 'edit' || method === 'emotion' ? { ...prepared, ...controls } : prepared,
                 { ...frozen, ...controls, onQueueEvent: (level, message) => report?.(level, message),

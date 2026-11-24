@@ -1110,7 +1110,7 @@ export function createAssetGenerationService(deps) {
             report('warn', `第 ${messageId} 楼有 ${lost.size} 张已登记素材的图片找不到了，已跳过失效槽并重新检查兜底`);
         }
         const variantNeeds = backgroundNeeds.filter((need) => need.variantOf);
-        const needs = [...backgroundNeeds.filter((need) => !need.variantOf), ...spriteNeeds];
+        const needs = [...spriteNeeds, ...backgroundNeeds.filter((need) => !need.variantOf)];
         // 非白天且该地点还没图：先画白天底图，再走时段差分；差分不可用（后端不能按词出图）时仍直接画。
         const dayFirst = [];
         if (s.auto.assets.dayFirst !== false && nai && typeof nai.generateDbgenCaption === 'function') {
@@ -1265,10 +1265,13 @@ export function createAssetGenerationService(deps) {
             if (batchBackgrounds && item.need && item.need.type === 'background') return false;
             if (batchSprites && item.need && item.need.type === 'sprite') return false;
             return true;
+        }).sort((a, b) => {
+            const rank = (item) => (item?.need?.type === 'sprite' ? 0 : item?.need?.type === 'background' ? 1 : 2);
+            return rank(a) - rank(b);
         });
         const batchTasks = [];
-        if (batchBackgrounds) batchTasks.push(generateBackgroundBatch(backgrounds, s, floor, key));
         if (batchSprites) batchTasks.push(generateSpriteBatch(sprites, s, floor, key));
+        if (batchBackgrounds) batchTasks.push(generateBackgroundBatch(backgrounds, s, floor, key));
         if (batchTasks.length) {
             for (const batchRecords of await Promise.all(batchTasks)) {
                 for (const record of batchRecords) {

@@ -749,8 +749,8 @@ export function createStatsRuntime({
         return true;
     }
 
-    // 主角统一初始化（P4）：先恢复未完成意图；若未决定自动/手填则等待玩家选择；否则读取权威六维与货币判定缺项，全缺一次请求、部分已有只补缺项，分阶段保存并读回确认。
-    function ensureHeroInit({ force = false, requireBio = false } = {}) {
+    // 主角统一初始化（P4）：先恢复未完成意图；若未决定自动/手填则等待玩家选择；否则读取权威六维、擅长技能、初始特质与货币判定缺项，全缺一次请求、部分已有只补缺项，分阶段保存并读回确认。
+    function ensureHeroInit({ force = false, requireBio = false, includeSkills = false } = {}) {
         const hasAttr = Boolean(attributeAccess);
         const hasInv = Boolean(inventoryOf());
         if (!active() || (!hasAttr && !hasInv)) return null;
@@ -767,7 +767,8 @@ export function createStatsRuntime({
         }
         const currencyReady = !hasInv || Boolean(currency?.seeded);
         const bioReady = !requireBio || Boolean(String(catalog.heroBio || '').trim());
-        if (!hasPendingIntent && attrReady && currencyReady && bioReady && !force && !exchangeOf() && !currencyEditPending()) return null;
+        const skillsReady = !includeSkills || !needsHeroPick();
+        if (!hasPendingIntent && attrReady && currencyReady && bioReady && skillsReady && !force && !exchangeOf() && !currencyEditPending()) return null;
         // 尚无已落地数据时，自动触发必须满足当前最新楼层含任意可见 IGS 标签。
         if (!force && !hasPendingIntent && (!attrReady || !currencyReady) && !latestFloorHasVisibleIgsTag()) return null;
         if (!force && !hasPendingIntent && currencyAsked.has(chatId)) return null;
@@ -784,7 +785,7 @@ export function createStatsRuntime({
             job.slow = slow;
             currencyProgress = { stage, reason: '', slow };
             const text = stage === 'request'
-                ? (slow ? '主角初始化仍在处理中，正在等待同一次请求' : '正在初始化主角六维与剧情货币')
+                ? (slow ? '主角初始化仍在处理中，正在等待同一次请求' : '正在初始化主角数值与剧情货币')
                 : stage === 'attributes' ? '正在保存主角六维'
                 : stage === 'recover' ? '正在恢复主角初始化'
                 : '正在确认剧情货币';
@@ -874,15 +875,80 @@ export function createStatsRuntime({
                 const adv = saveStage({ stage: 'done' });
                 if (!adv.ok) return adv;
             }
-            // 阶段 4.5：写入主角简介（不覆盖已有简介，独立键值不锁 NPC 或技能写入）；若尚有未落盘的初始账本也一并落地。
+            // 阶段 4.5：写入主角简介、擅长技能与初始特质（同一批请求结果一次性落地，不覆盖已有手填）；若尚有未落盘的初始账本也一并落地。
             if (generationCommitActive > 0) await generationCommitTail;
-            if (intent.bio && !String(catalog.heroBio || '').trim() && alive()) {
-                catalog = sanitizeCatalog({ ...catalog, heroBio: intent.bio });
-                persist([], { shouldStart: alive });
-                await tail;
-            } else if (!ledgerPersisted && alive()) {
-                persist([], { shouldStart: alive });
-                await tail;
+            if (alive()) {
+                let nextCatalog = catalog;
+                let catalogChanged = false;
+                let traitsAdded = false;
+                const traitNotices = [];
+                if (intent.bio && !String(nextCatalog.heroBio || '').trim()) {
+                    nextCatalog = sanitizeCatalog({ ...nextCatalog, heroBio: intent.bio });
+                    catalogChanged = true;
+                }
+                if (intent.needSkills && intent.skills && Object.keys(intent.skills).length && needsHeroPick() && !hasLearnedHeroSkill()) {
+                    const owned = ledger ? currentStatsState(ledger).protagonist.skills : {};
+                    const base = { ...nextCatalog.protagonistBase };
+                    const edit = { ...nextCatalog.protagonistEdit };
+                    const entries = [];
+                    for (const [skill, tier] of Object.entries(intent.skills)) {
+                        if (!SKILL_TIERS[tier] || (owned[skill] && Number(owned[skill].value) >= 25)) continue;
+                        delete edit[skill];
+                        const val = bandValue(SKILL_TIERS[tier], `${chatId}|${PROTAGONIST}|${skill}`);
+                        base[skill] = val;
+                        entries.push([skill, val]);
+                    }
+                    if (entries.length) {
+                        const heroSlots = backfillHeroSlots(entries);
+                        nextCatalog = sanitizeCatalog({
+                            ...nextCatalog,
+                            protagonistBase: base,
+                            protagonistEdit: edit,
+                            heroAssigned: true,
+                            heroPicked: true,
+                            heroSlots,
+                        });
+                        heroAsked.add(chatId);
+                        heroPickAsked.add(chatId);
+                        setNotice('hero-pick', null);
+                        setNotice('hero-skills', null);
+                        catalogChanged = true;
+                    }
+                }
+                if (intent.hasTraits && ledger && !(nextCatalog.traitInit || []).includes(PROTAGONIST)) {
+                    const nowState = currentStatsState(ledger);
+                    const prevForCombo = nextCatalog;
+                    for (const traitId of (Array.isArray(intent.traits) ? intent.traits : []).slice(0, 3)) {
+                        const applied = applyTraitChange(nowState, nextCatalog, PROTAGONIST, traitId, true, 'auto', gateAttrsOf(PROTAGONIST));
+                        if (applied && applied.catalog && !applied.reason && Array.isArray(applied.notices) && applied.notices.length) {
+                            nextCatalog = applied.catalog;
+                            traitsAdded = true;
+                            traitNotices.push(...applied.notices);
+                        }
+                    }
+                    nextCatalog = sanitizeCatalog({
+                        ...nextCatalog,
+                        traitInit: [...new Set([...(nextCatalog.traitInit || []), PROTAGONIST])],
+                    });
+                    catalogChanged = true;
+                    if (traitsAdded) {
+                        const beforeCombo = catalog;
+                        catalog = nextCatalog;
+                        const comboTexts = refreshAllCombos(nowState, prevForCombo, nowState);
+                        nextCatalog = catalog;
+                        catalog = beforeCombo;
+                        announceTraits(traitNotices, comboTexts);
+                        lightGlobalCodex(nowState);
+                    }
+                }
+                if (catalogChanged) {
+                    catalog = nextCatalog;
+                    persist([], { shouldStart: alive });
+                    await tail;
+                } else if (!ledgerPersisted) {
+                    persist([], { shouldStart: alive });
+                    await tail;
+                }
             }
             // 阶段 5：清除意图并恢复其余待完成写口
             const cleared = heroInitIntents.save(chatId, null);
@@ -921,7 +987,15 @@ export function createStatsRuntime({
             const needAttributes = Boolean(hasAttr && !attrRead.view.initialized);
             const needCurrency = Boolean(hasInv && !currency);
             const needBio = !String(catalog.heroBio || '').trim();
-            if (!needAttributes && !needCurrency && !(requireBio && needBio)) {
+            const ownedHeroSkills = ledger ? currentStatsState(ledger).protagonist.skills : {};
+            const wantSkills = Boolean(ledger && (includeSkills || catalog.heroInitChoice === 'auto') && needsHeroPick() && !hasLearnedHeroSkill());
+            const availableSkills = wantSkills
+                ? heroSkillNames().filter((name) => !(ownedHeroSkills[name] && Number(ownedHeroSkills[name].value) >= 25))
+                : [];
+            const needSkills = availableSkills.length > 0;
+            const traitDefs = ledger && !(catalog.traitInit || []).includes(PROTAGONIST) ? candidateTraitDefs({ protagonist: true }) : [];
+            const needTraits = traitDefs.length > 0;
+            if (!needAttributes && !needCurrency && !(requireBio && needBio) && !(includeSkills && needSkills)) {
                 if (hasInv && currency && !currency.seeded) {
                     progress('currency-seed');
                     const seeded = await seedCurrency(alive);
@@ -964,6 +1038,10 @@ export function createStatsRuntime({
                 needAttributes,
                 needCurrency,
                 needBio,
+                needSkills,
+                availableSkills,
+                needTraits,
+                traitDefs,
                 existingCurrency: currency,
             }, { prompt: settings().prompts.heroInit });
             progress('request');
@@ -994,7 +1072,15 @@ export function createStatsRuntime({
             }
             if (!requestAlive()) return { ok: false, stage: 'request', reason: 'request-stale' };
             job.stage = 'parse';
-            const parsed = parseHeroInitReply(reply, { needAttributes, needCurrency, chatSeed: chatId });
+            const parsed = parseHeroInitReply(reply, {
+                needAttributes,
+                needCurrency,
+                needSkills,
+                availableSkills,
+                needTraits,
+                traitDefs,
+                chatSeed: chatId,
+            });
             if (!parsed.ok) return { ...parsed, stage: 'parse' };
 
             // 回包前再次只读核对权威状态：若期间手改已补足，绝不覆盖；仍缺项时再在 commitIntent 中建表写入。
@@ -1015,7 +1101,9 @@ export function createStatsRuntime({
                 if (latestStats.layout === 'v2' || latestStats.layout === 'legacy') layout = latestStats.layout;
                 if (latestStats.currency) finalNeedCurrency = false;
             }
-            if (!finalNeedAttributes && !finalNeedCurrency && !(needBio && parsed.bio)) {
+            const finalNeedSkills = Boolean(needSkills && parsed.skills && Object.keys(parsed.skills).length && needsHeroPick() && !hasLearnedHeroSkill());
+            const finalNeedTraits = Boolean(needTraits && parsed.hasTraits && !(catalog.traitInit || []).includes(PROTAGONIST));
+            if (!finalNeedAttributes && !finalNeedCurrency && !finalNeedSkills && !finalNeedTraits && !(needBio && parsed.bio)) {
                 if (hasInv && currency && !currency.seeded) {
                     progress('currency-seed');
                     const seeded = await seedCurrency(alive);
@@ -1031,6 +1119,8 @@ export function createStatsRuntime({
                 createdAt,
                 attributes: finalNeedAttributes ? parsed.attributes : null,
                 currency: finalNeedCurrency ? parsed.currency : null,
+                skills: finalNeedSkills ? parsed.skills : null,
+                traits: finalNeedTraits ? (parsed.traits || []) : null,
             });
             const operationId = `hi-${hash32(opSeed).toString(36)}`;
             const intent = {
@@ -1041,9 +1131,14 @@ export function createStatsRuntime({
                 stage: 'result-saved',
                 needAttributes: finalNeedAttributes,
                 needCurrency: finalNeedCurrency,
+                needSkills: finalNeedSkills,
+                needTraits: finalNeedTraits,
+                hasTraits: finalNeedTraits,
                 attributes: finalNeedAttributes ? parsed.attributes : null,
                 attributeRecordId: finalNeedAttributes ? `hero-base|${heroKey}|${operationId}` : null,
                 currency: finalNeedCurrency ? { ...parsed.currency.config, initial: parsed.currency.initial } : null,
+                skills: finalNeedSkills ? parsed.skills : null,
+                traits: finalNeedTraits ? (parsed.traits || []) : null,
                 bio: parsed.bio || '',
                 seed: null,
                 createdAt,
@@ -2506,6 +2601,10 @@ export function createStatsRuntime({
         const kept = (skipped || []).filter((s) => s.why !== 'no-change');
         if (kept.length) diag('stats-trait-review-skipped', { items: kept.map((s) => `${s.charName}:${s.id}:${s.why}`) });
     };
+    function candidateTraitDefs({ protagonist = false } = {}) {
+        const nsfw = isNsfw();
+        return TRAIT_DEFS.filter((d) => d.candidate !== false && (!protagonist || d.protagonist) && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
+    }
     // 初始特质：主角与已建档角色各评一次（每人最多 3 项，src=auto），按 SHEET_BATCH_MAX 人一批依次发给备用模型。
     // 失败保留待评名单，仅手动操作可重试。
     // manual：设置页「补全角色特质」，已评过但仍没有任何特质的角色也再评一次。
@@ -2514,7 +2613,17 @@ export function createStatsRuntime({
         const done = new Set(catalog.traitInit || []);
         const npcs = [...new Set([...Object.keys(currentStatsState(ledger).characters || {}), ...Object.keys(catalog.sheets || {})])].filter((n) => n !== PROTAGONIST && !isHero(n));
         const bare = (n) => !listTraits(catalog, n).some((t) => t.src !== 'achieve');
-        return [PROTAGONIST, ...npcs].filter((n) => !done.has(n) || (manual && bare(n)));
+        const activeSheets = new Set(generationTasks.get('sheets')?.targets || []);
+        const autoSheetPending = (n) => !manual && settings().sheetGen !== 'off' && (
+            activeSheets.has(n)
+            || (npcPolicy === 'auto' && !catalog.sheets[n] && npcChoices[n] !== 'defer')
+        );
+        const heroInitPending = !manual && Boolean(currencyJob?.alive?.());
+        return [PROTAGONIST, ...npcs].filter((n) => {
+            if (n === PROTAGONIST && heroInitPending) return false;
+            if (n !== PROTAGONIST && autoSheetPending(n)) return false;
+            return !done.has(n) || (manual && bare(n));
+        });
     };
     function runInitialTraits({ manual = false } = {}) {
         const pending = generationTasks.get('initial-traits');
@@ -2556,7 +2665,7 @@ export function createStatsRuntime({
                 const c = ctx();
                 const state = currentStatsState(ledger);
                 const nsfw = isNsfw();
-                const defs = TRAIT_DEFS.filter((d) => d.candidate !== false && (nsfw || !d.nsfw) && subInWorlds(d.sub, worldsNow()));
+                const defs = candidateTraitDefs();
                 const floors = messages(c).filter((m) => m && !m.is_system).slice(-6)
                     .map((m) => ({ role: m.is_user ? 'user' : 'ai', text: stripStatDirectives(String(m.mes ?? '')) }));
                 let client = null;
@@ -3872,15 +3981,19 @@ export function createStatsRuntime({
                 context = { ...context, ...resolved };
             }
             const engine = engineOf();
-            const skills = engine.registry.entries().filter(([, e]) => e.kind === 'skill' && (e.origin !== 'world')).map(([n, e]) => [n, e.attribute]);
-            const prompt = buildSheetRequest(context.people, { ...context, worldview: worldviewOf(), skills, prompt: settings().prompts.sheetGen });
+            const currentWorldSkills = new Set(worldSkillNames(worldviewOf()));
+            const skills = engine.registry.entries()
+                .filter(([n, e]) => e.kind === 'skill' && (e.origin !== 'world' || currentWorldSkills.has(n)))
+                .map(([n, e]) => [n, e.attribute]);
+            const traitDefs = targets.some((n) => !(catalog.traitInit || []).includes(n)) ? candidateTraitDefs() : [];
+            const prompt = buildSheetRequest(context.people, { ...context, worldview: worldviewOf(), skills, traitDefs, prompt: settings().prompts.sheetGen });
             let parsed = null;
             try {
                 parsed = parseSheetReply(await ask(request, prompt, BACKGROUND_TIMEOUT_MS, job, {
                     onRetry: ({ attempt, maxRetries }) => {
                         if (job.alive()) setNotice('sheets', { kind: 'busy', text: `正在重试生成数值（第 ${attempt}/${maxRetries} 次）：${targets.join('、')}` });
                     },
-                }), { names: targets, registry: engine.registry });
+                }), { names: targets, registry: engine.registry, traitDefs });
             }
             catch (error) { job.check(); if (error?.stage) throw error; parsed = { ok: false, reason: error?.reason || 'stats-sheet-request-failed' }; }
             checkGeneration(job);
@@ -3893,6 +4006,8 @@ export function createStatsRuntime({
             (parsed.diagnostics || []).forEach((d) => diag(d.code, d));
             const done = Object.keys(parsed.sheets);
             const committed = await stageGeneration(job, () => {
+                const prevForCombo = catalog;
+                const nowState = ledger ? currentStatsState(ledger) : null;
                 const sheets = { ...catalog.sheets };
                 const sheetDrops = { ...catalog.sheetDrops };
                 for (const [name, tiers] of Object.entries(parsed.sheets)) {
@@ -3901,6 +4016,31 @@ export function createStatsRuntime({
                     if (replaced.ids[name]) sheetDrops[name] = replaced.ids[name];
                 }
                 catalog = { ...catalog, sheets, sheetDrops, queue: { ...catalog.queue, people: catalog.queue.people.filter((n) => !done.includes(n)) } };
+                if (traitDefs.length && nowState) {
+                    const traitNotices = [];
+                    let traitsAdded = false;
+                    const judged = [];
+                    for (const [name, tiers] of Object.entries(parsed.sheets)) {
+                        if (!tiers.hasTraits || (catalog.traitInit || []).includes(name)) continue;
+                        judged.push(name);
+                        for (const traitId of (Array.isArray(tiers.traits) ? tiers.traits : []).slice(0, 3)) {
+                            const applied = applyTraitChange(nowState, catalog, name, traitId, true, 'auto', gateAttrsOf(name));
+                            if (applied && applied.catalog && !applied.reason && Array.isArray(applied.notices) && applied.notices.length) {
+                                catalog = applied.catalog;
+                                traitsAdded = true;
+                                traitNotices.push(...applied.notices);
+                            }
+                        }
+                    }
+                    if (judged.length) {
+                        catalog = { ...catalog, traitInit: [...new Set([...(catalog.traitInit || []), ...judged])] };
+                        if (traitsAdded) {
+                            const comboTexts = refreshAllCombos(nowState, prevForCombo, nowState);
+                            announceTraits(traitNotices, comboTexts);
+                            lightGlobalCodex(nowState);
+                        }
+                    }
+                }
                 generationStage.sheetWrites = { card: cardOf(ctx()), names: done };
                 setNotice('sheets', catalog.queue.people.length
                     ? { kind: 'sheets', text: `还有 ${catalog.queue.people.length} 位角色没有数值`, actions: [['generate', '生成数值'], ['dismiss', '稍后']] }
@@ -3923,11 +4063,11 @@ export function createStatsRuntime({
 
     // ---- 批量补全（v2 §6.2 第二、三层） ----
     function scheduleBackfill() {
-        if (settings().backfill !== 'auto' || !catalog.queue.skills.length || generationTasks.get('backfill') || !requester()
+        if (settings().backfill !== 'auto' || !catalog.queue.skills.length || generationTasks.get('backfill') || generationTasks.get('sheets') || !requester()
             || generationFailures.has(generationFailureKey('backfill'))) return;
         const owner = generationIdentity();
         const id = chatIdOf(ctx());
-        setTimeout(() => { if (!generating && chatIdOf(ctx()) === id && generationIdentity() === owner) runBackfill({ manual: false }); }, 0);
+        setTimeout(() => { if (!generating && !generationTasks.get('sheets') && chatIdOf(ctx()) === id && generationIdentity() === owner) runBackfill({ manual: false }); }, 0);
     }
 
     function runBackfill({ manual = true } = {}) {
@@ -4346,7 +4486,7 @@ export function createStatsRuntime({
                 // 延迟建表：仅在已有落盘账本时立即写选择；否则等待自动生成成功后随生成数据一并建表写入。
                 if (ledgerPersisted) persist();
                 refreshOnboarding();
-                const initPromise = ensureHeroInit({ force: true });
+                const initPromise = ensureHeroInit({ force: true, includeSkills: true });
                 return Promise.resolve(initPromise || { ok: true }).then((res) => {
                     if (res?.ok !== false && needsHeroPick() && requester()) void assignHeroSkills({ overwrite: true });
                     return { ok: res?.ok !== false, choice: 'auto', result: res };
@@ -4368,7 +4508,7 @@ export function createStatsRuntime({
         }
         if (id === 'sheets' && action === 'generate') { setNotice('sheets', null); return generateSheets(); }
         if (id === 'roll' && action === 'roll') return manualRoll();
-        if ((id === 'currency' || id === 'hero-init') && action === 'retry') return ensureHeroInit({ force: true });
+        if ((id === 'currency' || id === 'hero-init') && action === 'retry') return ensureHeroInit({ force: true, includeSkills: catalog.heroInitChoice === 'auto' });
         setNotice(id, null);
         return { ok: true };
     }

@@ -3,7 +3,7 @@
 import { abilityKeyOf } from '../../combat/abilities.js';
 import { ABILITY_KEYS, ABILITY_LABELS, normalizeHeroScores } from './ability-fields.js';
 import { CURRENCY_INITIAL_FACTOR, currencyRequestFailure, describeCurrencyFailure, normalizeCurrencyConfig } from './stat-currency.js';
-import { ABILITY_SCORE_TIERS, attributeTier, bandValue } from './stat-sheets.js';
+import { ABILITY_SCORE_TIERS, attributeTier, bandValue, parseHeroSkillReply, resolveTraitIds } from './stat-sheets.js';
 import { DEFAULT_HERO_INIT_PROMPT } from './stat-prompt.js';
 
 export const HERO_INIT_PROTOCOL_VERSION = 1;
@@ -86,12 +86,41 @@ function parseCurrencyObject(raw) {
     return { ok: true, config, initial };
 }
 
+function parseHeroInitSkills(data, availableSkills) {
+    if (!Array.isArray(availableSkills) || !availableSkills.length) return null;
+    const rawObj = data.skills ?? data.技能;
+    if (rawObj && typeof rawObj === 'object' && !Array.isArray(rawObj)) {
+        const parsed = parseHeroSkillReply(JSON.stringify(rawObj), { skills: availableSkills });
+        return parsed.ok ? parsed.tiers : null;
+    }
+    const strong = Array.isArray(data.擅长 ?? data.strong) ? (data.擅长 ?? data.strong) : [];
+    const good = Array.isArray(data.比较擅长 ?? data.good) ? (data.比较擅长 ?? data.good) : [];
+    if (!strong.length && !good.length) return null;
+    const mapped = {};
+    for (const item of strong) {
+        const name = String(item ?? '').trim();
+        if (name && !Object.hasOwn(mapped, name)) mapped[name] = '精通';
+    }
+    for (const item of good) {
+        const name = String(item ?? '').trim();
+        if (name && !Object.hasOwn(mapped, name)) mapped[name] = '熟练';
+    }
+    const parsed = parseHeroSkillReply(JSON.stringify(mapped), { skills: availableSkills });
+    return parsed.ok ? parsed.tiers : null;
+}
+
 export function buildHeroInitRequest({
     protagonist = '主角', worldview = '', story = '', people = [], worldInfo = '', userPersona = '',
-    needAttributes = true, needCurrency = true, needBio = false, existingCurrency = null,
+    needAttributes = true, needCurrency = true, needBio = false,
+    needSkills = false, availableSkills = [], needTraits = false, traitDefs = [],
+    existingCurrency = null,
 } = {}, { prompt = '' } = {}) {
+    const cleanSkills = needSkills && Array.isArray(availableSkills) ? availableSkills.filter(Boolean) : [];
+    const cleanTraits = needTraits && Array.isArray(traitDefs) ? traitDefs.filter((d) => d && d.id && d.name) : [];
     const missing = [];
     if (needAttributes) missing.push('attributes（主角六维）');
+    if (cleanSkills.length) missing.push('skills（主角擅长技能档位）');
+    if (cleanTraits.length) missing.push('traits（主角初始特质，0–3项）');
     if (needCurrency) missing.push('currency（剧情货币定义与开局金额）');
     if (needBio) missing.push('bio（主角简介）');
     const lines = [
@@ -100,6 +129,8 @@ export function buildHeroInitRequest({
         `需要补齐的项目：${missing.join('、') || '无'}`,
     ];
     if (worldview) lines.push(`世界观：${worldview}`);
+    if (cleanSkills.length) lines.push(`可用技能：${cleanSkills.join('、')}`);
+    if (cleanTraits.length) lines.push(`可选特质：${cleanTraits.map((d) => d.name).join('、')}`);
     if (String(worldInfo || '').trim()) lines.push(`世界观设定：\n${String(worldInfo).trim()}`);
     if (String(userPersona || '').trim()) lines.push(`主角资料：\n${String(userPersona).trim()}`);
     if (String(story || '').trim()) lines.push(`剧情：\n${String(story).trim()}`);
@@ -108,9 +139,18 @@ export function buildHeroInitRequest({
     if (intro.length) lines.push(`角色资料：\n${intro.join('\n')}`);
     if (!needCurrency && existingCurrency?.name) lines.push(`已有剧情货币（无需重新生成）：${existingCurrency.name}`);
     const shape = [];
+    const rules = [];
     if (needAttributes) {
         const example = ABILITY_KEYS.map((key) => `"${ABILITY_LABELS[key]}":10`).join(',');
         shape.push(`"attributes":{${example}}`);
+    }
+    if (cleanSkills.length) {
+        shape.push('"skills":{"<技能名>":"<档位>"}');
+        rules.push('- skills：只从「可用技能」里选，档位为 未学、入门、熟练、精通、大师（大师至多1项、精通至多2项、熟练至多6项、入门至多8项；不写数字）');
+    }
+    if (cleanTraits.length) {
+        shape.push('"traits":["<特质名>"]');
+        rules.push('- traits：0–3 项，只从「可选特质」里挑与主角人设明显相符的特质名，没有写 []');
     }
     if (needCurrency) {
         shape.push('"currency":{"name":"货币名","initial":100,"prices":{"少量":10,"普通":50,"昂贵":200,"巨额":1000},"rate":1}');
@@ -118,17 +158,20 @@ export function buildHeroInitRequest({
     if (needBio) {
         shape.push('"bio":"1-3句简洁主角简介"');
     }
-    lines.push(`【输出要求】\n只输出一个 JSON 对象：{${shape.join(',')}}`);
+    lines.push(['【输出要求】', `只输出一个 JSON 对象：{${shape.join(',')}}`, ...rules].join('\n'));
     return { system: prompt || DEFAULT_HERO_INIT_PROMPT, user: lines.join('\n\n') };
 }
 
-export function parseHeroInitReply(reply, { needAttributes = true, needCurrency = true, chatSeed = '' } = {}) {
+export function parseHeroInitReply(reply, {
+    needAttributes = true, needCurrency = true, needSkills = false, availableSkills = [],
+    needTraits = false, traitDefs = [], chatSeed = '',
+} = {}) {
     const extracted = extractJsonObject(reply);
     if (!extracted.ok) return { ok: false, stage: 'parse', reason: extracted.reason };
     const data = extracted.data;
     const out = { ok: true, protocolVersion: HERO_INIT_PROTOCOL_VERSION };
     if (needAttributes) {
-        const rawAttrs = data.attributes ?? data.属性 ?? (!needCurrency ? data : null);
+        const rawAttrs = data.attributes ?? data.属性 ?? (!needCurrency && !needSkills ? data : null);
         const attributes = parseAttributesObject(rawAttrs, chatSeed);
         if (!attributes) return { ok: false, stage: 'parse', reason: 'stats-hero-init-attributes-invalid' };
         out.attributes = attributes;
@@ -138,6 +181,17 @@ export function parseHeroInitReply(reply, { needAttributes = true, needCurrency 
         const parsedCurrency = parseCurrencyObject(rawCurrency);
         if (!parsedCurrency.ok) return { ok: false, stage: 'parse', reason: parsedCurrency.reason };
         out.currency = { config: parsedCurrency.config, initial: parsedCurrency.initial };
+    }
+    if (needSkills && Array.isArray(availableSkills) && availableSkills.length) {
+        const skills = parseHeroInitSkills(data, availableSkills);
+        if (skills) out.skills = skills;
+    }
+    if (needTraits && Array.isArray(traitDefs) && traitDefs.length) {
+        const hasTraits = Object.hasOwn(data, 'traits') || Object.hasOwn(data, '特质');
+        if (hasTraits) {
+            out.hasTraits = true;
+            out.traits = resolveTraitIds(data.traits ?? data.特质, traitDefs, 3);
+        }
     }
     const rawBio = data.bio ?? data.简介 ?? data.主角简介 ?? data.summary;
     if (typeof rawBio === 'string') {

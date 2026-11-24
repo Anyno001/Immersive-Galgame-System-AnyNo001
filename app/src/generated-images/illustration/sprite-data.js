@@ -75,17 +75,41 @@ export function parseSpriteData(text, meta) {
         : ['outfit_name', 'outfit_description', 'outfit_half_body', 'personality', ...viewFields, 'pose', 'pose_uc', ...Object.keys(combatFields)])]);
     const rows = new Map();
     let row;
+    let lastKey = '';
     for (const [index, line] of String(text || '').split(/\r?\n/).entries()) {
-        if (!line.trim()) continue;
-        if (line.trim() === '---') { row = undefined; continue; }
-        const match = /^(\w+):[ \t]*(.*)$/.exec(line.trim());
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed === '---') { row = undefined; lastKey = ''; continue; }
         const where = { lineNumber: index + 1, ...(row && { slotId: row.slotId }) };
-        if (!match || !allowed.has(match[1])) return fail('response_format', 'invalid', where);
+        // 字段头限定为单冒号标识符，避免把 NAI 权重语法（如 2::tag::、1.2::tag::）误判为非法字段头。
+        const match = /^([a-zA-Z_]\w*):(?!:)[ \t]*(.*)$/.exec(trimmed);
+        if (!match) {
+            const canContinue = Boolean(row && lastKey
+                && lastKey !== 'slotid' && lastKey !== 'character'
+                && (lastKey !== 'outfit_name' || !row.outfit_name)
+                && !/^```/.test(trimmed) && !/^[{}\[\]]/.test(trimmed));
+            if (!canContinue) return fail('response_format', 'invalid', where);
+            const prev = row[lastKey] || '';
+            const openWeight = ((prev.match(/::/g) || []).length % 2) === 1;
+            const sep = !prev ? ''
+                : (lastKey === 'outfit_name' || openWeight || /,\s*$/.test(prev) || /^,/.test(trimmed)) ? ' ' : ', ';
+            const joined = prev ? `${prev}${sep}${trimmed}` : trimmed;
+            if (Object.hasOwn(combatFields, lastKey)) {
+                if (!validText(joined)) row.combatIssue = { field: combatFields[lastKey], problem: 'invalid' };
+                row[lastKey] = joined;
+                continue;
+            }
+            if (!viewFields.includes(lastKey) && !validText(joined)) return fail(lastKey, 'invalid', where);
+            row[lastKey] = joined;
+            continue;
+        }
+        if (!allowed.has(match[1])) return fail('response_format', 'invalid', where);
         const [, key, value] = match;
         if (key === 'slotid') {
             const id = Number(value);
             if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(id) || rows.has(id)) return fail('slotid', 'invalid', where);
             row = { slotId: id, lines: {} }; rows.set(id, row);
+            lastKey = 'slotid';
         } else {
             if (!row) {
                 if (!implicitSlot || rows.size || key !== 'character') return fail('slotid', 'missing', where);
@@ -96,11 +120,13 @@ export function parseSpriteData(text, meta) {
                     row.combatIssue = { field: combatFields[key], problem: Object.hasOwn(row, key) ? 'duplicate' : 'invalid' };
                 }
                 row[key] = value; row.lines[key] = index + 1;
+                lastKey = key;
                 continue;
             }
             if (Object.hasOwn(row, key)) return fail(key, 'duplicate', where);
             if (!viewFields.includes(key) && !validText(value)) return fail(key, 'invalid', where);
             row[key] = value; row.lines[key] = index + 1;
+            lastKey = key;
         }
     }
     return assembleSpriteData(rows, meta, fragments, slots);

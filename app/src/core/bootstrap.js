@@ -114,7 +114,7 @@ import { applyCombatRuleModifiers, combatExpansionEnabled, combatCooldownFloorsO
 import { mergeCheckInputs, resolveCheckRollsSegment } from '../scene/check-rolls.js';
 import { isMatteUnlocked } from '../media/matte-unlock.js';
 
-const IGS_VERSION = '0.41.36';
+const IGS_VERSION = '0.41.37';
 const SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS = 3000;
 const SCENE_ASSETS_INJECTION_RETRY_MS = 1500;
 
@@ -998,9 +998,9 @@ export function bootstrapIGS(options = {}) {
     if (imageJobLog && typeof imageJobLog.prune === 'function') imageJobLog.prune();
     llmCallLog.prune?.();
     applyImageCacheLimit((getUnifiedSettingsSnapshot() || {}).bridge);
-    illustrationService.start();
     assetGenerationService.start();
     storyOutfits?.start();
+    illustrationService.start();
     itemCg.itemImages.start();
     itemCg.itemLedger.start();
     scheduleSceneAssetsInjection(SCENE_ASSETS_INJECTION_INITIAL_DELAY_MS, 1);

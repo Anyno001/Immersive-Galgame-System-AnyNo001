@@ -22,7 +22,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ## 当前状态
 
-当前版本：`0.41.36`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
+当前版本：`0.41.37`。下面每条写明是哪个版本引入的，按版本从新到旧排列；完整说明和验证记录见下方「更新日志」。
 
 ### 未发布 / 版本不详
 
@@ -35,6 +35,7 @@ JS-Slash-Runner（酒馆助手）Immersive Galgame System 项目。
 
 ### 0.41.x
 
+- `0.41.37`：统一主角与 NPC 的数值单批生成（同一批请求内一次性生成六维、擅长技能与初始特质，不再拆分多批请求）；调整生图串行冲突优先级为「角色立绘 > 场景 > CG > 物品等其他」（保留手动触发 `urgent` 与开战预热 `high` 优先）；修复 `replaceReader` 漏传变量导致的 `操作未完成：messageId is not defined` 报错；修复多行 `sprite-data`（字段冒号后换行及 NAI 权重语法）解析失败以及手动生成立绘未即时建立默认立绘占位与中途关闭设置导致绘图中断的问题。未真机验证。
 - `0.41.36`：调整数值系统与状态栏开关的联动方式：开启数值系统（含开启卡牌战斗自动拉起数值系统）时仅同步将「显示状态栏」开关置为开启，不再接管或强制覆盖状态栏显示控制权，用户随时可单独关闭状态栏并持久生效。未真机验证。
 - `0.41.35`：安科掷出结果后的内置捧场短楼，在下一层帖子开头原样续上（只读显示，不喂给 AI）。未真机验证。
 - `0.41.34`：论坛设置新增「多数决票数规模」，安科多数决的总票数不再固定二三十票，可选小圈子 / 热帖 / 爆帖 / 全服公投 / 宇宙大选（约放大 1 / 10 / 100 / 1000 / 10000 倍）；票数带千分位。未真机验证。
@@ -1108,6 +1109,19 @@ projects/Immersive Galgame System/
 ### v0.34.73 - 新手引导新增工具栏按钮管理（内测）
 
 - **新手引导**：「对话框外观」之后新增「工具栏按钮管理」一步，带你到「阅读器 › 界面」的按钮管理列表；觉得哪个图标累赘就关掉它的眼睛隐藏，也能调整顺序。引导步骤总数从 10 步变为 11 步。
+### v0.41.37 - 2026-11-25
+
+- **统一主角与 NPC 数值单批生成**：
+  - `app/src/scene/stats/stat-hero-init.js` / `app/src/scene/stats/stat-sheets.js` / `app/src/scene/stats/stat-prompt.js` / `app/src/storage/hero-init-intents.js` / `app/src/core/stats-runtime.js`：主角自动初始化（`ensureHeroInit`）在同一批请求中一并产出六维、擅长技能、初始特质、简介与剧情货币并原子落盘，避免再拆出独立的擅长技能或初始特质请求；NPC 角色卡生成（`generateSheets`）纳入当前世界观技能并在同批请求内一并生成初始特质与标记 `traitInit`，同时在建档进行中抑制并发的冗余 `runInitialTraits` / `scheduleBackfill` 拆分请求。
+- **生图串行冲突优先级排序（角色立绘 > 场景 > CG > 物品等）**：
+  - `app/src/generated-images/nai-request-queue.js` / `app/src/generated-images/image-backend.js` / `app/src/generated-images/illustration/asset-generation-service.js` / `app/src/core/bootstrap.js`：在同凭据串行队列中建立分级优先级（`urgent > high > sprite > background > cg > item`），按 `imageKind` / `promptKind` 自动映射；同步调整楼层生图派发顺序与服务启动顺序，确保立绘最优先、其次场景、再 CG、最后物品等。
+- **修复 `操作未完成：messageId is not defined` 报错**：
+  - `app/src/visual/igs-ui/reader-host.js`：修复 `replaceReader` 调用 `readIllustrationIdentity(messageId)` 时引用未定义局部变量的缺陷，改为读取 `current.contentMessageId`。
+- **修复手动角色立绘提示词解析与默认占位/生图链路**：
+  - `app/src/generated-images/illustration/sprite-data.js`：`parseSpriteData` 支持字段冒号后换行的多行值与 NAI 权重语法（如 `outfit_description:\n1.2::dark blue robe::`、`2::...::`），同时继续严格拒收非法字段头、代码围栏与 JSON。
+  - `app/src/visual/igs-ui/settings-actions.js`：手动触发 `char-generate-sprite` 写词保存服装 DNA 时即时建立角色默认立绘占位（`characters` / `characterOutfits` / `characterDefaultOutfits`）并刷新界面；若长时间写词或生图期间设置窗口被关闭/重开，仍在同作用域下安全落盘并继续完成生图与采用，不再因 `settings-not-open` 中断。
+- **验证**：新增 `app/tests/unified-stats-priority-portrait.test.js`（4/4 通过），受影响测试集 194/194 + NAI 队列适配器 3/3 + `loader-version` 全部通过，`dist/igs.bundle.js` 构建与启动自检通过；未在真实 SillyTavern / TT 酒馆 / 手机端验证。
+
 ### v0.41.36 - 2026-11-24
 
 - **数值系统与状态栏开关改为单向联动开启、不接管显示控制权**：

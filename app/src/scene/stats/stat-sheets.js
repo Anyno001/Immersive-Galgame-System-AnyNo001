@@ -154,43 +154,71 @@ export function sheetHistoryContext(floors) {
     return picked.join('\n\n');
 }
 
+// 按候选特质定义解析模型返回的特质名或 ID（去重，最多 max 项）。
+export function resolveTraitIds(rawList, traitDefs = [], max = 3) {
+    if (!Array.isArray(rawList) || !Array.isArray(traitDefs) || !traitDefs.length) return [];
+    const byKey = new Map();
+    for (const def of traitDefs) {
+        if (!def || !def.id) continue;
+        byKey.set(String(def.id).trim(), def.id);
+        if (def.name) byKey.set(String(def.name).trim(), def.id);
+    }
+    const ids = [];
+    for (const item of rawList) {
+        const key = String((item && typeof item === 'object' ? (item.id ?? item.name ?? item.名) : item) ?? '').trim();
+        const id = key ? byKey.get(key) : null;
+        if (id && !ids.includes(id)) {
+            ids.push(id);
+            if (ids.length >= max) break;
+        }
+    }
+    return ids;
+}
+
 // 输出格式由程序固定附在请求末尾，不随用户改写的提示词丢失；占位符带尖括号，照抄时会被名字校验拒收。
-function sheetReplyFormat(names) {
-    return [
+function sheetReplyFormat(names, { hasTraits = false } = {}) {
+    const shape = hasTraits
+        ? '{"<角色名>":{"资历":"<资历档>","属性":{"<属性名>":"<属性档>"},"擅长":["<技能>"],"比较擅长":["<技能>"],"招牌技能":[{"名":"<技能>","属性":"<六维之一>"}],"特质":["<特质名>"]}}'
+        : '{"<角色名>":{"资历":"<资历档>","属性":{"<属性名>":"<属性档>"},"擅长":["<技能>"],"比较擅长":["<技能>"],"招牌技能":[{"名":"<技能>","属性":"<六维之一>"}]}}';
+    const lines = [
         '【输出要求】',
         `只输出一个 JSON 对象，不要代码块、解释或其他文字。顶层键是角色名，必须与下列名字一字不差，每人都要有：${names.join('、')}`,
-        '{"<角色名>":{"资历":"<资历档>","属性":{"<属性名>":"<属性档>"},"擅长":["<技能>"],"比较擅长":["<技能>"],"招牌技能":[{"名":"<技能>","属性":"<六维之一>"}]}}',
+        shape,
         '- 资历：普通人、老手、精英、大师、传奇 之一',
         '- 属性名：力量、敏捷、体质、智力、感知、魅力、理智；属性档：很弱、偏弱、普通、出众、顶尖、超凡 之一；只写与「普通」不同的项，没有就写 {}',
         '- 擅长写 3 项、比较擅长写 5 项，只从可用技能里选，两组不重复',
         '- 招牌技能 0–3 个，可以是清单外的新技能（名字不超过 8 个字），属性填 力量、敏捷、体质、智力、感知、魅力 之一',
-        '- 全部用档位词，任何位置都不写数字',
-    ].join('\n');
+    ];
+    if (hasTraits) lines.push('- 特质：0–3 个，只从可选特质里挑与人设明显相符的特质名，没有写 []');
+    lines.push('- 全部用档位词，任何位置都不写数字');
+    return lines.join('\n');
 }
 
-export function buildSheetRequest(people, { worldview = '', skills = [], history = '', settings = '', worldInfo = '', userPersona = '', protagonists = [], prompt } = {}) {
+export function buildSheetRequest(people, { worldview = '', skills = [], traitDefs = [], history = '', settings = '', worldInfo = '', userPersona = '', protagonists = [], prompt } = {}) {
     const batch = people.slice(0, SHEET_BATCH_MAX);
     const list = batch.map((p) => `【${p.name}】${ownOf(p) || '（没有资料，按普通人处理）'}`);
     const skillText = skills.map(([name, attribute]) => `${name}（${attribute}）`).join('、');
+    const cleanTraits = Array.isArray(traitDefs) ? traitDefs.filter((d) => d && d.id && d.name) : [];
+    const traitText = cleanTraits.map((d) => d.name).join('、');
     const settingText = [...new Set([String(settings).trim(), String(worldInfo).trim(),
         ...batch.map((p) => String(p?.world || '').trim())].filter(Boolean))].join('\n\n');
     const heroNames = batch.filter((p) => p.name === PROTAGONIST || protagonists.includes(p.name)).map((p) => p.name);
     return {
         system: prompt || DEFAULT_STAT_PROMPTS.sheetGen,
         user: [
-            `世界观：${worldview || '现代'}\n可用技能：${skillText || '（无）'}`,
+            `世界观：${worldview || '现代'}\n可用技能：${skillText || '（无）'}${traitText ? `\n可选特质：${traitText}` : ''}`,
             settingText ? `世界观及角色设定：\n${settingText}` : '',
             `角色资料：\n${list.join('\n\n')}`,
             heroNames.length && String(userPersona).trim()
                 ? `以下是主角的补充信息（${heroNames.join('、')}）：\n${String(userPersona).trim()}` : '',
             String(history).trim() ? `历史上下文（最新一层 AI 回复与用户输入，仅供判断，不要续写）：\n${String(history).trim()}` : '',
-            sheetReplyFormat(batch.map((p) => p.name)),
+            sheetReplyFormat(batch.map((p) => p.name), { hasTraits: cleanTraits.length > 0 }),
         ].filter(Boolean).join('\n\n'),
     };
 }
 
-// 返回 { ok, sheets: { 名: { rank, attributes: {名: 档}, skills: {名: 档}, signature: [{ name, attribute }] } }, diagnostics }
-export function parseSheetReply(reply, { names = [], registry } = {}) {
+// 返回 { ok, sheets: { 名: { rank, attributes: {名: 档}, skills: {名: 档}, signature: [{ name, attribute }], traits?: string[], hasTraits?: boolean } }, diagnostics }
+export function parseSheetReply(reply, { names = [], registry, traitDefs = [] } = {}) {
     const obj = extractJson(reply);
     const diagnostics = [];
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'stats-sheet-invalid', sheets: {}, diagnostics };
@@ -224,7 +252,17 @@ export function parseSheetReply(reply, { names = [], registry } = {}) {
             const skillName = validSkillName(item && (item.名 || item.name));
             if (skillName && signature.length < 3) signature.push({ name: skillName, attribute: normalizeAttribute(item.属性 || item.attribute) });
         }
-        sheets[name] = { rank: rankWord(raw.资历 || raw.rank) || RANKS[0], attributes, skills, strong, good, signature };
+        const hasTraits = Object.hasOwn(raw, '特质') || Object.hasOwn(raw, 'traits');
+        const traits = hasTraits ? resolveTraitIds(raw.特质 ?? raw.traits, traitDefs, 3) : [];
+        sheets[name] = {
+            rank: rankWord(raw.资历 || raw.rank) || RANKS[0],
+            attributes,
+            skills,
+            strong,
+            good,
+            signature,
+            ...(hasTraits && { hasTraits: true, traits }),
+        };
     }
     if (!Object.keys(sheets).length) return { ok: false, reason: 'stats-sheet-empty', sheets, diagnostics };
     return { ok: true, sheets, diagnostics };

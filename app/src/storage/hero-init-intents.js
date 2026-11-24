@@ -14,7 +14,10 @@ export function validHeroInitIntent(value, chatId) {
     if (typeof value.operationId !== 'string' || !value.operationId.startsWith('hi-')) return false;
     if (!HERO_INIT_STAGES.includes(value.stage)) return false;
     if (typeof value.needAttributes !== 'boolean' || typeof value.needCurrency !== 'boolean') return false;
-    if (!value.needAttributes && !value.needCurrency) return false;
+    if (value.needSkills !== undefined && typeof value.needSkills !== 'boolean') return false;
+    if (value.needTraits !== undefined && typeof value.needTraits !== 'boolean') return false;
+    if (value.hasTraits !== undefined && typeof value.hasTraits !== 'boolean') return false;
+    if (!value.needAttributes && !value.needCurrency && !value.needSkills && !value.needTraits && !String(value.bio || '').trim()) return false;
     if (!Number.isSafeInteger(value.createdAt) || value.createdAt < 0) return false;
     if (value.needAttributes) {
         if (!normalizeHeroScores(value.attributes)) return false;
@@ -30,6 +33,13 @@ export function validHeroInitIntent(value, chatId) {
             if (!seed || seed.after - seed.before !== initial) return false;
         }
     } else if (value.currency !== null && value.currency !== undefined) return false;
+    if (value.skills !== undefined && value.skills !== null) {
+        if (!isObject(value.skills)) return false;
+        if (Object.values(value.skills).some((tier) => typeof tier !== 'string' || !tier.trim())) return false;
+    }
+    if (value.traits !== undefined && value.traits !== null) {
+        if (!Array.isArray(value.traits) || value.traits.length > 3 || value.traits.some((id) => typeof id !== 'string' || !id.trim())) return false;
+    }
     return true;
 }
 

@@ -1,6 +1,7 @@
 // 仅内存凭据锁：生成与 infill 共用；取消等待不代表上游已停止。
 const stale = () => ({ ok: false, reason: 'request-stale', error: '任务已取消或目标失效，停止发送' });
-const PRIORITY_RANK = Object.freeze({ high: 1, urgent: 2 });
+// 串行冲突时的调度优先级：手动触发(urgent) > 开战预热(high) > 角色立绘(sprite) > 场景(background) > CG(cg) > 物品等其他(item)。
+export const PRIORITY_RANK = Object.freeze({ item: 10, cg: 20, background: 40, sprite: 60, high: 80, urgent: 100 });
 export const naiRequestQueue = createNaiRequestQueue();
 
 function pause(ms, signal) {
@@ -45,11 +46,12 @@ export function createNaiRequestQueue({ now = Date.now, sleep = pause } = {}) {
         }
     }
     return {
-        // 优先级：urgent（用户在设置器里亲手点的生成）> high（开战立绘预热）> 普通（楼层背景、CG 等自动出图）。
+        // 优先级：urgent（用户手动点击）> high（开战立绘预热）> sprite（角色立绘）> background（场景）> cg（CG）> item（物品等其他）。
         // 高档排到所有更低档之前，同档仍按先后；在途请求不打断。
         run(key, execute, { signal, shouldStart, minIntervalMs = 0, wasSent, priority } = {}) {
             return new Promise(resolve => {
-                const entry = { key, execute, signal, shouldStart, resolve, wasSent, rank: PRIORITY_RANK[priority] || 0,
+                const rank = typeof priority === 'number' && Number.isFinite(priority) ? priority : (PRIORITY_RANK[priority] || 0);
+                const entry = { key, execute, signal, shouldStart, resolve, wasSent, rank,
                     minIntervalMs: Math.max(0, Math.min(60000, Math.round(Number(minIntervalMs)) || 0)),
                     cleanup: () => signal?.removeEventListener('abort', cancel) };
                 const cancel = () => {
@@ -60,7 +62,7 @@ export function createNaiRequestQueue({ now = Date.now, sleep = pause } = {}) {
                 };
                 if (!allowed(entry)) { resolve(stale()); return; }
                 signal?.addEventListener('abort', cancel, { once: true });
-                const at = entry.rank ? queue.findIndex(other => other.rank < entry.rank) : -1;
+                const at = entry.rank > 0 ? queue.findIndex(other => other.rank < entry.rank) : -1;
                 if (at < 0) queue.push(entry); else queue.splice(at, 0, entry);
                 drain();
             });
