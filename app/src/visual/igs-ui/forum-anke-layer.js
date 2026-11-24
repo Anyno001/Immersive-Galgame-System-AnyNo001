@@ -174,7 +174,7 @@ function build(overlay, list, view, revealing, d, sig) {
             if (animate) win.requestAnimationFrame(() => win.requestAnimationFrame(() => { fillBar.style.width = width; }));
             bar.append(fillBar);
             const count = d.el(doc, 'span');
-            count.textContent = `${v}票`;
+            count.textContent = `${v.toLocaleString('en-US')}票`;
             row.append(no, bar, count);
             box.append(row);
         });
@@ -306,7 +306,7 @@ function build(overlay, list, view, revealing, d, sig) {
             const i = Number(row.dataset.pick);
             if (kind === 'vote') {
                 const voteWeight = latest().settings && latest().settings.voteWeight;
-                const play = ankeVotePlay({ visible: anke.visible || Array(n).fill(0), pick: i, seed: `${anke.key}:${i}`, weight: Number.isFinite(voteWeight) ? voteWeight / 100 : undefined });
+                const play = ankeVotePlay({ visible: anke.visible || Array(n).fill(0), pick: i, seed: `${anke.key}:${i}`, weight: Number.isFinite(voteWeight) ? voteWeight / 100 : undefined, scale: latest().settings && latest().settings.voteScale });
                 settle({ pick: i, roll: play.winner, tally: play.tally });
             } else settle({ pick: i });
             return;

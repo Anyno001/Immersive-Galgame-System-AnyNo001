@@ -37,7 +37,8 @@ export function ankeVisibleVotes(count, texts) {
 
 // 暗骰：User 那项占 ANKE_USER_WEIGHT，其余按「1 + 可见票」分给各项；再按种子凑出总票数，胜者严格最多，各项不少于可见票（User 那项 +1）。
 // weight：0–1，设置器「多数决User权重」按百分比存，调用方换算后传入。
-export function ankeVotePlay({ visible, pick, unit = ankeUnit, seed = '', weight = ANKE_USER_WEIGHT }) {
+// scale：票数倍率（1 为原样，10 / 100 …）；小票结构先定好再整体放大，每项加不超过一档的种子抖动，胜者仍严格最多。
+export function ankeVotePlay({ visible, pick, unit = ankeUnit, seed = '', weight = ANKE_USER_WEIGHT, scale = 1 }) {
     const n = visible.length;
     const w = Number.isFinite(Number(weight)) ? Math.max(0, Math.min(1, Number(weight))) : ANKE_USER_WEIGHT;
     const base = visible.map((v) => 1 + v);
@@ -57,7 +58,9 @@ export function ankeVotePlay({ visible, pick, unit = ankeUnit, seed = '', weight
         for (let i = 0; i < n; i++) { if (r < open[i]) { target = i; break; } r -= open[i]; }
         votes[target] += 1;
     }
-    return { winner, tally: votes, lead: votes[winner] - Math.max(...votes.filter((_, i) => i !== winner)) };
+    const k = Math.max(1, Math.floor(Number(scale)) || 1);
+    const tally = k === 1 ? votes : votes.map((v, i) => v * k + (forumHash(`${seed}:j${i}`) % k));
+    return { winner, tally, lead: tally[winner] - Math.max(...tally.filter((_, i) => i !== winner)) };
 }
 
 export const ANKE_CRIT_OK = 5;

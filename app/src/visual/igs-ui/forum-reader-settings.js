@@ -55,6 +55,8 @@ export function normalizeForumReaderSettings(value) {
         anke: FORUM_ANKES.includes(src.anke) ? src.anke : 'off',
         // 多数决暗骰里 User 投的那项先拿走的胜出概率（百分比）；其余按可见票分。100 即投哪个哪个赢。
         voteWeight: clampInt(src.voteWeight, 0, 100, 50),
+        // 多数决总票数倍率：1 标准（约 18–34 票），其余按倍数放大。
+        voteScale: [1, 10, 100, 1000, 10000].includes(Number(src.voteScale)) ? Number(src.voteScale) : 1,
         perPost: clampInt(src.perPost, FORUM_PER_POST_MIN, FORUM_PER_POST_MAX, 8),
         fontSize: clampInt(src.fontSize, FORUM_FONT_MIN, FORUM_FONT_MAX, 14),
         lineHeight: clampInt(src.lineHeight, FORUM_LINE_MIN, FORUM_LINE_MAX, 175),

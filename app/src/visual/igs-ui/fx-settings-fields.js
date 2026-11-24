@@ -178,6 +178,7 @@ export function renderFxFeatureFields(reader, more = collapsible, fontOptions = 
         + field(`${p}.forumReader.replies`, '路人回帖', segmentedInput(`${p}.forumReader.replies`, fr.replies, [['off', '关'], ['few', '少'], ['normal', '标准']], '路人回帖'))
         + field(`${p}.forumReader.anke`, '安科模式', segmentedInput(`${p}.forumReader.anke`, fr.anke, [['off', '关'], ['key', '关键节点'], ['every', '每层']], '安科模式'))
         + field(`${p}.forumReader.voteWeight`, '多数决User权重', segmentedInput(`${p}.forumReader.voteWeight`, fr.voteWeight, [[0, '不加权'], [25, '低'], [50, '标准'], [75, '高'], [100, '必胜']], '多数决User权重'), '投票时User那一项额外拿到的胜率，其余按网友票数分')
+        + field(`${p}.forumReader.voteScale`, '多数决票数规模', segmentedInput(`${p}.forumReader.voteScale`, fr.voteScale, [[1, '小圈子'], [10, '热帖'], [100, '爆帖'], [1000, '全服公投'], [10000, '宇宙大选']], '多数决票数规模'), '总票数的倍率：小圈子约二三十票，热帖数百，爆帖数千，全服公投数万，宇宙大选数十万')
         + field(`${p}.forumReader.othersThoughts`, '其他人的心里话', segmentedInput(`${p}.forumReader.othersThoughts`, fr.othersThoughts, [['hide', '不显示'], ['show', '照常显示']], '其他人的心里话'))
         + checkbox(`${p}.forumReader.chainTail`, fr.chainTail, '新楼开头接上楼末尾回帖')
         + checkbox(`${p}.forumReader.prompt`, fr.prompt, '让 AI 登记标题与代号')
