@@ -45,9 +45,10 @@ export const STAT_BACKGROUND_PROMPTS = Object.freeze(['heroInit', 'sheetGen', 'b
 // v6 统一主角初始化协议（heroInit），更新 NPC 角色卡（sheetGen）与新技能补全（backfill），退役单独自动货币请求（currency）。
 export const STAT_PROMPTS_VERSION = 6;
 // 独立提示词一次性覆盖迁移修订：每版只覆盖目标键的旧默认、旧自定义与可恢复 stale 副本一次，不重置无关提示词。
-export const STAT_PROMPT_MIGRATION_VERSION = 1;
+export const STAT_PROMPT_MIGRATION_VERSION = 2;
 export const STAT_PROMPT_OVERWRITE_MIGRATIONS = Object.freeze({
     1: Object.freeze(['heroInit', 'sheetGen', 'backfill', 'currency']),
+    2: Object.freeze(['heroInit', 'sheetGen']),
 });
 export const STAT_STALE_PROMPT_KEYS = Object.freeze(['roll', 'rollManual', 'protagonist']);
 // 已退役的旧默认原文：设置里存着与它们一字不差的文本时视同未改，跟随新默认。

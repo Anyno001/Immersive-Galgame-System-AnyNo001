@@ -384,3 +384,63 @@ test('问题4：多行 sprite-data（字段冒号后换行与 NAI 权重语法�
         assert.equal(persistedRoot.characterDna?.阿不思?.identityInitialized, true);
     }
 });
+
+test('提示词一次性覆盖迁移 rev 1 -> 2：强制覆盖旧自定义 heroInit 与 sheetGen，保留其余提示词与迁移后新编辑', async (t) => {
+    const { bootstrapIGS } = await import('../src/core/bootstrap.js');
+    const { STAT_PROMPT_MIGRATION_VERSION } = await import('../src/scene/stats/stat-prompt.js');
+    const { normalizeStatsSettings } = await import('../src/scene/stats/stat-settings.js');
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://igs.invalid/' });
+    t.after(() => dom.window.close());
+    const storage = createMemoryStorage({
+        igs_bridge_config: JSON.stringify({
+            stats: {
+                enabled: false,
+                promptsVersion: 6,
+                promptMigrationVersion: 1,
+                prompts: {
+                    heroInit: '用户在 v1 之后自定义的旧 heroInit',
+                    sheetGen: '用户在 v1 之后自定义的旧 sheetGen',
+                    backfill: '用户在 v1 之后自定义的 backfill 保留',
+                    heroSkills: '用户自定义 heroSkills 保留',
+                    present: '用户自定义 present 保留',
+                },
+            },
+        }),
+    });
+    const mockSt = { getContext: () => ({ chat: [], chatMetadata: {}, setExtensionPrompt() {}, saveMetadata() {} }) };
+    const makeGlobal = () => ({
+        document: dom.window.document,
+        localStorage: storage,
+        SillyTavern: mockSt,
+        Event: dom.window.Event,
+        CustomEvent: dom.window.CustomEvent,
+        dispatchEvent: dom.window.dispatchEvent.bind(dom.window),
+        addEventListener: dom.window.addEventListener.bind(dom.window),
+        removeEventListener: dom.window.removeEventListener.bind(dom.window),
+    });
+
+    const app = bootstrapIGS({ global: makeGlobal(), autoAttachMagicWand: false, tavernSettingsSync: false });
+    t.after(() => app.shutdown());
+    const migrated = normalizeStatsSettings(app.getUnifiedSettings().bridge.stats);
+    assert.equal(migrated.promptMigrationVersion, STAT_PROMPT_MIGRATION_VERSION);
+    assert.equal(STAT_PROMPT_MIGRATION_VERSION, 2);
+    assert.equal(migrated.prompts.heroInit, undefined, 'rev 2 应一次性覆盖旧自定义 heroInit 改用新版默认');
+    assert.equal(migrated.prompts.sheetGen, undefined, 'rev 2 应一次性覆盖旧自定义 sheetGen 改用新版默认');
+    assert.equal(migrated.prompts.backfill, '用户在 v1 之后自定义的 backfill 保留', 'rev 2 不应误删 rev 1 之后保存的 backfill');
+    assert.equal(migrated.prompts.heroSkills, '用户自定义 heroSkills 保留');
+    assert.equal(migrated.prompts.present, '用户自定义 present 保留');
+
+    const opened = app.openSettings({ page: 'stats' });
+    assert.equal(opened.ok, true);
+    assert.equal(opened.controller.setValue('bridge.stats.prompts.heroInit', '迁移后新编 heroInit').ok, true);
+    assert.equal(opened.controller.setValue('bridge.stats.prompts.sheetGen', '迁移后新编 sheetGen').ok, true);
+    assert.equal(opened.controller.close().ok, true);
+    await app.shutdown();
+
+    const restarted = bootstrapIGS({ global: makeGlobal(), autoAttachMagicWand: false, tavernSettingsSync: false });
+    t.after(() => restarted.shutdown());
+    const reloaded = normalizeStatsSettings(restarted.getUnifiedSettings().bridge.stats);
+    assert.equal(reloaded.prompts.heroInit, '迁移后新编 heroInit', '迁移完成后用户新编辑必须跨重启保留');
+    assert.equal(reloaded.prompts.sheetGen, '迁移后新编 sheetGen');
+    await restarted.shutdown();
+});
