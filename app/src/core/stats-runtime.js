@@ -43,7 +43,7 @@ import { BUILTIN_SKILLS, CORE_SKILL_NAMES, editStorySkill, mergeStorySkill, regi
 import { worldSkillNames } from '../scene/stats/stat-world-skills.js';
 import { applyTidy, buildTidyPrompt, parseTidyReply } from '../scene/stats/stat-story-tidy.js';
 import { DEFAULT_SPECIAL_SKILLS, BASE_ATTRIBUTES } from '../scene/stats/stat-state.js';
-import { COC_ATTRS, cocModeOf, cocSkillTotals, normalizeCocMode, sanitizeCocSheet } from '../scene/stats/coc-investigator.js';
+import { ATTR_ALIAS, COC_ATTRS, cocModeOf, cocSkillTotals, normalizeCocMode, sanitizeCocSheet } from '../scene/stats/coc-investigator.js';
 import { NPC_COC_BATCH_MAX, buildNpcCocModuleRequest, buildNpcCocRequest, parseNpcCocReply } from '../scene/stats/stat-coc-npc.js';
 import {
     PROTAGONIST, SAN_ATTRIBUTE, attributeNamesOf, chanceOf, heroBonusKey, heroBonusOf, heroBonusSkillNames, heroSkillLevel, cocSheetOf, checkLine, checkFxDetail, contestCheck, contestFxDetail, contestLine, engineFor, isProtagonist,
@@ -3602,9 +3602,16 @@ export function createStatsRuntime({
         return { san: { value: Number(profileOf(engine, state, PROTAGONIST, SAN_ATTRIBUTE).value) || 0, max: Math.max(1, 99 - mythos) }, skills };
     }
     // 论坛安科用：coc7 有档才返回主角该技能的生效值。
+    const LUCK_NAMES = ['幸运', '运气', 'luck'];
     function cocSkillOf(skill) {
         const engine = engineOf();
-        if (!cocSheetOf(engine)) return null;
+        const sheet = cocSheetOf(engine);
+        if (!sheet) return null;
+        // 灵感=智力、知识=教育、幸运=幸运值，属性名直接检定属性：这些不是技能，不能走技能表（会落到底值 1）。
+        const key = String(skill || '').trim().toLowerCase();
+        const attrKey = ATTR_ALIAS[key];
+        const direct = attrKey ? Number(sheet.attrs && sheet.attrs[attrKey]) : (LUCK_NAMES.includes(key) ? Number(sheet.luck) : NaN);
+        if (Number.isFinite(direct) && direct > 0) return Math.min(99, Math.round(direct));
         const v = Number(profileOf(engine, investigatorView(currentStatsState(ledger)), PROTAGONIST, String(skill || '')).value);
         return Number.isFinite(v) && v > 0 ? Math.round(v) : null;
     }
