@@ -3960,7 +3960,7 @@ ${row.key}`;
             onAnkeLock: (key, value) => ankeStore.put(key, value),
             ankeLockOf: (key) => ankeStore.get(key),
             floorKey: log.key,
-            sig: JSON.stringify([anke && { ...anke, lock: null }, rs.dialogSkin, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
+            sig: JSON.stringify([anke && { ...anke, lock: null }, rs.dialogSkin, rs.bilingual, rs._bilingualDisplay, settings.stickers && settings.stickers.disabled, settings.stickers && settings.stickers.set, settings.stickers && settings.stickers.overrides, rs.myPhone, rs.chatShow, threadAlias, thread && thread.names, thread && thread.titles, marks.start, marks.retitle, data.board, poster, settings.mood, settings.quote, aiReplies, prevReplies, chainTail, settings.othersThoughts, settings.perPost, settings.replies, poId, settings.foldNsfw, [...images].map(([i, img]) => `${i}:${img.url}`)]),
             rows, plan, chainTail, pendingAlias, onAlias, images, shotOf,
             board: forumBoardOf(data, worldview),
             threadNo: (() => { const froms = thread ? (data.timeline || []).filter((e) => e.thread === thread.id).map((e) => Number(e.from)).filter(Number.isFinite) : []; return froms.length ? forumNo(chatId, Math.min(...froms), 0) : (plan[0] ? plan[0].no : ''); })(),

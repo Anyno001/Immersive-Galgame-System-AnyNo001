@@ -598,7 +598,9 @@ export function syncForumStagePause(overlay) {
     const root = overlay.querySelector('#igs-forum-reader');
     const covering = overlay.getAttribute('data-igs-forum-reader') === 'on'
         && !(root && root.hasAttribute('data-hidden'))
-        && !overlay.classList.contains('igs-options-visible');
+        && !overlay.classList.contains('igs-options-visible')
+        && !overlay.classList.contains('igs-record-screen-open')
+        && !overlay.classList.contains('igs-turn-index-open');
     setStagePauseReason(overlay, 'forum-reader', covering);
 }
 
@@ -666,7 +668,8 @@ export function syncForumReader(overlay, view) {
         } else if (scroll) {
             scroll.dataset.autoUntil = String(Date.now() + 50);
             scroll.scrollTop = 0;
-        } else scrollEnd(root, Boolean(revealing));
+        } else if (!showAll) scrollEnd(root, Boolean(revealing));
+        // 全文显示：流式结束、过场结束后补进来的行不跟滚，停在原位（首次进入已回顶）。
     }
     return { revealing };
 }

@@ -1,5 +1,7 @@
 const R = '#igs-forum-reader';
 const ON = '#igs-overlay[data-igs-forum-reader="on"]';
+// 资料、地图、卡组、战斗等盖住舞台的面板自己是透明底，纸面不让开就把它们的内容压在奶油色上。
+const PANEL_OPEN = '#igs-overlay:is(.igs-record-screen-open,.igs-turn-index-open)';
 
 // 论坛体（匿名版）：浅色实底纸面，无头像；颜色全是实色。
 // 立绘隐藏、对话框收起、输入框换皮复用纵向的 data-igs-log-reader 规则（见 log-reader-style.js）。
@@ -10,6 +12,7 @@ ${ON} ${R}{display:block;position:absolute;inset:0;z-index:1;pointer-events:none
 ${R}[data-hidden]{opacity:0;}
 ${R}[data-hidden] .igs-fm-scroll{pointer-events:none;}
 ${ON}.igs-options-visible ${R}{opacity:0;}
+${PANEL_OPEN} ${R}{visibility:hidden;}
 ${ON}.igs-options-visible ${R} .igs-fm-scroll{pointer-events:none;}
 ${ON}[data-igs-paused~="forum-reader"] :is(#igs-bg-blur,.igs-grade-layer){display:none!important;}
 ${ON}{--igs-fm-bar-h:76px;--igs-fm-bar-mid:calc(var(--igs-fm-bar-h) - 37px);--igs-fm-bar-low:calc(var(--igs-fm-bar-h) - 17.5px);}
@@ -53,6 +56,11 @@ ${R}[data-say-ink="name"] .igs-fm-line.is-say{color:var(--igs-fm-sub,#707070);}
 ${R}[data-indent] .igs-fm-line.is-narr{text-indent:2em;}
 ${R} .igs-fm-line.is-say+.igs-fm-line:not(.is-say),${R} .igs-fm-line:not(.is-say)+.igs-fm-line.is-say{margin-top:calc(var(--igs-fm-gap,5px) * 2 + 4px);}
 ${R} .igs-fm-body>.igs-fm-line.is-say:first-child{margin-top:14px;}
+${R} .igs-fm-line ruby.igs-bi,${R} .igs-fm-line ruby.igs-bi>rt{display:inline;font-size:inherit;line-height:inherit;letter-spacing:inherit;font-style:inherit;opacity:1;}
+${R} .igs-fm-line ruby.igs-bi>rt{margin-left:.5em;}
+${R} .igs-fm-line .igs-bi-stack,${R} .igs-fm-line .igs-bi-note{display:inline;font-size:inherit;line-height:inherit;letter-spacing:inherit;font-style:inherit;opacity:1;}
+${R} .igs-fm-line .igs-bi-note::after{content:' ';}
+${R} .igs-fm-line .igs-bi-loose{margin-left:.3em;}
 ${R} .igs-fm-line.is-say.is-cont{margin-top:calc(-1 * var(--igs-fm-gap,5px));padding-top:5px;}
 ${R} .igs-fm-line.is-say .igs-fm-who{color:var(--igs-fm-sub,#707070);font-weight:700;margin:0;}
 ${R} .igs-fm-ref{color:var(--igs-fm-ref,#dd0000);text-decoration:underline;}
